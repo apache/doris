@@ -117,7 +117,7 @@ public class BitmapValueTest {
 
         // empty and bitmap
         BitmapValue bitmapValue3 = new BitmapValue();
-        BitmapValue bitmapValue3Dot1 =new BitmapValue();
+        BitmapValue bitmapValue3Dot1 = new BitmapValue();
         bitmapValue3Dot1.add(1);
         bitmapValue3Dot1.add(2);
         bitmapValue3.and(bitmapValue3Dot1);
@@ -267,7 +267,7 @@ public class BitmapValueTest {
         BitmapValue bitmapValue7 = new BitmapValue();
         bitmapValue7.add(1);
         bitmapValue7.add(2);
-        BitmapValue bitmapValue7Dot1 =new BitmapValue();
+        BitmapValue bitmapValue7Dot1 = new BitmapValue();
         bitmapValue7.or(bitmapValue7Dot1);
         Assert.assertTrue(bitmapValue7.getBitmapType() == BitmapValue.BITMAP_VALUE);
 
@@ -275,7 +275,7 @@ public class BitmapValueTest {
         BitmapValue bitmapValue8 = new BitmapValue();
         bitmapValue8.add(1);
         bitmapValue8.add(2);
-        BitmapValue bitmapValue8Dot1 =new BitmapValue();
+        BitmapValue bitmapValue8Dot1 = new BitmapValue();
         bitmapValue8Dot1.add(1);
         bitmapValue8.or(bitmapValue8Dot1);
         Assert.assertTrue(bitmapValue8.getBitmapType() == BitmapValue.BITMAP_VALUE);
@@ -284,7 +284,7 @@ public class BitmapValueTest {
         BitmapValue bitmapValue9 = new BitmapValue();
         bitmapValue9.add(1);
         bitmapValue9.add(2);
-        BitmapValue bitmapValue9Dot1 =new BitmapValue();
+        BitmapValue bitmapValue9Dot1 = new BitmapValue();
         bitmapValue9.or(bitmapValue9Dot1);
         Assert.assertTrue(bitmapValue9.getBitmapType() == BitmapValue.BITMAP_VALUE);
     }
@@ -459,7 +459,7 @@ public class BitmapValueTest {
 
 
     @Test
-    public void testBitmapOrDeepCopy(){
+    public void testBitmapOrDeepCopy() {
         // this test is added for issue #6452
         // baseIndex bitmap type == Roaring64Map
         BitmapValue baseIndex1 = new BitmapValue();

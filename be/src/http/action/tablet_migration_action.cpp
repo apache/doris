@@ -109,7 +109,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
             }
             std::string status_result;
             if (!status.ok()) {
-                status_result = to_json(status);
+                status_result = status.to_json();
             } else {
                 status_result =
                         "{\"status\": \"Success\", \"msg\": \"migration task is successfully "
@@ -152,13 +152,13 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                 }
             } while (0);
             if (!status.ok()) {
-                status_result = to_json(status);
+                status_result = status.to_json();
             }
             req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
             HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         }
     } else {
-        std::string status_result = to_json(status);
+        std::string status_result = status.to_json();
         req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
     }

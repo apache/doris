@@ -60,13 +60,9 @@ public class KafkaUtil {
                             .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
                                     .setBrokers(brokerList)
                                     .setTopic(topic)
-                                    .addAllProperties(
-                                            convertedCustomProperties.entrySet().stream().map(
-                                            e -> InternalService.PStringPair.newBuilder()
-                                                    .setKey(e.getKey())
-                                                    .setVal(e.getValue())
-                                                    .build()
-                                            ).collect(Collectors.toList())
+                                    .addAllProperties(convertedCustomProperties.entrySet().stream()
+                                            .map(e -> InternalService.PStringPair.newBuilder().setKey(e.getKey())
+                                                    .setVal(e.getValue()).build()).collect(Collectors.toList())
                                     )
                             )
             ).build();

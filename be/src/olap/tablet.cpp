@@ -1504,6 +1504,7 @@ Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = tablet_uid();
+
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
     context.tablet_schema_hash = schema_hash();
@@ -1520,6 +1521,14 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 
 Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     return RowsetFactory::create_rowset(&tablet_schema(), tablet_path_desc(), rowset_meta, rowset);
+}
+
+std::shared_ptr<MemTracker>& Tablet::get_compaction_mem_tracker(CompactionType compaction_type) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        return _cumulative_compaction->get_mem_tracker();
+    } else {
+        return _base_compaction->get_mem_tracker();
+    }
 }
 
 } // namespace doris

@@ -301,7 +301,7 @@ public class OlapTableSink extends DataSink {
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
-        } else if (partitionItem instanceof ListPartitionItem){
+        } else if (partitionItem instanceof ListPartitionItem) {
             List<PartitionKey> partitionKeys = partitionItem.getItems();
             // set in keys
             for (PartitionKey partitionKey : partitionKeys) {

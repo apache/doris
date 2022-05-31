@@ -226,6 +226,9 @@ CONF_Int64(index_stream_cache_capacity, "10737418240");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
+// Shard size for page cache, the value must be power of two.
+// It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
+CONF_Int32(storage_page_cache_shard_size, "16");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
@@ -463,6 +466,9 @@ CONF_Int32(memory_max_alignment, "16");
 
 // write buffer size before flush
 CONF_mInt64(write_buffer_size, "209715200");
+
+// max buffer size used in memtable for the aggregated table
+CONF_mInt64(memtable_max_buffer_size, "419430400");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -739,6 +745,10 @@ CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
+
+// When the rows number reached this limit, will check the filter rate the of bloomfilter
+// if it is lower than a specific threshold, the predicate will be disabled.
+CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
 
 } // namespace config
 

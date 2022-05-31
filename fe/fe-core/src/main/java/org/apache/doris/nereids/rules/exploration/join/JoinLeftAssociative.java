@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.operators.plans.JoinType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
  * Rule factory for change inner join left associative to right.
@@ -39,16 +39,14 @@ public class JoinLeftAssociative extends OneExplorationRuleFactory {
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), any()).then(root -> {
             // fixme, just for example now
-            return new LogicalJoin(
-                    JoinType.INNER_JOIN,
-                    root.getOnClause(),
-                    root.left().left(),
-                    new LogicalJoin(
-                            JoinType.INNER_JOIN,
-                            root.getOnClause(),
-                            root.left().right(),
-                            root.right()
-                    )
+            return plan(
+                new LogicalJoin(JoinType.INNER_JOIN, root.op.getOnClause()),
+                root.left().left(),
+                plan(
+                    new LogicalJoin(JoinType.INNER_JOIN, root.op.getOnClause()),
+                    root.left().right(),
+                    root.right()
+                )
             );
         }).toRule(RuleType.LOGICAL_LEFT_JOIN_ASSOCIATIVE);
     }

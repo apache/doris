@@ -88,7 +88,7 @@ public:
 
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);
 
-    DataTypePtr create_data_type(const arrow::Type::type& type, bool is_nullable);
+    DataTypePtr create_data_type(const arrow::DataType* type, bool is_nullable);
 
 private:
     DataTypePtr _create_primitive_data_type(const FieldType& type) const;

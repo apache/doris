@@ -223,6 +223,9 @@ Status VAnalyticEvalNode::open(RuntimeState* state) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         RETURN_IF_ERROR(VExpr::open(_agg_expr_ctxs[i], state));
     }
+    for (auto* agg_function : _agg_functions) {
+        RETURN_IF_ERROR(agg_function->open(state));
+    }
     return Status::OK();
 }
 
@@ -230,9 +233,14 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    ExecNode::close(state);
+
+    VExpr::close(_partition_by_eq_expr_ctxs, state);
+    VExpr::close(_order_by_eq_expr_ctxs, state);
+    for (size_t i = 0; i < _agg_functions_size; ++i) VExpr::close(_agg_expr_ctxs[i], state);
+    for (auto* agg_function : _agg_functions) agg_function->close(state);
+
     _destory_agg_status();
-    return Status::OK();
+    return ExecNode::close(state);
 }
 
 Status VAnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {

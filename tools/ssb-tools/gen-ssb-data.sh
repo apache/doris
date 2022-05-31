@@ -22,8 +22,11 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT=$(dirname "$0")
+ROOT=$(
+  cd "$ROOT"
+  pwd
+)
 
 CURDIR=${ROOT}
 SSB_DBGEN_DIR=$CURDIR/ssb-dbgen/
@@ -56,23 +59,38 @@ SCALE_FACTOR=100
 PARALLEL=10
 HELP=0
 
-if [ $# == 0 ] ; then
-    usage
+if [ $# == 0 ]; then
+  usage
 fi
 
 while true; do
-    case "$1" in
-        -h) HELP=1 ; shift ;;
-        -s) SCALE_FACTOR=$2 ; shift 2 ;;
-        -c) PARALLEL=$2 ; shift 2 ;;
-        --) shift ;  break ;;
-        *) echo "Internal error" ; exit 1 ;;
-    esac
+  case "$1" in
+  -h)
+    HELP=1
+    shift
+    ;;
+  -s)
+    SCALE_FACTOR=$2
+    shift 2
+    ;;
+  -c)
+    PARALLEL=$2
+    shift 2
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    echo "Internal error"
+    exit 1
+    ;;
+  esac
 done
 
 if [[ ${HELP} -eq 1 ]]; then
-    usage
-    exit
+  usage
+  exit
 fi
 
 echo "Scale Factor: $SCALE_FACTOR"
@@ -80,13 +98,13 @@ echo "Parallelism: $PARALLEL"
 
 # check if dbgen exists
 if [[ ! -f $SSB_DBGEN_DIR/dbgen ]]; then
-    echo "$SSB_DBGEN_DIR/dbgen does not exist. Run build-ssb-dbgen.sh first to build it first."
-    exit 1
+  echo "$SSB_DBGEN_DIR/dbgen does not exist. Run build-ssb-dbgen.sh first to build it first."
+  exit 1
 fi
 
 if [[ -d $SSB_DATA_DIR/ ]]; then
-    echo "$SSB_DATA_DIR exists. Remove it before generating data"
-    exit 1
+  echo "$SSB_DATA_DIR exists. Remove it before generating data"
+  exit 1
 fi
 
 mkdir $SSB_DATA_DIR/

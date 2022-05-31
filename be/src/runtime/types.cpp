@@ -195,5 +195,4 @@ std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type) {
     os << type.debug_string();
     return os;
 }
-
 } // namespace doris

@@ -86,8 +86,8 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 
@@ -118,8 +118,8 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 

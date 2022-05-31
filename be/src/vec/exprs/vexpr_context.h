@@ -27,6 +27,7 @@ class VExpr;
 class VExprContext {
 public:
     VExprContext(VExpr* expr);
+    ~VExprContext();
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    const std::shared_ptr<MemTracker>& tracker);
     Status open(RuntimeState* state);
@@ -63,6 +64,10 @@ public:
     int get_last_result_column_id() {
         DCHECK(_last_result_column_id != -1);
         return _last_result_column_id;
+    }
+
+    FunctionContext::FunctionStateScope get_function_state_scope() const {
+        return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     }
 
 private:

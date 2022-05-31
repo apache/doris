@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -439,8 +438,8 @@ public class PartitionCacheTest {
     }
 
     private View createEventView1() {
-        String originStmt = "select eventdate, COUNT(userid) FROM appevent WHERE " +
-                "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate";
+        String originStmt = "select eventdate, COUNT(userid) FROM appevent WHERE "
+                + "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate";
         View view = new View(30000L, "view1", null);
         view.setInlineViewDefWithSqlMode(originStmt, 0L);
         return view;
@@ -454,16 +453,16 @@ public class PartitionCacheTest {
     }
 
     private View createEventView3() {
-        String originStmt = "select eventdate, COUNT(userid) FROM appevent WHERE " +
-                "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate";
+        String originStmt = "select eventdate, COUNT(userid) FROM appevent WHERE "
+                + "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate";
         View view = new View(30002L, "view3", null);
         view.setInlineViewDefWithSqlMode(originStmt, 0L);
         return view;
     }
 
     private View createEventNestedView() {
-        String originStmt = "select eventdate, COUNT(userid) FROM view2 WHERE " +
-                "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate";
+        String originStmt = "select eventdate, COUNT(userid) FROM view2 WHERE "
+                + "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate";
         View view = new View(30003L, "view4", null);
         view.setInlineViewDefWithSqlMode(originStmt, 0L);
         return view;
@@ -565,8 +564,8 @@ public class PartitionCacheTest {
     public void testPartitionModel() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(DISTINCT userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-15\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(DISTINCT userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
         );
 
         ArrayList<Long> selectedPartitionIds
@@ -638,8 +637,8 @@ public class PartitionCacheTest {
     public void testSimpleCacheSql() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-15\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
         );
 
         ArrayList<Long> selectedPartitionIds
@@ -649,7 +648,6 @@ public class PartitionCacheTest {
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheMode(1579053661000L); //2020-1-15 10:01:01
         Assert.assertEquals(ca.getCacheMode(), CacheMode.Partition);      //assert cache model first
-        SelectStmt selectStmt = (SelectStmt) parseStmt;
 
         try {
             PartitionCache cache = (PartitionCache) ca.getCache();
@@ -682,8 +680,8 @@ public class PartitionCacheTest {
     public void testHitSqlCache() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-14\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -697,8 +695,8 @@ public class PartitionCacheTest {
     public void testHitPartPartition() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-14\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -743,8 +741,8 @@ public class PartitionCacheTest {
     public void testNoUpdatePartition() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-14\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -785,8 +783,8 @@ public class PartitionCacheTest {
     public void testUpdatePartition() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-15\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
@@ -834,9 +832,9 @@ public class PartitionCacheTest {
     public void testRewriteMultiPredicate1() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>\"2020-01-11\" and " +
-                        "eventdate<\"2020-01-16\"" +
-                        " and eventid=1 GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>\"2020-01-11\" and "
+                        + "eventdate<\"2020-01-16\""
+                        + " and eventid=1 GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
@@ -878,10 +876,10 @@ public class PartitionCacheTest {
     public void testRewriteJoin() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT appevent.eventdate, country, COUNT(appevent.userid) FROM appevent" +
-                        " INNER JOIN userprofile ON appevent.userid = userprofile.userid" +
-                        " WHERE appevent.eventdate>=\"2020-01-12\" and appevent.eventdate<=\"2020-01-15\"" +
-                        " and eventid=1 GROUP BY appevent.eventdate, country"
+                "SELECT appevent.eventdate, country, COUNT(appevent.userid) FROM appevent"
+                        + " INNER JOIN userprofile ON appevent.userid = userprofile.userid"
+                        + " WHERE appevent.eventdate>=\"2020-01-12\" and appevent.eventdate<=\"2020-01-15\""
+                        + " and eventid=1 GROUP BY appevent.eventdate, country"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
@@ -911,8 +909,8 @@ public class PartitionCacheTest {
             cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             LOG.warn("Join rewrite={}", sql);
-            Assert.assertEquals(sql, "`appevent`.`eventdate` >= '2020-01-14'" +
-                    " AND `appevent`.`eventdate` <= '2020-01-15' AND `eventid` = 1");
+            Assert.assertEquals(sql, "`appevent`.`eventdate` >= '2020-01-14'"
+                    + " AND `appevent`.`eventdate` <= '2020-01-15' AND `eventid` = 1");
         } catch (Exception e) {
             LOG.warn("Join ex={}", e);
             Assert.fail(e.getMessage());
@@ -923,9 +921,9 @@ public class PartitionCacheTest {
     public void testSubSelect() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, sum(pv) FROM (SELECT eventdate, COUNT(userid) AS pv FROM appevent WHERE " +
-                        "eventdate>\"2020-01-11\" AND eventdate<\"2020-01-16\"" +
-                        " AND eventid=1 GROUP BY eventdate) tbl GROUP BY eventdate"
+                "SELECT eventdate, sum(pv) FROM (SELECT eventdate, COUNT(userid) AS pv FROM appevent WHERE "
+                        + "eventdate>\"2020-01-11\" AND eventdate<\"2020-01-16\""
+                        + " AND eventid=1 GROUP BY eventdate) tbl GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
@@ -939,10 +937,10 @@ public class PartitionCacheTest {
             cache.rewriteSelectStmt(null);
             LOG.warn("Sub nokey={}", cache.getNokeyStmt().toSql());
             Assert.assertEquals(cache.getNokeyStmt().toSql(),
-                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `sum(``pv``)` FROM (" +
-                            "SELECT <slot 3> `eventdate` AS `eventdate`, <slot 4> count(`userid`) AS `pv` FROM " +
-                            "`testCluster:testDb`.`appevent` WHERE `eventid` = 1" +
-                            " GROUP BY `eventdate`) tbl GROUP BY `eventdate`");
+                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `sum(``pv``)` FROM ("
+                            + "SELECT <slot 3> `eventdate` AS `eventdate`, <slot 4> count(`userid`) AS `pv` FROM "
+                            + "`testCluster:testDb`.`appevent` WHERE `eventid` = 1"
+                            + " GROUP BY `eventdate`) tbl GROUP BY `eventdate`");
 
             PartitionRange range = cache.getPartitionRange();
             boolean flag = range.analytics();
@@ -961,11 +959,11 @@ public class PartitionCacheTest {
             sql = ca.getRewriteStmt().toSql();
             LOG.warn("Sub rewrite={}", sql);
             Assert.assertEquals(sql,
-                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `sum(``pv``)` FROM (" +
-                            "SELECT <slot 3> `eventdate` AS `eventdate`, <slot 4> count(`userid`) AS `pv` FROM " +
-                            "`testCluster:testDb`.`appevent` WHERE " +
-                            "`eventdate` > '2020-01-13' AND `eventdate` < '2020-01-16' AND `eventid` = 1 GROUP BY " +
-                            "`eventdate`) tbl GROUP BY `eventdate`");
+                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `sum(``pv``)` FROM ("
+                            + "SELECT <slot 3> `eventdate` AS `eventdate`, <slot 4> count(`userid`) AS `pv` FROM "
+                            + "`testCluster:testDb`.`appevent` WHERE "
+                            + "`eventdate` > '2020-01-13' AND `eventdate` < '2020-01-16' AND `eventid` = 1 GROUP BY "
+                            + "`eventdate`) tbl GROUP BY `eventdate`");
         } catch (Exception e) {
             LOG.warn("sub ex={}", e);
             Assert.fail(e.getMessage());
@@ -976,8 +974,8 @@ public class PartitionCacheTest {
     public void testNotHitPartition() throws Exception {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-14\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1005,8 +1003,8 @@ public class PartitionCacheTest {
     public void testSqlCacheKey() {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-14\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1017,17 +1015,17 @@ public class PartitionCacheTest {
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT <slot 2> `eventdate` AS `eventdate`, <slot 3> count(`userid`) " +
-                "AS `count(``userid``)` FROM `testCluster:testDb`.`appevent` WHERE `eventdate` " +
-                ">= '2020-01-12 00:00:00' AND `eventdate` <= '2020-01-14 00:00:00' GROUP BY `eventdate`|");
+        Assert.assertEquals(cacheKey, "SELECT <slot 2> `eventdate` AS `eventdate`, <slot 3> count(`userid`) "
+                + "AS `count(``userid``)` FROM `testCluster:testDb`.`appevent` WHERE `eventdate` "
+                + ">= '2020-01-12 00:00:00' AND `eventdate` <= '2020-01-14 00:00:00' GROUP BY `eventdate`|");
     }
 
     @Test
     public void testSqlCacheKeyWithChineseChar() {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
-                        "eventdate<=\"2020-01-14\" and city=\"北京\" GROUP BY eventdate"
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
+                        + "eventdate<=\"2020-01-14\" and city=\"北京\" GROUP BY eventdate"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1054,21 +1052,21 @@ public class PartitionCacheTest {
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view1`.`eventdate` AS `eventdate`, `testDb`.`view1`." +
-                "`count(`userid`)` AS `count(``userid``)` FROM `testDb`.`view1`|select eventdate, COUNT(userid) " +
-                "FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate");
+        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view1`.`eventdate` AS `eventdate`, `testDb`.`view1`."
+                + "`count(`userid`)` AS `count(``userid``)` FROM `testDb`.`view1`|select eventdate, COUNT(userid) "
+                + "FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate");
     }
 
     @Test
     public void testSqlCacheKeyWithSubSelectView() {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "select origin.eventdate as eventdate, origin.userid as userid\n" +
-                        "from (\n" +
-                        "    select view2.eventdate as eventdate, view2.userid as userid \n" +
-                        "    from testDb.view2 view2 \n" +
-                        "    where view2.eventdate >=\"2020-01-12\" and view2.eventdate <= \"2020-01-14\"\n" +
-                        ") origin"
+                "select origin.eventdate as eventdate, origin.userid as userid\n"
+                        + "from (\n"
+                        + "    select view2.eventdate as eventdate, view2.userid as userid \n"
+                        + "    from testDb.view2 view2 \n"
+                        + "    where view2.eventdate >=\"2020-01-12\" and view2.eventdate <= \"2020-01-14\"\n"
+                        + ") origin"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1079,10 +1077,10 @@ public class PartitionCacheTest {
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`userid` AS " +
-                "`userid` FROM (SELECT `view2`.`eventdate` AS `eventdate`, `view2`.`userid` AS `userid` FROM " +
-                "`testDb`.`view2` view2 WHERE `view2`.`eventdate` >= '2020-01-12 00:00:00' AND `view2`.`eventdate`" +
-                " <= '2020-01-14 00:00:00') origin|select eventdate, userid FROM appevent");
+        Assert.assertEquals(cacheKey, "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`userid` AS "
+                + "`userid` FROM (SELECT `view2`.`eventdate` AS `eventdate`, `view2`.`userid` AS `userid` FROM "
+                + "`testDb`.`view2` view2 WHERE `view2`.`eventdate` >= '2020-01-12 00:00:00' AND `view2`.`eventdate`"
+                + " <= '2020-01-14 00:00:00') origin|select eventdate, userid FROM appevent");
     }
 
     @Test
@@ -1101,10 +1099,10 @@ public class PartitionCacheTest {
 
             cache.rewriteSelectStmt(null);
             Assert.assertEquals(cache.getNokeyStmt().getWhereClause(), null);
-            Assert.assertEquals(cache.getSqlWithViewStmt(), "SELECT `testDb`.`view3`.`eventdate` AS " +
-                    "`eventdate`, `testDb`.`view3`.`count(`userid`)` AS `count(``userid``)` FROM " +
-                    "`testDb`.`view3`|select eventdate, COUNT(userid) FROM appevent WHERE eventdate>=" +
-                    "\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate");
+            Assert.assertEquals(cache.getSqlWithViewStmt(), "SELECT `testDb`.`view3`.`eventdate` AS "
+                    + "`eventdate`, `testDb`.`view3`.`count(`userid`)` AS `count(``userid``)` FROM "
+                    + "`testDb`.`view3`|select eventdate, COUNT(userid) FROM appevent WHERE eventdate>="
+                    + "\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate");
         } catch (Exception e) {
             LOG.warn("ex={}", e);
             Assert.fail(e.getMessage());
@@ -1115,12 +1113,12 @@ public class PartitionCacheTest {
     public void testPartitionCacheKeyWithSubSelectView() {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "select origin.eventdate as eventdate, origin.cnt as cnt\n" +
-                        "from (\n" +
-                        "    SELECT eventdate, COUNT(userid) as cnt \n" +
-                        "    FROM view2 \n" +
-                        "    WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate\n" +
-                        ") origin"
+                "select origin.eventdate as eventdate, origin.cnt as cnt\n"
+                        + "from (\n"
+                        + "    SELECT eventdate, COUNT(userid) as cnt \n"
+                        + "    FROM view2 \n"
+                        + "    WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate\n"
+                        + ") origin"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
@@ -1135,9 +1133,9 @@ public class PartitionCacheTest {
             cache.rewriteSelectStmt(null);
             Assert.assertEquals(cache.getNokeyStmt().getWhereClause(), null);
             Assert.assertEquals(cache.getSqlWithViewStmt(),
-                    "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`cnt` AS `cnt` FROM (SELECT " +
-                            "<slot 4> `eventdate` AS `eventdate`, <slot 5> count(`userid`) AS `cnt` FROM " +
-                            "`testDb`.`view2` GROUP BY `eventdate`) origin|select eventdate, userid FROM appevent");
+                    "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`cnt` AS `cnt` FROM (SELECT "
+                            + "<slot 4> `eventdate` AS `eventdate`, <slot 5> count(`userid`) AS `cnt` FROM "
+                            + "`testDb`.`view2` GROUP BY `eventdate`) origin|select eventdate, userid FROM appevent");
         } catch (Exception e) {
             LOG.warn("ex={}", e);
             Assert.fail(e.getMessage());
@@ -1157,24 +1155,24 @@ public class PartitionCacheTest {
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view4`.`eventdate` AS `eventdate`, " +
-                "`testDb`.`view4`.`count(`userid`)` AS `count(``userid``)` FROM `testDb`.`view4`|select " +
-                "eventdate, COUNT(userid) FROM view2 WHERE eventdate>=\"2020-01-12\" and " +
-                "eventdate<=\"2020-01-14\" GROUP BY eventdate|select eventdate, userid FROM appevent");
+        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view4`.`eventdate` AS `eventdate`, "
+                + "`testDb`.`view4`.`count(`userid`)` AS `count(``userid``)` FROM `testDb`.`view4`|select "
+                + "eventdate, COUNT(userid) FROM view2 WHERE eventdate>=\"2020-01-12\" and "
+                + "eventdate<=\"2020-01-14\" GROUP BY eventdate|select eventdate, userid FROM appevent");
     }
 
     @Test
     public void testCacheLocalViewMultiOperand() {
         Catalog.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
-                "SELECT COUNT(userid)\n" +
-                        "FROM (\n" +
-                        "    (SELECT userid FROM userprofile\n" +
-                        "    INTERSECT\n" +
-                        "    SELECT userid FROM userprofile)\n" +
-                        "    UNION\n" +
-                        "    SELECT userid FROM userprofile\n" +
-                        ") as tmp"
+                "SELECT COUNT(userid)\n"
+                        + "FROM (\n"
+                        + "    (SELECT userid FROM userprofile\n"
+                        + "    INTERSECT\n"
+                        + "    SELECT userid FROM userprofile)\n"
+                        + "    UNION\n"
+                        + "    SELECT userid FROM userprofile\n"
+                        + ") as tmp"
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);

@@ -174,9 +174,11 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         }
 
         try {
-            algo.getNextMoves(new ClusterBalanceInfo() {{
-                beByTotalReplicaCount.put(0L, 10001L);
-            }}, 0);
+            algo.getNextMoves(new ClusterBalanceInfo() {
+                {
+                    beByTotalReplicaCount.put(0L, 10001L);
+                }
+            }, 0);
         } catch (Exception e) {
             Assert.fail();
         }

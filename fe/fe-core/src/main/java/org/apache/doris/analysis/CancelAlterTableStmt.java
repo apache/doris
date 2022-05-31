@@ -88,8 +88,8 @@ public class CancelAlterTableStmt extends CancelStmt {
         stringBuilder.append("CANCEL ALTER " + this.alterType);
         stringBuilder.append(" FROM " + dbTableName.toSql());
         if (!CollectionUtils.isEmpty(alterJobIdList)) {
-            stringBuilder.append(" (")
-            .append(String.join(",",alterJobIdList.stream().map(String::valueOf).collect(Collectors.toList())));
+            stringBuilder.append(" (").append(String.join(",", alterJobIdList.stream()
+                    .map(String::valueOf).collect(Collectors.toList())));
             stringBuilder.append(")");
         }
         return stringBuilder.toString();

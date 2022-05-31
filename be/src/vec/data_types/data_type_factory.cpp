@@ -260,9 +260,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     return nested;
 }
 
-DataTypePtr DataTypeFactory::create_data_type(const arrow::Type::type& type, bool is_nullable) {
+DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool is_nullable) {
     DataTypePtr nested = nullptr;
-    switch (type) {
+    switch (type->id()) {
     case ::arrow::Type::BOOL:
         nested = std::make_shared<vectorized::DataTypeUInt8>();
         break;
@@ -310,10 +310,10 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::Type::type& type, boo
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
     case ::arrow::Type::DECIMAL:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>();
         break;
     default:
-        DCHECK(false) << "invalid arrow type:" << (int)type;
+        DCHECK(false) << "invalid arrow type:" << (int)(type->id());
         break;
     }
 

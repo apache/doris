@@ -68,6 +68,13 @@ under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- hadoop -->
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client</artifactId>
+                <version>2.7.4</version>
+                <scope>compile</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
     <dependencies>
@@ -431,7 +438,7 @@ under the License.
         <dependency>
             <groupId>com.alibaba.otter</groupId>
             <artifactId>canal.client</artifactId>
-            <version>1.1.4</version>
+            <version>1.1.6</version>
             <exclusions>
                 <exclusion>
                     <groupId>ch.qos.logback</groupId>
@@ -447,7 +454,7 @@ under the License.
         <dependency>
             <groupId>com.alibaba.otter</groupId>
             <artifactId>canal.protocol</artifactId>
-            <version>1.1.4</version>
+            <version>1.1.6</version>
             <exclusions>
                 <exclusion>
                     <groupId>ch.qos.logback</groupId>

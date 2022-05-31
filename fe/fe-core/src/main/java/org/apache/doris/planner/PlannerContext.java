@@ -59,12 +59,31 @@ public class PlannerContext {
         this.statement = statement;
     }
 
-    public QueryStmt getQueryStmt() { return queryStmt; }
-    public TQueryOptions getQueryOptions() { return queryOptions; } // getRootAnalyzer().getQueryOptions(); }
-    public Analyzer getRootAnalyzer() { return analyzer; } // analysisResult_.getAnalyzer(); }
-    public boolean isSingleNodeExec() { return getQueryOptions().num_nodes == 1; }
-    public PlanNodeId getNextNodeId() { return nodeIdGenerator.getNextId(); }
-    public PlanFragmentId getNextFragmentId() { return fragmentIdGenerator.getNextId(); }
+    public QueryStmt getQueryStmt() {
+        return queryStmt;
+    }
 
-    public boolean isInsert() { return statement instanceof InsertStmt; }
+    public TQueryOptions getQueryOptions() {
+        return queryOptions;
+    } // getRootAnalyzer().getQueryOptions(); }
+
+    public Analyzer getRootAnalyzer() {
+        return analyzer;
+    } // analysisResult_.getAnalyzer(); }
+
+    public boolean isSingleNodeExec() {
+        return getQueryOptions().num_nodes == 1;
+    }
+
+    public PlanNodeId getNextNodeId() {
+        return nodeIdGenerator.getNextId();
+    }
+
+    public PlanFragmentId getNextFragmentId() {
+        return fragmentIdGenerator.getNextId();
+    }
+
+    public boolean isInsert() {
+        return statement instanceof InsertStmt;
+    }
 }

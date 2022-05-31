@@ -43,12 +43,12 @@ public class ReplicaPersistInfo implements Writable {
 
         private final int value;
 
-        private ReplicaOperationType(int value) {
-          this.value = value;
+        ReplicaOperationType(int value) {
+            this.value = value;
         }
 
         public int getValue() {
-          return value;
+            return value;
         }
 
         public static ReplicaOperationType findByValue(int value) {
@@ -77,7 +77,7 @@ public class ReplicaPersistInfo implements Writable {
                     return null;
             }
         }
-      }
+    }
 
     // required
     private ReplicaOperationType opType;

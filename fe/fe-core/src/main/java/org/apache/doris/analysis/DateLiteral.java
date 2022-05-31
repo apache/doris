@@ -1054,7 +1054,7 @@ public class DateLiteral extends LiteralExpr {
                 || microsecond > MAX_MICROSECOND;
     }
     private boolean checkDate() {
-        if (month != 0 && day > DAYS_IN_MONTH[((int) month)]){
+        if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
             if (month == 2 && day == 29 && Year.isLeap(year)) {
                 return false;
             }

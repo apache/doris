@@ -29,7 +29,7 @@
 namespace doris {
 
 struct StringValue;
-struct CollectionValue;
+class CollectionValue;
 class TupleDescriptor;
 class DateTimeValue;
 class TupleRow;

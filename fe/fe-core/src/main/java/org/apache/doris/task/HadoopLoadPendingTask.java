@@ -210,7 +210,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 } else {
                     dppColumn.put("is_key", false);
                     String aggregation = "none";
-                    if ("AGG_KEYS" == table.getKeysType().name()) {
+                    if ("AGG_KEYS".equals(table.getKeysType().name())) {
                         AggregateType aggregateType = column.getAggregationType();
                         if (AggregateType.SUM == aggregateType) {
                             aggregation = "ADD";

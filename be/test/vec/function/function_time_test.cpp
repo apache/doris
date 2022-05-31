@@ -22,11 +22,7 @@
 #include <iostream>
 #include <string>
 
-#include "exec/schema_scanner.h"
 #include "function_test_util.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
-#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -248,8 +244,8 @@ TEST(VTimestampFunctionsTest, years_add_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 00:00:00"), 5}, str_to_data_time("2025-05-23 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), -5}, str_to_data_time("2015-05-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2025-05-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2015-05-23 00:00:00")},
             {{std::string(""), 5}, Null()},
             {{std::string("2020-05-23 00:00:00"), 8000}, Null()},
             {{Null(), 5}, Null()}};
@@ -263,8 +259,8 @@ TEST(VTimestampFunctionsTest, years_sub_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 00:00:00"), 5}, str_to_data_time("2015-05-23 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), -5}, str_to_data_time("2025-05-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2015-05-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2025-05-23 00:00:00")},
             {{std::string(""), 5}, Null()},
             {{std::string("2020-05-23 00:00:00"), 3000}, Null()},
             {{Null(), 5}, Null()}};
@@ -278,10 +274,10 @@ TEST(VTimestampFunctionsTest, months_add_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-10-23 00:00:00"), -4}, str_to_data_time("2020-06-23 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), 4}, str_to_data_time("2020-09-23 00:00:00")},
+            {{std::string("2020-10-23 00:00:00"), -4}, str_to_date_time("2020-06-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-09-23 00:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 00:00:00"), 10}, str_to_data_time("2021-03-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 10}, str_to_date_time("2021-03-23 00:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -293,10 +289,10 @@ TEST(VTimestampFunctionsTest, months_sub_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 00:00:00"), 4}, str_to_data_time("2020-01-23 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), -4}, str_to_data_time("2020-09-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-01-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), -4}, str_to_date_time("2020-09-23 00:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 00:00:00"), 10}, str_to_data_time("2019-07-23 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 10}, str_to_date_time("2019-07-23 00:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -308,10 +304,10 @@ TEST(VTimestampFunctionsTest, days_add_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-10-23 00:00:00"), -4}, str_to_data_time("2020-10-19 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), 4}, str_to_data_time("2020-05-27 00:00:00")},
+            {{std::string("2020-10-23 00:00:00"), -4}, str_to_date_time("2020-10-19 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-05-27 00:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 00:00:00"), 10}, str_to_data_time("2020-06-2 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 10}, str_to_date_time("2020-06-2 00:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -323,10 +319,10 @@ TEST(VTimestampFunctionsTest, days_sub_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 00:00:00"), 4}, str_to_data_time("2020-05-19 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), -4}, str_to_data_time("2020-05-27 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-05-19 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), -4}, str_to_date_time("2020-05-27 00:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 00:00:00"), 31}, str_to_data_time("2020-04-22 00:00:00")},
+            {{std::string("2020-05-23 00:00:00"), 31}, str_to_date_time("2020-04-22 00:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -338,10 +334,10 @@ TEST(VTimestampFunctionsTest, hours_add_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-10-23 10:00:00"), -4}, str_to_data_time("2020-10-23 06:00:00")},
-            {{std::string("2020-05-23 10:00:00"), 4}, str_to_data_time("2020-05-23 14:00:00")},
+            {{std::string("2020-10-23 10:00:00"), -4}, str_to_date_time("2020-10-23 06:00:00")},
+            {{std::string("2020-05-23 10:00:00"), 4}, str_to_date_time("2020-05-23 14:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 100}, str_to_data_time("2020-05-27 14:00:00")},
+            {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-27 14:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -353,10 +349,10 @@ TEST(VTimestampFunctionsTest, hours_sub_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 10:00:00"), 4}, str_to_data_time("2020-05-23 06:00:00")},
-            {{std::string("2020-05-23 10:00:00"), -4}, str_to_data_time("2020-05-23 14:00:00")},
+            {{std::string("2020-05-23 10:00:00"), 4}, str_to_date_time("2020-05-23 06:00:00")},
+            {{std::string("2020-05-23 10:00:00"), -4}, str_to_date_time("2020-05-23 14:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 31}, str_to_data_time("2020-05-22 03:00:00")},
+            {{std::string("2020-05-23 10:00:00"), 31}, str_to_date_time("2020-05-22 03:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -368,10 +364,10 @@ TEST(VTimestampFunctionsTest, minutes_add_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-10-23 10:00:00"), 40}, str_to_data_time("2020-10-23 10:40:00")},
-            {{std::string("2020-05-23 10:00:00"), -40}, str_to_data_time("2020-05-23 09:20:00")},
+            {{std::string("2020-10-23 10:00:00"), 40}, str_to_date_time("2020-10-23 10:40:00")},
+            {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 09:20:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 100}, str_to_data_time("2020-05-23 11:40:00")},
+            {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 11:40:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -383,10 +379,10 @@ TEST(VTimestampFunctionsTest, minutes_sub_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 10:00:00"), 40}, str_to_data_time("2020-05-23 09:20:00")},
-            {{std::string("2020-05-23 10:00:00"), -40}, str_to_data_time("2020-05-23 10:40:00")},
+            {{std::string("2020-05-23 10:00:00"), 40}, str_to_date_time("2020-05-23 09:20:00")},
+            {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 10:40:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 100}, str_to_data_time("2020-05-23 08:20:00")},
+            {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 08:20:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -398,10 +394,10 @@ TEST(VTimestampFunctionsTest, seconds_add_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-10-23 10:00:00"), 40}, str_to_data_time("2020-10-23 10:00:40")},
-            {{std::string("2020-05-23 10:00:00"), -40}, str_to_data_time("2020-05-23 09:59:20")},
+            {{std::string("2020-10-23 10:00:00"), 40}, str_to_date_time("2020-10-23 10:00:40")},
+            {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 09:59:20")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 100}, str_to_data_time("2020-05-23 10:01:40")},
+            {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 10:01:40")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -413,10 +409,10 @@ TEST(VTimestampFunctionsTest, seconds_sub_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 10:00:00"), 40}, str_to_data_time("2020-05-23 09:59:20")},
-            {{std::string("2020-05-23 10:00:00"), -40}, str_to_data_time("2020-05-23 10:00:40")},
+            {{std::string("2020-05-23 10:00:00"), 40}, str_to_date_time("2020-05-23 09:59:20")},
+            {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 10:00:40")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 100}, str_to_data_time("2020-05-23 09:58:20")},
+            {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 09:58:20")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -428,10 +424,10 @@ TEST(VTimestampFunctionsTest, weeks_add_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-10-23 10:00:00"), 5}, str_to_data_time("2020-11-27 10:00:00")},
-            {{std::string("2020-05-23 10:00:00"), -5}, str_to_data_time("2020-04-18 10:00:00")},
+            {{std::string("2020-10-23 10:00:00"), 5}, str_to_date_time("2020-11-27 10:00:00")},
+            {{std::string("2020-05-23 10:00:00"), -5}, str_to_date_time("2020-04-18 10:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 100}, str_to_data_time("2022-04-23 10:00:00")},
+            {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2022-04-23 10:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -443,10 +439,10 @@ TEST(VTimestampFunctionsTest, weeks_sub_test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
     DataSet data_set = {
-            {{std::string("2020-05-23 10:00:00"), 5}, str_to_data_time("2020-04-18 10:00:00")},
-            {{std::string("2020-05-23 10:00:00"), -5}, str_to_data_time("2020-6-27 10:00:00")},
+            {{std::string("2020-05-23 10:00:00"), 5}, str_to_date_time("2020-04-18 10:00:00")},
+            {{std::string("2020-05-23 10:00:00"), -5}, str_to_date_time("2020-6-27 10:00:00")},
             {{std::string(""), 4}, Null()},
-            {{std::string("2020-05-23 10:00:00"), 100}, str_to_data_time("2018-06-23 10:00:00")},
+            {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2018-06-23 10:00:00")},
             {{Null(), 4}, Null()}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
@@ -471,10 +467,10 @@ TEST(VTimestampFunctionsTest, date_test) {
     InputTypeSet input_types = {TypeIndex::DateTime};
 
     DataSet data_set = {
-            {{std::string("2021-01-01 06:00:00")}, str_to_data_time("2021-01-01", false)},
+            {{std::string("2021-01-01 06:00:00")}, str_to_date_time("2021-01-01", false)},
             {{std::string("")}, Null()},
             {{Null()}, Null()},
-            {{std::string("0000-01-01 00:00:00")}, str_to_data_time("0000-01-01", false)}};
+            {{std::string("0000-01-01 00:00:00")}, str_to_date_time("0000-01-01", false)}};
 
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
@@ -522,9 +518,9 @@ TEST(VTimestampFunctionsTest, makedate_test) {
 
     InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
 
-    DataSet data_set = {{{2021, 3}, str_to_data_time("2021-01-03", false)},
-                        {{2021, 95}, str_to_data_time("2021-04-05", false)},
-                        {{2021, 400}, str_to_data_time("2022-02-04", false)},
+    DataSet data_set = {{{2021, 3}, str_to_date_time("2021-01-03", false)},
+                        {{2021, 95}, str_to_date_time("2021-04-05", false)},
+                        {{2021, 400}, str_to_date_time("2022-02-04", false)},
                         {{2021, 0}, Null()},
                         {{2021, -10}, Null()},
                         {{-1, 3}, Null()},
@@ -541,9 +537,9 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
     DataSet data_set = {
             {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
               STRING("America/Los_Angeles")},
-             str_to_data_time("2019-07-31 22:21:03", true)},
+             str_to_date_time("2019-07-31 22:21:03", true)},
             {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
-             str_to_data_time("2019-07-31 22:21:03", true)}};
+             str_to_date_time("2019-07-31 22:21:03", true)}};
 
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }

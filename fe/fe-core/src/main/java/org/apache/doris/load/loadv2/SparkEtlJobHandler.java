@@ -223,7 +223,7 @@ public class SparkEtlJobHandler {
                     status.setFailMsg("yarn app state: " + state.toString());
                 }
             }
-            status.setTrackingUrl(handle.getUrl() != null? handle.getUrl() : report.getTrackingUrl());
+            status.setTrackingUrl(handle.getUrl() != null ? handle.getUrl() : report.getTrackingUrl());
             status.setProgress((int) (report.getProgress() * 100));
         } else {
             // state from handle

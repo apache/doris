@@ -57,6 +57,6 @@ public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends T
 
     public Pattern<INPUT_TYPE> patternWithPredicates() {
         Pattern[] children = pattern.children().toArray(new Pattern[0]);
-        return new Pattern<>(pattern.getNodeType(), predicates, children);
+        return new Pattern<>(pattern.getOperatorType(), predicates, children);
     }
 }

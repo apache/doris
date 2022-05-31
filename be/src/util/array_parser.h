@@ -22,8 +22,8 @@
 #include <unordered_map>
 
 #include "common/status.h"
-#include "exprs/anyval_util.h"
 #include "runtime/collection_value.h"
+#include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
 #include "util/mem_util.hpp"
@@ -83,11 +83,11 @@ private:
         auto item_type = child_type_desc.type;
         CollectionValue collection_value;
         CollectionValue::init_collection(context, array.Size(), item_type, &collection_value);
-        int index = 0;
-        for (auto it = array.Begin(); it != array.End(); ++it) {
+        auto iterator = collection_value.iterator(item_type);
+        for (auto it = array.Begin(); it != array.End(); ++it, iterator.next()) {
             if (it->IsNull()) {
                 auto null = AnyVal(true);
-                collection_value.set(index++, item_type, &null);
+                iterator.set(&null);
                 continue;
             } else if (!_is_type_valid<Encoding>(it, item_type)) {
                 return Status::RuntimeError("Failed to parse the json to array.");
@@ -97,7 +97,7 @@ private:
             if (!status.ok()) {
                 return status;
             }
-            collection_value.set(index++, item_type, val);
+            iterator.set(val);
         }
         collection_value.to_collection_val(&array_val);
         return Status::OK();
@@ -115,10 +115,11 @@ private:
         case TYPE_SMALLINT:
         case TYPE_INT:
         case TYPE_BIGINT:
-        case TYPE_LARGEINT:
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
             return iterator->IsNumber();
+        case TYPE_LARGEINT:
+            return iterator->IsNumber() || iterator->IsString();
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_CHAR:
@@ -130,6 +131,8 @@ private:
             return iterator->IsObject();
         case TYPE_ARRAY:
             return iterator->IsArray();
+        case TYPE_DECIMALV2:
+            return iterator->IsNumber() || iterator->IsString();
         default:
             return false;
         }
@@ -165,6 +168,28 @@ private:
             *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(BigIntVal)));
             new (*val) BigIntVal(iterator->GetInt64());
             break;
+        case TYPE_LARGEINT: {
+            __int128 value = 0;
+            if (iterator->IsNumber()) {
+                value = iterator->GetUint64();
+            } else {
+                std::string_view view(iterator->GetString(), iterator->GetStringLength());
+                std::stringstream stream;
+                stream << view;
+                stream >> value;
+            }
+            *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(LargeIntVal)));
+            new (*val) LargeIntVal(value);
+            break;
+        }
+        case TYPE_FLOAT:
+            *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(FloatVal)));
+            new (*val) FloatVal(iterator->GetFloat());
+            break;
+        case TYPE_DOUBLE:
+            *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(DoubleVal)));
+            new (*val) DoubleVal(iterator->GetDouble());
+            break;
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
@@ -173,6 +198,34 @@ private:
                                  iterator->GetStringLength());
             auto string_val = reinterpret_cast<StringVal*>(*val);
             memory_copy(string_val->ptr, iterator->GetString(), iterator->GetStringLength());
+            break;
+        }
+        case TYPE_DATE:
+        case TYPE_DATETIME: {
+            DateTimeValue value;
+            value.from_date_str(iterator->GetString(), iterator->GetStringLength());
+            *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(DateTimeVal)));
+            new (*val) DateTimeVal();
+            value.to_datetime_val(static_cast<DateTimeVal*>(*val));
+            break;
+        }
+        case TYPE_DECIMALV2: {
+            *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(DecimalV2Val)));
+            new (*val) DecimalV2Val();
+
+            if (iterator->IsNumber()) {
+                if (iterator->IsUint64()) {
+                    DecimalV2Value(iterator->GetUint64(), 0)
+                            .to_decimal_val(static_cast<DecimalV2Val*>(*val));
+                } else {
+                    DecimalV2Value value;
+                    value.assign_from_double(iterator->GetDouble());
+                    value.to_decimal_val(static_cast<DecimalV2Val*>(*val));
+                }
+            } else {
+                std::string_view view(iterator->GetString(), iterator->GetStringLength());
+                DecimalV2Value(view).to_decimal_val(static_cast<DecimalV2Val*>(*val));
+            }
             break;
         }
         default:

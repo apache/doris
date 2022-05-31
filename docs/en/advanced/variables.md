@@ -350,7 +350,7 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `sql_mode`
 
-    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](https://doris.apache.org/zh-CN/administrator-guide/sql-mode.md).
+    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](./sql-mode.md).
     
 * `sql_safe_updates`
 

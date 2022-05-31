@@ -129,9 +129,9 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatusCode() != TStatusCode.OK) {
                 task.failed();
-                String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatusCode().toString() +
-                        (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "") +
-                        ", backendId: " + backend + ", signature: " + signature;
+                String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatusCode().toString()
+                        + (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "")
+                        + ", backendId: " + backend + ", signature: " + signature;
                 task.setErrorMsg(errMsg);
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
@@ -145,7 +145,6 @@ public class MasterImpl {
         }
 
         try {
-            List<TTabletInfo> finishTabletInfos;
             switch (taskType) {
                 case CREATE:
                     Preconditions.checkState(request.isSetReportVersion());

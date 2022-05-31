@@ -667,7 +667,7 @@ void MiniLoadAction::_handle(HttpRequest* http_req) {
     }
     auto st = _load(http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster,
                     ctx->bytes_written);
-    std::string str = to_json(st);
+    std::string str = st.to_json();
     HttpChannel::send_reply(http_req, str);
 }
 

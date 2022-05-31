@@ -54,14 +54,17 @@ public:
         }
     };
 
+    static constexpr uint32_t kDefaultNumShards = 16;
+
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, int32_t index_cache_percentage);
+    static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
+                                    uint32_t num_shards = kDefaultNumShards);
 
     // Return global instance.
     // Client should call create_global_cache before.
     static StoragePageCache* instance() { return _s_instance; }
 
-    StoragePageCache(size_t capacity, int32_t index_cache_percentage);
+    StoragePageCache(size_t capacity, int32_t index_cache_percentage, uint32_t num_shards);
 
     // Lookup the given page in the cache.
     //

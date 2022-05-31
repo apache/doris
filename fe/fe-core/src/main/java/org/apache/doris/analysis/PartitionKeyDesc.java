@@ -151,7 +151,7 @@ public class PartitionKeyDesc {
                     valueStr = valueStr.substring(1, valueStr.length() - 1);
                 }
                 sb.append(valueStr);
-                if (i < inValues.size() -1) {
+                if (i < inValues.size() - 1) {
                     sb.append(",");
                 }
             }

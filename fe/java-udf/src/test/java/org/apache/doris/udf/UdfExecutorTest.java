@@ -266,7 +266,7 @@ public class UdfExecutorTest {
         executor = new UdfExecutor(serializer.serialize(params));
 
         executor.evaluate();
-        for (int i = 0; i < 10; i ++) {
+        for (int i = 0; i < 10; i++) {
             assert (UdfUtils.UNSAFE.getByte(outputNull + i) == 0);
             assert (UdfUtils.UNSAFE.getInt(outputBuffer + 4 * i) == 1);
         }
@@ -320,7 +320,7 @@ public class UdfExecutorTest {
         UdfUtils.UNSAFE.putLong(inputNullPtr, inputNull1);
         UdfUtils.UNSAFE.putLong(inputNullPtr + 8, inputNull2);
 
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             UdfUtils.UNSAFE.putInt(null, inputBuffer1 + i * 4, i);
             UdfUtils.UNSAFE.putInt(null, inputBuffer2 + i * 4, i);
 
@@ -343,7 +343,7 @@ public class UdfExecutorTest {
         executor = new UdfExecutor(serializer.serialize(params));
 
         executor.evaluate();
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             if (i % 2 == 0) {
                 assert (UdfUtils.UNSAFE.getByte(outputNull + i) == 1);
             } else {
@@ -388,13 +388,13 @@ public class UdfExecutorTest {
         long[] inputOffsets2 = new long[batchSize];
         long inputBufferSize1 = 0;
         long inputBufferSize2 = 0;
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             input1[i] = "Input1_" + i;
             input2[i] = "Input2_" + i;
-            inputOffsets1[i] = i == 0? input1[i].getBytes(StandardCharsets.UTF_8).length + 1:
-                    inputOffsets1[i - 1] + input1[i].getBytes(StandardCharsets.UTF_8).length + 1;
-            inputOffsets2[i] = i == 0? input2[i].getBytes(StandardCharsets.UTF_8).length + 1:
-                    inputOffsets2[i - 1] + input2[i].getBytes(StandardCharsets.UTF_8).length + 1;
+            inputOffsets1[i] = i == 0 ? input1[i].getBytes(StandardCharsets.UTF_8).length + 1
+                    : inputOffsets1[i - 1] + input1[i].getBytes(StandardCharsets.UTF_8).length + 1;
+            inputOffsets2[i] = i == 0 ? input2[i].getBytes(StandardCharsets.UTF_8).length + 1
+                    : inputOffsets2[i - 1] + input2[i].getBytes(StandardCharsets.UTF_8).length + 1;
             inputBufferSize1 += input1[i].getBytes(StandardCharsets.UTF_8).length;
             inputBufferSize2 += input2[i].getBytes(StandardCharsets.UTF_8).length;
         }
@@ -433,7 +433,7 @@ public class UdfExecutorTest {
         UdfUtils.UNSAFE.putLong(inputOffsetsPtr, inputOffset1);
         UdfUtils.UNSAFE.putLong(inputOffsetsPtr + 8, inputOffset2);
 
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             if (i == 0) {
                 UdfUtils.copyMemory(input1[i].getBytes(StandardCharsets.UTF_8),
                         UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer1,
@@ -471,9 +471,9 @@ public class UdfExecutorTest {
         executor = new UdfExecutor(serializer.serialize(params));
 
         executor.evaluate();
-        for (int i = 0; i < batchSize; i ++) {
-            byte[] bytes = new byte[input1[i].getBytes(StandardCharsets.UTF_8).length +
-                    input2[i].getBytes(StandardCharsets.UTF_8).length];
+        for (int i = 0; i < batchSize; i++) {
+            byte[] bytes = new byte[input1[i].getBytes(StandardCharsets.UTF_8).length
+                    + input2[i].getBytes(StandardCharsets.UTF_8).length];
             assert (UdfUtils.UNSAFE.getByte(outputNull + i) == 0);
             if (i == 0) {
                 UdfUtils.copyMemory(null, outputBuffer, bytes, UdfUtils.BYTE_ARRAY_OFFSET,

@@ -57,8 +57,8 @@ public class InstallPluginStmtTest {
         InstallPluginStmt stmt = new InstallPluginStmt("http://test/test.zip", properties);
         stmt.analyze(analyzer);
         Assert.assertEquals("7529db41471ec72e165f96fe9fb92742", stmt.getMd5sum());
-        Assert.assertEquals("INSTALL PLUGIN FROM \"http://test/test.zip\"\n" +
-                "PROPERTIES (\"md5sum\"  =  \"7529db41471ec72e165f96fe9fb92742\")", stmt.toString());
+        Assert.assertEquals("INSTALL PLUGIN FROM \"http://test/test.zip\"\n"
+                + "PROPERTIES (\"md5sum\"  =  \"7529db41471ec72e165f96fe9fb92742\")", stmt.toString());
     }
 
 }

@@ -80,7 +80,7 @@ public class MappingPhaseTest extends EsTestCase {
     }
 
     @Test
-    public void testWorkFlow(@Injectable EsRestClient client) throws Exception{
+    public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
         EsTable table = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext1 = new SearchContext(table);
         String jsonMapping = loadJsonFromFile("data/es/test_index_mapping.json");

@@ -140,7 +140,7 @@ public class CatalogTest {
 
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
         catalog = Catalog.getCurrentCatalog();
-        long checksum2 = catalog.loadHeader(dis, MetaHeader.EMPTY_HEADER ,0);
+        long checksum2 = catalog.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
         Assert.assertEquals(checksum1, checksum2);
         dis.close();
 

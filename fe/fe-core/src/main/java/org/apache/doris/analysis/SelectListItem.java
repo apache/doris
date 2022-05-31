@@ -77,7 +77,11 @@ public class SelectListItem {
     public Expr getExpr() {
         return expr;
     }
-    public void setExpr(Expr expr) { this.expr = expr; }
+
+    public void setExpr(Expr expr) {
+        this.expr = expr;
+    }
+
     public String getAlias() {
         return alias;
     }

@@ -37,8 +37,13 @@ public class FunctionArgsDef {
         this.isVariadic = isVariadic;
     }
 
-    public Type[] getArgTypes() { return argTypes; }
-    public boolean isVariadic() { return isVariadic; }
+    public Type[] getArgTypes() {
+        return argTypes;
+    }
+
+    public boolean isVariadic() {
+        return isVariadic;
+    }
 
     public void analyze(Analyzer analyzer) throws AnalysisException {
         argTypes = new Type[argTypeDefs.size()];
@@ -71,5 +76,7 @@ public class FunctionArgsDef {
     }
 
     @Override
-    public String toString() { return toSql(); }
+    public String toString() {
+        return toSql();
+    }
 }

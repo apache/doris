@@ -45,8 +45,7 @@ public abstract class AlterJobV2 implements Writable {
 
     public enum JobState {
         PENDING, // Job is created
-        WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns,
-                     // waiting for previous txns to be finished
+        WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns, waiting for previous txns to be finished
         RUNNING, // alter tasks are sent to BE, and waiting for them finished.
         FINISHED, // job is done
         CANCELLED; // job is cancelled(failed or be cancelled by user)
@@ -159,17 +158,17 @@ public abstract class AlterJobV2 implements Writable {
 
         try {
             switch (jobState) {
-            case PENDING:
-                runPendingJob();
-                break;
-            case WAITING_TXN:
-                runWaitingTxnJob();
-                break;
-            case RUNNING:
-                runRunningJob();
-                break;
-            default:
-                break;
+                case PENDING:
+                    runPendingJob();
+                    break;
+                case WAITING_TXN:
+                    runWaitingTxnJob();
+                    break;
+                case RUNNING:
+                    runRunningJob();
+                    break;
+                default:
+                    break;
             }
         } catch (AlterCancelException e) {
             cancelImpl(e.getMessage());

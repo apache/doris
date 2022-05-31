@@ -20,10 +20,7 @@
 
 #include <string>
 
-#include "exec/schema_scanner.h"
 #include "function_test_util.h"
-#include "util/url_coding.h"
-#include "vec/core/field.h"
 
 namespace doris::vectorized {
 
@@ -48,10 +45,10 @@ TEST(NullIfTest, String_Int_Test) {
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTime};
     DataSet data_set = {
             {{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
-             str_to_data_time("2021-10-24 12:32:31")},
+             str_to_date_time("2021-10-24 12:32:31")},
             {{std::string("2021-10-24 13:00:01"), std::string("2021-10-24 13:00:01")}, Null()},
             {{std::string("2021-10-24 13:00:01"), Null()},
-             str_to_data_time("2021-10-24 13:00:01")}};
+             str_to_date_time("2021-10-24 13:00:01")}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }

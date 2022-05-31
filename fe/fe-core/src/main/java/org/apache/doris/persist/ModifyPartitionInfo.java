@@ -107,8 +107,8 @@ public class ModifyPartitionInfo implements Writable {
             return false;
         }
         ModifyPartitionInfo otherInfo = (ModifyPartitionInfo) other;
-        return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId() &&
-                dataProperty.equals(otherInfo.getDataProperty()) && replicaAlloc.equals(otherInfo.replicaAlloc)
+        return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId()
+                && dataProperty.equals(otherInfo.getDataProperty()) && replicaAlloc.equals(otherInfo.replicaAlloc)
                 && isInMemory == otherInfo.isInMemory();
     }
 

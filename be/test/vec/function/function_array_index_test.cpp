@@ -113,8 +113,8 @@ TEST(function_array_index_test, array_contains) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Date};
 
-        Array vec = {str_to_data_time("2022-01-02", false), str_to_data_time("", false),
-                     str_to_data_time("2022-07-08", false)};
+        Array vec = {str_to_date_time("2022-01-02", false), str_to_date_time("", false),
+                     str_to_date_time("2022-07-08", false)};
         DataSet data_set = {{{vec, std::string("2022-01-02")}, UInt8(1)},
                             {{vec, std::string("")}, UInt8(1)},
                             {{vec, std::string("2022-01-03")}, UInt8(0)},
@@ -128,8 +128,8 @@ TEST(function_array_index_test, array_contains) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
 
-        Array vec = {str_to_data_time("2022-01-02 00:00:00"), str_to_data_time(""),
-                     str_to_data_time("2022-07-08 00:00:00")};
+        Array vec = {str_to_date_time("2022-01-02 00:00:00"), str_to_date_time(""),
+                     str_to_date_time("2022-07-08 00:00:00")};
         DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, UInt8(1)},
                             {{vec, std::string("")}, UInt8(1)},
                             {{vec, std::string("2022-01-03 00:00:00")}, UInt8(0)},
@@ -215,8 +215,8 @@ TEST(function_array_index_test, array_position) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Date};
 
-        Array vec = {str_to_data_time("2022-01-02", false), str_to_data_time("", false),
-                     str_to_data_time("2022-07-08", false)};
+        Array vec = {str_to_date_time("2022-01-02", false), str_to_date_time("", false),
+                     str_to_date_time("2022-07-08", false)};
         DataSet data_set = {{{vec, std::string("2022-01-02")}, Int64(1)},
                             {{vec, std::string("")}, Int64(2)},
                             {{vec, std::string("2022-01-03")}, Int64(0)},
@@ -230,8 +230,8 @@ TEST(function_array_index_test, array_position) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
 
-        Array vec = {str_to_data_time("2022-01-02 00:00:00"), str_to_data_time(""),
-                     str_to_data_time("2022-07-08 00:00:00")};
+        Array vec = {str_to_date_time("2022-01-02 00:00:00"), str_to_date_time(""),
+                     str_to_date_time("2022-07-08 00:00:00")};
         DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, Int64(1)},
                             {{vec, std::string("")}, Int64(2)},
                             {{vec, std::string("2022-01-03 00:00:00")}, Int64(0)},

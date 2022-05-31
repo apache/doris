@@ -35,17 +35,17 @@ namespace doris {
 
 struct Slice;
 
-const static int HLL_COLUMN_PRECISION = 14;
-const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
-const static int HLL_EXPLICIT_INT64_NUM = 160;
-const static int HLL_SPARSE_THRESHOLD = 4096;
-const static int HLL_REGISTERS_COUNT = 16 * 1024;
+inline const int HLL_COLUMN_PRECISION = 14;
+inline const int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
+inline const int HLL_EXPLICIT_INT64_NUM = 160;
+inline const int HLL_SPARSE_THRESHOLD = 4096;
+inline const int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
-const static int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
+inline const int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
 
 // 1 for type; 1 for hash values count; 8 for hash value
-const static int HLL_SINGLE_VALUE_SIZE = 10;
-const static int HLL_EMPTY_SIZE = 1;
+inline const int HLL_SINGLE_VALUE_SIZE = 10;
+inline const int HLL_EMPTY_SIZE = 1;
 
 // Hyperloglog distinct estimate algorithm.
 // See these papers for more details.

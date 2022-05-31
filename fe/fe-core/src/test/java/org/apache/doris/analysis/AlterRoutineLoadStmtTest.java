@@ -68,7 +68,7 @@ public class AlterRoutineLoadStmtTest {
 
     @Test
     public void testNormal() {
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
             jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, "200000");
@@ -96,7 +96,7 @@ public class AlterRoutineLoadStmtTest {
             Assert.assertTrue(stmt.getDataSourceProperties().getCustomKafkaProperties().containsKey("group.id"));
             Assert.assertTrue(stmt.getDataSourceProperties().getCustomKafkaProperties().containsKey("client.id"));
             Assert.assertEquals(3, stmt.getDataSourceProperties().getKafkaPartitionOffsets().size());
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
 
     @Test(expected = AnalysisException.class)
@@ -108,7 +108,7 @@ public class AlterRoutineLoadStmtTest {
 
     @Test
     public void testUnsupportedProperties() {
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.FORMAT, "csv");
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
@@ -121,10 +121,10 @@ public class AlterRoutineLoadStmtTest {
             } catch (UserException e) {
                 Assert.fail();
             }
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // alter topic is now supported
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
             String typeName = "kafka";
@@ -143,9 +143,9 @@ public class AlterRoutineLoadStmtTest {
                 e.printStackTrace();
                 Assert.fail();
             }
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
             String typeName = "kafka";
@@ -163,9 +163,9 @@ public class AlterRoutineLoadStmtTest {
             } catch (UserException e) {
                 Assert.fail();
             }
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
             String typeName = "kafka";
@@ -184,9 +184,9 @@ public class AlterRoutineLoadStmtTest {
             } catch (UserException e) {
                 Assert.fail();
             }
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
             String typeName = "kafka";
@@ -204,9 +204,9 @@ public class AlterRoutineLoadStmtTest {
             } catch (UserException e) {
                 Assert.fail();
             }
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
             jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, "200000");
@@ -228,7 +228,7 @@ public class AlterRoutineLoadStmtTest {
             } catch (UserException e) {
                 Assert.fail();
             }
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
 
 }

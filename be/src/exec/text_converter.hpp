@@ -21,18 +21,17 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include "olap/utils.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
 #include "text_converter.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
 #include "util/types.h"
+#include "vec/columns/column_complex.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {

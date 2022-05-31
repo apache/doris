@@ -732,6 +732,12 @@ protected:
     }
 
 public:
+    void expanse_for_add_elem(size_t num_elem) {
+        if (add_elem_size_overflow(num_elem)) {
+            resize(grower.buf_size() + num_elem);
+        }
+    }
+
     /// Insert a value. In the case of any more complex values, it is better to use the `emplace` function.
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;

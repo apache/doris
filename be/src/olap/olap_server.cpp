@@ -564,6 +564,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
     if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
         auto st = _compaction_thread_pool->submit_func([=]() {
+            SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
+                                      tablet->get_compaction_mem_tracker(compaction_type));
             CgroupsMgr::apply_system_cgroup();
             tablet->execute_compaction(compaction_type);
             _permit_limiter.release(permits);

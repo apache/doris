@@ -203,8 +203,8 @@ public class HashJoinNode extends PlanNode {
         outputSlotIds = Lists.newArrayList();
         for (TupleId tupleId : tupleIds) {
             for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
-                if (slotDescriptor.isMaterialized() &&
-                        (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                if (slotDescriptor.isMaterialized()
+                        && (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
                     outputSlotIds.add(slotDescriptor.getId());
                 }
             }
@@ -356,8 +356,8 @@ public class HashJoinNode extends PlanNode {
          * Groups the given EqJoinConjunctScanSlots by the lhs/rhs tuple combination
          * and returns the result as a map.
          */
-        public static Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>>
-        groupByJoinedTupleIds(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots) {
+        public static Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>> groupByJoinedTupleIds(
+                List<EqJoinConjunctScanSlots> eqJoinConjunctSlots) {
             Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>> scanSlotsByJoinedTids =
                     new LinkedHashMap<>();
             for (EqJoinConjunctScanSlots slots : eqJoinConjunctSlots) {

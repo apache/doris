@@ -715,7 +715,7 @@ public enum PrimitiveType {
         return (this == DATE || this == DATETIME);
     }
 
-    public boolean isArrayType(){
+    public boolean isArrayType() {
         return this == ARRAY;
     }
 

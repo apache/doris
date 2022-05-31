@@ -49,7 +49,7 @@ CREATE SQL_BLOCK_RULE rule_name
 
 Parameter Description:
 
-- sql: matching rule (based on regular matching, special characters need to be translated), optional, the default value is "NULL"
+- sql: matching rule (based on regular matching, special characters need to be translated,for example`select *`use`select \\*`), optional, the default value is "NULL"
 - sqlHash: sql hash value, used for exact matching, we will print this value in `fe.audit.log`, optional, this parameter and sql can only be selected one, the default value is "NULL"
 - partition_num: the maximum number of partitions a scan node will scan, the default value is 0L
 - tablet_num: The maximum number of tablets that a scanning node will scan, the default value is 0L
@@ -64,7 +64,7 @@ Parameter Description:
    ```sql
    mysql> CREATE SQL_BLOCK_RULE test_rule
        -> PROPERTIES(
-       -> "sql"="select * from order_analysis;",
+       -> "sql"="select \\* from order_analysis;",
        -> "global"="false",
        -> "enable"="true"
        -> );

@@ -59,7 +59,7 @@ public class ApplyRuleJob extends Job {
 
         // TODO: need to find all plan reference tree that match this pattern
         PatternMatching patternMatching = new PatternMatching();
-        for (Plan<?> plan : patternMatching) {
+        for (Plan<?, ?> plan : patternMatching) {
             if (!rule.check(plan, context)) {
                 continue;
             }

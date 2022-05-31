@@ -158,7 +158,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
-     * Get data files of partitions in hive table, filter by partition predicate
+     * Get data files of partitions in hive table, filter by partition predicate.
      * @param hiveTable
      * @param hivePartitionPredicate
      * @param fileStatuses
@@ -167,22 +167,13 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      */
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-                                          List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl) throws DdlException {
-        HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
-
+                                          List<TBrokerFileStatus> fileStatuses,
+                                          Table remoteHiveTbl) throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> remoteIterators;
         if (remoteHiveTbl.getPartitionKeys().size() > 0) {
+            String metaStoreUris = hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS);
             // hive partitioned table, get file iterator from table partition sd info
-            List<Partition> hivePartitions = new ArrayList<>();
-            try {
-                client.listPartitionsByExpr(hiveTable.getHiveDb(), hiveTable.getHiveTable(),
-                        SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), null, (short) -1, hivePartitions);
-            } catch (TException e) {
-                LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-                throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-            } finally {
-                client.close();
-            }
+            List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl, hivePartitionPredicate);
             remoteIterators = getRemoteIterator(hivePartitions, hiveTable.getHiveProperties());
         } else {
             // hive non-partitioned table, get file iterator from table sd info
@@ -217,6 +208,32 @@ public class HiveMetaStoreClientHelper {
         }
 
         return hdfsUrl;
+    }
+
+    /**
+     * list partitions from hiveMetaStore.
+     *
+     * @param metaStoreUris hiveMetaStore uris
+     * @param remoteHiveTbl Hive table
+     * @param hivePartitionPredicate filter when list partitions
+     * @return a list of hive partitions
+     * @throws DdlException when connect hiveMetaStore failed.
+     */
+    public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
+                       ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
+        List<Partition> hivePartitions = new ArrayList<>();
+        HiveMetaStoreClient client = getClient(metaStoreUris);
+        try {
+            client.listPartitionsByExpr(remoteHiveTbl.getDbName(), remoteHiveTbl.getTableName(),
+                    SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),
+                    null, (short) -1, hivePartitions);
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
+            throw new DdlException("Connect hive metastore failed.");
+        } finally {
+            client.close();
+        }
+        return hivePartitions;
     }
 
     private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions, Map<String, String> properties) throws DdlException {
@@ -550,7 +567,7 @@ public class HiveMetaStoreClientHelper {
             if (stack.size() != 1) {
                 throw new DdlException("Build Hive expression Failed: " + stack.size());
             }
-            return (ExprNodeGenericFuncDesc)stack.pop();
+            return (ExprNodeGenericFuncDesc) stack.pop();
         }
 
         public ExprBuilder pred(String name, int args) throws DdlException {

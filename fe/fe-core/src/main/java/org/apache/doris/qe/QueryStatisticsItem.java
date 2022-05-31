@@ -83,7 +83,7 @@ public final class QueryStatisticsItem {
         return queryProfile;
     }
 
-    public boolean getIsReportSucc () {
+    public boolean getIsReportSucc() {
         return isReportSucc;
     }
 

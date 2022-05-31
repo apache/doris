@@ -410,8 +410,7 @@ public class ShowExecutor {
     private void handleShowFunctions() throws AnalysisException {
         ShowFunctionsStmt showStmt = (ShowFunctionsStmt) stmt;
         Database db = ctx.getCatalog().getDbOrAnalysisException(showStmt.getDbName());
-        List<Function> functions = showStmt.getIsBuiltin() ? ctx.getCatalog().getBuiltinFunctions() :
-            db.getFunctions();
+        List<Function> functions = showStmt.getIsBuiltin() ? ctx.getCatalog().getBuiltinFunctions() : db.getFunctions();
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
         for (Function function : functions) {
@@ -445,8 +444,8 @@ public class ShowExecutor {
 
         // Only success
         ShowResultSetMetaData showMetaData = showStmt.getIsVerbose() ? showStmt.getMetaData() :
-            ShowResultSetMetaData.builder()
-                .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
+                ShowResultSetMetaData.builder()
+                        .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
@@ -1364,7 +1363,6 @@ public class ShowExecutor {
         long dbId = db.getId();
 
         DeleteHandler deleteHandler = catalog.getDeleteHandler();
-        Load load = catalog.getLoadInstance();
         List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId);
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> deleteInfo : deleteInfos) {
@@ -1423,7 +1421,7 @@ public class ShowExecutor {
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
         List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-            showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
+                showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -1570,7 +1568,7 @@ public class ShowExecutor {
                 if (sizeLimit > -1 && tabletInfos.size() < sizeLimit) {
                     tabletInfos.clear();
                 } else if (sizeLimit > -1) {
-                    tabletInfos = tabletInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                    tabletInfos = tabletInfos.subList((int) showStmt.getOffset(), (int) sizeLimit);
                 }
 
                 // order by
@@ -1673,7 +1671,7 @@ public class ShowExecutor {
             states = Sets.newHashSet(state);
         }
         List<List<String>> infos = exportMgr.getExportJobInfosByIdOrState(
-                dbId, showExportStmt.getJobId(), showExportStmt.getLabel(),showExportStmt.isLabelUseLike(),  states,
+                dbId, showExportStmt.getJobId(), showExportStmt.getLabel(), showExportStmt.isLabelUseLike(), states,
                 showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
 
         resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);

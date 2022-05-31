@@ -62,6 +62,7 @@ private:
     ColumnDictionary() {}
     ColumnDictionary(const size_t n) : _codes(n) {}
     ColumnDictionary(const ColumnDictionary& src) : _codes(src._codes.begin(), src._codes.end()) {}
+    ColumnDictionary(FieldType type) : _type(type) {}
 
 public:
     using Self = ColumnDictionary;
@@ -251,7 +252,9 @@ public:
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
-    void generate_hash_values() { _dict.generate_hash_values(); }
+    void generate_hash_values_for_runtime_filter() {
+        _dict.generate_hash_values_for_runtime_filter(_type);
+    }
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
@@ -305,12 +308,26 @@ public:
             return code >= _dict_data.size() ? _null_value : _dict_data[code];
         }
 
-        inline void generate_hash_values() {
+        // The function is only used in the runtime filter feature
+        inline void generate_hash_values_for_runtime_filter(FieldType type) {
             if (_hash_values.empty()) {
                 _hash_values.resize(_dict_data.size());
                 for (size_t i = 0; i < _dict_data.size(); i++) {
                     auto& sv = _dict_data[i];
-                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.ptr, sv.len, 0);
+                    // The char data is stored in the disk with the schema length,
+                    // and zeros are filled if the length is insufficient
+
+                    // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
+                    // Remove the suffix 0
+                    // When writing data, use the CharField::consume function to fill in the trailing 0.
+
+                    // For dictionary data of char type, sv.len is the schema length,
+                    // so use strnlen to remove the 0 at the end to get the actual length.
+                    int32_t len = sv.len;
+                    if (type == OLAP_FIELD_TYPE_CHAR) {
+                        len = strnlen(sv.ptr, sv.len);
+                    }
+                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.ptr, len, 0);
                     _hash_values[i] = hash_val;
                 }
             }
@@ -404,6 +421,7 @@ private:
     bool _dict_code_converted = false;
     Dictionary _dict;
     Container _codes;
+    FieldType _type;
 };
 
 template class ColumnDictionary<int32_t>;

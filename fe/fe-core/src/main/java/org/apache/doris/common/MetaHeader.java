@@ -51,7 +51,7 @@ public class MetaHeader {
     public MetaJsonHeader metaJsonHeader;
 
     public static MetaHeader read(File imageFile) throws IOException {
-        try(RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
+        try (RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
             raf.seek(0);
             MetaMagicNumber magicNumber = MetaMagicNumber.read(raf);
             if (!Arrays.equals(MetaMagicNumber.MAGIC, magicNumber.getBytes())) {
@@ -61,8 +61,9 @@ public class MetaHeader {
             }
             MetaJsonHeader metaJsonHeader = MetaJsonHeader.read(raf);
             if (!MetaJsonHeader.IMAGE_VERSION.equalsIgnoreCase(metaJsonHeader.imageVersion)) {
-                String errMsg = "Image file " + imageFile.getPath() + " format version mismatch. " +
-                        "Expected version is "+ MetaJsonHeader.IMAGE_VERSION +", actual is" + metaJsonHeader.imageVersion;
+                String errMsg = "Image file " + imageFile.getPath() + " format version mismatch. "
+                        + "Expected version is " + MetaJsonHeader.IMAGE_VERSION
+                        + ", actual is" + metaJsonHeader.imageVersion;
                 // different versions are incompatible
                 throw new IOException(errMsg);
             }

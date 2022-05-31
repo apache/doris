@@ -392,7 +392,7 @@ public class CatalogMocker {
 
     public static Catalog fetchAdminCatalog() {
         try {
-            FakeEditLog fakeEditLog = new FakeEditLog();
+            FakeEditLog fakeEditLog = new FakeEditLog(); // CHECKSTYLE IGNORE THIS LINE
 
             Catalog catalog = Deencapsulation.newInstance(Catalog.class);
 
