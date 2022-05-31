@@ -271,7 +271,9 @@ distribution_info
 
     * `in_memory`
 
-        Use this property to set whether the table is [Memory Table] (DORIS/Operation Manual/Memory Table.md).
+        Doris has no concept of memory tables.
+
+        When this property is set to `true`, Doris will try to cache the data blocks of the table in the PageCache of the storage engine, which has reduced disk IO. But this property does not guarantee that the data block is resident in memory, it is only used as a best-effort identification.
 
         `"in_memory" = "true"`
 
@@ -286,7 +288,7 @@ distribution_info
     * Dynamic partition related
 
         The relevant parameters of dynamic partition are as follows:
-
+    
         * `dynamic_partition.enable`: Used to specify whether the dynamic partition function at the table level is enabled. The default is true.
         * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), HOUR (hour).
         * `dynamic_partition.start`: Used to specify how many partitions to delete forward. The value must be less than 0. The default is Integer.MIN_VALUE.
@@ -296,7 +298,7 @@ distribution_info
         * `dynamic_partition.create_history_partition`: Whether to create a history partition.
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
-
+    
     * Data Sort Info
       
         The relevant parameters of data sort info are as follows:
@@ -562,6 +564,6 @@ Users can create indexes on multiple columns while building a table. Indexes can
 
 If you add an index in the subsequent use process, if there is data in the table, you need to rewrite all the data, so the creation time of the index depends on the current data volume.
 
-#### Memory table
+#### In_memory property
 
 The `"in_memory" = "true"` attribute was specified when the table was created. Doris will try to cache the data blocks of the table in the PageCache of the storage engine, which has reduced disk IO. However, this attribute does not guarantee that the data block is permanently resident in memory, and is only used as a best-effort identification.

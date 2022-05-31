@@ -272,7 +272,9 @@ distribution_info
 
     * `in_memory`
 
-        通过此属性设置该表是否为内存表。
+        Doris 是没有内存表的概念。
+
+        这个属性设置成 `true`, Doris 会尽量将该表的数据块缓存在存储引擎的 PageCache 中，已减少磁盘IO。但这个属性不会保证数据块常驻在内存中，仅作为一种尽力而为的标识。
 
         `"in_memory" = "true"`
 
@@ -287,7 +289,7 @@ distribution_info
     * 动态分区相关
 
         动态分区相关参数如下：
-
+    
         * `dynamic_partition.enable`: 用于指定表级别的动态分区功能是否开启。默认为 true。
         * `dynamic_partition.time_unit:` 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月），HOUR（时）。
         * `dynamic_partition.start`: 用于指定向前删除多少个分区。值必须小于0。默认为 Integer.MIN_VALUE。
@@ -301,7 +303,7 @@ distribution_info
     * 数据排序相关
 
         数据排序相关参数如下:
-
+    
         * `data_sort.sort_type`: 数据排序使用的方法，目前支持两种：lexical/z-order，默认是lexical
         * `data_sort.col_num`: 数据排序使用的列数，取最前面几列，不能超过总的key 列数
 ### Example
@@ -564,6 +566,6 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加索引，如果表中已有数据，则需要重写所有数据，因此索引的创建时间取决于当前数据量。
 
-#### 内存表
+#### In_memory 属性
 
 当建表时指定了 `"in_memory" = "true"` 属性。则 Doris 会尽量将该表的数据块缓存在存储引擎的 PageCache 中，已减少磁盘IO。但这个属性不会保证数据块常驻在内存中，仅作为一种尽力而为的标识。
