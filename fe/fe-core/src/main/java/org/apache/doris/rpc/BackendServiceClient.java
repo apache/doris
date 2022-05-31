@@ -136,8 +136,8 @@ public class BackendServiceClient {
         LOG.warn("shut down backend service client: {}", address);
     }
 
-    /***
-     * OpenTelemetry span interceptor
+    /**
+     * OpenTelemetry span interceptor.
      */
     public static class OpenTelemetryClientInterceptor implements ClientInterceptor {
         @Override

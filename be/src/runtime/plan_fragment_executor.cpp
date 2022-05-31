@@ -42,6 +42,7 @@
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/vexchange_node.h"
@@ -109,6 +110,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     if (request.query_options.__isset.is_report_success) {
         _is_report_success = request.query_options.is_report_success;
+    }
+
+    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
+        _runtime_state->set_tracer(telemetry::get_tracer(print_id(_query_id)));
     }
 
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());

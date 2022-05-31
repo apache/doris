@@ -38,6 +38,7 @@
 #include "runtime/thread_resource_mgr.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -366,6 +367,10 @@ public:
 
     QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
 
+    telemetry::OpentelemetryTracer get_tracer() { return _tracer; }
+
+    void set_tracer(telemetry::OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
@@ -513,6 +518,8 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
+
+    telemetry::OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

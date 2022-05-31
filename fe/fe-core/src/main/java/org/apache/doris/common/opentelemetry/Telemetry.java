@@ -47,6 +47,10 @@ public class Telemetry {
 
     private static OpenTelemetry openTelemetry = OpenTelemetry.noop();
 
+    /**
+     * Initialize {@link OpenTelemetry} with {@link SdkTracerProvider}, {@link BatchSpanProcessor},
+     * {@link ZipkinSpanExporter} and {@link W3CTraceContextPropagator}.
+     */
     public static void initOpenTelemetry() {
         if (!Config.enable_tracing) {
             return;

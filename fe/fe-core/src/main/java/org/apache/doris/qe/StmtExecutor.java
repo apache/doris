@@ -1024,8 +1024,8 @@ public class StmtExecutor implements ProfileWriter {
                 batch = coord.getNext();
                 // for outfile query, there will be only one empty batch send back with eos flag
                 if (batch.getBatch() != null) {
-                    // For some language driver, getting error packet after fields packet will be recognized as a success result
-                    // so We need to send fields after first batch arrived
+                    // For some language driver, getting error packet after fields packet will be recognized as a
+                    // success result. so We need to send fields after first batch arrived
                     if (!isSendFields) {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
