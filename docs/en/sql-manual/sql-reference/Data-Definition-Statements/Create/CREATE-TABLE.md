@@ -564,6 +564,6 @@ Users can create indexes on multiple columns while building a table. Indexes can
 
 If you add an index in the subsequent use process, if there is data in the table, you need to rewrite all the data, so the creation time of the index depends on the current data volume.
 
-#### In_memory property
+#### in_memory property
 
 The `"in_memory" = "true"` attribute was specified when the table was created. Doris will try to cache the data blocks of the table in the PageCache of the storage engine, which has reduced disk IO. However, this attribute does not guarantee that the data block is permanently resident in memory, and is only used as a best-effort identification.

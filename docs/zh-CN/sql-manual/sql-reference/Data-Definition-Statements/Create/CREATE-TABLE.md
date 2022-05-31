@@ -270,7 +270,7 @@ distribution_info
 
         `"bloom_filter_columns" = "k1, k2, k3"`
 
-    * `in_memory`
+    * `in_memory` 
 
         Doris 是没有内存表的概念。
 
@@ -566,6 +566,6 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加索引，如果表中已有数据，则需要重写所有数据，因此索引的创建时间取决于当前数据量。
 
-#### In_memory 属性
+#### in_memory 属i
 
 当建表时指定了 `"in_memory" = "true"` 属性。则 Doris 会尽量将该表的数据块缓存在存储引擎的 PageCache 中，已减少磁盘IO。但这个属性不会保证数据块常驻在内存中，仅作为一种尽力而为的标识。
