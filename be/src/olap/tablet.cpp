@@ -1051,6 +1051,14 @@ void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
                                                           _cumulative_point, candidate_rowsets);
 }
 
+void Tablet::find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const {
+    for (auto& it : _rs_version_map) {
+        if (it.second->rowset_meta()->rowset_type() == RowsetTypePB::ALPHA_ROWSET) {
+            rowsets->push_back(it.second);
+        }
+    }
+}
+
 void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
     std::shared_lock rdlock(_meta_lock);
     for (auto& it : _rs_version_map) {

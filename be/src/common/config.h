@@ -294,6 +294,9 @@ CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_compaction_threads, "10");
 
+// This config can be set to limit thread number in convert rowset thread pool.
+CONF_mInt32(convert_rowset_thread_num, "0");
+
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
 
@@ -302,6 +305,9 @@ CONF_mInt64(total_permits_for_compaction_score, "10000");
 
 // sleep interval in ms after generated compaction tasks
 CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
+
+// sleep interval in ms of scan alpha rowset
+CONF_mInt32(scan_alpha_rowset_min_interval_ms, "10");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.

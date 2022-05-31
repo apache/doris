@@ -28,6 +28,7 @@
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "olap/convert_rowset.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -71,6 +72,21 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(max_thread_num)
             .set_max_threads(max_thread_num)
             .build(&_compaction_thread_pool);
+
+    int32_t convert_rowset_thread_num = config::convert_rowset_thread_num;
+    if (convert_rowset_thread_num > 0) {
+        // alpha rowset scan thread
+        RETURN_IF_ERROR(Thread::create(
+                "StorageEngine", "alpha_rowset_scan_thread",
+                [this]() { this->_alpha_rowset_scan_thread_callback(); },
+                &_alpha_rowset_scan_thread));
+        LOG(INFO) << "alpha rowset scan thread started";
+
+        ThreadPoolBuilder("ConvertRowsetTaskThreadPool")
+                .set_min_threads(convert_rowset_thread_num)
+                .set_max_threads(convert_rowset_thread_num)
+                .build(&_convert_rowset_thread_pool);
+    }
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -302,6 +318,27 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_alpha_rowset_scan_thread_callback() {
+    LOG(INFO) << "try to start alpha rowset scan thread!";
+
+    do {
+        std::vector<TabletSharedPtr> tablet_have_alpha_rowset;
+        _tablet_manager->find_tablet_have_alpha_rowset(tablet_have_alpha_rowset);
+        for (int i = 0; i < tablet_have_alpha_rowset.size(); ++i) {
+            auto tablet = tablet_have_alpha_rowset[i];
+            auto st = _convert_rowset_thread_pool->submit_func([=]() {
+                CgroupsMgr::apply_system_cgroup();
+                auto convert_rowset = std::make_shared<ConvertRowset>(tablet);
+                convert_rowset->do_convert();
+            });
+            if (!st.ok()) {
+                LOG(WARNING) << "submit convert tablet tasks failed.";
+            }
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(
+            config::scan_alpha_rowset_min_interval_ms)));
 }
 
 void StorageEngine::_compaction_tasks_producer_callback() {
