@@ -1950,7 +1950,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             return false;
         }
-        if (fn.functionName().equalsIgnoreCase("ifnull")) {
+        if (fn.functionName().equalsIgnoreCase("ifnull") || fn.functionName().equalsIgnoreCase("nvl")) {
             Preconditions.checkState(children.size() == 2);
             if (children.get(0).isNullable()) {
                 return children.get(1).isNullable();

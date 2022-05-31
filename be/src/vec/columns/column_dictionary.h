@@ -377,7 +377,7 @@ public:
         void clear() {
             _dict_data.clear();
             _inverted_index.clear();
-            _code_convert_map.clear();
+            _code_convert_table.clear();
             _hash_values.clear();
         }
 
@@ -385,14 +385,15 @@ public:
 
         void sort() {
             size_t dict_size = _dict_data.size();
+            _code_convert_table.reserve(dict_size);
             std::sort(_dict_data.begin(), _dict_data.end(), _comparator);
             for (size_t i = 0; i < dict_size; ++i) {
-                _code_convert_map[_inverted_index.find(_dict_data[i])->second] = (T)i;
+                _code_convert_table[_inverted_index.find(_dict_data[i])->second] = (T)i;
                 _inverted_index[_dict_data[i]] = (T)i;
             }
         }
 
-        T convert_code(const T& code) const { return _code_convert_map.find(code)->second; }
+        T convert_code(const T& code) const { return _code_convert_table[code]; }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 
@@ -405,8 +406,8 @@ public:
         DictContainer _dict_data;
         // dict value -> dict code
         phmap::flat_hash_map<StringValue, T, StringValue::HashOfStringValue> _inverted_index;
-        // data page code -> sorted dict code, only used for range comparison predicate
-        phmap::flat_hash_map<T, T> _code_convert_map;
+        // only used for range comparison predicate. _code_convert_table[i] = j, where i is dataPageCode, and j is sortedDictCode
+        std::vector<T> _code_convert_table;
         // hash value of origin string , used for bloom filter
         // It's a trade-off of space for performance
         // But in TPC-DS 1GB q60,we see no significant improvement.
