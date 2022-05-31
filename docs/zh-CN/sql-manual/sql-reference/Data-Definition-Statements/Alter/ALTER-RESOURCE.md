@@ -1,6 +1,6 @@
 ---
 {
-"title": "ALTER RESOURCE",
+"title": "ALTER-RESOURCE",
 "language": "zh-CN"
 }
 ---
@@ -24,25 +24,36 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ALTER RESOURCE
+## ALTER-RESOURCE
 
-## Description
+### Name
 
-    该语句用于修改一个已有的资源。仅 root 或 admin 用户可以修改资源。
-    语法：
-        ALTER RESOURCE 'resource_name'
-        PROPERTIES ("key"="value", ...);
+ALTER RESOURCE
 
-    注意：resource type 不支持修改。
+### Description
 
-## Example
+该语句用于修改一个已有的资源。仅 root 或 admin 用户可以修改资源。
+语法：
+```sql
+ALTER RESOURCE 'resource_name'
+PROPERTIES ("key"="value", ...);
+```
+注意：resource type 不支持修改。
 
-    1. 修改名为 spark0 的 Spark 资源的工作目录：
-        ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/doris_new");
+### Example
 
-    2. 修改名为 remote_s3 的 S3 资源的最大连接数：
-        ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
+1. 修改名为 spark0 的 Spark 资源的工作目录：
+```sql
+ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/doris_new");
+```
+2. 修改名为 remote_s3 的 S3 资源的最大连接数：
+```sql
+ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
+```
+### Keywords
 
-## keyword
+```sql
+ALTER, RESOURCE
+```
 
-    ALTER, RESOURCE
+### Best Practice
