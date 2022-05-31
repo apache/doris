@@ -359,6 +359,7 @@ Status TableFunctionNode::close(RuntimeState* state) {
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     Expr::close(_fn_ctxs, state);
+    vectorized::VExpr::close(_vfn_ctxs, state);
 
     if (_num_rows_filtered_counter != nullptr) {
         COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
