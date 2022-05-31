@@ -533,8 +533,8 @@ public class StmtExecutorTest {
         Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
         Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 1));
         stmtExecutor.execute();
-        StatementBase newstmt = (StatementBase)Deencapsulation.getField(stmtExecutor, "parsedStmt");
-        Assert.assertTrue(newstmt.getUserInfo() != null);
+        StatementBase newstmt = Deencapsulation.getField(stmtExecutor, "parsedStmt");
+        Assert.assertNotNull(newstmt.getUserInfo());
     }
 
     @Test

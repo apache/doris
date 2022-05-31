@@ -56,7 +56,7 @@ public class AdminCancelRebalanceDiskStmtTest {
     @Test
     public void testParticularBackends() throws AnalysisException {
         List<String> backends = Lists.newArrayList(
-            "192.168.0.10003:9051", "192.168.0.10004:9051", "192.168.0.10005:9051", "192.168.0.10006:9051");
+                "192.168.0.10003:9051", "192.168.0.10004:9051", "192.168.0.10005:9051", "192.168.0.10006:9051");
         final AdminCancelRebalanceDiskStmt stmt = new AdminCancelRebalanceDiskStmt(backends);
         stmt.analyze(analyzer);
         Assert.assertEquals(2, stmt.getBackends().size());

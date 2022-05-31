@@ -46,9 +46,6 @@ public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
         result.setNames(TITLE_NAMES.asList());
         final List<List<String>> sortedRowData = Lists.newArrayList();
 
-        final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
-        final Map<String, CurrentQueryInfoProvider.QueryStatistics> statisticsMap
-                = provider.getQueryStatistics(statistic.values());
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
             values.add(item.getQueryId());

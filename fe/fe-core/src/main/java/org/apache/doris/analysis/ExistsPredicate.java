@@ -27,11 +27,12 @@ import org.slf4j.LoggerFactory;
  * Class representing a [NOT] EXISTS predicate.
  */
 public class ExistsPredicate extends Predicate {
-    private static final Logger LOG = LoggerFactory.getLogger(
-        ExistsPredicate.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ExistsPredicate.class);
     private boolean notExists = false;
 
-    public boolean isNotExists() { return notExists; }
+    public boolean isNotExists() {
+        return notExists;
+    }
 
     public ExistsPredicate(Subquery subquery, boolean notExists) {
         Preconditions.checkNotNull(subquery);
@@ -56,7 +57,9 @@ public class ExistsPredicate extends Predicate {
     }
 
     @Override
-    public Expr clone() { return new ExistsPredicate(this); }
+    public Expr clone() {
+        return new ExistsPredicate(this);
+    }
 
     @Override
     public String toSqlImpl() {

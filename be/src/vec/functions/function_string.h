@@ -24,10 +24,8 @@
 #include <cstdint>
 #include <string_view>
 
-#include "exprs/anyval_util.h"
 #include "exprs/math_functions.h"
 #include "exprs/string_functions.h"
-#include "runtime/string_value.hpp"
 #include "udf/udf.h"
 #include "util/md5.h"
 #include "util/sm3.h"
@@ -38,6 +36,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"

@@ -180,7 +180,8 @@ module.exports = [
         children: [
           "bucket-shuffle-join",
           "colocation-join",
-          "runtime-filter"
+          "runtime-filter",
+          "doris-join-optimization"
         ],
       },
       {
@@ -472,6 +473,7 @@ module.exports = [
               "coalesce",
               "if",
               "ifnull",
+              "nvl",
               "nullif"
             ],
           },
@@ -609,6 +611,7 @@ module.exports = [
                 initialOpenGroupIndex: -1,
                 children: [
                   "ALTER-DATABASE",
+                  "ALTER-RESOURCE",
                   "ALTER-SQL-BLOCK-RULE",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",
@@ -705,6 +708,8 @@ module.exports = [
                   "DELETE",
                   "INSERT",
                   "UPDATE",
+                  "SELECT",
+                  "EXPORT"
                 ],
               },
               "OUTFILE"             
@@ -1002,8 +1007,7 @@ module.exports = [
     directoryPath: "benchmark/",
     initialOpenGroupIndex: -1,
     children: [
-      "ssb",
-      "tpc-h"
+      "ssb"
     ],
   },
   {

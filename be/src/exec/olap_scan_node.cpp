@@ -30,13 +30,13 @@
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/exec_env.h"
+#include "runtime/large_int_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
-#include "util/priority_work_stealing_thread_pool.hpp"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -180,6 +180,8 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     // create scanner profile
     // create timer
     _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
+    _scanner_sched_counter = ADD_COUNTER(runtime_profile(), "ScannerSchedCount ", TUnit::UNIT);
+
     _rows_pushed_cond_filtered_counter =
             ADD_COUNTER(_scanner_profile, "RowsPushedCondFiltered", TUnit::UNIT);
     _init_counter(state);
@@ -544,8 +546,8 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
 
     // set vconjunct_ctx is empty, if all conjunct
     if (_direct_conjunct_size == 0) {
-        if (_vconjunct_ctx_ptr.get() != nullptr) {
-            (*_vconjunct_ctx_ptr.get())->close(state);
+        if (_vconjunct_ctx_ptr != nullptr) {
+            (*_vconjunct_ctx_ptr)->close(state);
             _vconjunct_ctx_ptr = nullptr;
         }
     }
@@ -689,11 +691,11 @@ Status OlapScanNode::build_scan_key() {
     return Status::OK();
 }
 
-static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
-                        int block_row_count, bool is_begin_include, bool is_end_include,
-                        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                        RuntimeProfile* profile) {
+Status OlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
+                               int block_row_count, bool is_begin_include, bool is_end_include,
+                               const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                               std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                               RuntimeProfile* profile) {
     RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
     std::vector<std::vector<OlapTuple>> ranges;
     bool have_valid_range = false;
@@ -1446,6 +1448,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                         std::bind(&OlapScanNode::scanner_thread, this, *iter));
                 if (s.ok()) {
                     (*iter)->start_wait_worker_timer();
+                    COUNTER_UPDATE(_scanner_sched_counter, 1);
                     olap_scanners.erase(iter++);
                 } else {
                     LOG(FATAL) << "Failed to assign scanner task to thread pool! "
@@ -1460,6 +1463,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 task.priority = _nice;
                 task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
                 (*iter)->start_wait_worker_timer();
+                COUNTER_UPDATE(_scanner_sched_counter, 1);
                 if (thread_pool->offer(task)) {
                     olap_scanners.erase(iter++);
                 } else {

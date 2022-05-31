@@ -17,8 +17,10 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_vector.h"
+#include "vec/data_types/data_type_array.h"
 
 namespace doris::vectorized {
 
@@ -357,6 +359,12 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
     }
 
     assert(column_string);
+
+    // If column_string is not padded to full, we should do padding here.
+    if (should_padding(column_string, _length)) {
+        _column = clone_and_padding(column_string, _length);
+        column_string = assert_cast<const vectorized::ColumnString*>(_column.get());
+    }
 
     const ColumnString::Char* char_data = column_string->get_chars().data();
     const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;

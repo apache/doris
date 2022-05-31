@@ -190,18 +190,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    int start = 0, end = 0;
-    const size_t num_rows = row_idxs.size();
-    for (; start < num_rows;) {
-        auto count = end + 1 - start;
-        if (end == num_rows - 1 || (row_idxs[end + 1] - row_idxs[start]) != count) {
-            _mem_table->insert(block, row_idxs[start], count);
-            start += count;
-            end = start;
-        } else {
-            end++;
-        }
-    }
+    _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
         _mem_table->shrink_memtable_by_agg();

@@ -312,12 +312,14 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
 
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         Preconditions.checkState(desc != null);
-        for (TupleId tid: tids) {
+        for (TupleId tid : tids) {
             if (tid.equals(desc.getParent().getId())) {
                 return true;
             }

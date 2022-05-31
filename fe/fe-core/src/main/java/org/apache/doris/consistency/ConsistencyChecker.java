@@ -113,7 +113,7 @@ public class ConsistencyChecker extends MasterDaemon {
         // only add new job when it's work time
         if (itsTime() && getJobNum() == 0) {
             List<Long> chosenTabletIds = chooseTablets();
-            for(Long tabletId: chosenTabletIds) {
+            for (Long tabletId : chosenTabletIds) {
                 CheckConsistencyJob job = new CheckConsistencyJob(tabletId);
                 addJob(job);
             }

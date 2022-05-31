@@ -193,7 +193,9 @@ public class StreamLoadScanNode extends LoadScanNode {
     }
 
     @Override
-    public int getNumInstances() { return 1; }
+    public int getNumInstances() {
+        return 1;
+    }
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {

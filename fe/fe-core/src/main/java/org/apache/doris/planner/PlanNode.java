@@ -147,8 +147,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.tupleIds = Lists.newArrayList(tupleIds);
         this.tblRefIds = Lists.newArrayList(tupleIds);
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
     }
 
@@ -158,8 +157,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.tupleIds = Lists.newArrayList();
         this.tblRefIds = Lists.newArrayList();
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
     }
 
@@ -175,8 +173,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
         this.cardinality = -1;
         this.compactData = node.compactData;
-        this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
         this.nodeType = nodeType;
     }
@@ -309,7 +306,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         List<TupleId> tupleIds = Lists.newArrayList();
         List<ScanNode> scanNodes = Lists.newArrayList();
         collectAll(Predicates.instanceOf(ScanNode.class), scanNodes);
-        for(ScanNode node: scanNodes) {
+        for (ScanNode node : scanNodes) {
             tupleIds.addAll(node.getTupleIds());
         }
         return tupleIds;
@@ -362,7 +359,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
-            for (int i = 0; i < targetConjuncts.size(); i+= 2) {
+            for (int i = 0; i < targetConjuncts.size(); i += 2) {
                 Expr expr = i + 1 < targetConjuncts.size() ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
                         targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
@@ -871,18 +868,24 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return null;
     }
 
-    protected void addRuntimeFilter(RuntimeFilter filter) { runtimeFilters.add(filter); }
+    protected void addRuntimeFilter(RuntimeFilter filter) {
+        runtimeFilters.add(filter);
+    }
 
-    protected Collection<RuntimeFilter> getRuntimeFilters() { return runtimeFilters; }
+    protected Collection<RuntimeFilter> getRuntimeFilters() {
+        return runtimeFilters;
+    }
 
-    public void clearRuntimeFilters() { runtimeFilters.clear(); }
+    public void clearRuntimeFilters() {
+        runtimeFilters.clear();
+    }
 
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
         if (runtimeFilters.isEmpty()) {
             return "";
         }
         List<String> filtersStr = new ArrayList<>();
-        for (RuntimeFilter filter: runtimeFilters) {
+        for (RuntimeFilter filter : runtimeFilters) {
             StringBuilder filterStr = new StringBuilder();
             filterStr.append(filter.getFilterId());
             filterStr.append("[");

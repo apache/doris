@@ -17,6 +17,9 @@
 
 #pragma once
 #include "olap/tablet_schema.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -99,8 +102,36 @@ private:
         Status convert_to_olap() override;
 
     private:
+        static bool should_padding(const ColumnString* column, size_t padding_length) {
+            // Check sum of data length, including terminating zero.
+            return column->size() * (padding_length + 1) != column->chars.size();
+        }
+
+        static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
+            auto column = vectorized::ColumnString::create();
+            auto padded_column =
+                    assert_cast<vectorized::ColumnString*>(column->assume_mutable().get());
+
+            column->offsets.resize(input->size());
+            column->chars.resize(input->size() * (padding_length + 1));
+            memset(padded_column->chars.data(), 0, input->size() * (padding_length + 1));
+
+            for (size_t i = 0; i < input->size(); i++) {
+                column->offsets[i] = (i + 1) * (padding_length + 1);
+
+                auto str = input->get_data_at(i);
+                if (str.size) {
+                    memcpy(padded_column->chars.data() + i * (padding_length + 1), str.data,
+                           str.size);
+                }
+            }
+
+            return column;
+        }
+
         size_t _length;
         PaddedPODArray<Slice> _slice;
+        ColumnPtr _column = nullptr;
     };
 
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {

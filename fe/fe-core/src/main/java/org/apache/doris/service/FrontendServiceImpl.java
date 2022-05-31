@@ -834,6 +834,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (request.isSetAuthCode()) {
+            // CHECKSTYLE IGNORE THIS LINE
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {

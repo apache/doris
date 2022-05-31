@@ -61,7 +61,7 @@ public class ConfigBase {
 
     static class DefaultConfHandler implements ConfHandler {
         @Override
-        public void handle(Field field, String confVal) throws Exception{
+        public void handle(Field field, String confVal) throws Exception {
             setConfigField(field, confVal);
         }
     }
@@ -299,7 +299,7 @@ public class ConfigBase {
         if (!anno.mutable()) {
             throw new DdlException("Config '" + key + "' is not mutable");
         }
-        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()){
+        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
             throw new DdlException("Config '" + key + "' is master only");
         }
 
@@ -347,7 +347,7 @@ public class ConfigBase {
         File file = new File(customConfFile);
         if (!file.exists()) {
             file.createNewFile();
-        } else if (resetPersist){
+        } else if (resetPersist) {
             // clear the customConfFile content
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print("");

@@ -156,13 +156,13 @@ public class TabletReplicaTooSlowTest {
     @Test
     public void test() throws Exception {
         // test colocate tablet repair
-        String createStr = "create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "distributed by hash(k2) buckets 1\n" +
-                "properties\n" +
-                "(\n" +
-                "    \"replication_num\" = \"3\"\n" +
-                ")";
+        String createStr = "create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_num\" = \"3\"\n"
+                + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
 
         int maxLoop = 300;

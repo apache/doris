@@ -48,11 +48,11 @@ public final class MethodReflection {
         } catch (InvocationTargetException e) {
             Throwable cause = e.getCause();
             if (cause instanceof Error) {
-                throw (Error)cause;
+                throw (Error) cause;
             } else if (cause instanceof RuntimeException) {
-                throw (RuntimeException)cause;
+                throw (RuntimeException) cause;
             } else {
-                ThrowOfCheckedException.doThrow((Exception)cause);
+                ThrowOfCheckedException.doThrow((Exception) cause);
                 return null;
             }
         }
@@ -103,13 +103,14 @@ public final class MethodReflection {
         Class<?>[] foundParamTypes = null;
         Method[] methods = theClass.getDeclaredMethods();
 
-        for(Method declaredMethod : methods) {
+        for (Method declaredMethod : methods) {
             if (declaredMethod.getName().equals(methodName)) {
                 Class<?>[] declaredParamTypes = declaredMethod.getParameterTypes();
                 int gap = declaredParamTypes.length - argTypes.length;
-                if (gap == 0 && (ParameterReflection.matchesParameterTypes(declaredParamTypes, argTypes) ||
-                        ParameterReflection.acceptsArgumentTypes(declaredParamTypes, argTypes) ) &&
-                    (foundParamTypes == null || ParameterReflection.hasMoreSpecificTypes(declaredParamTypes, foundParamTypes))) {
+                if (gap == 0 && (ParameterReflection.matchesParameterTypes(declaredParamTypes, argTypes)
+                        || ParameterReflection.acceptsArgumentTypes(declaredParamTypes, argTypes))
+                        && (foundParamTypes == null
+                            || ParameterReflection.hasMoreSpecificTypes(declaredParamTypes, foundParamTypes))) {
                     found = declaredMethod;
                     foundParamTypes = declaredParamTypes;
                 }
@@ -129,7 +130,7 @@ public final class MethodReflection {
         }
         Method methodFound = null;
 
-        while(true) {
+        while (true) {
             Method compatibleMethod = findCompatibleMethodInClass(theClass, methodName, argTypes);
             if (compatibleMethod != null && (methodFound == null || ParameterReflection.hasMoreSpecificTypes(compatibleMethod.getParameterTypes(), methodFound.getParameterTypes()))) {
                 methodFound = compatibleMethod;
@@ -155,8 +156,8 @@ public final class MethodReflection {
 
     // return true if the two types are same type.
     private static boolean isSameType(Class<?> firstType, Class<?> secondType) {
-        return firstType == secondType ||
-                firstType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType) ||
-                secondType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType);
+        return firstType == secondType
+                || firstType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType)
+                || secondType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType);
     }
 }

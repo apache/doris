@@ -414,7 +414,7 @@ public class ScalarType extends Type {
         TScalarType scalarType = new TScalarType();
         scalarType.setType(type.toThrift());
 
-        switch(type) {
+        switch (type) {
             case VARCHAR:
             case CHAR:
             case HLL:
@@ -444,18 +444,39 @@ public class ScalarType extends Type {
     }
 
     @Override
-    public PrimitiveType getPrimitiveType() { return type; }
-    public int ordinal() { return type.ordinal(); }
+    public PrimitiveType getPrimitiveType() {
+        return type;
+    }
+
+    public int ordinal() {
+        return type.ordinal();
+    }
 
     @Override
-    public int getLength() { return len; }
-    public void setLength(int len) {this.len = len; }
-    public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
-    public void setAssignedStrLenInColDefinition() { this.isAssignedStrLenInColDefinition = true; }
+    public int getLength() {
+        return len;
+    }
+
+    public void setLength(int len) {
+        this.len = len;
+    }
+
+    public boolean isAssignedStrLenInColDefinition() {
+        return isAssignedStrLenInColDefinition;
+    }
+
+    public void setAssignedStrLenInColDefinition() {
+        this.isAssignedStrLenInColDefinition = true;
+    }
 
     // add scalar infix to override with getPrecision
-    public int getScalarScale() { return scale; }
-    public int getScalarPrecision() { return precision; }
+    public int getScalarScale() {
+        return scale;
+    }
+
+    public int getScalarPrecision() {
+        return precision;
+    }
 
     public String getScalarPrecisionStr() {
         return precisionStr;
@@ -561,7 +582,7 @@ public class ScalarType extends Type {
         if (!(o instanceof ScalarType)) {
             return false;
         }
-        ScalarType other = (ScalarType)o;
+        ScalarType other = (ScalarType) o;
         if (type != other.type) {
             return false;
         }
@@ -571,7 +592,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if ( type == PrimitiveType.DECIMALV2) {
+        if (type == PrimitiveType.DECIMALV2) {
             return precision == other.precision && scale == other.scale;
         }
         return true;
@@ -588,7 +609,7 @@ public class ScalarType extends Type {
         } else if (isDecimalV2()) {
             return createDecimalV2TypeInternal(MAX_PRECISION, scale);
         } else if (isLargeIntType()) {
-        return ScalarType.LARGEINT;
+            return ScalarType.LARGEINT;
         } else {
             return ScalarType.INVALID;
         }

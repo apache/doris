@@ -209,7 +209,7 @@ public class DorisAssert {
             return explainString;
         }
 
-        public Planner internalExecuteOneAndGetPlan() throws Exception{
+        public Planner internalExecuteOneAndGetPlan() throws Exception {
             SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
             List<StatementBase> stmts =  SqlParserUtils.getMultiStmts(parser);

@@ -259,8 +259,8 @@ public class UdfExecutor {
                     // Currently, -1 indicates this column is not nullable. So input argument is
                     // null iff inputNullsPtrs_ != -1 and nullCol[row_idx] != 0.
                     if (UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) == -1 ||
-                            UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
+                            UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) == -1
+                            || UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
                                     UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) + rowIdx) == 0) {
                         inputArgs[i] = inputObjects[i];
                     } else {
@@ -314,8 +314,8 @@ public class UdfExecutor {
                 }
                 outputOffset += 1;
                 UdfUtils.UNSAFE.putChar(null, UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + outputOffset - 1, UdfUtils.END_OF_STRING);
-                UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) +
-                        4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
+                UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr)
+                        + 4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
             }
             return true;
         }

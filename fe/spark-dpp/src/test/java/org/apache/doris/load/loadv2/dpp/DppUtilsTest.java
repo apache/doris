@@ -181,7 +181,7 @@ public class DppUtilsTest {
             Assert.assertEquals(DataTypes.DateType, dateResult);
         } catch (Exception e) {
             Assert.assertTrue(false);
-    }
+        }
     }
 
     @Test

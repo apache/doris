@@ -37,8 +37,13 @@ public class DropFunctionStmt extends DdlStmt {
         this.argsDef = argsDef;
     }
 
-    public FunctionName getFunctionName() { return functionName; }
-    public FunctionSearchDesc getFunction() { return function; }
+    public FunctionName getFunctionName() {
+        return functionName;
+    }
+
+    public FunctionSearchDesc getFunction() {
+        return function;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {

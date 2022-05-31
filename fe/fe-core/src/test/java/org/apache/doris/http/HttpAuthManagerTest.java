@@ -39,14 +39,14 @@ public class HttpAuthManagerTest {
         authMgr.addSessionValue(sessionId, sessionValue);
         Assert.assertEquals(1, authMgr.getAuthSessions().size());
         List<String> sessionIds = new ArrayList<>();
-        sessionIds.add (sessionId);
+        sessionIds.add(sessionId);
         System.out.println("username in test: " + authMgr.getSessionValue(sessionIds).currentUser);
         Assert.assertEquals(username, authMgr.getSessionValue(sessionIds).currentUser.getQualifiedUser());
 
 
         String noExistSession = "no-exist-session-id";
         sessionIds.clear();
-        sessionIds.add (noExistSession);
+        sessionIds.add(noExistSession);
         Assert.assertNull(authMgr.getSessionValue(sessionIds));
         Assert.assertEquals(1, authMgr.getAuthSessions().size());
     }

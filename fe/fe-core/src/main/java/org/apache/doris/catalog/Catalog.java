@@ -245,6 +245,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -948,9 +949,10 @@ public class Catalog {
                     // But is metadata_failure_recovery is true, we will not check it because this may be a FE migration.
                     String[] split = nodeName.split("_");
                     if (Config.metadata_failure_recovery.equals("false") && !selfNode.first.equalsIgnoreCase(split[0])) {
-                        throw new IOException("the self host " + selfNode.first + " does not equal to the host in ROLE" +
-                                " file " + split[0] + ". You need to set 'priority_networks' config in fe.conf to match" +
-                                " the host " + split[0]);
+                        throw new IOException("the self host " + selfNode.first
+                                + " does not equal to the host in ROLE"
+                                + " file " + split[0] + ". You need to set 'priority_networks' config"
+                                + " in fe.conf to match the host " + split[0]);
                     }
                 }
             }
@@ -960,8 +962,7 @@ public class Catalog {
 
             if (!versionFile.exists()) {
                 clusterId = Config.cluster_id == -1 ? Storage.newClusterID() : Config.cluster_id;
-                token = Strings.isNullOrEmpty(Config.auth_token) ?
-                        Storage.newToken() : Config.auth_token;
+                token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
                 storage = new Storage(clusterId, token, this.imageDir);
                 storage.writeClusterIdAndToken();
 
@@ -974,8 +975,7 @@ public class Catalog {
             } else {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
-                    token = Strings.isNullOrEmpty(Config.auth_token) ?
-                            Storage.newToken() : Config.auth_token;
+                    token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
                     LOG.info("new token={}", token);
                     storage.setToken(token);
                     storage.writeClusterIdAndToken();
@@ -1488,8 +1488,8 @@ public class Catalog {
             }
         }
         if (Config.lower_case_table_names != GlobalVariable.lowerCaseTableNames) {
-            LOG.error("The configuration of \'lower_case_table_names\' does not support modification, " +
-                            "the expected value is {}, but the actual value is {}",
+            LOG.error("The configuration of \'lower_case_table_names\' does not support modification, "
+                            + "the expected value is {}, but the actual value is {}",
                     GlobalVariable.lowerCaseTableNames, Config.lower_case_table_names);
             System.exit(-1);
         }
@@ -1508,8 +1508,8 @@ public class Catalog {
 
         Frontend fe = checkFeExist(selfNode.first, selfNode.second);
         if (fe == null) {
-            LOG.error("current node {}:{} is not added to the cluster, will exit." +
-                            " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
+            LOG.error("current node {}:{} is not added to the cluster, will exit."
+                            + " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
                     selfNode.first, selfNode.second);
             System.exit(-1);
         } else if (fe.getRole() != role) {
@@ -1702,7 +1702,7 @@ public class Catalog {
         LOG.info("finished replay masterInfo from image");
         return newChecksum;
     }
-
+    
     public long loadFrontends(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
@@ -2681,9 +2681,9 @@ public class Catalog {
             try {
                 if (!stmt.isForceDrop()) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
-                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
-                                "The database [" + dbName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                                " please use \"DROP database FORCE\".");
+                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. "
+                                + "The database [" + dbName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP database FORCE\".");
                     }
                 }
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
@@ -2729,9 +2729,9 @@ public class Catalog {
                             if (table.getType() == TableType.OLAP) {
                                 OlapTable olapTable = (OlapTable) table;
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
-                                    throw new DdlException("The table [" + olapTable.getState() + "]'s state is " + olapTable.getState() + ", cannot be dropped." +
-                                            " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered)," +
-                                            " please use \"DROP table FORCE\".");
+                                    throw new DdlException("The table [" + olapTable.getState() + "]'s state is " + olapTable.getState() + ", cannot be dropped."
+                                            + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                            + " please use \"DROP table FORCE\".");
                                 }
                             }
                         }
@@ -3027,6 +3027,7 @@ public class Catalog {
      *     6.2. replicationNum
      *     6.3. inMemory
      *     6.4. storageFormat
+     *     6.5. compressionType
      * 7. set index meta
      * 8. check colocation properties
      * 9. create tablet in BE
@@ -3114,7 +3115,7 @@ public class Catalog {
                     throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
                 }
 
-                Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false);
+                Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -3315,6 +3316,7 @@ public class Catalog {
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(),
+                    olapTable.getCompressionType(),
                     olapTable.getDataSortInfo()
             );
 
@@ -3486,9 +3488,9 @@ public class Catalog {
                 Partition partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
-                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed." +
-                                " The partition [" + partitionName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                                " please use \"DROP partition FORCE\".");
+                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed."
+                                + " The partition [" + partitionName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP partition FORCE\".");
                     }
                 }
             }
@@ -3546,6 +3548,7 @@ public class Catalog {
                                                  boolean isInMemory,
                                                  TStorageFormat storageFormat,
                                                  TTabletType tabletType,
+                                                 TCompressionType compressionType,
                                                  DataSortInfo dataSortInfo) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
@@ -3613,7 +3616,8 @@ public class Catalog {
                             indexes,
                             isInMemory,
                             tabletType,
-                            dataSortInfo);
+                            dataSortInfo,
+                            compressionType);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3731,6 +3735,15 @@ public class Catalog {
         }
         olapTable.setStorageFormat(storageFormat);
 
+        // get compression type
+        TCompressionType compressionType = TCompressionType.LZ4;
+        try {
+            compressionType = PropertyAnalyzer.analyzeCompressionType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setCompressionType(compressionType);
+
         // check data sort properties
         DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
                 keysDesc.keysColumnSize(), storageFormat);
@@ -3778,6 +3791,7 @@ public class Catalog {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
+
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
@@ -3915,7 +3929,7 @@ public class Catalog {
                         partitionInfo.getReplicaAllocation(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat, tabletType, olapTable.getDataSortInfo());
+                        isInMemory, storageFormat, tabletType, compressionType, olapTable.getDataSortInfo());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3966,7 +3980,8 @@ public class Catalog {
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
-                            partitionInfo.getTabletType(entry.getValue()), olapTable.getDataSortInfo());
+                            partitionInfo.getTabletType(entry.getValue()),
+                            compressionType, olapTable.getDataSortInfo());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -4143,6 +4158,14 @@ public class Catalog {
         if (!hudiTable.getFullSchema().isEmpty()) {
             HudiUtils.validateColumns(hudiTable, hiveTable);
         }
+        switch (hiveTable.getTableType()) {
+            case "EXTERNAL_TABLE":
+            case "MANAGED_TABLE":
+                break;
+            case "VIRTUAL_VIEW":
+            default:
+                throw new DdlException("unsupported hudi table type [" + hiveTable.getTableType() + "].");
+        }
         // check hive table if exists in doris database
         if (!db.createTableWithLock(hudiTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
@@ -4152,11 +4175,18 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
-        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt,
+                separatePartition, hidePassword, false);
     }
 
-    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+    /**
+     * Get table ddl stmt.
+     *
+     * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
+     */
+    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt,
+                                  List<String> addPartitionStmt, List<String> createRollupStmt,
+                                  boolean separatePartition, boolean hidePassword, boolean getDdlForLike) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -4181,7 +4211,14 @@ public class Catalog {
         }
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
-        for (Column column : table.getBaseSchema()) {
+        List<Column> columns;
+        // when 'create table B like A', always return schema of A without hidden columns
+        if (getDdlForLike) {
+            columns = table.getBaseSchema(false);
+        } else {
+            columns = table.getBaseSchema();
+        }
+        for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
             }
@@ -4340,6 +4377,11 @@ public class Catalog {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE).append("\" = \"");
                 sb.append(remoteStorageResource).append("\"");
             }
+            // compression type
+            if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
+                sb.append(olapTable.getCompressionType()).append("\"");
+            }
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -4472,8 +4514,8 @@ public class Catalog {
 
         // 2. add partition
         if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
-            if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE ||
-                    ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
+            if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE
+                    || ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
                 OlapTable olapTable = (OlapTable) table;
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                 boolean first = true;
@@ -4687,9 +4729,9 @@ public class Catalog {
 
             if (!stmt.isForceDrop()) {
                 if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
-                    throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
-                            "The table [" + tableName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                            " please use \"DROP table FORCE\".");
+                    throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. "
+                            + "The table [" + tableName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                            + " please use \"DROP table FORCE\".");
                 }
             }
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop());
@@ -4698,9 +4740,9 @@ public class Catalog {
                 if (table instanceof OlapTable && !stmt.isForceDrop()) {
                     OlapTable olapTable = (OlapTable) table;
                     if ((olapTable.getState() != OlapTableState.NORMAL)) {
-                        throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState() + ", cannot be dropped." +
-                                " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered)," +
-                                " please use \"DROP table FORCE\".");
+                        throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState() + ", cannot be dropped."
+                                + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP table FORCE\".");
                     }
                 }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false);
@@ -4928,8 +4970,8 @@ public class Catalog {
         return Optional.ofNullable(getDbNullable(dbId));
     }
 
-    public <E extends Exception> Database
-    getDbOrException(String dbName, java.util.function.Function<String, E> e) throws E {
+    public <E extends Exception> Database getDbOrException(
+            String dbName, java.util.function.Function<String, E> e) throws E {
         Database db = getDbNullable(dbName);
         if (db == null) {
             throw e.apply(dbName);
@@ -4937,8 +4979,7 @@ public class Catalog {
         return db;
     }
 
-    public <E extends Exception> Database
-    getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E {
+    public <E extends Exception> Database getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E {
         Database db = getDbNullable(dbId);
         if (db == null) {
             throw e.apply(dbId);
@@ -5781,9 +5822,10 @@ public class Catalog {
         String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
         PartitionInfo partitionInfo = table.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            throw new DdlException("This is a partitioned table, you should specify partitions with MODIFY PARTITION clause." +
-                    " If you want to set default replication number, please use '" + defaultReplicationNumName +
-                    "' instead of '" + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + "' to escape misleading.");
+            throw new DdlException("This is a partitioned table, you should specify partitions"
+                    + " with MODIFY PARTITION clause."
+                    + " If you want to set default replication number, please use '" + defaultReplicationNumName
+                    + "' instead of '" + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + "' to escape misleading.");
         }
         String partitionName = table.getName();
         Partition partition = table.getPartition(partitionName);
@@ -6883,6 +6925,7 @@ public class Catalog {
                         copiedTbl.isInMemory(),
                         copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
+                        copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo());
                 newPartitions.add(newPartition);
             }

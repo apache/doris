@@ -421,8 +421,8 @@ public class SelectStmt extends QueryStmt {
                 // Analyze the resultExpr before generating a label to ensure enforcement
                 // of expr child and depth limits (toColumn() label may call toSql()).
                 item.getExpr().analyze(analyzer);
-                if (!(item.getExpr() instanceof CaseExpr) &&
-                        item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                if (!(item.getExpr() instanceof CaseExpr)
+                        && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                     throw new AnalysisException("Subquery is not supported in the select list.");
                 }
                 Expr expr = rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer);
@@ -998,8 +998,7 @@ public class SelectStmt extends QueryStmt {
         // disallow '*' and explicit GROUP BY (we can't group by '*', and if you need to
         // name all star-expanded cols in the group by clause you might as well do it
         // in the select list)
-        if (groupByClause != null ||
-                TreeNode.contains(resultExprs, Expr.isAggregatePredicate())) {
+        if (groupByClause != null || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())) {
             for (SelectListItem item : selectList.getItems()) {
                 if (item.isStar()) {
                     throw new AnalysisException(
@@ -1047,13 +1046,6 @@ public class SelectStmt extends QueryStmt {
             }
             groupByClause.genGroupingExprs();
             if (groupingInfo != null) {
-                GroupByClause.GroupingType groupingType = groupByClause.getGroupingType();
-                if ((groupingType == GroupByClause.GroupingType.GROUPING_SETS && CollectionUtils
-                        .isNotEmpty(groupByClause.getGroupingSetList()))
-                        || groupingType == GroupByClause.GroupingType.CUBE
-                        || groupingType == GroupByClause.GroupingType.ROLLUP) {
-
-                }
                 groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             }
             substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
@@ -1116,8 +1108,8 @@ public class SelectStmt extends QueryStmt {
         if (sortInfo != null) {
             sortInfo.substituteOrderingExprs(combinedSmap, analyzer);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("post-agg orderingExprs: " +
-                        Expr.debugString(sortInfo.getOrderingExprs()));
+                LOG.debug("post-agg orderingExprs: "
+                        + Expr.debugString(sortInfo.getOrderingExprs()));
             }
         }
 
@@ -1125,16 +1117,16 @@ public class SelectStmt extends QueryStmt {
         for (int i = 0; i < selectList.getItems().size(); ++i) {
             if (!resultExprs.get(i).isBoundByTupleIds(groupingByTupleIds)) {
                 throw new AnalysisException(
-                        "select list expression not produced by aggregation output " + "(missing from " +
-                                "GROUP BY clause?): " + selectList.getItems().get(i).getExpr().toSql());
+                        "select list expression not produced by aggregation output " + "(missing from "
+                                + "GROUP BY clause?): " + selectList.getItems().get(i).getExpr().toSql());
             }
         }
         if (orderByElements != null) {
             for (int i = 0; i < orderByElements.size(); ++i) {
                 if (!sortInfo.getOrderingExprs().get(i).isBoundByTupleIds(groupingByTupleIds)) {
                     throw new AnalysisException(
-                            "ORDER BY expression not produced by aggregation output " + "(missing from " +
-                                    "GROUP BY clause?): " + orderByElements.get(i).getExpr().toSql());
+                            "ORDER BY expression not produced by aggregation output " + "(missing from "
+                                    + "GROUP BY clause?): " + orderByElements.get(i).getExpr().toSql());
                 }
 
                 if (sortInfo.getOrderingExprs().get(i).type.isObjectStored()) {
@@ -1145,8 +1137,8 @@ public class SelectStmt extends QueryStmt {
         if (havingPred != null) {
             if (!havingPred.isBoundByTupleIds(groupingByTupleIds)) {
                 throw new AnalysisException(
-                        "HAVING clause not produced by aggregation output " + "(missing from GROUP BY " +
-                                "clause?): " + havingClause.toSql());
+                        "HAVING clause not produced by aggregation output " + "(missing from GROUP BY "
+                                + "clause?): " + havingClause.toSql());
             }
         }
     }
@@ -1285,16 +1277,6 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         ExprSubstitutionMap rewriteSmap = new ExprSubstitutionMap();
-        for (Expr expr : analyticExprs) {
-            AnalyticExpr toRewrite = (AnalyticExpr) expr;
-            Expr newExpr = AnalyticExpr.rewrite(toRewrite);
-            if (newExpr != null) {
-                newExpr.analyze(analyzer);
-                if (!rewriteSmap.containsMappingFor(toRewrite)) {
-                    rewriteSmap.put(toRewrite, newExpr);
-                }
-            }
-        }
         if (rewriteSmap.size() > 0) {
             // Substitute the exprs with their rewritten versions.
             ArrayList<Expr> updatedAnalyticExprs =
@@ -1322,8 +1304,8 @@ public class SelectStmt extends QueryStmt {
         if (sortInfo != null) {
             sortInfo.substituteOrderingExprs(smap, analyzer);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("post-analytic orderingExprs: " +
-                        Expr.debugString(sortInfo.getOrderingExprs()));
+                LOG.debug("post-analytic orderingExprs: "
+                        + Expr.debugString(sortInfo.getOrderingExprs()));
             }
         }
     }

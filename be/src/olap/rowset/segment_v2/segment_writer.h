@@ -80,7 +80,7 @@ public:
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
     static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                 const TabletColumn& column);
+                                 const TabletColumn& column, const TabletSchema* tablet_schema);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);

@@ -98,7 +98,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -641,8 +640,8 @@ public class Coordinator {
                         switch (code) {
                             case TIMEOUT:
                                 throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
-                                        + pair.first.backend.getId() + " fragment: " +
-                                        DebugUtil.printId(pair.first.rpcParams.params.fragment_instance_id));
+                                        + pair.first.backend.getId() + " fragment: "
+                                        + DebugUtil.printId(pair.first.rpcParams.params.fragment_instance_id));
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");
@@ -925,8 +924,8 @@ public class Coordinator {
                     && sink.getOutputPartition().isBucketShuffleHashPartition()) {
                 // the destFragment must be bucket shuffle
                 Preconditions.checkState(bucketShuffleJoinController.
-                        isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is" +
-                        "Bucket Shuffle Partition, The destFragment must have bucket shuffle join node ");
+                        isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is"
+                        + "Bucket Shuffle Partition, The destFragment must have bucket shuffle join node ");
 
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
@@ -1386,7 +1385,7 @@ public class Coordinator {
         HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
-            // the parameters of getScanRangeLocations may ignore, It dosn't take effect
+            // the parameters of getScanRangeLocations may ignore, It doesn't take effect
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(0);
             if (locations == null) {
                 // only analysis olap scan node
@@ -1796,7 +1795,7 @@ public class Coordinator {
             if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
                 // The bucket shuffle join only hit when the partition is one. so the totalTabletsNum is all tablet of
                 // one hit partition. can be the right bucket num in bucket shuffle join
-                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), (int)scanNode.getTotalTabletsNum());
+                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), (int) scanNode.getTotalTabletsNum());
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashedMap());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
                 fragmentIdToBuckendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
@@ -2253,7 +2252,7 @@ public class Coordinator {
         lock();
         try {
             for (int index = 0; index < fragments.size(); index++) {
-                for (BackendExecState backendExecState: backendExecStates) {
+                for (BackendExecState backendExecState : backendExecStates) {
                     if (fragments.get(index).getFragmentId() != backendExecState.fragmentId) {
                         continue;
                     }
@@ -2279,7 +2278,7 @@ public class Coordinator {
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
         public TUniqueId targetFragmentInstanceId;
-        ;
+
         public TNetworkAddress targetFragmentInstanceAddr;
 
         public FRuntimeFilterTargetParam(TUniqueId id, TNetworkAddress host) {

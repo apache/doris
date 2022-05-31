@@ -16,10 +16,9 @@
 // under the License.
 
 #include "udf/udf.h"
-#include "vec/data_types/get_least_supertype.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
-#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 class FunctionCoalesce : public IFunction {

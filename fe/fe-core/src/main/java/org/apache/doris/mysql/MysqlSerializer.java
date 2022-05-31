@@ -259,12 +259,6 @@ public class MysqlSerializer {
                     return 19;
                 }
             }
-            // todo:It needs to be obtained according to the field length set during the actual creation,
-            // todo:which is not supported for the time being.default is 255
-//            case DECIMAL:
-//            case DECIMALV2:
-//            case CHAR:
-//            case VARCHAR:
             default:
                 return 255;
         }

@@ -114,7 +114,7 @@ public class MVColumnItem {
             result.setIsKey(isKey);
             // If the mv column type is inconsistent with the base column type, the daily test will core.
             // So, I comment this line firstly.
-//            result.setType(type);
+            // result.setType(type);
             result.setAggregationType(aggregationType, isAggregationTypeImplicit);
             return result;
         }

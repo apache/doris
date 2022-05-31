@@ -1,0 +1,51 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <arrow/adapters/orc/adapter.h>
+#include <arrow/api.h>
+#include <arrow/buffer.h>
+#include <stdint.h>
+
+#include <map>
+#include <string>
+
+#include "common/status.h"
+#include "exec/arrow/arrow_reader.h"
+namespace doris {
+
+// Reader of orc file
+class ORCReaderWrap final : public ArrowReaderWrap {
+public:
+    ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
+    ~ORCReaderWrap() override = default;
+
+    Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                       const std::string& timezone) override;
+    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
+
+private:
+    Status _next_stripe_reader(bool* eof);
+
+private:
+    // orc file reader object
+    std::unique_ptr<arrow::adapters::orc::ORCFileReader> _reader;
+    bool _cur_file_eof; // is read over?
+};
+
+} // namespace doris

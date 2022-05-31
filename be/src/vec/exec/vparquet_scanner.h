@@ -18,7 +18,7 @@
 #pragma once
 
 #include <arrow/array.h>
-#include <exec/parquet_scanner.h>
+#include <vec/exec/varrow_scanner.h>
 
 #include <map>
 #include <memory>
@@ -36,7 +36,7 @@
 namespace doris::vectorized {
 
 // VParquet scanner convert the data read from Parquet to doris's columns.
-class VParquetScanner : public ParquetScanner {
+class VParquetScanner final : public VArrowScanner {
 public:
     VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                     const TBrokerScanRangeParams& params,
@@ -44,23 +44,11 @@ public:
                     const std::vector<TNetworkAddress>& broker_addresses,
                     const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~VParquetScanner() override;
+    ~VParquetScanner() override = default;
 
-    // Open this scanner, will initialize information need to
-    Status open() override;
-
-    Status get_next(Block* block, bool* eof) override;
-
-private:
-    Status _next_arrow_batch();
-    Status _init_arrow_batch_if_necessary();
-    Status _init_src_block() override;
-    Status _append_batch_to_src_block(Block* block);
-    Status _cast_src_block(Block* block);
-
-private:
-    std::shared_ptr<arrow::RecordBatch> _batch;
-    size_t _arrow_batch_cur_idx;
+protected:
+    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+                                       int32_t num_of_columns_from_file) override;
 };
 
 } // namespace doris::vectorized

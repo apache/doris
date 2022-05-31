@@ -27,7 +27,8 @@ namespace doris {
 //
 // Inputs iterators' ownership is taken by created merge iterator. And client
 // should delete returned iterator after usage.
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, int sequence_id_idx);
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, int sequence_id_idx,
+                                    bool is_unique);
 
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.

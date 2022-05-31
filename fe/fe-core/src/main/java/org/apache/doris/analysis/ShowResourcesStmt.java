@@ -53,7 +53,7 @@ public class ShowResourcesStmt extends ShowStmt {
 
     private ArrayList<OrderByPair> orderByPairs;
 
-   public ShowResourcesStmt() {
+    public ShowResourcesStmt() {
     }
 
     public ShowResourcesStmt(Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {

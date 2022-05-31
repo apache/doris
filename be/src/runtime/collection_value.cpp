@@ -17,8 +17,13 @@
 
 #include "runtime/collection_value.h"
 
+#include <functional>
+
+#include "common/object_pool.h"
 #include "common/utils.h"
+#include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
+#include "runtime/string_value.h"
 #include "runtime/types.h"
 #include "util/mem_util.hpp"
 

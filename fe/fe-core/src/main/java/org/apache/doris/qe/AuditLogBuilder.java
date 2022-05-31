@@ -77,19 +77,19 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
     @Override
     public void exec(AuditEvent event) {
         try {
-           switch (event.type) {
-               case AFTER_QUERY:
-                   auditQueryLog(event);
-                   break;
-               case LOAD_SUCCEED:
-                   auditLoadLog(event);
-                   break;
-               case STREAM_LOAD_FINISH:
-                   auditStreamLoadLog(event);
-                   break;
-               default:
-                   break;
-           }
+            switch (event.type) {
+                case AFTER_QUERY:
+                    auditQueryLog(event);
+                    break;
+                case LOAD_SUCCEED:
+                    auditLoadLog(event);
+                    break;
+                case STREAM_LOAD_FINISH:
+                    auditStreamLoadLog(event);
+                    break;
+                default:
+                    break;
+            }
         } catch (Exception e) {
             LOG.debug("failed to process audit event", e);
         }

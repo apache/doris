@@ -246,8 +246,8 @@ public class MaterializedViewHandler extends AlterHandler {
                     Map<String, String> properties = addRollupClause.getProperties();
                     if (properties == null || !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)
                             || !properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
-                        throw new DdlException("Table[" + olapTable.getName() + "] can not " +
-                                "add segment v2 rollup index without setting storage format to v2.");
+                        throw new DdlException("Table[" + olapTable.getName() + "] can not "
+                                + "add segment v2 rollup index without setting storage format to v2.");
                     }
                     rollupIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
                     changeStorageFormat = true;
@@ -461,8 +461,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
                 if (baseAggregationType != mvAggregationType) {
                     throw new DdlException(
-                            "The aggregation type of column[" + mvColumnName + "] must be same as the aggregate " +
-                                    "type of base column in aggregate table");
+                            "The aggregation type of column[" + mvColumnName + "] must be same as the aggregate "
+                                    + "type of base column in aggregate table");
                 }
                 if (baseAggregationType != null && baseAggregationType.isReplaceFamily() && olapTable
                         .getKeysNum() != numOfKeys) {

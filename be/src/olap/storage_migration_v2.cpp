@@ -169,6 +169,7 @@ Status StorageMigrationV2Handler::_do_process_storage_migration_v2(
         // for schema change, seek_columns is the same to return_columns
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+        reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
 
         do {
             // get history data to be converted and it will check if there is hold in base tablet

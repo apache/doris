@@ -119,8 +119,8 @@ public class MaterializedViewSelector {
             return null;
         }
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
-        LOG.debug("The best materialized view is {} for scan node {} in query {}, " +
-                        "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
+        LOG.debug("The best materialized view is {} for scan node {} in query {}, "
+                        + "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
                 bestIndexId, scanNode.getId(), selectStmt.toSql(), isPreAggregation, reasonOfDisable,
                 (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);

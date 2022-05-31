@@ -93,7 +93,7 @@ public class DateLiteralTest {
     }
 
     @Test
-    public void testParseDateTimeToHourORMinute() throws Exception{
+    public void testParseDateTimeToHourORMinute() throws Exception {
         String s = "2020-12-13 12:13:14";
         Type type = Type.DATETIME;
         DateLiteral literal = new DateLiteral(s, type);
@@ -130,16 +130,16 @@ public class DateLiteralTest {
         boolean hasException = false;
         try {
             DateLiteral dateLiteral = new DateLiteral();
-            dateLiteral.fromDateFormatStr("%Y%m%d","19971007", false);
+            dateLiteral.fromDateFormatStr("%Y%m%d", "19971007", false);
             Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
 
-            dateLiteral.fromDateFormatStr("%Y%m%d","19970007", false);
+            dateLiteral.fromDateFormatStr("%Y%m%d", "19970007", false);
             Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
 
-            dateLiteral.fromDateFormatStr("%Y%m%d","19971000", false);
+            dateLiteral.fromDateFormatStr("%Y%m%d", "19971000", false);
             Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
 
-            dateLiteral.fromDateFormatStr("%Y%m%d","20000229", false);
+            dateLiteral.fromDateFormatStr("%Y%m%d", "20000229", false);
             Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
 
         } catch (InvalidFormatException e) {
@@ -154,7 +154,7 @@ public class DateLiteralTest {
         boolean hasException = false;
         try {
             DateLiteral dateLiteral = new DateLiteral();
-            dateLiteral.fromDateFormatStr("%Y%m%d%H%i%s%f","20201209123456123456", false);
+            dateLiteral.fromDateFormatStr("%Y%m%d%H%i%s%f", "20201209123456123456", false);
             Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkRange"));
 
         } catch (InvalidFormatException e) {

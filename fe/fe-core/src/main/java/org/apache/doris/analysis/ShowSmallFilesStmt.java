@@ -48,7 +48,9 @@ public class ShowSmallFilesStmt extends ShowStmt {
         this.dbName = dbName;
     }
 
-    public String getDbName() { return dbName; }
+    public String getDbName() {
+        return dbName;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {

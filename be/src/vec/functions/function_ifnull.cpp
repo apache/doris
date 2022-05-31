@@ -23,5 +23,6 @@
 namespace doris::vectorized {
 void register_function_function_ifnull(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIfNull>();
+    factory.register_alias(FunctionIfNull::name, "nvl");
 }
 } // namespace doris::vectorized

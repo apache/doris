@@ -142,21 +142,21 @@ public class AlterJobV2Test {
     @Test
     public void testDupTableSchemaChange() throws Exception {
 
-        createTable("CREATE TABLE test.dup_table (\n" +
-                "  k1 bigint(20) NULL ,\n" +
-                "  k2 bigint(20) NULL ,\n" +
-                "  k3 bigint(20) NULL,\n" +
-                "  v1 bigint(20) NULL ,\n" +
-                "  v2 varchar(1) NULL,\n" +
-                "  v3 varchar(1) NULL \n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(k1, k2, k3)\n" +
-                "PARTITION BY RANGE(k1, v1)\n" +
-                "(PARTITION p1 VALUES LESS THAN (\"10\", \"10\"))\n" +
-                "DISTRIBUTED BY HASH(v1,k2) BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.dup_table (\n"
+                + "  k1 bigint(20) NULL ,\n"
+                + "  k2 bigint(20) NULL ,\n"
+                + "  k3 bigint(20) NULL,\n"
+                + "  v1 bigint(20) NULL ,\n"
+                + "  v2 varchar(1) NULL,\n"
+                + "  v3 varchar(1) NULL \n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1, k2, k3)\n"
+                + "PARTITION BY RANGE(k1, v1)\n"
+                + "(PARTITION p1 VALUES LESS THAN (\"10\", \"10\"))\n"
+                + "DISTRIBUTED BY HASH(v1,k2) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
 
 
         alterTable("alter table test.dup_table add rollup r1(v1,v2,k2,k1);");
@@ -167,33 +167,33 @@ public class AlterJobV2Test {
 
     @Test
     public void testCreateMVForListPartitionTable() throws Exception {
-        createTable("CREATE TABLE test.list_tbl (\n" +
-                "city VARCHAR(20) NOT NULL,\n" +
-                "user_id BIGINT NOT NULL,\n" +
-                "date DATE NOT NULL,\n" +
-                "age SMALLINT NOT NULL,\n" +
-                "sex TINYINT NOT NULL,\n" +
-                "cost BIGINT NOT NULL DEFAULT \"0\"\n" +
-                ") DUPLICATE KEY(city) PARTITION BY LIST(city) (\n" +
-                "PARTITION p_bj\n" +
-                "VALUES IN (\"beijing\"),\n" +
-                "PARTITION p_gz\n" +
-                "VALUES IN (\"guangzhou\"),\n" +
-                "PARTITION p_sz\n" +
-                "VALUES IN (\"shenzhen\")\n" +
-                ") DISTRIBUTED BY HASH(date) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\");");
+        createTable("CREATE TABLE test.list_tbl (\n"
+                + "city VARCHAR(20) NOT NULL,\n"
+                + "user_id BIGINT NOT NULL,\n"
+                + "date DATE NOT NULL,\n"
+                + "age SMALLINT NOT NULL,\n"
+                + "sex TINYINT NOT NULL,\n"
+                + "cost BIGINT NOT NULL DEFAULT \"0\"\n"
+                + ") DUPLICATE KEY(city) PARTITION BY LIST(city) (\n"
+                + "PARTITION p_bj\n"
+                + "VALUES IN (\"beijing\"),\n"
+                + "PARTITION p_gz\n"
+                + "VALUES IN (\"guangzhou\"),\n"
+                + "PARTITION p_sz\n"
+                + "VALUES IN (\"shenzhen\")\n"
+                + ") DISTRIBUTED BY HASH(date) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\");");
 
-        createMaterializedView("create materialized view list_view as\n" +
-                "select city,\n" +
-                "user_id,\n" +
-                "date,\n" +
-                "sum(cost)\n" +
-                "from\n" +
-                "test.list_tbl\n" +
-                "group by\n" +
-                "city,\n" +
-                "user_id,\n" +
-                "date;");
+        createMaterializedView("create materialized view list_view as\n"
+                + "select city,\n"
+                + "user_id,\n"
+                + "date,\n"
+                + "sum(cost)\n"
+                + "from\n"
+                + "test.list_tbl\n"
+                + "group by\n"
+                + "city,\n"
+                + "user_id,\n"
+                + "date;");
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
     }

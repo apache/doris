@@ -311,9 +311,16 @@ build_protobuf() {
     CXXFLAGS="-fPIC -O2 -I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create" \
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
-    cd src
-    sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
-    cd -
+
+    # ATTN: If protoc is built fully statically with clang-14 on ubuntu,
+    #       it may core dump when parse some protobuf source files.
+    #       The root cause remains unknown, but it is possibly related glibc...
+    #       And, we don't actually need to be that static,
+    #       dyn-linking to glibc and etc. is OK
+    # cd src
+    # sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
+    # cd -
+
     make -j $PARALLEL && make install
 }
 
@@ -360,9 +367,12 @@ build_gtest() {
 # rapidjson
 build_rapidjson() {
     check_if_source_exist $RAPIDJSON_SOURCE
-
-    rm -rf $TP_INSTALL_DIR/rapidjson
-    cp -r $TP_SOURCE_DIR/$RAPIDJSON_SOURCE/include/rapidjson $TP_INCLUDE_DIR/
+    cd $TP_SOURCE_DIR/$RAPIDJSON_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    rm -rf CMakeCache.txt CMakeFiles/
+    ${CMAKE_CMD} ../ -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DRAPIDJSON_BUILD_DOC=OFF \
+    -DRAPIDJSON_BUILD_EXAMPLES=OFF -DRAPIDJSON_BUILD_TESTS=OFF
+    make -j $PARALLEL && make install
 }
 
 # snappy
@@ -373,7 +383,7 @@ build_snappy() {
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CFLAGS="-O3" CXXFLAGS="-O3" ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=On \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
     -DSNAPPY_BUILD_TESTS=0 ../
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
@@ -522,7 +532,7 @@ build_mysql() {
     -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT=$TP_INSTALL_DIR \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
     -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DENABLE_DTRACE=0
-    ${BUILD_SYSTEM} -v -j $PARALLEL mysqlclient
+    ${BUILD_SYSTEM} -j $PARALLEL mysqlclient
 
     # copy headers manually
     rm -rf ../../../installed/include/mysql/
@@ -643,20 +653,23 @@ build_arrow() {
     export ARROW_SNAPPY_URL=${TP_SOURCE_DIR}/${SNAPPY_NAME}
     export ARROW_ZLIB_URL=${TP_SOURCE_DIR}/${ZLIB_NAME}
     export ARROW_XSIMD_URL=${TP_SOURCE_DIR}/${XSIMD_NAME}
+    export ARROW_ORC_URL=${TP_SOURCE_DIR}/${ORC_NAME}
 
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
     -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
     -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
-    -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=OFF \
+    -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF \
     -DARROW_GFLAGS_USE_SHARED=OFF \
     -Dgflags_ROOT=$TP_INSTALL_DIR \
     -DGLOG_ROOT=$TP_INSTALL_DIR \
+    -DRE2_ROOT=$TP_INSTALL_DIR \
     -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DZLIB_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DRapidJSON_ROOT=$TP_INSTALL_DIR \
+    -DORC_ROOT=$TP_INSTALL_DIR \
     -DBrotli_SOURCE=BUNDLED \
     -DLZ4_LIB=$TP_INSTALL_DIR/lib/liblz4.a -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DLz4_SOURCE=SYSTEM \
@@ -664,7 +677,6 @@ build_arrow() {
     -Dzstd_SOURCE=SYSTEM \
     -DSnappy_LIB=$TP_INSTALL_DIR/lib/libsnappy.a -DSnappy_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DSnappy_SOURCE=SYSTEM \
-    -DBoost_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DThrift_ROOT=$TP_INSTALL_DIR ..
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
@@ -863,6 +875,10 @@ build_aws_sdk() {
 
 # lzma
 build_lzma() {
+    if [ ! -x "$(command -v autopoint)" ]; then
+        echo "autopoint is required by $0, install it first"
+        return -1
+    fi
     check_if_source_exist $LZMA_SOURCE
     cd $TP_SOURCE_DIR/$LZMA_SOURCE
     export ACLOCAL_PATH=/usr/share/aclocal
@@ -874,6 +890,10 @@ build_lzma() {
 
 # xml2
 build_xml2() {
+    if [ ! -x "$(command -v pkg-config)" ]; then
+        echo "pkg-config is required by $0, install it first"
+        return -1
+    fi
     check_if_source_exist $XML2_SOURCE
     cd $TP_SOURCE_DIR/$XML2_SOURCE
     export ACLOCAL_PATH=/usr/share/aclocal
@@ -1011,6 +1031,7 @@ build_rocksdb
 build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
+build_orc
 build_arrow
 build_s2
 build_bitshuffle
@@ -1019,7 +1040,6 @@ build_fmt
 build_parallel_hashmap
 build_pdqsort
 build_libdivide
-build_orc
 build_cctz
 build_tsan_header
 build_mysql

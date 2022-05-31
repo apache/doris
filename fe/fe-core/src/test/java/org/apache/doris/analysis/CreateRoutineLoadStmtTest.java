@@ -98,9 +98,6 @@ public class CreateRoutineLoadStmtTest {
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
         String kafkaPartitionString = "1,2,3";
-        List<String> partitionNameString = Lists.newArrayList();
-        partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
@@ -153,7 +150,6 @@ public class CreateRoutineLoadStmtTest {
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
-        TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
         loadPropertyList.add(columnSeparator);
         loadPropertyList.add(partitionNames);
@@ -178,7 +174,7 @@ public class CreateRoutineLoadStmtTest {
             }
         };
 
-        new Expectations(){
+        new Expectations() {
             {
                 ctx.getSessionVariable();
                 result = sessionVariable;

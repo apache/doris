@@ -50,7 +50,7 @@ public class ReplicaPersistInfoTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
-        ReplicaPersistInfo rInfo2 = ReplicaPersistInfo.read(dis);
+        ReplicaPersistInfo rInfo2 = ReplicaPersistInfo.read(dis); // CHECKSTYLE IGNORE THIS LINE
 
         // 3. delete files
         dis.close();

@@ -18,6 +18,7 @@
 #include "exprs/hll_function.h"
 
 #include "exprs/anyval_util.h"
+#include "olap/hll.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 

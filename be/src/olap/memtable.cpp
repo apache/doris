@@ -114,7 +114,7 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
                                *_pblock, -1);
 }
 
-void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num_rows) {
+void MemTable::insert(const vectorized::Block* block, const std::vector<int>& row_idxs) {
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto cloneBlock = block->clone_without_columns();
@@ -125,8 +125,9 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
             _init_agg_functions(block);
         }
     }
+    auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    _input_mutable_block.add_rows(block, row_pos, num_rows);
+    _input_mutable_block.add_rows(block, row_idxs.data(), row_idxs.data() + num_rows);
     size_t input_size = block->allocated_bytes() * num_rows / block->rows();
     _mem_usage += input_size;
     _mem_tracker->consume(input_size);
@@ -245,11 +246,15 @@ template <bool is_final>
 void MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
-    // TODO: should try to insert data by column, not by row. to opt the code
     if (_keys_type == KeysType::DUP_KEYS) {
+        std::vector<int> row_pos_vec;
+        DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
+        row_pos_vec.reserve(in_block.rows());
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            _output_mutable_block.add_row(&in_block, it.key()->_row_pos);
+            row_pos_vec.emplace_back(it.key()->_row_pos);
         }
+        _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
+                                       row_pos_vec.data() + in_block.rows());
     } else {
         size_t idx = 0;
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
@@ -282,7 +287,7 @@ void MemTable::_collect_vskiplist_results() {
             _input_mutable_block.swap(_output_mutable_block);
             //TODO(weixang):opt here.
             std::unique_ptr<vectorized::Block> empty_input_block =
-                    std::move(in_block.create_same_struct_block(0));
+                    in_block.create_same_struct_block(0);
             _output_mutable_block =
                     vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
             _output_mutable_block.clear_column_data();

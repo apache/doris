@@ -34,16 +34,15 @@ import org.apache.doris.thrift.TResourceInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 
 public class RoutineLoadSchedulerTest {
@@ -77,7 +76,7 @@ public class RoutineLoadSchedulerTest {
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", clusterName, 1L, 1L,
                 "xxx", "test", UserIdentity.ADMIN);
-        Deencapsulation.setField(kafkaRoutineLoadJob,"state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+        Deencapsulation.setField(kafkaRoutineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(kafkaRoutineLoadJob);
 
@@ -130,7 +129,7 @@ public class RoutineLoadSchedulerTest {
     public void functionTest(@Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
                              @Injectable Database database) throws DdlException, InterruptedException {
-        new Expectations(){
+        new Expectations() {
             {
                 connectContext.toResourceCtx();
                 minTimes = 0;
@@ -146,7 +145,7 @@ public class RoutineLoadSchedulerTest {
         List<Long> backendIds = new ArrayList<>();
         backendIds.add(1L);
 
-        new Expectations(){
+        new Expectations() {
             {
                 catalog.getRoutineLoadManager();
                 minTimes = 0;

@@ -1136,6 +1136,12 @@ Default: 20%
 
 Cache for storage page size
 
+### `storage_page_cache_shard_size`
+
+Default: 16
+
+Shard size of StoragePageCache, the value must be power of two. It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
+
 ### `index_page_cache_percentage`
 * Type: int32
 * Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]

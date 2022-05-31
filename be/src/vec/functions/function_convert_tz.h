@@ -20,7 +20,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/functions/simple_function_factory.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {

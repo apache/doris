@@ -94,21 +94,24 @@ Status VResultSink::send(RuntimeState* state, Block* block) {
 }
 
 Status VResultSink::close(RuntimeState* state, Status exec_status) {
-    if (_closed || _writer == nullptr || _sender == nullptr) {
+    if (_closed) {
         return Status::OK();
     }
 
     Status final_status = exec_status;
-    // close the writer
-    Status st = _writer->close();
-    if (!st.ok() && exec_status.ok()) {
-        // close file writer failed, should return this error to client
-        final_status = st;
+
+    if (_writer) {
+        // close the writer
+        Status st = _writer->close();
+        if (!st.ok() && exec_status.ok()) {
+            // close file writer failed, should return this error to client
+            final_status = st;
+        }
     }
 
     // close sender, this is normal path end
     if (_sender) {
-        _sender->update_num_written_rows(_writer->get_written_rows());
+        if (_writer) _sender->update_num_written_rows(_writer->get_written_rows());
         _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(

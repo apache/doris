@@ -136,7 +136,9 @@ public class InlineViewRef extends TableRef {
         baseTblSmap = other.baseTblSmap.clone();
     }
 
-    public List<String> getExplicitColLabels() { return explicitColLabels; }
+    public List<String> getExplicitColLabels() {
+        return explicitColLabels;
+    }
 
     public List<String> getColLabels() {
         if (explicitColLabels != null) {
@@ -148,12 +150,12 @@ public class InlineViewRef extends TableRef {
 
     @Override
     public void reset() {
-      super.reset();
-      queryStmt.reset();
-      inlineViewAnalyzer = null;
-      materializedTupleIds.clear();
-      sMap.clear();
-      baseTblSmap.clear();
+        super.reset();
+        queryStmt.reset();
+        inlineViewAnalyzer = null;
+        materializedTupleIds.clear();
+        sMap.clear();
+        baseTblSmap.clear();
     }
 
     @Override
@@ -378,19 +380,6 @@ public class InlineViewRef extends TableRef {
             return true;
         }
         return true;
-
-//        // Replace all SlotRefs in expr with NullLiterals, and wrap the result
-//        // into an IS NOT NULL predicate.
-//        Expr isNotNullLiteralPred = new IsNullPredicate(expr.clone(nullSMap), true);
-//        Preconditions.checkState(isNotNullLiteralPred.isConstant());
-//        // analyze to insert casts, etc.
-//        try {
-//            isNotNullLiteralPred.analyze(analyzer);
-//        } catch (AnalysisException e) {
-//            // this should never happen
-//            throw new InternalException("couldn't analyze predicate " + isNotNullLiteralPred.toSql(), e);
-//        }
-//        return FeSupport.EvalPredicate(isNotNullLiteralPred, analyzer.getQueryGlobals());
     }
 
     @Override

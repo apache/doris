@@ -228,10 +228,10 @@ public class BrokerFileGroupAggInfo implements Writable {
         int mapSize = in.readInt();
         // just for compatibility, the following read objects are useless
         for (int i = 0; i < mapSize; ++i) {
-            long id = in.readLong();
+            long id = in.readLong(); // CHECKSTYLE IGNORE THIS LINE
             int listSize = in.readInt();
             for (int j = 0; j < listSize; ++j) {
-                BrokerFileGroup fileGroup = BrokerFileGroup.read(in);
+                BrokerFileGroup fileGroup = BrokerFileGroup.read(in); // CHECKSTYLE IGNORE THIS LINE
             }
         }
     }

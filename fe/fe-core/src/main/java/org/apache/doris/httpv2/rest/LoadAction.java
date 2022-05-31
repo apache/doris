@@ -61,7 +61,7 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if(Config.disable_mini_load) {
+        if (Config.disable_mini_load) {
             ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
             return entity;
         } else {
@@ -96,7 +96,6 @@ public class LoadAction extends RestBaseController {
         try {
             String dbName = db;
             String tableName = table;
-            String urlStr = request.getRequestURI();
             // A 'Load' request must have 100-continue header
             if (request.getHeader(HttpHeaderNames.EXPECT.toString()) == null) {
                 return new RestBaseResult("There is no 100-continue header");

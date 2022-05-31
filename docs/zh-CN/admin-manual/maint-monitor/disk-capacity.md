@@ -132,7 +132,7 @@ capacity_min_left_bytes_flood_stage 默认 1GB。
   如果不手动执行`ADMIN CLEAN TRASH`，系统仍将会在几分钟至几十分钟内自动执行清理，这里分为两种情况：
 
   - 如果磁盘占用未达到 **危险水位(Flood Stage)** 的90%，则会清理过期trash文件和过期snapshot文件，此时会保留一些近期文件而不影响恢复数据。
-  - 如果磁盘占用已达到 **危险水位(Flood Stage)** 的90%，则会清理 **所有** trash文件和过期snapshot文件， **此时会影响从回收站恢复数据的操作** 。 自动执行的时间间隔可以通过配置项中的`max_garbage_sweep_interval`和`max_garbage_sweep_interval`更改。
+  - 如果磁盘占用已达到 **危险水位(Flood Stage)** 的90%，则会清理 **所有** trash文件和过期snapshot文件， **此时会影响从回收站恢复数据的操作** 。 自动执行的时间间隔可以通过配置项中的`max_garbage_sweep_interval`和`min_garbage_sweep_interval`更改。
 
   出现由于缺少trash文件而导致恢复失败的情况时，可能返回如下结果：
 
