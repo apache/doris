@@ -284,13 +284,16 @@ COMPARISON_PRED_COLUMN_EVALUATE_VEC(GreaterEqualPredicate, >=)
         }                                                                                      \
     }
 
-#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL2(BOOL_NAME, BOOL_OP, SHORT_OP)                       \
-    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(EqualPredicate, ==, BOOL_NAME, BOOL_OP, SHORT_OP)        \
-    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(NotEqualPredicate, !=, BOOL_NAME, BOOL_OP, SHORT_OP)     \
-    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(LessPredicate, <, BOOL_NAME, BOOL_OP, SHORT_OP)          \
-    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(LessEqualPredicate, <=, BOOL_NAME, BOOL_OP, SHORT_OP)    \
-    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(GreaterPredicate, >, BOOL_NAME, BOOL_OP, SHORT_OP)       \
-    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(GreaterEqualPredicate, >=, BOOL_NAME, BOOL_OP, SHORT_OP) \
+#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL2(BOOL_NAME, BOOL_OP, SHORT_OP)                 \
+    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(EqualPredicate, ==, BOOL_NAME, BOOL_OP, SHORT_OP)  \
+    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(NotEqualPredicate, !=, BOOL_NAME, BOOL_OP,         \
+                                               SHORT_OP)                                          \
+    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(LessPredicate, <, BOOL_NAME, BOOL_OP, SHORT_OP)    \
+    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(LessEqualPredicate, <=, BOOL_NAME, BOOL_OP,        \
+                                               SHORT_OP)                                          \
+    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(GreaterPredicate, >, BOOL_NAME, BOOL_OP, SHORT_OP) \
+    COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL(GreaterEqualPredicate, >=, BOOL_NAME, BOOL_OP,     \
+                                               SHORT_OP)
 
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL2(or, |, )
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL2(and, &, !)
@@ -360,13 +363,16 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_BOOL2(and, &, !)
         }                                                                                          \
     }
 
-#define COMPARISON_PRED_COLUMN_EVALUATE_BOOL2(BOOL_NAME, BOOL_OP, SHORT_OP)                \
-    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(EqualPredicate, ==, false, BOOL_NAME, BOOL_OP, SHORT_OP)    \
-    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(NotEqualPredicate, !=, false, BOOL_NAME, BOOL_OP, SHORT_OP) \
-    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(LessPredicate, <, true, BOOL_NAME, BOOL_OP, SHORT_OP)       \
-    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(LessEqualPredicate, <=, true, BOOL_NAME, BOOL_OP, SHORT_OP) \
-    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(GreaterPredicate, >, true, BOOL_NAME, BOOL_OP, SHORT_OP)    \
-    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(GreaterEqualPredicate, >=, true, BOOL_NAME, BOOL_OP, SHORT_OP)
+#define COMPARISON_PRED_COLUMN_EVALUATE_BOOL2(BOOL_NAME, BOOL_OP, SHORT_OP)                       \
+    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(EqualPredicate, ==, false, BOOL_NAME, BOOL_OP, SHORT_OP) \
+    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(NotEqualPredicate, !=, false, BOOL_NAME, BOOL_OP,        \
+                                         SHORT_OP)                                                \
+    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(LessPredicate, <, true, BOOL_NAME, BOOL_OP, SHORT_OP)    \
+    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(LessEqualPredicate, <=, true, BOOL_NAME, BOOL_OP,        \
+                                         SHORT_OP)                                                \
+    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(GreaterPredicate, >, true, BOOL_NAME, BOOL_OP, SHORT_OP) \
+    COMPARISON_PRED_COLUMN_EVALUATE_BOOL(GreaterEqualPredicate, >=, true, BOOL_NAME, BOOL_OP,     \
+                                         SHORT_OP)
 
 COMPARISON_PRED_COLUMN_EVALUATE_BOOL2(or, |, )
 COMPARISON_PRED_COLUMN_EVALUATE_BOOL2(and, &, !)
