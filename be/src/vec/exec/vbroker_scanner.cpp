@@ -20,11 +20,11 @@
 #include <fmt/format.h>
 
 #include <iostream>
-#include <sstream>
 
 #include "exec/exec_node.h"
 #include "exec/plain_text_line_reader.h"
 #include "exec/text_converter.h"
+#include "exec/text_converter.hpp"
 #include "exprs/expr_context.h"
 #include "util/utf8_check.h"
 
@@ -111,22 +111,10 @@ Status VBrokerScanner::_fill_dest_columns(const Slice& line,
             continue;
         }
 
-        RETURN_IF_ERROR(_write_text_column(value.data, value.size, src_slot_desc,
-                                           &columns[dest_index], _state));
+        _text_converter->write_string_column(src_slot_desc, &columns[dest_index], value.data,
+                                             value.size);
     }
 
-    return Status::OK();
-}
-
-Status VBrokerScanner::_write_text_column(char* value, int value_length, SlotDescriptor* slot,
-                                          vectorized::MutableColumnPtr* column_ptr,
-                                          RuntimeState* state) {
-    if (!_text_converter->write_column(slot, column_ptr, value, value_length, true, false)) {
-        std::stringstream ss;
-        ss << "Fail to convert text value:'" << value << "' to " << slot->type() << " on column:`"
-           << slot->col_name() + "`";
-        return Status::InternalError(ss.str());
-    }
     return Status::OK();
 }
 } // namespace doris::vectorized
