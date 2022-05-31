@@ -149,6 +149,10 @@ public:
 
     uint64_t data_id() const { return _iter->data_id(); }
 
+    bool need_skip() const { return _skip; }
+
+    void set_skip(bool skip) const { _skip = skip; }
+
 private:
     // Load next block into _block
     Status _load_next_block();
@@ -160,6 +164,7 @@ private:
     RowBlockV2 _block;
 
     bool _valid = false;
+    mutable bool _skip = false;
     size_t _index_in_block = -1;
 };
 
@@ -173,6 +178,7 @@ Status MergeIteratorContext::init(const StorageReadOptions& opts) {
 }
 
 Status MergeIteratorContext::advance() {
+    _skip = false;
     // NOTE: we increase _index_in_block directly to valid one check
     do {
         _index_in_block++;
@@ -206,10 +212,11 @@ Status MergeIteratorContext::_load_next_block() {
 class MergeIterator : public RowwiseIterator {
 public:
     // MergeIterator takes the ownership of input iterators
-    MergeIterator(std::vector<RowwiseIterator*> iters, int sequence_id_idx)
+    MergeIterator(std::vector<RowwiseIterator*> iters, int sequence_id_idx, bool is_unique)
             : _origin_iters(std::move(iters)),
               _sequence_id_idx(sequence_id_idx),
-              _merge_heap(MergeContextComparator(_sequence_id_idx)) {}
+              _is_unique(is_unique),
+              _merge_heap(MergeContextComparator(_sequence_id_idx, is_unique)) {}
 
     ~MergeIterator() override {
         while (!_merge_heap.empty()) {
@@ -230,11 +237,13 @@ private:
     std::vector<RowwiseIterator*> _origin_iters;
 
     int _sequence_id_idx;
+    bool _is_unique;
 
     std::unique_ptr<Schema> _schema;
 
     struct MergeContextComparator {
-        explicit MergeContextComparator(int idx) : sequence_id_idx(idx) {};
+        MergeContextComparator(int idx, bool is_unique)
+                : _sequence_id_idx(idx), _is_unique(is_unique) {};
 
         bool operator()(const MergeIteratorContext* lhs, const MergeIteratorContext* rhs) const {
             auto lhs_row = lhs->current_row();
@@ -244,22 +253,29 @@ private:
                 return cmp_res > 0;
             }
 
-            // Second: If sequence_id_idx != 0 means we need to compare sequence. sequence only use
+            auto res = 0;
+            // Second: If _sequence_id_idx != 0 means we need to compare sequence. sequence only use
             // in unique key. so keep reverse order of sequence id here
-            if (sequence_id_idx != -1) {
-                auto l_cell = lhs_row.cell(sequence_id_idx);
-                auto r_cell = rhs_row.cell(sequence_id_idx);
-                auto res = lhs_row.schema()->column(sequence_id_idx)->compare_cell(l_cell, r_cell);
-                if (res != 0) return res < 0;
+            if (_sequence_id_idx != -1) {
+                auto l_cell = lhs_row.cell(_sequence_id_idx);
+                auto r_cell = rhs_row.cell(_sequence_id_idx);
+                res = lhs_row.schema()->column(_sequence_id_idx)->compare_cell(l_cell, r_cell);
             }
+
             // if row cursors equal, compare segment id.
             // here we sort segment id in reverse order, because of the row order in AGG_KEYS
             // dose no matter, but in UNIQUE_KEYS table we only read the latest is one, so we
             // return the row in reverse order of segment id
-            return lhs->data_id() < rhs->data_id();
+            bool result = res == 0 ? lhs->data_id() < rhs->data_id() : res < 0;
+            if (_is_unique) {
+                result ? lhs->set_skip(true) : rhs->set_skip(true);
+            }
+
+            return result;
         }
 
-        int sequence_id_idx;
+        int _sequence_id_idx;
+        bool _is_unique;
     };
 
     using MergeHeap = std::priority_queue<MergeIteratorContext*, std::vector<MergeIteratorContext*>,
@@ -289,13 +305,15 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
 
 Status MergeIterator::next_batch(RowBlockV2* block) {
     size_t row_idx = 0;
-    for (; row_idx < block->capacity() && !_merge_heap.empty(); ++row_idx) {
+    for (; row_idx < block->capacity() && !_merge_heap.empty();) {
         auto ctx = _merge_heap.top();
         _merge_heap.pop();
 
-        RowBlockRow dst_row = block->row(row_idx);
-        // copy current row to block
-        copy_row(&dst_row, ctx->current_row(), block->pool());
+        if (!ctx->need_skip()) {
+            RowBlockRow dst_row = block->row(row_idx++);
+            // copy current row to block
+            copy_row(&dst_row, ctx->current_row(), block->pool());
+        }
 
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
@@ -369,11 +387,12 @@ Status UnionIterator::next_batch(RowBlockV2* block) {
     return Status::EndOfFile("End of UnionIterator");
 }
 
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, int sequence_id_idx) {
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, int sequence_id_idx,
+                                    bool is_unique) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new MergeIterator(std::move(inputs), sequence_id_idx);
+    return new MergeIterator(std::move(inputs), sequence_id_idx, is_unique);
 }
 
 RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs) {

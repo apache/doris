@@ -186,15 +186,24 @@ Status TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_poo
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
-        // skip the lower version rows;
-        auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-        if (LIKELY(res.precise_code() != OLAP_ERR_DATA_EOF)) {
-            if (UNLIKELY(!res.ok())) {
-                LOG(WARNING) << "next failed: " << res;
-                return res;
+        while (_next_key) {
+            // skip the lower version rows;
+            auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
+            if (LIKELY(res.precise_code() != OLAP_ERR_DATA_EOF)) {
+                if (UNLIKELY(!res.ok())) {
+                    LOG(WARNING) << "next failed: " << res;
+                    return res;
+                }
+
+                if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
+                    agg_finalize_row(_value_cids, row_cursor, mem_pool);
+                    break;
+                }
+                _merged_rows++;
+                cur_delete_flag = _next_delete_flag;
+            } else {
+                break;
             }
-            agg_finalize_row(_value_cids, row_cursor, mem_pool);
-            cur_delete_flag = _next_delete_flag;
         }
 
         // if reader needs to filter delete row and current delete_flag is true,
