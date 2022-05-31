@@ -57,7 +57,6 @@ public class ApplyRuleJob extends Job<Plan> {
             return;
         }
 
-        // TODO: need to find all plan reference tree that match this pattern
         GroupExpressionMatching<Plan> groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
