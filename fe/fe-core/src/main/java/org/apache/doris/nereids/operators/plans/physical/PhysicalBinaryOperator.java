@@ -56,6 +56,7 @@ public abstract class PhysicalBinaryOperator<
     @Override
     public PhysicalBinary toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalBinary(this, groupExpression, logicalProperties, new PlaceHolderPlan(), new PlaceHolderPlan());
+        return new PhysicalBinary(this, groupExpression, logicalProperties,
+                new PlaceHolderPlan(), new PlaceHolderPlan());
     }
 }
