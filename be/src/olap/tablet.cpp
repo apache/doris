@@ -873,26 +873,23 @@ void Tablet::calculate_cumulative_point() {
     set_cumulative_layer_point(ret_cumulative_point);
 }
 
-//find rowsets that rows less then "config::small_version_max_rows"
+//find rowsets that rows less then "config::small_compaction_max_rows"
 Status Tablet::pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets) {
     int max_series_num = 1000;
-    int max_rows = config::small_compaction_rowset_rows;
+    int max_rows = config::small_compaction_max_rows;
     if (max_rows <= 0) return Status::OK();
     std::vector<std::vector<RowsetSharedPtr>> samll_version_rowsets(max_series_num);
     int idx = 0;
     if (tablet_state() == TABLET_RUNNING) {
         for (auto& rs : _rs_version_map) {
             bool is_delete = version_for_delete_predicate(rs.first);
-            if (rs.first.first > cumulative_layer_point()) {
-                // find samll rowset
-                if (!is_delete && rs.first.first > 0) {
-                    if (rs.second->num_rows() < max_rows) {
-                        samll_version_rowsets[idx].push_back(rs.second);
-                    } else {
-                        idx++;
-                        if (idx > max_series_num) {
-                            break;
-                        }
+            if (!is_delete && rs.first.first > 0 && rs.first.first > cumulative_layer_point()) {
+                if (rs.second->num_rows() < max_rows) {
+                    samll_version_rowsets[idx].push_back(rs.second);
+                } else {
+                    idx++;
+                    if (idx > max_series_num) {
+                        break;
                     }
                 }
             }
