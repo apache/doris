@@ -1456,6 +1456,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         // for schema change, seek_columns is the same to return_columns
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+        reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
 
         do {
             // get history data to be converted and it will check if there is hold in base tablet
@@ -1669,6 +1670,7 @@ Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
     reader_context.return_columns = &return_columns;
     reader_context.seek_columns = &return_columns;
     reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+    reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
