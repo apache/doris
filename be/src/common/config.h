@@ -690,17 +690,21 @@ CONF_mInt32(segment_cache_capacity, "1000000");
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
 
+// delete in v1.2
 // Set to true to disable the minidump feature.
 CONF_Bool(disable_minidump, "false");
 
+// delete in v1.2
 // The dir to save minidump file.
 // Make sure that the user who run Doris has permission to create and visit this dir,
 // So Doris will fail to start.
 CONF_String(minidump_dir, "${DORIS_HOME}/minidump");
 
+// delete in v1.2
 // The max minidump file size in MB.
 CONF_Int32(max_minidump_file_size_mb, "200");
 
+// delete in v1.2
 // The max number of minidump file.
 // Doris will only keep latest 10 minidump files by default.
 CONF_Int32(max_minidump_file_number, "10");

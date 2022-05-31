@@ -227,7 +227,6 @@ set(RUNTIME_TEST_FILES
     # runtime/buffered_block_mgr2_test.cpp
     # runtime/buffered_tuple_stream2_test.cpp
     # runtime/export_task_mgr_test.cpp
-    # runtime/minidump_test.cpp
     runtime/mem_pool_test.cpp
     runtime/string_buffer_test.cpp
     runtime/decimalv2_value_test.cpp
