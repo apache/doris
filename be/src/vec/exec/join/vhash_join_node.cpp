@@ -999,6 +999,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(_hash_table_build(state));
 }
 
