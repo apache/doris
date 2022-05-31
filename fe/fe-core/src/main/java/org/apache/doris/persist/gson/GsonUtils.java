@@ -135,8 +135,8 @@ public class GsonUtils {
 
     // runtime adapter for class "Resource"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory
-        .of(Policy.class, "clazz")
-        .registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName());
+            .of(Policy.class, "clazz")
+            .registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.

@@ -26,21 +26,20 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
+
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
+
+import lombok.Data;
 
 /**
  * Save policy for filtering data.
