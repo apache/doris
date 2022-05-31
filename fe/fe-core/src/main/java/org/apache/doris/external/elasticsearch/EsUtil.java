@@ -17,13 +17,27 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
+import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.commons.lang3.StringUtils;
 import org.json.simple.JSONObject;
@@ -209,5 +223,107 @@ public class EsUtil {
         if (StringUtils.isNotEmpty(docValueField)) {
             searchContext.docValueFieldsContext().put(colName, docValueField);
         }
+    }
+
+    public static QueryBuilder convertToEsDsl(Expr expr) {
+        if (expr == null) {
+            return null;
+        }
+        // CompoundPredicate
+        if (expr instanceof CompoundPredicate) {
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+            switch (compoundPredicate.getOp()) {
+                case AND: {
+                    QueryBuilder left = convertToEsDsl(compoundPredicate.getChild(0));
+                    QueryBuilder right = convertToEsDsl(compoundPredicate.getChild(1));
+                    if (left != null && right != null) {
+                        return QueryBuilders.boolQuery().must(left).must(right);
+                    }
+                    return null;
+                }
+                case OR: {
+                    QueryBuilder left = convertToEsDsl(compoundPredicate.getChild(0));
+                    QueryBuilder right = convertToEsDsl(compoundPredicate.getChild(1));
+                    if (left != null && right != null) {
+                        return QueryBuilders.boolQuery().should(left).should(right);
+                    }
+                    return null;
+                }
+                case NOT: {
+                    QueryBuilder child = convertToEsDsl(compoundPredicate.getChild(0));
+                    if (child != null) {
+                        return QueryBuilders.boolQuery().mustNot(child);
+                    }
+                    return null;
+                }
+                default:
+                    return null;
+            }
+        }
+        TExprOpcode opCode = expr.getOpcode();
+        String column = expr.getChild(0).getSrcSlotRef().getColumnName();
+        if (expr instanceof BinaryPredicate) {
+            Object value = extractDorisLiteral(expr.getChild(1));
+            switch (opCode) {
+                case EQ:
+                    return QueryBuilders.termQuery(column, value);
+                case NE:
+                    return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value));
+                case GE:
+                    return QueryBuilders.rangeQuery(column).gte(value);
+                case GT:
+                    return QueryBuilders.rangeQuery(column).gt(value);
+                case LE:
+                    return QueryBuilders.rangeQuery(column).lte(value);
+                case LT:
+                    return QueryBuilders.rangeQuery(column).lt(value);
+                case EQ_FOR_NULL:
+                    return QueryBuilders.termQuery(column, null);
+                default:
+                    return null;
+            }
+        }
+        if (expr instanceof IsNullPredicate) {
+            IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
+            if (isNullPredicate.isNotNull()) {
+                return QueryBuilders.boolQuery().must(QueryBuilders.existsQuery(column));
+            }
+            return QueryBuilders.existsQuery(column);
+        }
+        if (expr instanceof LikePredicate) {
+            LikePredicate likePredicate = (LikePredicate) expr;
+            if (likePredicate.getOp().equals(Operator.LIKE)) {
+                return QueryBuilders.wildcardQuery(column,
+                        likePredicate.getChild(1).getStringValue().replaceAll("%", "*"));
+            }
+        }
+        return null;
+    }
+
+    private static Object extractDorisLiteral(Expr expr) {
+        if (!expr.isLiteral()) {
+            return null;
+        }
+        if (expr instanceof BoolLiteral) {
+            BoolLiteral boolLiteral = (BoolLiteral) expr;
+            return boolLiteral.getValue();
+        } else if (expr instanceof DateLiteral) {
+            // todo
+            DateLiteral dateLiteral = (DateLiteral) expr;
+            return dateLiteral.getStringValue();
+        } else if (expr instanceof DecimalLiteral) {
+            DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
+            return decimalLiteral.getValue();
+        } else if (expr instanceof FloatLiteral) {
+            FloatLiteral floatLiteral = (FloatLiteral) expr;
+            return floatLiteral.getValue();
+        } else if (expr instanceof IntLiteral) {
+            IntLiteral intLiteral = (IntLiteral) expr;
+            return intLiteral.getValue();
+        } else if (expr instanceof StringLiteral) {
+            StringLiteral stringLiteral = (StringLiteral) expr;
+            return stringLiteral.getStringValue();
+        }
+        return null;
     }
 }

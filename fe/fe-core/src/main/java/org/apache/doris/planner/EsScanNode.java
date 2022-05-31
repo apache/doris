@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
@@ -30,6 +31,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.external.elasticsearch.QueryBuilders;
+import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
+import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -68,6 +73,7 @@ public class EsScanNode extends ScanNode {
     private EsTablePartitions esTablePartitions;
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
+    private QueryBuilder queryBuilder;
 
     boolean isFinalized = false;
 
@@ -114,7 +120,7 @@ public class EsScanNode extends ScanNode {
      * return whether can use the doc_values scan
      * 0 and 1 are returned to facilitate Doris BE processing
      *
-     * @param desc            the fields needs to read from ES
+     * @param desc the fields needs to read from ES
      * @param docValueContext the mapping for docvalues fields from origin field to doc_value fields
      * @return
      */
@@ -140,6 +146,7 @@ public class EsScanNode extends ScanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
+        buildQuery();
         if (EsTable.TRANSPORT_HTTP.equals(table.getTransport())) {
             msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
         } else {
@@ -181,8 +188,8 @@ public class EsScanNode extends ScanNode {
         // info is generated from es cluster state dynamically
         if (esTablePartitions == null) {
             if (table.getLastMetaDataSyncException() != null) {
-                throw new UserException("fetch es table [" + table.getName()
-                        + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
+                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: "
+                        + table.getLastMetaDataSyncException().getLocalizedMessage());
             }
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
@@ -202,10 +209,8 @@ public class EsScanNode extends ScanNode {
             }
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("partition prune finished, unpartitioned index [{}], "
-                            + "partitioned index [{}]",
-                    String.join(",", unPartitionedIndices),
-                    String.join(",", partitionedIndices));
+            LOG.debug("partition prune finished, unpartitioned index [{}], " + "partitioned index [{}]",
+                    String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         int size = backendList.size();
         int beIndex = random.nextInt(size);
@@ -217,8 +222,8 @@ public class EsScanNode extends ScanNode {
                 int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
-                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport())
-                            ? item.getHttpAddress() : item.getAddress());
+                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress()
+                            : item.getAddress());
                 }
 
                 Collections.shuffle(shardAllocations, random);
@@ -319,22 +324,40 @@ public class EsScanNode extends ScanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(
-                    getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
             // reserved for later using: LOCAL_PREDICATES is processed by Doris EsScanNode
             output.append(prefix).append("LOCAL_PREDICATES: ").append(" ").append("\n");
             // reserved for later using: REMOTE_PREDICATES is processed by remote ES Cluster
             output.append(prefix).append("REMOTE_PREDICATES: ").append(" ").append("\n");
-            // reserved for later using: translate predicates to ES queryDSL
-            output.append(prefix).append("ES_QUERY_DSL: ").append(" ").append("\n");
+            buildQuery();
+            output.append(prefix).append("ES_QUERY_DSL: ").append(queryBuilder.toJson()).append("\n");
         } else {
             output.append(prefix).append("ES_QUERY_DSL: ").append("{\"match_all\": {}}").append("\n");
         }
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
-        output.append(prefix)
-                .append(String.format("ES index/type: %s/%s", indexName, typeName))
-                .append("\n");
+        output.append(prefix).append(String.format("ES index/type: %s/%s", indexName, typeName)).append("\n");
         return output.toString();
+    }
+
+    private void buildQuery() {
+        if (conjuncts.isEmpty()) {
+            queryBuilder = QueryBuilders.matchAllQuery();
+        } else {
+            boolean hasFilter = false;
+            BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+            for (Expr expr : conjuncts) {
+                QueryBuilder queryBuilder = EsUtil.convertToEsDsl(expr);
+                if (queryBuilder != null) {
+                    hasFilter = true;
+                    boolQueryBuilder.must(queryBuilder);
+                }
+            }
+            if (!hasFilter) {
+                queryBuilder = QueryBuilders.matchAllQuery();
+            } else {
+                queryBuilder = boolQueryBuilder;
+            }
+        }
     }
 }

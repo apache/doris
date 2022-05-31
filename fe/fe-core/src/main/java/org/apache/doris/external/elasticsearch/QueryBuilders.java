@@ -18,8 +18,12 @@
 package org.apache.doris.external.elasticsearch;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -163,7 +167,11 @@ public final class QueryBuilders {
     /**
      * Base class to build various ES queries
      */
-    abstract static class QueryBuilder {
+    public abstract static class QueryBuilder {
+
+        private static final Logger LOG = LogManager.getLogger(QueryBuilder.class);
+
+        private final ObjectMapper mapper = new ObjectMapper();
 
         /**
          * Convert query to JSON format
@@ -172,19 +180,36 @@ public final class QueryBuilders {
          * @throws IOException if IO error occurred
          */
         abstract void toJson(JsonGenerator out) throws IOException;
+
+        /**
+         * Convert query to JSON format and catch error.
+         **/
+        public String toJson() {
+            StringWriter writer = new StringWriter();
+            try {
+                JsonGenerator gen = mapper.getFactory().createGenerator(writer);
+                this.toJson(gen);
+                gen.flush();
+                gen.close();
+            } catch (IOException e) {
+                LOG.warn("QueryBuilder toJson error");
+                return null;
+            }
+            return writer.toString();
+        }
     }
 
     /**
      * A Query that matches documents matching boolean combinations of other queries.
      */
-    static class BoolQueryBuilder extends QueryBuilder {
+    public static class BoolQueryBuilder extends QueryBuilder {
 
         private final List<QueryBuilder> mustClauses = new ArrayList<>();
         private final List<QueryBuilder> mustNotClauses = new ArrayList<>();
         private final List<QueryBuilder> filterClauses = new ArrayList<>();
         private final List<QueryBuilder> shouldClauses = new ArrayList<>();
 
-        BoolQueryBuilder must(QueryBuilder queryBuilder) {
+        public BoolQueryBuilder must(QueryBuilder queryBuilder) {
             Objects.requireNonNull(queryBuilder);
             mustClauses.add(queryBuilder);
             return this;
@@ -221,8 +246,7 @@ public final class QueryBuilders {
             out.writeEndObject();
         }
 
-        private void writeJsonArray(String field, List<QueryBuilder> clauses, JsonGenerator out)
-                throws IOException {
+        private void writeJsonArray(String field, List<QueryBuilder> clauses, JsonGenerator out) throws IOException {
             if (clauses.isEmpty()) {
                 return;
             }
