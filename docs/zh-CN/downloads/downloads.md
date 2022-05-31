@@ -26,7 +26,7 @@ under the License.
 
 # 下载
 
-## Doris 主代码
+## Apache Doris
 
 您可以通过以下链接下载对应版本的 Doris 源码进行编译和部署。
 
@@ -40,7 +40,7 @@ under the License.
 | 0.11.0 | 2019-11-29 | [Source](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz.sha512)) ||
 | 0.10.0 | 2019-07-02 | [Source](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.sha512)) ||
 | 0.9.0 | 2019-02-18 | [Source](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.sha512)) ||
- 
+
 
 ## Flink Doris Connector
 
