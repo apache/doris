@@ -72,7 +72,7 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete);
-    Status pick_samll_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets);
+    Status pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets);
 
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);

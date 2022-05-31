@@ -193,7 +193,7 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
-    Status submit_samll_compaction_task(TabletSharedPtr tablet);
+    Status submit_small_compaction_task(TabletSharedPtr tablet);
 
 private:
     // Instance should be inited from `static open()`

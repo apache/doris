@@ -48,7 +48,7 @@ public:
 
     // This is only for http CompactionAction
     Status compact();
-    Status samll_rowsets_compact();
+    Status small_rowsets_compact();
 
     virtual Status prepare_compact() = 0;
     Status execute_compact();

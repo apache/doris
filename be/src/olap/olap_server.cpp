@@ -73,6 +73,7 @@ Status StorageEngine::start_bg_threads() {
             .set_max_threads(max_thread_num)
             .build(&_compaction_thread_pool);
 
+
     int32_t convert_rowset_thread_num = config::convert_rowset_thread_num;
     if (convert_rowset_thread_num > 0) {
         ThreadPoolBuilder("ConvertRowsetTaskThreadPool")
@@ -91,6 +92,11 @@ Status StorageEngine::start_bg_threads() {
     ThreadPoolBuilder("CompactionTaskThreadPool")
             .set_min_threads(max_thread_num)
             .set_max_threads(max_thread_num)
+            .build(&_compaction_thread_pool);
+    
+    ThreadPoolBuilder("SmallCompactionTaskThreadPool")
+            .set_min_threads(config::small_compaction_max_threads)
+            .set_max_threads(config::small_compaction_max_threads)
             .build(&_samll_compaction_thread_pool);
 
     // compaction tasks producer thread

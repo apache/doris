@@ -742,9 +742,9 @@ CONF_Int32(parquet_reader_max_buffer_size, "50");
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
 
-// For continuous versions that rows less than small_compaction_max_rows will  trigger compaction quickly
+// For continuous versions that rows less than small_compaction_rowset_rows will  trigger compaction quickly
 // if set to 0 means turn off this feature
-CONF_Int32(small_compaction_max_rows, "1000");
+CONF_Int32(small_compaction_rowset_rows, "1000");
 
 // min compaction versions
 CONF_Int32(small_compaction_batch_size, "20");
