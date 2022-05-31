@@ -850,4 +850,16 @@ public class MaterializedViewFunctionTest {
         dorisAssert.query(query).explainContains("mv");
         dorisAssert.dropTable("agg_table", true);
     }
+
+    @Test
+    public void testSelectMVWithTableAlias() throws Exception {
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+            + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        dorisAssert.withMaterializedView(createUserTagMVSql);
+        String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + "t ;";
+        String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder(FunctionSet.COUNT, "tag_id");
+        dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
+        query = "select user_name, count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_name;";
+        dorisAssert.query(query).explainWithout(USER_TAG_MV_NAME);
+    }
 }

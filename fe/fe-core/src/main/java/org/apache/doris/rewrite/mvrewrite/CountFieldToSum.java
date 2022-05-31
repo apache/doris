@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
@@ -81,15 +80,12 @@ public class CountFieldToSum implements ExprRewriteRule {
         }
 
         // rewrite expr
-        return rewriteExpr(fnChild0, mvColumn, analyzer);
+        return rewriteExpr(mvColumn, analyzer);
     }
 
-    private Expr rewriteExpr(SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {
+    private Expr rewriteExpr(Column mvColumn, Analyzer analyzer) {
         Preconditions.checkNotNull(mvColumn);
-        Preconditions.checkNotNull(queryColumnSlotRef);
-        TableName tableName = queryColumnSlotRef.getTableName();
-        Preconditions.checkNotNull(tableName);
-        SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getName());
+        SlotRef mvSlotRef = new SlotRef(null, mvColumn.getName());
         List<Expr> newFnParams = Lists.newArrayList();
         newFnParams.add(mvSlotRef);
         FunctionCallExpr result = new FunctionCallExpr("sum", newFnParams);
