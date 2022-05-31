@@ -393,9 +393,7 @@ public:
             }
         }
 
-        T convert_code(const T& code) const { 
-            return _code_convert_table[code]; 
-        }
+        T convert_code(const T& code) const { return _code_convert_table[code]; }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 
