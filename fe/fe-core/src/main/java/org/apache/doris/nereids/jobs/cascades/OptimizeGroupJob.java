@@ -43,11 +43,11 @@ public class OptimizeGroupJob extends Job<Plan> {
         }
         if (!group.isExplored()) {
             for (GroupExpression logicalGroupExpression : group.getLogicalExpressions()) {
-                context.getOptimizerContext().pushTask(new OptimizePlanJob(logicalGroupExpression, context));
+                context.getOptimizerContext().pushJob(new OptimizeGroupExpressionJob(logicalGroupExpression, context));
             }
         }
         for (GroupExpression physicalGroupExpression : group.getPhysicalExpressions()) {
-            context.getOptimizerContext().pushTask(new CostAndEnforcerJob(physicalGroupExpression, context));
+            context.getOptimizerContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
         }
         group.setExplored(true);
     }

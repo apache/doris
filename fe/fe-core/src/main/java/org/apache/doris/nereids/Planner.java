@@ -54,11 +54,11 @@ public class Planner {
         OptimizerContext<Plan> optimizerContext = new OptimizerContext<>(memo);
         plannerContext = new PlannerContext(optimizerContext, connectContext, outputProperties);
 
-        plannerContext.getOptimizerContext().pushTask(
+        plannerContext.getOptimizerContext().pushJob(
                 new RewriteBottomUpJob(getRoot(), optimizerContext.getRuleSet().getAnalysisRules(), plannerContext));
 
-        plannerContext.getOptimizerContext().pushTask(new OptimizeGroupJob(getRoot(), plannerContext));
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobStack(plannerContext);
+        plannerContext.getOptimizerContext().pushJob(new OptimizeGroupJob(getRoot(), plannerContext));
+        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
         return getBestPlan();
     }
 

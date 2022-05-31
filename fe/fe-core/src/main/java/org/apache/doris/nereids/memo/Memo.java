@@ -134,12 +134,14 @@ public class Memo<NODE_TYPE extends TreeNode> {
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
+            // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
                     children.set(i, destination);
                 }
             }
             if (groupExpressions.containsKey(groupExpression)) {
+                // TODO: need to merge group recursively
                 groupExpression.getParent().removeGroupExpression(groupExpression);
             } else {
                 groupExpressions.put(groupExpression, groupExpression);

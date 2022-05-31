@@ -58,10 +58,9 @@ public class RewriteBottomUpJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYP
         if (!childrenOptimized) {
             for (Group childGroup : logicalExpression.children()) {
                 pushTask(new RewriteBottomUpJob<>(childGroup, rules, context, false));
-
-                pushTask(new RewriteBottomUpJob<>(group, rules, context, true));
-                return;
             }
+            pushTask(new RewriteBottomUpJob<>(group, rules, context, true));
+            return;
         }
 
         List<Rule<NODE_TYPE>> validRules = getValidRules(logicalExpression, rules);

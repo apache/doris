@@ -19,7 +19,6 @@ package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.Utils;
 
 import com.google.common.collect.Lists;
 
@@ -30,6 +29,7 @@ import java.util.Objects;
 
 /**
  * Get all pattern matching subtree in query plan from a group expression.
+ * TODO: adapt ANY and MULTI
  */
 public class GroupExpressionMatching<NODE_TYPE extends TreeNode> implements Iterable<NODE_TYPE> {
     private final Pattern pattern;
@@ -73,7 +73,7 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode> implements Iter
                 return;
             }
 
-            NODE_TYPE root = (NODE_TYPE) Utils.treeNodeWithoutChildren(groupExpression);
+            NODE_TYPE root = (NODE_TYPE) groupExpression.getOperator().toTreeNode(groupExpression);
 
             List<List<NODE_TYPE>> childrenResults = Lists.newArrayListWithCapacity(groupExpression.arity());
             for (int i = 0; i < groupExpression.arity(); ++i) {

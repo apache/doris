@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.pattern.Pattern;
+import org.apache.doris.nereids.rules.RuleType.RuleTypeClass;
 import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
@@ -58,7 +59,7 @@ public abstract class Rule<TYPE extends TreeNode> {
     }
 
     public boolean isRewrite() {
-        return ruleType.ordinal() < RuleType.REWRITE_SENTINEL.ordinal();
+        return ruleType.getRuleTypeClass() == RuleTypeClass.REWRITE;
     }
 
     public abstract List<TYPE> transform(TYPE node, PlannerContext context) throws TransformException;

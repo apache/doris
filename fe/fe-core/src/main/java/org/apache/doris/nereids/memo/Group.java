@@ -79,6 +79,12 @@ public class Group {
         return groupExpression;
     }
 
+    /**
+     * Remove groupExpression from this group.
+     *
+     * @param groupExpression to be removed
+     * @return removed {@link GroupExpression}
+     */
     public GroupExpression removeGroupExpression(GroupExpression groupExpression) {
         if (groupExpression.getOperator() instanceof LogicalOperator) {
             logicalExpressions.remove(groupExpression);

@@ -36,6 +36,8 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
 
     protected final NodeType type;
     protected final List<TreeNode> children;
+    // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
+    // https://github.com/apache/incubator-doris/pull/9807#discussion_r884829067
     protected final GroupExpression groupExpression;
 
 
@@ -52,11 +54,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
      */
     public AbstractTreeNode(NodeType type, GroupExpression groupExpression, TreeNode... children) {
         this.type = type;
-        if (children.length != 0 && children[0] == null) {
-            this.children = ImmutableList.of();
-        } else {
-            this.children = ImmutableList.copyOf(children);
-        }
+        this.children = ImmutableList.copyOf(children);
         this.groupExpression = groupExpression;
     }
 

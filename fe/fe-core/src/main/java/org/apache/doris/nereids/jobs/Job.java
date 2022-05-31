@@ -40,16 +40,25 @@ public abstract class Job<NODE_TYPE extends TreeNode> {
     }
 
     public void pushTask(Job job) {
-        context.getOptimizerContext().pushTask(job);
+        context.getOptimizerContext().pushJob(job);
     }
 
     public RuleSet getRuleSet() {
         return context.getOptimizerContext().getRuleSet();
     }
 
+    /**
+     * Get the rule set of this job. Filter out already applied rules and rules that are not matched on root node.
+     *
+     * @param groupExpression group expression to be applied on
+     * @param candidateRules rules to be applied
+     * @return all rules that can be applied on this group expression
+     */
     public List<Rule<NODE_TYPE>> getValidRules(GroupExpression groupExpression,
             List<Rule<NODE_TYPE>> candidateRules) {
-        return candidateRules.stream().filter(groupExpression::notApplied).collect(Collectors.toList());
+        return candidateRules.stream()
+                .filter(rule -> rule.getPattern().matchOperator(groupExpression.getOperator())
+                        && groupExpression.notApplied(rule)).collect(Collectors.toList());
     }
 
     public abstract void execute() throws AnalysisException;

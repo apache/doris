@@ -37,18 +37,18 @@ import java.util.Objects;
 public class RewriteTopDownJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYPE> {
     private final Group group;
     private final List<Rule<NODE_TYPE>> rules;
-    private final boolean childrenOptimized;
 
+    /**
+     * Constructor.
+     *
+     * @param group root group to be rewritten
+     * @param rules rewrite rules
+     * @param context planner context
+     */
     public RewriteTopDownJob(Group group, List<Rule<NODE_TYPE>> rules, PlannerContext context) {
-        this(group, rules, context, false);
-    }
-
-    private RewriteTopDownJob(Group group, List<Rule<NODE_TYPE>> rules,
-            PlannerContext context, boolean childrenOptimized) {
-        super(JobType.BOTTOM_UP_REWRITE, context);
+        super(JobType.TOP_DOWN_REWRITE, context);
         this.group = Objects.requireNonNull(group, "group cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
-        this.childrenOptimized = childrenOptimized;
     }
 
     @Override
@@ -65,20 +65,15 @@ public class RewriteTopDownJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYPE
                 NODE_TYPE after = afters.get(0);
                 if (after != before) {
                     context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
-                    pushTask(new RewriteTopDownJob<>(group, rules, context, false));
+                    pushTask(new RewriteTopDownJob<>(group, rules, context));
                     return;
                 }
             }
             logicalExpression.setApplied(rule);
         }
 
-        if (!childrenOptimized) {
-            for (Group childGroup : logicalExpression.children()) {
-                pushTask(new RewriteTopDownJob<>(childGroup, rules, context, false));
-
-                pushTask(new RewriteTopDownJob<>(group, rules, context, true));
-                return;
-            }
+        for (Group childGroup : logicalExpression.children()) {
+            pushTask(new RewriteTopDownJob<>(childGroup, rules, context));
         }
     }
 }

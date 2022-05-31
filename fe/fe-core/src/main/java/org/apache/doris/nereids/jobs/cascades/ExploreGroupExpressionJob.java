@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Job to explore {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class ExplorePlanJob extends Job<Plan> {
+public class ExploreGroupExpressionJob extends Job<Plan> {
     private final GroupExpression groupExpression;
 
     /**
@@ -41,7 +41,7 @@ public class ExplorePlanJob extends Job<Plan> {
      * @param groupExpression {@link GroupExpression} to be explored
      * @param context context of optimization
      */
-    public ExplorePlanJob(GroupExpression groupExpression, PlannerContext context) {
+    public ExploreGroupExpressionJob(GroupExpression groupExpression, PlannerContext context) {
         super(JobType.EXPLORE_PLAN, context);
         this.groupExpression = groupExpression;
     }
@@ -52,6 +52,7 @@ public class ExplorePlanJob extends Job<Plan> {
         List<Rule<Plan>> validRules = getValidRules(groupExpression, explorationRules);
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
+        // TODO: adapt situation when pattern arity smaller than group expression arity
         for (Rule<Plan> rule : validRules) {
             pushTask(new ApplyRuleJob(groupExpression, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {

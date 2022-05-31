@@ -24,7 +24,6 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -61,19 +60,18 @@ public class ApplyRuleJob extends Job<Plan> {
         // TODO: need to find all plan reference tree that match this pattern
         GroupExpressionMatching<Plan> groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
-        for (TreeNode treeNode : groupExpressionMatching) {
-            Plan plan = (Plan) treeNode;
+        for (Plan plan : groupExpressionMatching) {
             List<Plan> newPlans = rule.transform(plan, context);
             for (Plan newPlan : newPlans) {
                 GroupExpression newGroupExpression = context.getOptimizerContext().getMemo()
                         .copyIn(newPlan, groupExpression.getParent(), rule.isRewrite());
-                // TODO need to check return is a new Reference, other wise will be into a dead loop
                 if (newPlan instanceof LogicalPlan) {
                     pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {
-                        pushTask(new ExplorePlanJob(newGroupExpression, context));
+                        pushTask(new ExploreGroupExpressionJob(newGroupExpression, context));
+                        continue;
                     }
-                    pushTask(new OptimizePlanJob(newGroupExpression, context));
+                    pushTask(new OptimizeGroupExpressionJob(newGroupExpression, context));
                 } else {
                     pushTask(new CostAndEnforcerJob(newGroupExpression, context));
                 }

@@ -33,10 +33,10 @@ import java.util.List;
 /**
  * Job to optimize {@link org.apache.doris.nereids.trees.plans.Plan} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class OptimizePlanJob extends Job<Plan> {
+public class OptimizeGroupExpressionJob extends Job<Plan> {
     private final GroupExpression groupExpression;
 
-    public OptimizePlanJob(GroupExpression groupExpression, PlannerContext context) {
+    public OptimizeGroupExpressionJob(GroupExpression groupExpression, PlannerContext context) {
         super(JobType.OPTIMIZE_PLAN, context);
         this.groupExpression = groupExpression;
     }
@@ -55,9 +55,10 @@ public class OptimizePlanJob extends Job<Plan> {
 
             // If child_pattern has any more children (i.e non-leaf), then we will explore the
             // child before applying the rule. (assumes task pool is effectively a stack)
+            // TODO: adapt situation when pattern arity smaller than group expression arity
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (childPattern.arity() > 0 && Pattern.FIXED.equals(childPattern)) {
+                if (childPattern.arity() > 0 && !childPattern.isFixed()) {
                     Group child = groupExpression.child(i);
                     pushTask(new ExploreGroupJob(child, context));
                 }

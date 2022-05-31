@@ -67,8 +67,8 @@ public class OptimizerContext<NODE_TYPE extends TreeNode> {
         return memo;
     }
 
-    public void pushTask(Job task) {
-        jobPool.push(task);
+    public void pushJob(Job job) {
+        jobPool.push(job);
     }
 
     public JobScheduler getJobScheduler() {
