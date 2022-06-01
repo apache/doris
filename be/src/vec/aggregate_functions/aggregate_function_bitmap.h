@@ -38,7 +38,7 @@ struct AggregateFunctionBitmapUnionOp {
 
     static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) { res |= data; }
 
-    static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) { res |= data; }
+    static void merge(BitmapValue& res, const BitmapValue& data) { res |= data; }
 };
 
 struct AggregateFunctionBitmapIntersectOp {
@@ -53,14 +53,7 @@ struct AggregateFunctionBitmapIntersectOp {
         }
     }
 
-    static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) {
-        if (UNLIKELY(is_first)) {
-            res = data;
-            is_first = false;
-        } else {
-            res &= data;
-        }
-    }
+    static void merge(BitmapValue& res, const BitmapValue& data) { res &= data; }
 };
 
 template <typename Op>
@@ -73,7 +66,7 @@ struct AggregateFunctionBitmapData {
         Op::add(value, data, is_first);
     }
 
-    void merge(const BitmapValue& data) { Op::merge(value, data, is_first); }
+    void merge(const BitmapValue& data) { Op::merge(value, data); }
 
     void write(BufferWritable& buf) const { DataTypeBitMap::serialize_as_stream(value, buf); }
 
