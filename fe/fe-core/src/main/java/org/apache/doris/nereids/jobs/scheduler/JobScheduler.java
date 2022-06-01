@@ -27,5 +27,5 @@ import org.apache.doris.nereids.jobs.Job;
 public interface JobScheduler {
     void executeJob(Job job, PlannerContext context);
 
-    void executeJobStack(PlannerContext plannerContext) throws AnalysisException;
+    void executeJobPool(PlannerContext plannerContext) throws AnalysisException;
 }

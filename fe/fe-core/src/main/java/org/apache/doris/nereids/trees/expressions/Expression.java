@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
@@ -54,5 +55,10 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
     @Override
     public Expression child(int index) {
         return (Expression) children.get(index);
+    }
+
+    @Override
+    public EXPR_TYPE newChildren(List<TreeNode> children) {
+        throw new RuntimeException();
     }
 }
