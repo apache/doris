@@ -17,6 +17,8 @@
 
 suite("test_array_functions", "query") {
     def tableName = "tbl_test_array_functions"
+    // open enable_complex_type
+    sql """ set enable_complex_type = true """
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
 
