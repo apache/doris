@@ -42,9 +42,9 @@ public class InsertArrayStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        Config.enable_complex_type_support = true;
         UtFrameUtils.createDorisCluster(RUNNING_DIR);
         connectContext = UtFrameUtils.createDefaultCtx();
+        connectContext.getSessionVariable().setEnableComplexType(true);
         createDatabase("create database test;");
     }
 
