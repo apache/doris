@@ -24,7 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Minidump
+# Minidump(removed)
+
+> Minidump has been removed, it's useless in real online environment and instead introduces additional bugs
 
 Minidump is a file format defined by Microsoft for reporting errors after program crashes. It includes thread information, register information, call stack information, etc. at the time of the crash, which helps developers quickly locate the problem.
 

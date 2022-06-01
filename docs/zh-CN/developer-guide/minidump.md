@@ -24,7 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Minidump
+# Minidump(removed)
+
+> Minidump 已经被移除，它在实际线上环境中没有用处，反而会引入额外的错误。
 
 Minidump 是微软定义的一种用于程序崩溃后错误上报的文件格式。其中包括了崩溃时的线程信息、寄存器信息、调用栈信息等等，这有助于开发人员快速定位问题。
 
