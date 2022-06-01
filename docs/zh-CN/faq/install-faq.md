@@ -153,7 +153,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
       F开头的日志是 Fatal 日志。如 F0916 ，表示9月16号的Fatal日志。Fatal日志通常表示程序断言错误，断言错误会直接导致进程退出（说明程序出现了Bug）。欢迎前往微信群、github discussion 或dev邮件组寻求帮助。
 
-   4. Minidump
+   4. Minidump(removed)
 
       Mindump 是 Doris 0.15 版本之后加入的功能，具体可参阅[文档](https://doris.apache.org/zh-CN/developer-guide/minidump.html)。
 
