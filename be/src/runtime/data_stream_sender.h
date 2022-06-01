@@ -262,11 +262,11 @@ private:
     PRowBatch _pb_batch2;
 
     // This buffer is used to store the serialized rowbatch data.
-    // Only works when `config::brpc_request_embed_attachment_send_by_http` is true.
+    // Only works when `config::transfer_large_data_by_brpc` is true.
     // The data in the buffer is copied to the attachment of the brpc when it is sent,
     // to avoid an extra pb serialization in the brpc.
     // _tuple_data_buffer_ptr will point to _tuple_data_buffer if
-    // `config::brpc_request_embed_attachment_send_by_http` is true.
+    // `config::transfer_large_data_by_brpc` is true.
     std::string _tuple_data_buffer;
     std::string* _tuple_data_buffer_ptr = nullptr;
 

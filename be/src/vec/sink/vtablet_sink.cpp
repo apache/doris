@@ -33,7 +33,7 @@ namespace stream_load {
 VNodeChannel::VNodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id)
         : NodeChannel(parent, index_channel, node_id) {
     _is_vectorized = true;
-    if (config::brpc_request_embed_attachment_send_by_http) {
+    if (config::transfer_large_data_by_brpc) {
         _column_values_buffer_ptr = &_column_values_buffer;
     }
 }
@@ -280,11 +280,15 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (_column_values_buffer_ptr != nullptr && request.has_block() &&
         !request.block().has_column_values()) {
         DCHECK(_column_values_buffer.size() != 0);
-        request_embed_attachment_contain_block<PTabletWriterAddBlockRequest,
-                                               ReusableClosure<PTabletWriterAddBlockResult>>(
+        Status st = request_embed_attachment_contain_block<
+                PTabletWriterAddBlockRequest, ReusableClosure<PTabletWriterAddBlockResult>>(
                 &request, _column_values_buffer, _add_block_closure);
-        std::string brpc_url;
-        brpc_url = "http://" + _node_info.host + ":" + std::to_string(_node_info.brpc_port);
+        if (!st.ok()) {
+            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            _add_block_closure->clear_in_flight();
+            return;
+        }
+        std::string brpc_url = fmt::format("http://{}:{}", _node_info.host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");

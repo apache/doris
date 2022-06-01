@@ -468,7 +468,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
     if (row_batch->num_rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        if (config::brpc_request_embed_attachment_send_by_http &&
+        if (config::transfer_large_data_by_brpc &&
             row_batch->total_byte_size() > MIN_HTTP_BRPC_SIZE) {
             _tuple_data_buffer_ptr = &_tuple_data_buffer;
         } else {
@@ -521,11 +521,15 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
 
     if (_tuple_data_buffer_ptr != nullptr && _tuple_data_buffer.size() != 0 &&
         request.has_row_batch()) {
-        request_embed_attachment_contain_tuple<PTabletWriterAddBatchRequest,
-                                               ReusableClosure<PTabletWriterAddBatchResult>>(
+        Status st = request_embed_attachment_contain_tuple<
+                PTabletWriterAddBatchRequest, ReusableClosure<PTabletWriterAddBatchResult>>(
                 &request, _tuple_data_buffer, _add_batch_closure);
-        std::string brpc_url;
-        brpc_url = "http://" + _node_info.host + ":" + std::to_string(_node_info.brpc_port);
+        if (!st.ok()) {
+            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            _add_batch_closure->clear_in_flight();
+            return;
+        }
+        std::string brpc_url = fmt::format("http://{}:{}", _node_info.host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");

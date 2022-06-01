@@ -736,7 +736,8 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     }
-    if (*compressed_bytes >= std::numeric_limits<int32_t>::max()) {
+    if (transfer_large_data_by_brpc == false &&
+        *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError(fmt::format(
                 "The block is large than 2GB({}), can not send by Protobuf.", *compressed_bytes));
     }

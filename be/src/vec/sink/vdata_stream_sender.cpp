@@ -147,12 +147,12 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     if (_parent->_column_values_buffer_ptr != nullptr && _brpc_request.has_block() &&
         !_brpc_request.block().has_column_values()) {
         DCHECK(_parent->_column_values_buffer.size() != 0);
-        request_embed_attachment_contain_block<PTransmitDataParams,
-                                               RefCountClosure<PTransmitDataResult>>(
-                &_brpc_request, _parent->_column_values_buffer, _closure);
-        std::string brpc_url;
-        brpc_url =
-                "http://" + _brpc_dest_addr.hostname + ":" + std::to_string(_brpc_dest_addr.port);
+        RETURN_IF_ERROR(
+                request_embed_attachment_contain_block<PTransmitDataParams,
+                                                       RefCountClosure<PTransmitDataResult>>(
+                        &_brpc_request, _parent->_column_values_buffer, _closure));
+        std::string brpc_url =
+                fmt::format("http://{}:{}", _brpc_dest_addr.hostname, _brpc_dest_addr.port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
@@ -307,7 +307,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
                     _channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
     }
-    if (config::brpc_request_embed_attachment_send_by_http) {
+    if (config::transfer_large_data_by_brpc) {
         _column_values_buffer_ptr = &_column_values_buffer;
     }
     _name = "VDataStreamSender";

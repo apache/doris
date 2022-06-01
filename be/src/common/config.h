@@ -562,10 +562,11 @@ CONF_String(default_rowset_type, "BETA");
 CONF_Int64(brpc_max_body_size, "3147483648");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+// TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
 // is greater than 1.8G. This is to avoid the error of Request length overflow (2G).
-CONF_mBool(brpc_request_embed_attachment_send_by_http, "true");
+CONF_mBool(transfer_large_data_by_brpc, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
