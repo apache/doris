@@ -38,7 +38,6 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
             .add("Class")
             .build();
 
-    private Table<String, Tag, ClusterLoadStatistic> statMap;
     private Tag tag;
     private TStorageMedium medium;
 
@@ -52,8 +51,7 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
-        Map<String, ClusterLoadStatistic> map = statMap.column(tag);
+        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap().column(tag);
 
         map.values().forEach(t -> {
             List<List<String>> statistics = t.getClusterStatistic(medium);
@@ -81,7 +79,9 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         if (be == null) {
             throw new AnalysisException("backend " + beId + " does not exist");
         }
-        return new BackendProcNode(be);
+
+        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap().column(tag);
+        return new BackendLoadStatisticProcNode(map.get(be.getOwnerClusterName()), beId);
     }
 
 }
