@@ -126,13 +126,9 @@ void VLiteral::init(const TExprNode& node) {
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
-    int rows = block->rows();
-    if (rows < 1) {
-        rows = 1;
-    }
-    size_t res = block->columns();
-    block->insert({_column_ptr->clone_resized(rows), _data_type, _expr_name});
-    *result_column_id = res;
+    // Literal expr should return least one row.
+    size_t row_size = std::max(block->rows(), size_t(1));
+    *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
     return Status::OK();
 }
 } // namespace vectorized
