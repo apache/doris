@@ -54,6 +54,11 @@ public class BackendServiceClient {
         return stub.execPlanFragment(request);
     }
 
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
+            InternalService.PExecPlanFragmentRequest request) {
+        return stub.execPlanFragmentPrepare(request);
+    }
+
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
             InternalService.PExecPlanFragmentStartRequest request) {
         return stub.execPlanFragmentStart(request);

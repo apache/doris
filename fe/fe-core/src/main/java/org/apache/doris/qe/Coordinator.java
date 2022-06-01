@@ -578,7 +578,9 @@ public class Coordinator {
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
             Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
-            boolean needTrigger = fragments.size() > 2;
+            // If #fragments >=3, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
+            // else use exec_plan_fragments directly.
+            boolean twoPhaseExecution = fragments.size() >= 3;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
@@ -615,7 +617,7 @@ public class Coordinator {
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
                     tParam.setBackendId(execState.backend.getId());
-                    tParam.setNeedWaitExecutionTrigger(needTrigger);
+                    tParam.setNeedWaitExecutionTrigger(twoPhaseExecution);
 
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
@@ -628,7 +630,8 @@ public class Coordinator {
 
                     BackendExecStates states = beToExecStates.get(execState.backend.getId());
                     if (states == null) {
-                        states = new BackendExecStates(execState.backend.getId(), execState.brpcAddress);
+                        states = new BackendExecStates(execState.backend.getId(), execState.brpcAddress,
+                                twoPhaseExecution);
                         beToExecStates.putIfAbsent(execState.backend.getId(), states);
                     }
                     states.addState(execState);
@@ -644,7 +647,7 @@ public class Coordinator {
             }
             waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
 
-            if (needTrigger) {
+            if (twoPhaseExecution) {
                 // 5. send and wait execution start rpc
                 futures.clear();
                 for (BackendExecStates states : beToExecStates.values()) {
@@ -2087,10 +2090,12 @@ public class Coordinator {
         long beId;
         TNetworkAddress brpcAddr;
         List<BackendExecState> states = Lists.newArrayList();
+        boolean twoPhaseExecution = false;
 
-        public BackendExecStates(long beId, TNetworkAddress brpcAddr) {
+        public BackendExecStates(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
             this.beId = beId;
             this.brpcAddr = brpcAddr;
+            this.twoPhaseExecution = twoPhaseExecution;
         }
 
         public void addState(BackendExecState state) {
@@ -2119,7 +2124,8 @@ public class Coordinator {
                 for (BackendExecState state : states) {
                     paramsList.addToParamsList(state.rpcParams);
                 }
-                return BackendServiceProxy.getInstance().execPlanFragmentsAsync(brpcAddr, paramsList);
+                return BackendServiceProxy.getInstance()
+                        .execPlanFragmentsAsync(brpcAddr, paramsList, twoPhaseExecution);
             } catch (RpcException e) {
                 // DO NOT throw exception here, return a complete future with error code,
                 // so that the following logic will cancel the fragment.

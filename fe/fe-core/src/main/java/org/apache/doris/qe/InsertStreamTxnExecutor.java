@@ -89,7 +89,7 @@ public class InsertStreamTxnExecutor {
             TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
             paramsList.addToParamsList(tRequest);
             Future<InternalService.PExecPlanFragmentResult> future =
-                    BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList);
+                    BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList, false);
             InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {

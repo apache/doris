@@ -93,9 +93,8 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(
-            TNetworkAddress address, TExecPlanFragmentParamsList paramsList)
-            throws TException, RpcException {
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+            TExecPlanFragmentParamsList paramsList, boolean twoPhaseExecution) throws TException, RpcException {
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
         if (Config.use_compact_thrift_rpc) {
@@ -112,7 +111,11 @@ public class BackendServiceProxy {
         final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
         try {
             final BackendServiceClient client = getProxy(address);
-            return client.execPlanFragmentAsync(pRequest);
+            if (twoPhaseExecution) {
+                return client.execPlanFragmentPrepareAsync(pRequest);
+            } else {
+                return client.execPlanFragmentAsync(pRequest);
+            }
         } catch (Throwable e) {
             LOG.warn("Execute plan fragment catch a exception, address={}:{}", address.getHostname(), address.getPort(),
                     e);
