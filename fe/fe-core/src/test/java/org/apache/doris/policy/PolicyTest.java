@@ -212,8 +212,8 @@ public class PolicyTest extends TestWithFeService {
         String policyName = "policy_name";
         long dbId = 10;
         UserIdentity user = new UserIdentity("test_policy", "%");
-        String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1" +
-                            " AS PERMISSIVE TO test_policy USING (k1 = 1)";
+        String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1"
+                            + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
         FilterType filterType = FilterType.PERMISSIVE;
         Expr wherePredicate = null;
