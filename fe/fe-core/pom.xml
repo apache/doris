@@ -34,6 +34,7 @@ under the License.
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <log4j2.version>2.17.2</log4j2.version>
         <antlr4.version>4.9.3</antlr4.version>
+        <fastjson.version>2.0.5</fastjson.version>
     </properties>
     <profiles>
         <profile>
@@ -448,7 +449,17 @@ under the License.
                     <groupId>ch.qos.logback</groupId>
                     <artifactId>logback-classic</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>com.alibaba</groupId>
+                    <artifactId>fastjson</artifactId>
+                </exclusion>
             </exclusions>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/com.alibaba/fastjson -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+            <version>${fastjson.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.alibaba.otter/canal.protocol -->
         <dependency>
