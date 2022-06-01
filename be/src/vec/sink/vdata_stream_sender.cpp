@@ -147,10 +147,10 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     if (_parent->_column_values_buffer_ptr != nullptr && _brpc_request.has_block() &&
         !_brpc_request.block().has_column_values()) {
         DCHECK(_parent->_column_values_buffer.size() != 0);
-        RETURN_IF_ERROR(
-                request_embed_attachment_contain_block<PTransmitDataParams,
-                                                       RefCountClosure<PTransmitDataResult>>(
-                        &_brpc_request, _parent->_column_values_buffer, _closure));
+        Status st = request_embed_attachment_contain_block<PTransmitDataParams,
+                                                           RefCountClosure<PTransmitDataResult>>(
+                &_brpc_request, _parent->_column_values_buffer, _closure);
+        RETURN_IF_ERROR(st);
         std::string brpc_url =
                 fmt::format("http://{}:{}", _brpc_dest_addr.hostname, _brpc_dest_addr.port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =

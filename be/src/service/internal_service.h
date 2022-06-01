@@ -157,7 +157,8 @@ private:
 
     void _transmit_data(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
-                        ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done);
+                        ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
+                        Status extract_st);
 
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,

@@ -303,7 +303,7 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
     if (allocated_buf == nullptr) {
         *uncompressed_size = pb_size - mutable_tuple_data->size() + tuple_byte_size;
         *compressed_size = pb_size;
-        if (transfer_large_data_by_brpc == false &&
+        if (config::transfer_large_data_by_brpc == false &&
             pb_size > std::numeric_limits<int32_t>::max()) {
             // the protobuf has a hard limit of 2GB for serialized data.
             return Status::InternalError(fmt::format(

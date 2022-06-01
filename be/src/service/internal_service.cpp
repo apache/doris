@@ -239,7 +239,6 @@ void PInternalServiceImpl::tablet_writer_add_batch_by_http(
         PTabletWriterAddBatchResult* response, google::protobuf::Closure* done) {
     PTabletWriterAddBatchRequest* request_raw = new PTabletWriterAddBatchRequest();
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    request_raw->ParseFromString();
     attachment_extract_request_contain_tuple<PTabletWriterAddBatchRequest>(request_raw, cntl);
     _tablet_writer_add_batch(cntl_base, request_raw, response, done);
 }

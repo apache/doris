@@ -157,10 +157,10 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
     if (_parent->_tuple_data_buffer_ptr != nullptr && _parent->_tuple_data_buffer.size() != 0 &&
         _brpc_request.has_row_batch()) {
-        RETURN_IF_ERROR(
-                request_embed_attachment_contain_tuple<PTransmitDataParams,
-                                                       RefCountClosure<PTransmitDataResult>>(
-                        &_brpc_request, _parent->_tuple_data_buffer, _closure));
+        Status st = request_embed_attachment_contain_tuple<PTransmitDataParams,
+                                                           RefCountClosure<PTransmitDataResult>>(
+                &_brpc_request, _parent->_tuple_data_buffer, _closure);
+        RETURN_IF_ERROR(st);
         std::string brpc_url =
                 fmt::format("http://{}:{}", _brpc_dest_addr.hostname, _brpc_dest_addr.port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =

@@ -123,6 +123,7 @@ inline Status request_embed_attachment(Params* brpc_request, const std::string& 
     try {
         attachment.append(data);
     } catch (...) {
+        std::exception_ptr p = std::current_exception();
         LOG(WARNING) << "Try to alloc " << data_size
                      << " bytes for append data to attachment failed. "
                      << (p ? p.__cxa_exception_type()->name() : "null");
@@ -173,6 +174,7 @@ inline Status attachment_extract_request(const Params* brpc_request, brpc::Contr
     try {
         io_buf.copy_to(data, data_size, sizeof(data_size) + sizeof(req_str_size) + req_str_size);
     } catch (...) {
+        std::exception_ptr p = std::current_exception();
         LOG(WARNING) << "Try to alloc " << data_size
                      << " bytes for extract data from attachment failed. "
                      << (p ? p.__cxa_exception_type()->name() : "null");
