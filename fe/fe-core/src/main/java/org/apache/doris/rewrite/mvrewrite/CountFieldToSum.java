@@ -85,6 +85,12 @@ public class CountFieldToSum implements ExprRewriteRule {
 
     private Expr rewriteExpr(Column mvColumn, Analyzer analyzer) {
         Preconditions.checkNotNull(mvColumn);
+        // Notice that we shouldn't set table name field of mvSlotRef here, for we will analyze the new mvSlotRef
+        // later, if the table name was set here, the Analyzer::registerColumnRef would invoke
+        // Analyzer::resolveColumnRef(TableName, String) which only try to find the column from the tupleByAlias,
+        // as at the most time the alias is not equal with the origin table name, so it would cause the unexpected
+        // exception to Unknown column, because we can't find an alias which named as origin table name that has
+        // required column.
         SlotRef mvSlotRef = new SlotRef(null, mvColumn.getName());
         List<Expr> newFnParams = Lists.newArrayList();
         newFnParams.add(mvSlotRef);
