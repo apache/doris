@@ -166,7 +166,7 @@ void block_to_pb(const vectorized::Block& block, PBlock* pblock) {
     Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
-    EXPECT_EQ(compressed_bytes, pblock->block().column_values().size());
+    EXPECT_EQ(compressed_bytes, pblock->column_values().size());
 
     const vectorized::ColumnWithTypeAndName& type_and_name =
             block.get_columns_with_type_and_name()[0];
