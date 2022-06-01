@@ -28,10 +28,8 @@ suite("test_string_function", "query") {
     qt_sql "select ascii('!');"
 
     qt_sql "select bit_length(\"abc\");"
-    qt_sql "select bit_length(\"中国\");"
 
     qt_sql "select char_length(\"abc\");"
-    qt_sql "select char_length(\"中国\");"
 
     qt_sql "select concat(\"a\", \"b\");"
     qt_sql "select concat(\"a\", \"b\", \"c\");"
