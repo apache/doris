@@ -34,7 +34,7 @@ This document mainly introduces the performance of Doris on the SSB test set.
 >
 > Note 2: The operations involved in this document are all performed in the Ubuntu Server 20.04 environment, and CentOS 7 can also be tested.
 
-On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1 version and Doris 0.15.3 version peer-to-peer, and the overall performance improved by 2-3 times.
+On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1 version and Doris 0.15.0 RC04 version peer-to-peer, and the overall performance improved by 2-3 times.
 
 ![ssb_v11_v015_compare](/images/ssb_v11_v015_compare.png)
 
@@ -68,23 +68,23 @@ On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1
 
 ## 4. Test Results
 
-Here we use the upcoming Doris-1.1 version and Doris-0.15.3 version for comparative testing. The test results are as follows:
+Here we use the upcoming Doris-1.1 version and Doris-0.15.0 RC04 version for comparative testing. The test results are as follows:
 
-| Query | Doris-1.1(ms) | Doris-0.15.3(ms) |
-| ----- | ------------- | ---------------- |
-| Q1.1  | 90            | 250              |
-| Q1.2  | 10            | 30               |
-| Q1.3  | 70            | 120              |
-| Q2.1  | 360           | 900              |
-| Q2.2  | 340           | 1020             |
-| Q2.3  | 260           | 770              |
-| Q3.1  | 550           | 1710             |
-| Q3.2  | 290           | 670              |
-| Q3.3  | 240           | 550              |
-| Q3.4  | 20            | 30               |
-| Q4.1  | 480           | 1250             |
-| Q4.2  | 240           | 400              |
-| Q4.3  | 200           | 330              |
+| Query | Doris-1.1(ms) | Doris-0.15.0 RC04(ms) |
+| ----- | ------------- | --------------------- |
+| Q1.1  | 90            | 250                   |
+| Q1.2  | 10            | 30                    |
+| Q1.3  | 70            | 120                   |
+| Q2.1  | 360           | 900                   |
+| Q2.2  | 340           | 1020                  |
+| Q2.3  | 260           | 770                   |
+| Q3.1  | 550           | 1710                  |
+| Q3.2  | 290           | 670                   |
+| Q3.3  | 240           | 550                   |
+| Q3.4  | 20            | 30                    |
+| Q4.1  | 480           | 1250                  |
+| Q4.2  | 240           | 400                   |
+| Q4.3  | 200           | 330                   |
 
 **Interpretation of results**
 
