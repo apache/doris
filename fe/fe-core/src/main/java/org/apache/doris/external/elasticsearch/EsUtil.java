@@ -25,6 +25,7 @@ import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
@@ -43,7 +44,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -86,7 +89,7 @@ public class EsUtil {
 
 
     /**
-     * Get the json object from specified jsonObject
+     * Get the json object from specified jsonObject.
      */
     public static JSONObject getJsonObject(JSONObject jsonObject, String key, int fromIndex) {
         int firstOccr = key.indexOf('.', fromIndex);
@@ -225,6 +228,9 @@ public class EsUtil {
         }
     }
 
+    /**
+     * Doris expr to es dsl.
+     **/
     public static QueryBuilder convertToEsDsl(Expr expr) {
         if (expr == null) {
             return null;
@@ -286,16 +292,30 @@ public class EsUtil {
         if (expr instanceof IsNullPredicate) {
             IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
             if (isNullPredicate.isNotNull()) {
-                return QueryBuilders.boolQuery().must(QueryBuilders.existsQuery(column));
+                return QueryBuilders.existsQuery(column);
             }
-            return QueryBuilders.existsQuery(column);
+            return QueryBuilders.boolQuery().mustNot(QueryBuilders.existsQuery(column));
         }
         if (expr instanceof LikePredicate) {
             LikePredicate likePredicate = (LikePredicate) expr;
             if (likePredicate.getOp().equals(Operator.LIKE)) {
                 return QueryBuilders.wildcardQuery(column,
                         likePredicate.getChild(1).getStringValue().replaceAll("%", "*"));
+            } else {
+                return QueryBuilders.wildcardQuery(column, likePredicate.getChild(1).getStringValue());
             }
+        }
+        if (expr instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) expr;
+            List<Expr> listChildren = inPredicate.getListChildren();
+            List<Object> values = new ArrayList<>();
+            for (int i = 1; i < listChildren.size(); i++) {
+                values.add(extractDorisLiteral(listChildren.get(i)));
+            }
+            if (inPredicate.isNotIn()) {
+                return QueryBuilders.boolQuery().mustNot(QueryBuilders.termsQuery(column, values));
+            }
+            return QueryBuilders.termsQuery(column, values);
         }
         return null;
     }
