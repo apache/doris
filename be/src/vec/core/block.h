@@ -257,9 +257,7 @@ public:
     }
 
     // serialize block to PBlock
-    Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
-                     std::string* allocated_buf,
-                     size_t pblock_max_column_values_size = INT_MAX) const;
+    Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes) const;
 
     // serialize block to PRowbatch
     void serialize(RowBatch*, const RowDescriptor&);

@@ -143,12 +143,6 @@ protected:
     RuntimeProfile::Counter* _local_bytes_send_counter;
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
-
-    // This buffer is used to store the serialized block data
-    // The data in the buffer is copied to the attachment of the brpc when it is sent,
-    // to avoid an extra pb serialization in the brpc.
-    std::string _column_values_buffer;
-    std::string* _column_values_buffer_ptr = nullptr;
 };
 
 // TODO: support local exechange

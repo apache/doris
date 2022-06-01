@@ -261,15 +261,6 @@ private:
     PRowBatch _pb_batch1;
     PRowBatch _pb_batch2;
 
-    // This buffer is used to store the serialized rowbatch data.
-    // Only works when `config::transfer_large_data_by_brpc` is true.
-    // The data in the buffer is copied to the attachment of the brpc when it is sent,
-    // to avoid an extra pb serialization in the brpc.
-    // _tuple_data_buffer_ptr will point to _tuple_data_buffer if
-    // `config::transfer_large_data_by_brpc` is true.
-    std::string _tuple_data_buffer;
-    std::string* _tuple_data_buffer_ptr = nullptr;
-
     std::vector<ExprContext*> _partition_expr_ctxs; // compute per-row partition values
 
     // map from range value to partition_id

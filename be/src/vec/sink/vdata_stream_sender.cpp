@@ -144,12 +144,12 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     _closure->ref();
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
 
-    if (_parent->_column_values_buffer_ptr != nullptr && _brpc_request.has_block() &&
-        !_brpc_request.block().has_column_values()) {
-        DCHECK(_parent->_column_values_buffer.size() != 0);
+    if (config::transfer_large_data_by_brpc && _brpc_request.has_block() &&
+        _brpc_request.block().has_column_values() &&
+        _brpc_request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
         Status st = request_embed_attachment_contain_block<PTransmitDataParams,
                                                            RefCountClosure<PTransmitDataResult>>(
-                &_brpc_request, _parent->_column_values_buffer, _closure);
+                &_brpc_request, _closure);
         RETURN_IF_ERROR(st);
         std::string brpc_url =
                 fmt::format("http://{}:{}", _brpc_dest_addr.hostname, _brpc_dest_addr.port);
@@ -306,9 +306,6 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
             _channel_shared_ptrs.emplace_back(
                     _channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
-    }
-    if (config::transfer_large_data_by_brpc) {
-        _column_values_buffer_ptr = &_column_values_buffer;
     }
     _name = "VDataStreamSender";
 }
@@ -589,8 +586,7 @@ Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_rece
         SCOPED_TIMER(_serialize_batch_timer);
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
-                                       _column_values_buffer_ptr, MIN_HTTP_BRPC_SIZE));
+        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }

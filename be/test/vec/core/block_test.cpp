@@ -163,13 +163,10 @@ TEST(BlockTest, RowBatchCovertToBlock) {
 void block_to_pb(const vectorized::Block& block, PBlock* pblock) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    std::string column_values_buffer;
-    Status st =
-            block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, &column_values_buffer);
+    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
-    EXPECT_EQ(compressed_bytes, column_values_buffer.size());
-    pblock->set_column_values(column_values_buffer);
+    EXPECT_EQ(compressed_bytes, pblock->block().column_values().size());
 
     const vectorized::ColumnWithTypeAndName& type_and_name =
             block.get_columns_with_type_and_name()[0];

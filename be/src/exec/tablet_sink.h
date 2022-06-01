@@ -307,15 +307,6 @@ protected:
     RuntimeState* _state;
 
 private:
-    // buffer for saving serialized row batch data.
-    // In the non-attachment approach, we need to use two PRowBatch structures alternately
-    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
-    // This is not necessary with the attachment approach, because the memory structures
-    // are already copied into attachment memory before sending, and will wait for
-    // the previous RPC to be fully completed before the next copy.
-    std::string _tuple_data_buffer;
-    std::string* _tuple_data_buffer_ptr = nullptr;
-
     std::unique_ptr<RowBatch> _cur_batch;
     PTabletWriterAddBatchRequest _cur_add_batch_request;
     using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;

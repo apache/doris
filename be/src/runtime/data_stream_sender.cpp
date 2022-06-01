@@ -155,11 +155,13 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 
     _closure->ref();
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
-    if (_parent->_tuple_data_buffer_ptr != nullptr && _parent->_tuple_data_buffer.size() != 0 &&
-        _brpc_request.has_row_batch()) {
+
+    if (config::transfer_large_data_by_brpc && _brpc_request.has_row_batch() &&
+        _brpc_request.row_batch().has_tuple_data() &&
+        _brpc_request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
         Status st = request_embed_attachment_contain_tuple<PTransmitDataParams,
                                                            RefCountClosure<PTransmitDataResult>>(
-                &_brpc_request, _parent->_tuple_data_buffer, _closure);
+                &_brpc_request, _closure);
         RETURN_IF_ERROR(st);
         std::string brpc_url =
                 fmt::format("http://{}:{}", _brpc_dest_addr.hostname, _brpc_dest_addr.port);
@@ -682,13 +684,7 @@ Status DataStreamSender::serialize_batch(RowBatch* src, PRowBatch* dest, int num
     {
         SCOPED_TIMER(_serialize_batch_timer);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        if (config::transfer_large_data_by_brpc && src->total_byte_size() > MIN_HTTP_BRPC_SIZE) {
-            _tuple_data_buffer_ptr = &_tuple_data_buffer;
-        } else {
-            _tuple_data_buffer_ptr = nullptr;
-        }
-        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
-                                       _tuple_data_buffer_ptr));
+        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }

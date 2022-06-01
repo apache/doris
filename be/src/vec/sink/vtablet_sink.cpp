@@ -33,9 +33,6 @@ namespace stream_load {
 VNodeChannel::VNodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id)
         : NodeChannel(parent, index_channel, node_id) {
     _is_vectorized = true;
-    if (config::transfer_large_data_by_brpc) {
-        _column_values_buffer_ptr = &_column_values_buffer;
-    }
 }
 
 VNodeChannel::~VNodeChannel() {
@@ -235,8 +232,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes,
-                                    _column_values_buffer_ptr, MIN_HTTP_BRPC_SIZE);
+        Status st =
+                block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             _add_block_closure->clear_in_flight();
@@ -277,12 +274,11 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
     }
 
-    if (_column_values_buffer_ptr != nullptr && request.has_block() &&
-        !request.block().has_column_values()) {
-        DCHECK(_column_values_buffer.size() != 0);
+    if (config::transfer_large_data_by_brpc && request.has_block() &&
+        request.block().has_column_values() && request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
         Status st = request_embed_attachment_contain_block<
                 PTabletWriterAddBlockRequest, ReusableClosure<PTabletWriterAddBlockResult>>(
-                &request, _column_values_buffer, _add_block_closure);
+                &request, _add_block_closure);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             _add_block_closure->clear_in_flight();

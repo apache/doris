@@ -210,7 +210,7 @@ RowBatch::~RowBatch() {
 }
 
 Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
-                           size_t* compressed_size, std::string* allocated_buf) {
+                           size_t* compressed_size) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
@@ -226,18 +226,8 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
     output_batch->set_is_compressed(false);
     // tuple data
     size_t tuple_byte_size = total_byte_size();
-    std::string* mutable_tuple_data = nullptr;
-    if (allocated_buf != nullptr) {
-        allocated_buf->resize(tuple_byte_size);
-        // all tuple data will be written in the allocated_buf
-        // instead of tuple_data in PRowBatch
-        mutable_tuple_data = allocated_buf;
-        // tuple_data is a required field
-        output_batch->set_tuple_data("");
-    } else {
-        mutable_tuple_data = output_batch->mutable_tuple_data();
-        mutable_tuple_data->resize(tuple_byte_size);
-    }
+    std::string* mutable_tuple_data = output_batch->mutable_tuple_data();
+    mutable_tuple_data->resize(tuple_byte_size);
 
     // Copy tuple data, including strings, into output_batch (converting string
     // pointers into offsets in the process)
@@ -300,18 +290,13 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
 
     // return compressed and uncompressed size
     size_t pb_size = get_batch_size(*output_batch);
-    if (allocated_buf == nullptr) {
-        *uncompressed_size = pb_size - mutable_tuple_data->size() + tuple_byte_size;
-        *compressed_size = pb_size;
-        if (config::transfer_large_data_by_brpc == false &&
-            pb_size > std::numeric_limits<int32_t>::max()) {
-            // the protobuf has a hard limit of 2GB for serialized data.
-            return Status::InternalError(fmt::format(
-                    "The rowbatch is large than 2GB({}), can not send by Protobuf.", pb_size));
-        }
-    } else {
-        *uncompressed_size = pb_size + tuple_byte_size;
-        *compressed_size = pb_size + mutable_tuple_data->size();
+    *uncompressed_size = pb_size - mutable_tuple_data->size() + tuple_byte_size;
+    *compressed_size = pb_size;
+    if (config::transfer_large_data_by_brpc == false &&
+        pb_size > std::numeric_limits<int32_t>::max()) {
+        // the protobuf has a hard limit of 2GB for serialized data.
+        return Status::InternalError(fmt::format(
+                "The rowbatch is large than 2GB({}), can not send by Protobuf.", pb_size));
     }
     return Status::OK();
 }

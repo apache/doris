@@ -665,8 +665,8 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     return Status::OK();
 }
 
-Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
-                        std::string* allocated_buf, size_t pblock_max_column_values_size) const {
+Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
+                        size_t* compressed_bytes) const {
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
@@ -680,18 +680,13 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
     std::string* column_values = nullptr;
     try {
-        if (allocated_buf != nullptr && content_uncompressed_size > pblock_max_column_values_size) {
-            allocated_buf->resize(content_uncompressed_size);
-            column_values = allocated_buf;
-        } else {
-            column_values = pblock->mutable_column_values();
-            column_values->resize(content_uncompressed_size);
-        }
+        column_values = pblock->mutable_column_values();
+        column_values->resize(content_uncompressed_size);
     } catch (...) {
         std::exception_ptr p = std::current_exception();
-        std::string msg = fmt::format("Try to alloc {} bytes for allocated_buf failed. reason {}",
-                                      content_uncompressed_size,
-                                      p ? p.__cxa_exception_type()->name() : "null");
+        std::string msg = fmt::format(
+                "Try to alloc {} bytes for pblock column values failed. reason {}",
+                content_uncompressed_size, p ? p.__cxa_exception_type()->name() : "null");
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }
