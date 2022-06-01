@@ -18,15 +18,17 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.clearspring.analytics.util.Lists;
+import com.clearspring.analytics.util.Preconditions;
 import org.springframework.util.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -35,9 +37,9 @@ import java.util.Optional;
 public class Group {
     private final GroupId groupId = GroupId.newPlanSetId();
 
-    private final List<GroupExpression> logicalPlanList = Lists.newArrayList();
-    private final List<GroupExpression> physicalPlanList = Lists.newArrayList();
-    private final LogicalProperties logicalProperties;
+    private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
+    private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
+    private LogicalProperties logicalProperties;
 
     private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans;
     private double costLowerBound = -1;
@@ -49,12 +51,11 @@ public class Group {
      * @param groupExpression first {@link GroupExpression} in this Group
      */
     public Group(GroupExpression groupExpression) {
-        if (groupExpression.getPlan() instanceof LogicalPlan) {
-            this.logicalPlanList.add(groupExpression);
+        if (groupExpression.getOperator() instanceof LogicalOperator) {
+            this.logicalExpressions.add(groupExpression);
         } else {
-            this.physicalPlanList.add(groupExpression);
+            this.physicalExpressions.add(groupExpression);
         }
-        logicalProperties = groupExpression.getParent().getLogicalProperties();
         groupExpression.setParent(this);
     }
 
@@ -69,12 +70,43 @@ public class Group {
      * @return added {@link GroupExpression}
      */
     public GroupExpression addGroupExpression(GroupExpression groupExpression) {
-        if (groupExpression.getPlan() instanceof LogicalPlan) {
-            logicalPlanList.add(groupExpression);
+        if (groupExpression.getOperator() instanceof LogicalOperator) {
+            logicalExpressions.add(groupExpression);
         } else {
-            physicalPlanList.add(groupExpression);
+            physicalExpressions.add(groupExpression);
         }
+        groupExpression.setParent(this);
         return groupExpression;
+    }
+
+    /**
+     * Remove groupExpression from this group.
+     *
+     * @param groupExpression to be removed
+     * @return removed {@link GroupExpression}
+     */
+    public GroupExpression removeGroupExpression(GroupExpression groupExpression) {
+        if (groupExpression.getOperator() instanceof LogicalOperator) {
+            logicalExpressions.remove(groupExpression);
+        } else {
+            physicalExpressions.remove(groupExpression);
+        }
+        groupExpression.setParent(null);
+        return groupExpression;
+    }
+
+    /**
+     * Rewrite the logical group expression to the new logical group expression.
+     *
+     * @param newExpression new logical group expression
+     * @return old logical group expression
+     */
+    public GroupExpression rewriteLogicalExpression(
+            GroupExpression newExpression) {
+        GroupExpression oldExpression = getLogicalExpression();
+        logicalExpressions.clear();
+        logicalExpressions.add(newExpression);
+        return oldExpression;
     }
 
     public double getCostLowerBound() {
@@ -85,12 +117,26 @@ public class Group {
         this.costLowerBound = costLowerBound;
     }
 
-    public List<GroupExpression> getLogicalPlanList() {
-        return logicalPlanList;
+    public List<GroupExpression> getLogicalExpressions() {
+        return logicalExpressions;
     }
 
-    public List<GroupExpression> getPhysicalPlanList() {
-        return physicalPlanList;
+    /**
+     * Get the first logical group expression in this group.
+     * If there is no logical group expression or more than one, throw an exception.
+     *
+     * @return the first logical group expression in this group
+     */
+    public GroupExpression getLogicalExpression() {
+        Preconditions.checkArgument(logicalExpressions.size() == 1,
+                "There should be only one Logical Expression in Group");
+        Preconditions.checkArgument(physicalExpressions.isEmpty(),
+                "The Physical Expression list in Group should be empty");
+        return logicalExpressions.get(0);
+    }
+
+    public List<GroupExpression> getPhysicalExpressions() {
+        return physicalExpressions;
     }
 
     public LogicalProperties getLogicalProperties() {
@@ -117,5 +163,22 @@ public class Group {
             return Optional.empty();
         }
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Group group = (Group) o;
+        return groupId.equals(group.groupId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(groupId);
     }
 }

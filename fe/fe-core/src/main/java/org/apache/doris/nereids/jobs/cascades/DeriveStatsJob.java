@@ -22,11 +22,12 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Job to derive stats for {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class DeriveStatsJob extends Job {
+public class DeriveStatsJob extends Job<Plan> {
     private final GroupExpression groupExpression;
     private boolean deriveChildren;
 
@@ -58,15 +59,14 @@ public class DeriveStatsJob extends Job {
         if (!deriveChildren) {
             deriveChildren = true;
             pushTask(new DeriveStatsJob(this));
-            for (Group childSet : groupExpression.getChildren()) {
-                if (!childSet.getLogicalPlanList().isEmpty()) {
-                    pushTask(new DeriveStatsJob(childSet.getLogicalPlanList().get(0), context));
+            for (Group child : groupExpression.children()) {
+                if (!child.getLogicalExpressions().isEmpty()) {
+                    pushTask(new DeriveStatsJob(child.getLogicalExpressions().get(0), context));
                 }
             }
         } else {
             // TODO: derive stat here
             groupExpression.setStatDerived(true);
         }
-
     }
 }
