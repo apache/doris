@@ -168,7 +168,8 @@ public class FloatLiteral extends LiteralExpr {
             }
             return this;
         } else if (targetType.isDecimalV2()) {
-            return new DecimalLiteral(new BigDecimal(value));
+            // the double constructor does an exact translation, use valueOf() instead.
+            return new DecimalLiteral(BigDecimal.valueOf(value));
         }
         return this;
     }
