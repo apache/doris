@@ -37,7 +37,7 @@ suite("test_conditional_function", "query") {
     qt_sql "select user_id, case user_id when 1 then 'user_id = 1' when 2 then 'user_id = 2' else 'user_id not exist' end test_case from ${tbName} order by user_id;"
     qt_sql "select user_id, case when user_id = 1 then 'user_id = 1' when user_id = 2 then 'user_id = 2' else 'user_id not exist' end test_case from ${tbName} order by user_id;"
 
-    qt_sql "select  user_id, if(user_id = 1, \"true\", \"false\") test_if from ${tbName} order by user_id;"
+    qt_sql "select user_id, if(user_id = 1, \"true\", \"false\") test_if from ${tbName} order by user_id;"
 
     sql "DROP TABLE ${tbName};"
 
@@ -48,6 +48,5 @@ suite("test_conditional_function", "query") {
 
     qt_sql "select nullif(1,1);"
     qt_sql "select nullif(1,0);"
-
 
 }
