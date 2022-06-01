@@ -120,9 +120,6 @@ doris
 3
 
 -- !sql --
-6
-
--- !sql --
 4
 
 -- !sql --
@@ -181,9 +178,6 @@ https://doris.apache.org
 
 -- !sql --
 olleh
-
--- !sql --
-好你
 
 -- !sql --
 hello

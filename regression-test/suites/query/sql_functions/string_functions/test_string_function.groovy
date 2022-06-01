@@ -72,7 +72,6 @@ suite("test_string_function", "query") {
     qt_sql "select right(\"Hello doris\",5);"
 
     qt_sql "select length(\"abc\");"
-    qt_sql "select length(\"中国\");"
 
     qt_sql "SELECT LOCATE('bar', 'foobarbar');"
     qt_sql "SELECT LOCATE('xbar', 'foobar');"
@@ -101,7 +100,6 @@ suite("test_string_function", "query") {
     qt_sql "select replace(\"https://doris.apache.org:9090\", \":9090\", \"\");"
 
     qt_sql "SELECT REVERSE('hello');"
-    qt_sql "SELECT REVERSE('你好');"
 
     qt_sql "select split_part(\"hello world\", \" \", 1);"
     qt_sql "select split_part(\"hello world\", \" \", 2);"
