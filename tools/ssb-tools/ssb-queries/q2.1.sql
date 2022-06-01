@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 SELECT SUM(lo_revenue), d_year, p_brand
-FROM lineorder, date, part, supplier
+FROM lineorder, dates, part, supplier
 WHERE
     lo_orderdate = d_datekey
     AND lo_partkey = p_partkey

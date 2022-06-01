@@ -215,7 +215,6 @@ public:
     MergeIterator(std::vector<RowwiseIterator*> iters, int sequence_id_idx, bool is_unique)
             : _origin_iters(std::move(iters)),
               _sequence_id_idx(sequence_id_idx),
-              _is_unique(is_unique),
               _merge_heap(MergeContextComparator(_sequence_id_idx, is_unique)) {}
 
     ~MergeIterator() override {
@@ -237,8 +236,6 @@ private:
     std::vector<RowwiseIterator*> _origin_iters;
 
     int _sequence_id_idx;
-    bool _is_unique;
-
     std::unique_ptr<Schema> _schema;
 
     struct MergeContextComparator {
