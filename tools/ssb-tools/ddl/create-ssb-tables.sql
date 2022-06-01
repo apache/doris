@@ -15,39 +15,44 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-CREATE TABLE `lineorder` (
-  `lo_orderkey` bigint(20) NOT NULL COMMENT "",
-  `lo_linenumber` bigint(20) NOT NULL COMMENT "",
+CREATE TABLE IF NOT EXISTS `lineorder` (
+  `lo_orderkey` int(11) NOT NULL COMMENT "",
+  `lo_linenumber` int(11) NOT NULL COMMENT "",
   `lo_custkey` int(11) NOT NULL COMMENT "",
   `lo_partkey` int(11) NOT NULL COMMENT "",
   `lo_suppkey` int(11) NOT NULL COMMENT "",
   `lo_orderdate` int(11) NOT NULL COMMENT "",
   `lo_orderpriority` varchar(16) NOT NULL COMMENT "",
   `lo_shippriority` int(11) NOT NULL COMMENT "",
-  `lo_quantity` bigint(20) NOT NULL COMMENT "",
-  `lo_extendedprice` bigint(20) NOT NULL COMMENT "",
-  `lo_ordtotalprice` bigint(20) NOT NULL COMMENT "",
-  `lo_discount` bigint(20) NOT NULL COMMENT "",
-  `lo_revenue` bigint(20) NOT NULL COMMENT "",
-  `lo_supplycost` bigint(20) NOT NULL COMMENT "",
-  `lo_tax` bigint(20) NOT NULL COMMENT "",
-  `lo_commitdate` bigint(20) NOT NULL COMMENT "",
+  `lo_quantity` int(11) NOT NULL COMMENT "",
+  `lo_extendedprice` int(11) NOT NULL COMMENT "",
+  `lo_ordtotalprice` int(11) NOT NULL COMMENT "",
+  `lo_discount` int(11) NOT NULL COMMENT "",
+  `lo_revenue` int(11) NOT NULL COMMENT "",
+  `lo_supplycost` int(11) NOT NULL COMMENT "",
+  `lo_tax` int(11) NOT NULL COMMENT "",
+  `lo_commitdate` int(11) NOT NULL COMMENT "",
   `lo_shipmode` varchar(11) NOT NULL COMMENT ""
-)
+) ENGINE=OLAP
+DUPLICATE KEY(`lo_orderkey`)
+COMMENT "OLAP"
 PARTITION BY RANGE(`lo_orderdate`)
-(PARTITION p1992 VALUES [("-2147483648"), ("19930101")),
-PARTITION p1993 VALUES [("19930101"), ("19940101")),
-PARTITION p1994 VALUES [("19940101"), ("19950101")),
-PARTITION p1995 VALUES [("19950101"), ("19960101")),
-PARTITION p1996 VALUES [("19960101"), ("19970101")),
-PARTITION p1997 VALUES [("19970101"), ("19980101")),
-PARTITION p1998 VALUES [("19980101"), ("19990101")))
+(PARTITION p1 VALUES [("-2147483648"), ("19930101")),
+PARTITION p2 VALUES [("19930101"), ("19940101")),
+PARTITION p3 VALUES [("19940101"), ("19950101")),
+PARTITION p4 VALUES [("19950101"), ("19960101")),
+PARTITION p5 VALUES [("19960101"), ("19970101")),
+PARTITION p6 VALUES [("19970101"), ("19980101")),
+PARTITION p7 VALUES [("19980101"), ("19990101")))
 DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 48
 PROPERTIES (
-"replication_num" = "1"
+"replication_num" = "1",
+"colocate_with" = "groupa1",
+"in_memory" = "false",
+"storage_format" = "DEFAULT"
 );
 
-CREATE TABLE `customer` (
+CREATE TABLE IF NOT EXISTS `customer` (
   `c_custkey` int(11) NOT NULL COMMENT "",
   `c_name` varchar(26) NOT NULL COMMENT "",
   `c_address` varchar(41) NOT NULL COMMENT "",
@@ -56,13 +61,18 @@ CREATE TABLE `customer` (
   `c_region` varchar(13) NOT NULL COMMENT "",
   `c_phone` varchar(16) NOT NULL COMMENT "",
   `c_mktsegment` varchar(11) NOT NULL COMMENT ""
-)
-DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
+) ENGINE=OLAP
+DUPLICATE KEY(`c_custkey`)
+COMMENT "OLAP"
+DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 12
 PROPERTIES (
-"replication_num" = "1"
+"replication_num" = "1",
+"colocate_with" = "groupa2",
+"in_memory" = "false",
+"storage_format" = "DEFAULT"
 );
 
-CREATE TABLE `date` (
+CREATE TABLE IF NOT EXISTS `dates` (
   `d_datekey` int(11) NOT NULL COMMENT "",
   `d_date` varchar(20) NOT NULL COMMENT "",
   `d_dayofweek` varchar(10) NOT NULL COMMENT "",
@@ -80,13 +90,37 @@ CREATE TABLE `date` (
   `d_lastdayinmonthfl` int(11) NOT NULL COMMENT "",
   `d_holidayfl` int(11) NOT NULL COMMENT "",
   `d_weekdayfl` int(11) NOT NULL COMMENT ""
-)
+) ENGINE=OLAP
+DUPLICATE KEY(`d_datekey`)
+COMMENT "OLAP"
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1"
+"replication_num" = "1",
+"in_memory" = "false",
+"colocate_with" = "groupa3",
+"storage_format" = "DEFAULT"
 );
 
-CREATE TABLE `part` (
+ CREATE TABLE IF NOT EXISTS `supplier` (
+  `s_suppkey` int(11) NOT NULL COMMENT "",
+  `s_name` varchar(26) NOT NULL COMMENT "",
+  `s_address` varchar(26) NOT NULL COMMENT "",
+  `s_city` varchar(11) NOT NULL COMMENT "",
+  `s_nation` varchar(16) NOT NULL COMMENT "",
+  `s_region` varchar(13) NOT NULL COMMENT "",
+  `s_phone` varchar(16) NOT NULL COMMENT ""
+) ENGINE=OLAP
+DUPLICATE KEY(`s_suppkey`)
+COMMENT "OLAP"
+DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 12
+PROPERTIES (
+"replication_num" = "1",
+"colocate_with" = "groupa4",
+"in_memory" = "false",
+"storage_format" = "DEFAULT"
+);
+
+CREATE TABLE IF NOT EXISTS `part` (
   `p_partkey` int(11) NOT NULL COMMENT "",
   `p_name` varchar(23) NOT NULL COMMENT "",
   `p_mfgr` varchar(7) NOT NULL COMMENT "",
@@ -96,22 +130,13 @@ CREATE TABLE `part` (
   `p_type` varchar(26) NOT NULL COMMENT "",
   `p_size` int(11) NOT NULL COMMENT "",
   `p_container` varchar(11) NOT NULL COMMENT ""
-)
-DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 10
+) ENGINE=OLAP
+DUPLICATE KEY(`p_partkey`)
+COMMENT "OLAP"
+DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 12
 PROPERTIES (
-"replication_num" = "1"
-);
-
-CREATE TABLE `supplier` (
-  `s_suppkey` int(11) NOT NULL COMMENT "",
-  `s_name` varchar(26) NOT NULL COMMENT "",
-  `s_address` varchar(26) NOT NULL COMMENT "",
-  `s_city` varchar(11) NOT NULL COMMENT "",
-  `s_nation` varchar(16) NOT NULL COMMENT "",
-  `s_region` varchar(13) NOT NULL COMMENT "",
-  `s_phone` varchar(16) NOT NULL COMMENT ""
-)
-DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
-PROPERTIES (
-"replication_num" = "1"
+"replication_num" = "1",
+"colocate_with" = "groupa5",
+"in_memory" = "false",
+"storage_format" = "DEFAULT"
 );

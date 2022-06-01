@@ -22,11 +22,12 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Job to optimize {@link Group} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class OptimizeGroupJob extends Job {
+public class OptimizeGroupJob extends Job<Plan> {
     private final Group group;
 
     public OptimizeGroupJob(Group group, PlannerContext context) {
@@ -41,12 +42,12 @@ public class OptimizeGroupJob extends Job {
             return;
         }
         if (!group.isExplored()) {
-            for (GroupExpression logicalGroupExpression : group.getLogicalPlanList()) {
-                context.getOptimizerContext().pushTask(new OptimizePlanJob(logicalGroupExpression, context));
+            for (GroupExpression logicalGroupExpression : group.getLogicalExpressions()) {
+                context.getOptimizerContext().pushJob(new OptimizeGroupExpressionJob(logicalGroupExpression, context));
             }
         }
-        for (GroupExpression physicalGroupExpression : group.getPhysicalPlanList()) {
-            context.getOptimizerContext().pushTask(new CostAndEnforcerJob(physicalGroupExpression, context));
+        for (GroupExpression physicalGroupExpression : group.getPhysicalExpressions()) {
+            context.getOptimizerContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
         }
         group.setExplored(true);
     }

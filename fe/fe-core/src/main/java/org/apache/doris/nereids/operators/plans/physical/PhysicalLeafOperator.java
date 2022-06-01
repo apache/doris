@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
 
 import java.util.List;
 
@@ -44,5 +46,10 @@ public abstract class PhysicalLeafOperator<TYPE extends PhysicalLeafOperator<TYP
 
     public List<Slot> doComputeOutput(LogicalProperties logicalProperties) {
         return logicalProperties.getOutput();
+    }
+
+    @Override
+    public PhysicalLeaf toTreeNode(GroupExpression groupExpression) {
+        return new PhysicalLeaf(this, groupExpression, groupExpression.getParent().getLogicalProperties());
     }
 }

@@ -15,34 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.pattern;
-
-import org.apache.doris.nereids.trees.plans.Plan;
-
-import java.util.Iterator;
+package org.apache.doris.nereids.exceptions;
 
 /**
- * Get all pattern matching subtree in query plan.
+ * All exceptions thrown by transform action in {@link org.apache.doris.nereids.rules.Rule}
+ * should be a subclass of this class.
  */
-public class PatternMatching implements Iterable<Plan<?, ?>> {
-
-    @Override
-    public Iterator<Plan<?, ?>> iterator() {
-        return new PatternMatchingIterator();
-    }
-
-    /**
-     * Iterator to get all subtrees.
-     */
-    public static class PatternMatchingIterator implements Iterator<Plan<?, ?>> {
-        @Override
-        public boolean hasNext() {
-            return false;
-        }
-
-        @Override
-        public Plan<?, ?> next() {
-            return null;
-        }
+public class TransformException extends RuntimeException {
+    public TransformException(String msg) {
+        super(String.format("Transform error: %s", msg));
     }
 }

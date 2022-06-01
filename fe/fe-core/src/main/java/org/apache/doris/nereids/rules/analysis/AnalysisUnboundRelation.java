@@ -39,7 +39,7 @@ public class AnalysisUnboundRelation extends OneAnalysisRuleFactory {
         // fixme, just for example now
         return unboundRelation().thenApply(ctx -> {
             ConnectContext connectContext = ctx.plannerContext.getConnectContext();
-            List<String> nameParts = ctx.root.op.getNameParts();
+            List<String> nameParts = ctx.root.operator.getNameParts();
             switch (nameParts.size()) {
                 case 1: {
                     List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
@@ -51,7 +51,8 @@ public class AnalysisUnboundRelation extends OneAnalysisRuleFactory {
                     return plan(new LogicalRelation(table, nameParts));
                 }
                 default:
-                    throw new IllegalStateException("Table name [" + ctx.root.op.getTableName() + "] is invalid.");
+                    throw new IllegalStateException("Table name ["
+                            + ctx.root.operator.getTableName() + "] is invalid.");
             }
         }).toRule(RuleType.BINDING_UNBOUND_RELATION_RULE);
     }

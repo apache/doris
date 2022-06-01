@@ -375,14 +375,18 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         if (conjuncts == null) {
             return;
         }
-        this.conjuncts.addAll(conjuncts);
+        for (Expr conjunct : conjuncts) {
+            addConjunct(conjunct);
+        }
     }
 
     public void addConjunct(Expr conjunct) {
         if (conjuncts == null) {
             conjuncts = Lists.newArrayList();
         }
-        conjuncts.add(conjunct);
+        if (!conjuncts.contains(conjunct)) {
+            conjuncts.add(conjunct);
+        }
     }
 
     public void setAssignedConjuncts(Set<ExprId> conjuncts) {
@@ -636,7 +640,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      */
     protected void assignConjuncts(Analyzer analyzer) {
         List<Expr> unassigned = analyzer.getUnassignedConjuncts(this);
-        conjuncts.addAll(unassigned);
+        for (Expr unassignedConjunct : unassigned) {
+            addConjunct(unassignedConjunct);
+        }
         analyzer.markConjunctsAssigned(unassigned);
     }
 

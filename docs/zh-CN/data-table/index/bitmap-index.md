@@ -66,7 +66,7 @@ DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
 
 - 目前索引仅支持 bitmap 类型的索引。
 - bitmap 索引仅在单列上创建。
-- bitmap 索引能够应用在 `Duplicate` 数据模型的所有列和 `Aggregate`, `Uniq` 模型的key列上。
+- bitmap 索引能够应用在 `Duplicate`、`Uniq`  数据模型的所有列和 `Aggregate`模型的key列上。
 - bitmap 索引支持的数据类型如下:
   - `TINYINT`
   - `SMALLINT`
