@@ -210,10 +210,13 @@ public class InlineViewRef extends TableRef {
         // anlayzeLateralViewRefs
         analyzeLateralViewRef(analyzer);
 
-        // Now do the remaining join analysis
+        // We need to analyze join behind create sMap and baseTblSmap, because SlotDescriptors of inline view's
+        // output slots will be generated when create sMap and baseTblSmap. Before generate SlotDescriptors,
+        // we need to analyze join clause. Since SlotDescriptors need to be set as nullable if its TupleDescriptor is
+        // an outer join tuple.
         analyzeJoin(analyzer);
 
-        // create smap_ and baseTblSmap_ and register auxiliary eq predicates between our
+        // create sMap and baseTblSmap and register auxiliary eq predicates between our
         // tuple descriptor's slots and our *unresolved* select list exprs;
         // we create these auxiliary predicates so that the analyzer can compute the value
         // transfer graph through this inline view correctly (ie, predicates can get
