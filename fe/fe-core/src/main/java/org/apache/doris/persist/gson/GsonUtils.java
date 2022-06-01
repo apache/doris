@@ -133,7 +133,7 @@ public class GsonUtils {
             .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
 
 
-    // runtime adapter for class "Resource"
+    // runtime adapter for class "Policy"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Policy.class, "clazz")
             .registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName());
