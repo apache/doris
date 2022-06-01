@@ -626,6 +626,15 @@ public class AnalyticExpr extends Expr {
 
         if (analyticFnName.getFunction().equalsIgnoreCase(NTILE)) {
             Preconditions.checkState(window == null, "Unexpected window set for ntile()");
+
+            Expr bucketExpr = getFnCall().getFnParams().exprs().get(0);
+            if (bucketExpr instanceof LiteralExpr) {
+                Preconditions.checkState(((LiteralExpr) bucketExpr).getLongValue() > 0,
+                        "Parameter n in ntile(n) should be positive.");
+            } else {
+                throw new AnalysisException("Parameter n in ntile(n) should be constant.");
+            }
+
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
                     new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
                     new Boundary(BoundaryType.CURRENT_ROW, null));
