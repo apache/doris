@@ -43,5 +43,9 @@ public enum NodeType {
     ALIAS,
 
     // pattern
-    PATTERN
+    PATTERN,
+
+    // fixed
+    FIXED,
+    ;
 }

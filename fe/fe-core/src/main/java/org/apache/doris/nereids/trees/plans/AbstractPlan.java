@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
@@ -38,16 +39,21 @@ public abstract class AbstractPlan<
         OP_TYPE extends PlanOperator>
         extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE, OP_TYPE> {
 
-    public final OP_TYPE op;
+    public final OP_TYPE operator;
 
     public AbstractPlan(NodeType type, OP_TYPE operator, Plan... children) {
         super(type, children);
-        this.op = Objects.requireNonNull(operator, "operator can not be null");
+        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    }
+
+    public AbstractPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression, Plan... children) {
+        super(type, groupExpression, children);
+        this.operator = Objects.requireNonNull(operator, "operator can not be null");
     }
 
     @Override
     public OP_TYPE getOperator() {
-        return op;
+        return operator;
     }
 
     @Override

@@ -40,10 +40,10 @@ public class JoinLeftAssociative extends OneExplorationRuleFactory {
         return innerLogicalJoin(innerLogicalJoin(), any()).then(root -> {
             // fixme, just for example now
             return plan(
-                new LogicalJoin(JoinType.INNER_JOIN, root.op.getOnClause()),
+                new LogicalJoin(JoinType.INNER_JOIN, root.operator.getOnClause()),
                 root.left().left(),
                 plan(
-                    new LogicalJoin(JoinType.INNER_JOIN, root.op.getOnClause()),
+                    new LogicalJoin(JoinType.INNER_JOIN, root.operator.getOnClause()),
                     root.left().right(),
                     root.right()
                 )
