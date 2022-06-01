@@ -845,7 +845,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
                   return left.first < right.first;
               });
 
-    Version max_continuous_version = {-1, 0};
+    Version max_continuous_version = {-1, -1};
     for (int i = 0; i < existing_versions.size(); ++i) {
         if (existing_versions[i].first > max_continuous_version.second + 1) {
             break;
