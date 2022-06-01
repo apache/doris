@@ -27,6 +27,7 @@ using FunctionDayOfYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOf
 using FunctionDayOfWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl>;
 using FunctionDayOfMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl>;
 using FunctionYearWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl>;
+using FunctionWeekDay = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl>;
 
 void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfWeek>();
@@ -34,5 +35,6 @@ void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfYear>();
     factory.register_function<FunctionWeekOfYear>();
     factory.register_function<FunctionYearWeek>();
+    factory.register_function<FunctionWeekDay>();
 }
 } // namespace doris::vectorized
