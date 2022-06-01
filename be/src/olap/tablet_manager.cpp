@@ -650,7 +650,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                            << ", tablet_id=" << tablet_ptr->tablet_id();
                 continue;
             }
-
             if (compaction_type == CompactionType::BASE_COMPACTION) {
                 std::unique_lock<std::mutex> lock(tablet_ptr->get_base_compaction_lock(),
                                                   std::try_to_lock);

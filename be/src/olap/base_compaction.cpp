@@ -49,6 +49,7 @@ Status BaseCompaction::prepare_compact() {
 }
 
 Status BaseCompaction::execute_compact_impl() {
+    Thread::set_thread_idle_sched();
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
@@ -89,7 +90,9 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
     RETURN_NOT_OK(check_version_continuity(_input_rowsets));
     RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
-
+    if (_input_rowsets.size() > config::base_compaction_max_rowset_num) {
+        _input_rowsets.resize(config::base_compaction_max_rowset_num);
+    }
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
         // the tablet is with rowset: [0-1], [2-y]
         // and [0-1] has no data. in this situation, no need to do base compaction.

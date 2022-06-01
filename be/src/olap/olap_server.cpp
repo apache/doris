@@ -67,11 +67,16 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
-    int32_t max_thread_num = config::max_compaction_threads;
-    ThreadPoolBuilder("CompactionTaskThreadPool")
+    int32_t max_thread_num = config::max_base_compaction_threads;
+    ThreadPoolBuilder("BaseCompactionTaskThreadPool")
             .set_min_threads(max_thread_num)
             .set_max_threads(max_thread_num)
-            .build(&_compaction_thread_pool);
+            .build(&_base_compaction_thread_pool);
+    max_thread_num = config::max_cumu_compaction_threads;
+    ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+            .set_min_threads(max_thread_num)
+            .set_max_threads(max_thread_num)
+            .build(&_cumu_compaction_thread_pool);
 
     int32_t convert_rowset_thread_num = config::convert_rowset_thread_num;
     if (convert_rowset_thread_num > 0) {
@@ -320,6 +325,7 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
+<<<<<<< HEAD
 void StorageEngine::_alpha_rowset_scan_thread_callback() {
     LOG(INFO) << "try to start alpha rowset scan thread!";
 
@@ -352,6 +358,46 @@ void StorageEngine::_alpha_rowset_scan_thread_callback() {
             scan_interval_sec = config::scan_alpha_rowset_min_interval_sec;
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(scan_interval_sec)));
+=======
+void StorageEngine::_adjust_compaction_thread_num() {
+    if (_base_compaction_thread_pool->max_threads() != config::max_base_compaction_threads) {
+        int old_max_threads = _base_compaction_thread_pool->max_threads();
+        Status status =
+                _base_compaction_thread_pool->set_max_threads(config::max_base_compaction_threads);
+        if (status.ok()) {
+            VLOG_NOTICE << "update base compaction thread pool max_threads from " << old_max_threads
+                        << " to " << config::max_base_compaction_threads;
+        }
+    }
+    if (_base_compaction_thread_pool->min_threads() != config::max_base_compaction_threads) {
+        int old_min_threads = _base_compaction_thread_pool->min_threads();
+        Status status =
+                _base_compaction_thread_pool->set_min_threads(config::max_base_compaction_threads);
+        if (status.ok()) {
+            VLOG_NOTICE << "update base compaction thread pool min_threads from " << old_min_threads
+                        << " to " << config::max_base_compaction_threads;
+        }
+    }
+
+    if (_cumu_compaction_thread_pool->max_threads() != config::max_cumu_compaction_threads) {
+        int old_max_threads = _cumu_compaction_thread_pool->max_threads();
+        Status status =
+                _cumu_compaction_thread_pool->set_max_threads(config::max_cumu_compaction_threads);
+        if (status.ok()) {
+            VLOG_NOTICE << "update cumu compaction thread pool max_threads from " << old_max_threads
+                        << " to " << config::max_cumu_compaction_threads;
+        }
+    }
+    if (_cumu_compaction_thread_pool->min_threads() != config::max_cumu_compaction_threads) {
+        int old_min_threads = _cumu_compaction_thread_pool->min_threads();
+        Status status =
+                _cumu_compaction_thread_pool->set_min_threads(config::max_cumu_compaction_threads);
+        if (status.ok()) {
+            VLOG_NOTICE << "update cumu compaction thread pool min_threads from " << old_min_threads
+                        << " to " << config::max_cumu_compaction_threads;
+        }
+    }
+>>>>>>> [feature](compaction) add some optimize for compaction
 }
 
 void StorageEngine::_compaction_tasks_producer_callback() {
@@ -384,35 +430,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_min_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
-            VLOG_CRITICAL << "compaction thread pool. num_threads: "
-                          << _compaction_thread_pool->num_threads()
-                          << ", num_threads_pending_start: "
-                          << _compaction_thread_pool->num_threads_pending_start()
-                          << ", num_active_threads: "
-                          << _compaction_thread_pool->num_active_threads()
-                          << ", max_threads: " << _compaction_thread_pool->max_threads()
-                          << ", min_threads: " << _compaction_thread_pool->min_threads()
-                          << ", num_total_queued_tasks: "
-                          << _compaction_thread_pool->get_queue_size();
-
-            if (_compaction_thread_pool->max_threads() != config::max_compaction_threads) {
-                int old_max_threads = _compaction_thread_pool->max_threads();
-                Status status =
-                        _compaction_thread_pool->set_max_threads(config::max_compaction_threads);
-                if (status.ok()) {
-                    LOG(INFO) << "update compaction thread pool max_threads from "
-                              << old_max_threads << " to " << config::max_compaction_threads;
-                }
-            }
-            if (_compaction_thread_pool->min_threads() != config::max_compaction_threads) {
-                int old_min_threads = _compaction_thread_pool->min_threads();
-                Status status =
-                        _compaction_thread_pool->set_min_threads(config::max_compaction_threads);
-                if (status.ok()) {
-                    LOG(INFO) << "update compaction thread pool min_threads from "
-                              << old_min_threads << " to " << config::max_compaction_threads;
-                }
-            }
+            _adjust_compaction_thread_num();
 
             bool check_score = false;
             int64_t cur_time = UnixMillis();
@@ -431,6 +449,20 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     last_base_score_update_time = cur_time;
                 }
             }
+            std::unique_ptr<ThreadPool>& thread_pool =
+                    (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
+                            ? _cumu_compaction_thread_pool
+                            : _base_compaction_thread_pool;
+            VLOG_CRITICAL << "compaction thread pool. type: "
+                          << (compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "CUMU"
+                                                                                       : "BASE")
+                          << ", num_threads: " << thread_pool->num_threads()
+                          << ", num_threads_pending_start: "
+                          << thread_pool->num_threads_pending_start()
+                          << ", num_active_threads: " << thread_pool->num_active_threads()
+                          << ", max_threads: " << thread_pool->max_threads()
+                          << ", min_threads: " << thread_pool->min_threads()
+                          << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
             std::vector<TabletSharedPtr> tablets_compaction =
                     _generate_compaction_tasks(compaction_type, data_dirs, check_score);
             if (tablets_compaction.size() == 0) {
@@ -613,7 +645,11 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     int64_t permits = 0;
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
     if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
-        auto st = _compaction_thread_pool->submit_func([=]() {
+        std::unique_ptr<ThreadPool>& thread_pool =
+                (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
+                        ? _cumu_compaction_thread_pool
+                        : _base_compaction_thread_pool;
+        auto st = thread_pool->submit_func([=]() {
             SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
                                       tablet->get_compaction_mem_tracker(compaction_type));
             CgroupsMgr::apply_system_cgroup();

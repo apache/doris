@@ -1062,9 +1062,18 @@ void Tablet::find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const {
 
 void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
     std::shared_lock rdlock(_meta_lock);
+    bool should_skip_big_files = false;
+    if (keys_type() == KeysType::DUP_KEYS && delete_predicates().size() == 0) {
+        should_skip_big_files = true;
+    }
     for (auto& it : _rs_version_map) {
         if (it.first.first < _cumulative_point) {
-            candidate_rowsets->push_back(it.second);
+            if (!should_skip_big_files ||
+                it.second->data_disk_size() <
+                        config::max_dup_key_base_compaction_size_mbytes_when_no_delete * 1024 *
+                                1024) {
+                candidate_rowsets->push_back(it.second);
+            }
         }
     }
 }
