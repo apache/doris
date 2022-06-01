@@ -1129,6 +1129,8 @@ The Apache Software License, Version 2.0
         - com.alibaba.otter:canal.common:1.1.4 (http://b2b-doc.alibaba-inc.com/display/opentech/Otter)
     * canal protocol module for otter 1.1.4:
         - com.alibaba.otter:canal.protocol:1.1.4 (http://b2b-doc.alibaba-inc.com/display/opentech/Otter)
+    * fastjson:
+        - com.alibaba:fastjson:2.0.5 (https://github.com/alibaba/fastjson.git)
     * chill:
         - com.twitter:chill_2.12:0.9.3 (https://github.com/twitter/chill)
     * chill-java:
