@@ -776,14 +776,16 @@ public class SystemInfoService {
      * Select a set of backends by the given policy.
      *
      * @param policy
-     * @param number number of backends which need to be selected.
+     * @param number number of backends which need to be selected. -1 means return as many as possible.
      * @return return #number of backend ids,
      * or empty set if no backends match the policy, or the number of matched backends is less than "number";
      */
     public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+        Preconditions.checkArgument(number >= -1);
         List<Backend> candidates =
                 idToBackendRef.values().stream().filter(policy::isMatch).collect(Collectors.toList());
-        if (candidates.size() < number) {
+        if ((number != -1 && candidates.size() < number) || candidates.isEmpty()) {
+            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
             return Lists.newArrayList();
         }
         // If only need one Backend, just return a random one.
@@ -794,7 +796,11 @@ public class SystemInfoService {
 
         if (policy.allowOnSameHost) {
             Collections.shuffle(candidates);
-            return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
+            if (number == -1) {
+                return candidates.stream().map(b -> b.getId()).collect(Collectors.toList());
+            } else {
+                return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
+            }
         }
 
         // for each host, random select one backend.
@@ -813,11 +819,16 @@ public class SystemInfoService {
             Collections.shuffle(list);
             candidates.add(list.get(0));
         }
-        if (candidates.size() < number) {
+        if (number != -1 && candidates.size() < number) {
+            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
             return Lists.newArrayList();
         }
         Collections.shuffle(candidates);
-        return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
+        if (number != -1) {
+            return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
+        } else {
+            return candidates.stream().map(b -> b.getId()).collect(Collectors.toList());
+        }
     }
 
     public ImmutableMap<Long, Backend> getIdToBackend() {

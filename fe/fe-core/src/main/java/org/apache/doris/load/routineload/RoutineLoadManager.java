@@ -496,13 +496,14 @@ public class RoutineLoadManager implements Writable {
         } else {
             tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
             if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
-                // user may be dropped. Here we fall back to use replica tag
+                // user may be dropped, or may not set resource tag property.
+                // Here we fall back to use replica tag
                 tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
             }
         }
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().setCluster(cluster)
                 .addTags(tags).build();
-        return Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 20000);
+        return Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
     }
 
     private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {
