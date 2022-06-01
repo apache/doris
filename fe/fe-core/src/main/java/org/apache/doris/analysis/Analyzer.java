@@ -791,7 +791,7 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        if (col.isAllowNull() || globalState.outerJoinedTupleIds.containsKey(d.getId())) {
+        if (col.isAllowNull() || isOuterJoined(d.getId())) {
             result.setIsNullable(true);
         } else {
             result.setIsNullable(false);

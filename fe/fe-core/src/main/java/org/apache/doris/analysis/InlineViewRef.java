@@ -207,6 +207,12 @@ public class InlineViewRef extends TableRef {
             materializedTupleIds.add(desc.getId());
         }
 
+        // anlayzeLateralViewRefs
+        analyzeLateralViewRef(analyzer);
+
+        // Now do the remaining join analysis
+        analyzeJoin(analyzer);
+
         // create smap_ and baseTblSmap_ and register auxiliary eq predicates between our
         // tuple descriptor's slots and our *unresolved* select list exprs;
         // we create these auxiliary predicates so that the analyzer can compute the value
@@ -233,12 +239,6 @@ public class InlineViewRef extends TableRef {
             LOG.debug("inline view " + getUniqueAlias() + " smap: " + sMap.debugString());
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
-
-        // anlayzeLateralViewRefs
-        analyzeLateralViewRef(analyzer);
-
-        // Now do the remaining join analysis
-        analyzeJoin(analyzer);
     }
 
     /**

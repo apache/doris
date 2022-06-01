@@ -1384,6 +1384,11 @@ public class SingleNodePlanner {
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
                     outputSmap.getRhs(), rootNode.getTupleIds(), analyzer);
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
+            for (TupleId tupleId : rootNode.getTupleIds()) {
+                for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getMaterializedSlots()) {
+                    slotDescriptor.setIsNullable(true);
+                }
+            }
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap);
