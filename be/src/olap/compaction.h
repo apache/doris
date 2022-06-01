@@ -63,7 +63,7 @@ protected:
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);
 
-    void modify_rowsets();
+    Status modify_rowsets();
     void gc_output_rowset();
 
     Status construct_output_rowset_writer();
