@@ -351,7 +351,15 @@ public:
     const std::vector<TTupleId>& get_row_tuples() const { return _row_tuples; }
 
     // return all registered tuple descriptors
-    void get_tuple_descs(std::vector<TupleDescriptor*>* descs) const;
+    std::vector<TupleDescriptor*> get_tuple_descs() const {
+        std::vector<TupleDescriptor*> descs;
+
+        for (auto it : _tuple_desc_map) {
+            descs.push_back(it.second);
+        }
+
+        return descs;
+    }
 
     std::string debug_string() const;
 

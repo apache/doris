@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/row.h"
@@ -32,6 +33,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/wrapper_field.h"
+#include "runtime/mem_tracker.h"
 #include "util/defer_op.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -44,6 +46,8 @@
 using std::nothrow;
 
 namespace doris {
+
+constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
 
 class RowBlockSorter {
 public:
@@ -164,7 +168,7 @@ public:
                         agg_functions[j - key_number]->create(agg_places[j - key_number]);
                     }
 
-                    if (i == rows - 1 || finalized_block.rows() == merge_batch_size) {
+                    if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
                         *merged_rows -= finalized_block.rows();
                         rowset_writer->add_block(&finalized_block);
                         finalized_block.clear_column_data();
@@ -182,8 +186,8 @@ public:
         rows = pushed_row_refs.size();
         *merged_rows -= rows;
 
-        for (int i = 0; i < rows; i += merge_batch_size) {
-            int limit = std::min(merge_batch_size, rows - i);
+        for (int i = 0; i < rows; i += ALTER_TABLE_BATCH_SIZE) {
+            int limit = std::min(ALTER_TABLE_BATCH_SIZE, rows - i);
 
             for (int idx = 0; idx < columns; idx++) {
                 auto column = finalized_block.get_by_position(idx).column->assume_mutable();
@@ -228,7 +232,6 @@ private:
 
     TabletSharedPtr _tablet;
     RowRefComparator _cmp;
-    const int merge_batch_size = 4096;
 };
 
 RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema, DescriptorTbl desc_tbl)
@@ -899,6 +902,20 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     return Status::OK();
 }
 
+Status RowBlockChanger::init_ref_block(vectorized::Block* ref_block) const {
+    auto descs = _desc_tbl.get_tuple_descs();
+    if (descs.size() != 1) {
+        LOG(WARNING) << "alter table expect only 1 desc but " << descs.size();
+        return Status::Corruption("Alter table desc more than one.");
+    }
+
+    for (const auto slot : descs[0]->slots()) {
+        ref_block->insert(vectorized::ColumnWithTypeAndName(
+                slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()));
+    }
+    return Status::OK();
+}
+
 Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                                           vectorized::ColumnPtr new_column) const {
     // TODO: use simd to optimize those code
@@ -1309,8 +1326,10 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     auto ref_block =
             std::make_unique<vectorized::Block>(base_tablet->tablet_schema().create_block());
 
-    rowset_reader->next_block(ref_block.get());
+    _changer.init_ref_block(ref_block.get());
     int origin_columns_size = ref_block->columns();
+
+    rowset_reader->next_block(ref_block.get());
     while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
@@ -1343,10 +1362,15 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
 
 VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
                                                    size_t memory_limitation)
-        : _row_block_changer(row_block_changer),
+        : _changer(row_block_changer),
           _memory_limitation(memory_limitation),
-          _temp_delta_versions(Version::mock()),
-          _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()) {}
+          _temp_delta_versions(Version::mock()) {
+    _mem_tracker = MemTracker::create_tracker(
+            config::memory_limitation_per_thread_for_schema_change_bytes,
+            fmt::format("VSchemaChangeWithSorting:changer={}",
+                        std::to_string(int64(&row_block_changer))),
+            StorageEngine::instance()->schema_change_mem_tracker(), MemTrackerLevel::TASK);
+}
 
 Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                                RowsetWriter* rowset_writer,
@@ -1534,6 +1558,9 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     auto ref_block =
             std::make_unique<vectorized::Block>(base_tablet->tablet_schema().create_block());
 
+    _changer.init_ref_block(ref_block.get());
+    int origin_columns_size = ref_block->columns();
+
     auto create_rowset = [&]() -> Status {
         if (blocks.empty()) {
             return Status::OK();
@@ -1557,24 +1584,23 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     rowset_reader->next_block(ref_block.get());
     while (ref_block->rows()) {
-        RETURN_IF_ERROR(_row_block_changer.change_block(ref_block.get(), new_block.get()));
-        _mem_tracker->consume(new_block->allocated_bytes());
+        RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
+        if (!_mem_tracker->try_consume(new_block->allocated_bytes())) {
+            RETURN_IF_ERROR(create_rowset());
+
+            if (!_mem_tracker->try_consume(new_block->allocated_bytes())) {
+                LOG(WARNING) << "Memory limitation is too small for Schema Change."
+                             << "memory_limitation=" << _memory_limitation;
+                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            }
+        }
+
         // move unique ptr
         blocks.push_back(
                 std::make_unique<vectorized::Block>(new_tablet->tablet_schema().create_block()));
         swap(blocks.back(), new_block);
 
-        if (_mem_tracker->consumption() > _memory_limitation) {
-            if (blocks.empty()) {
-                LOG(WARNING) << "Memory limitation is too small for Schema Change."
-                             << "memory_limitation=" << _memory_limitation;
-                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
-            }
-            RETURN_IF_ERROR(create_rowset());
-            continue;
-        }
-
-        ref_block->clear();
+        ref_block->clear_column_data(origin_columns_size);
         rowset_reader->next_block(ref_block.get());
     }
 
@@ -1712,6 +1738,9 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
     return res;
 }
 
+std::shared_mutex SchemaChangeHandler::_mutex;
+std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
+
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
 // In alter task v2, FE will call BE to create tablet and send an alter task to BE to convert historical data.
@@ -1792,6 +1821,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
         reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
+        reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
+        reader_context.is_vec = config::enable_vectorized_alter_table;
 
         do {
             RowsetSharedPtr max_rowset;
@@ -1883,7 +1914,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                     break;
                 }
             }
-
         } while (false);
     }
 
@@ -2019,6 +2049,7 @@ Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
     reader_context.seek_columns = &return_columns;
     reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
     reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
+    reader_context.is_vec = config::enable_vectorized_alter_table;
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));

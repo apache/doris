@@ -730,8 +730,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         // Before doing schema change, tablet's rowsets that versions smaller than max converting version will be
         // removed. So, we only need to do the compaction when it is being converted.
         // After being converted, tablet's state will be changed to TABLET_RUNNING.
-        auto schema_change_handler = SchemaChangeHandler::instance();
-        return schema_change_handler->tablet_in_converting(tablet_id());
+        return SchemaChangeHandler::tablet_in_converting(tablet_id());
     }
 
     return true;

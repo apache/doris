@@ -54,6 +54,8 @@ public:
 
     Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
 
+    Status init_ref_block(vectorized::Block* ref_block) const;
+
 private:
     Status _check_cast_valid(vectorized::ColumnPtr ref_column,
                              vectorized::ColumnPtr new_column) const;
@@ -240,7 +242,7 @@ private:
     Status _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
                              TabletSharedPtr new_tablet);
 
-    const RowBlockChanger& _row_block_changer;
+    const RowBlockChanger& _changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -276,7 +278,7 @@ public:
         return std::make_unique<LinkedSchemaChange>(rb_changer);
     }
 
-    bool tablet_in_converting(int64_t tablet_id);
+    static bool tablet_in_converting(int64_t tablet_id);
 
 private:
     // Check the status of schema change and clear information between "a pair" of Schema change tables

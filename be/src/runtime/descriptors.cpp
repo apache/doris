@@ -625,16 +625,6 @@ SlotDescriptor* DescriptorTbl::get_slot_descriptor(SlotId id) const {
     }
 }
 
-// return all registered tuple descriptors
-void DescriptorTbl::get_tuple_descs(std::vector<TupleDescriptor*>* descs) const {
-    descs->clear();
-
-    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin(); i != _tuple_desc_map.end();
-         ++i) {
-        descs->push_back(i->second);
-    }
-}
-
 bool SlotDescriptor::layout_equals(const SlotDescriptor& other_desc) const {
     if (type().type != other_desc.type().type) return false;
     if (is_nullable() != other_desc.is_nullable()) return false;
