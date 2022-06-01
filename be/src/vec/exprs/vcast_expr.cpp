@@ -19,8 +19,10 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exprs/vexpr.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -72,21 +74,19 @@ void VCastExpr::close(doris::RuntimeState* state, VExprContext* context,
 doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
                                  int* result_column_id) {
     // for each child call execute
-    doris::vectorized::ColumnNumbers arguments(2);
-    int column_id = -1;
+    int column_id = 0;
     _children[0]->execute(context, block, &column_id);
-    arguments[0] = column_id;
 
-    size_t const_param_id = block->columns();
-    block->insert({_cast_param, _cast_param_data_type, _target_data_type_name});
-    arguments[1] = const_param_id;
+    size_t const_param_id = VExpr::insert_param(
+            block, {_cast_param, _cast_param_data_type, _target_data_type_name}, block->rows());
 
     // call function
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    _function->execute(context->fn_context(_fn_context_index), *block, arguments,
-                       num_columns_without_result, block->rows(), false);
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block,
+                                       {static_cast<size_t>(column_id), const_param_id},
+                                       num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }

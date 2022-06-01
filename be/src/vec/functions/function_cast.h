@@ -718,11 +718,7 @@ struct ConvertThroughParsing {
 
     using ToFieldType = typename ToDataType::FieldType;
 
-    static bool is_all_read(ReadBuffer& in) {
-        if (in.eof()) return true;
-
-        return false;
-    }
+    static bool is_all_read(ReadBuffer& in) { return in.eof(); }
 
     template <typename Additions = void*>
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
@@ -779,19 +775,9 @@ struct ConvertThroughParsing {
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            {
-                bool parsed;
-
-                {
-                    parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
-
-                    parsed = parsed && is_all_read(read_buffer);
-                }
-
-                if (!parsed) vec_to[i] = 0;
-
-                (*vec_null_map_to)[i] = !parsed;
-            }
+            (*vec_null_map_to)[i] =
+                    !try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone) ||
+                    !is_all_read(read_buffer);
 
             current_offset = next_offset;
         }
@@ -836,27 +822,16 @@ public:
                         size_t result, size_t input_rows_count) override {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
-        bool ok = true;
-
-        {
-            if (check_and_get_data_type<DataTypeString>(from_type)) {
-                return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                        block, arguments, result, input_rows_count);
-            }
-
-            else
-                ok = false;
+        if (check_and_get_data_type<DataTypeString>(from_type)) {
+            return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
+                    block, arguments, result, input_rows_count);
         }
 
-        if (!ok) {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal type {} of argument of function {} . Only String or FixedString "
-                    "argument is accepted for try-conversion function. For other arguments, use "
-                    "function without 'orZero' or 'orNull'.",
-                    block.get_by_position(arguments[0]).type->get_name(), get_name()));
-        }
-
-        return Status::OK();
+        return Status::RuntimeError(fmt::format(
+                "Illegal type {} of argument of function {} . Only String or FixedString "
+                "argument is accepted for try-conversion function. For other arguments, use "
+                "function without 'orZero' or 'orNull'.",
+                block.get_by_position(arguments[0]).type->get_name(), get_name()));
     }
 };
 
@@ -877,8 +852,7 @@ public:
     // This function should not be called for get DateType Ptr
     // using the FunctionCast::get_return_type_impl
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        auto res = std::make_shared<ToDataType>();
-        return res;
+        return std::make_shared<ToDataType>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1084,7 +1058,7 @@ private:
             };
         }
 
-        bool skip_not_null_check = false;
+        constexpr bool skip_not_null_check = false;
 
         auto wrapper = prepare_remove_nullable(from_nested, to_nested, skip_not_null_check);
 
