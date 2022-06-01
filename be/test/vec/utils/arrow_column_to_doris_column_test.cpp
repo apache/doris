@@ -608,11 +608,10 @@ TEST(ArrowColumnToDorisColumnTest, test_binary) {
 }
 
 template <typename ArrowValueType, bool is_nullable = false>
-static inline std::shared_ptr<arrow::Array> create_array_array(std::vector<IColumn::Offset>& vec_offsets,
-                                                               std::vector<bool>& null_map,
-                                                               std::shared_ptr<arrow::DataType> value_type,
-                                                               std::shared_ptr<arrow::Array> values,
-                                                               size_t& counter) {
+static inline std::shared_ptr<arrow::Array> create_array_array(
+        std::vector<IColumn::Offset>& vec_offsets, std::vector<bool>& null_map,
+        std::shared_ptr<arrow::DataType> value_type, std::shared_ptr<arrow::Array> values,
+        size_t& counter) {
     using offset_type = typename arrow::ListType::offset_type;
     size_t num_rows = vec_offsets.size() - 1;
     DCHECK(null_map.size() == num_rows);
@@ -635,22 +634,24 @@ static inline std::shared_ptr<arrow::Array> create_array_array(std::vector<IColu
         offsets[i + 1] = vec_offsets[i + 1];
     }
 
-    auto array = std::make_shared<arrow::ListArray>(value_type, num_rows, offsets_buf, values, null_bitmap);
+    auto array = std::make_shared<arrow::ListArray>(value_type, num_rows, offsets_buf, values,
+                                                    null_bitmap);
     counter += num_rows;
     return std::static_pointer_cast<arrow::Array>(array);
 }
 
 template <typename ArrowType, bool is_nullable>
-void test_arrow_to_array_column(ColumnWithTypeAndName& column, 
+void test_arrow_to_array_column(ColumnWithTypeAndName& column,
                                 std::vector<IColumn::Offset>& vec_offsets,
                                 std::vector<bool>& null_map,
                                 std::shared_ptr<arrow::DataType> value_type,
-                                std::shared_ptr<arrow::Array> values,
-                                const std::string& value,
+                                std::shared_ptr<arrow::Array> values, const std::string& value,
                                 size_t& counter) {
     ASSERT_EQ(column.column->size(), counter);
-    auto array = create_array_array<ArrowType, is_nullable>(vec_offsets, null_map, value_type, values, counter);
-    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, vec_offsets.size() - 1, "UTC");
+    auto array = create_array_array<ArrowType, is_nullable>(vec_offsets, null_map, value_type,
+                                                            values, counter);
+    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, vec_offsets.size() - 1,
+                                            "UTC");
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
@@ -690,10 +691,9 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
 }
 
 template <typename ArrowType, bool is_nullable>
-void test_array(const std::vector<std::string>& test_cases, size_t num_elements, std::vector<IColumn::Offset>& vec_offsets,
-                                std::vector<bool>& null_map,
-                                std::shared_ptr<arrow::DataType> value_type
-                                ) {
+void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
+                std::vector<IColumn::Offset>& vec_offsets, std::vector<bool>& null_map,
+                std::shared_ptr<arrow::DataType> value_type) {
     TypeDescriptor type(TYPE_ARRAY);
     type.children.push_back(TYPE_VARCHAR);
     DataTypePtr data_type = DataTypeFactory::instance().create_data_type(type, true);
@@ -702,10 +702,12 @@ void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
         ColumnWithTypeAndName column(std::move(data_column), data_type, "test_array_column");
         // create nested column
         size_t nested_counter = 0;
-        auto array = create_binary_array<ArrowType, is_nullable>(num_elements, value, nested_counter);
+        auto array =
+                create_binary_array<ArrowType, is_nullable>(num_elements, value, nested_counter);
         ASSERT_EQ(nested_counter, num_elements);
         size_t counter = 0;
-        test_arrow_to_array_column<ArrowType, is_nullable>(column, vec_offsets, null_map, value_type, array, value, counter);
+        test_arrow_to_array_column<ArrowType, is_nullable>(column, vec_offsets, null_map,
+                                                           value_type, array, value, counter);
     }
 }
 
@@ -714,7 +716,9 @@ TEST(ArrowColumnToDorisColumnTest, test_array) {
                                            "-99999999999.99999999"};
     std::vector<IColumn::Offset> vec_offsets = {0, 3, 3, 4, 6, 6, 64};
     std::vector<bool> null_map = {false, true, false, false, false, false};
-    test_array<arrow::BinaryType, false>(test_cases, 64, vec_offsets, null_map, arrow::list(arrow::binary()));
-    test_array<arrow::BinaryType, true>(test_cases, 64, vec_offsets, null_map, arrow::list(arrow::binary()));
+    test_array<arrow::BinaryType, false>(test_cases, 64, vec_offsets, null_map,
+                                         arrow::list(arrow::binary()));
+    test_array<arrow::BinaryType, true>(test_cases, 64, vec_offsets, null_map,
+                                        arrow::list(arrow::binary()));
 }
 } // namespace doris::vectorized
