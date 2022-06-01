@@ -252,6 +252,7 @@ public:
             }
         }
     }
+    const TabletSchema* tablet_schema() { return _schema; }
 
 protected:
     friend class RowsetFactory;

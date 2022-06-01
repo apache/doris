@@ -493,6 +493,9 @@ Status DataDir::load() {
                           << " to tablet: " << rowset_meta->tablet_id()
                           << " schema hash: " << rowset_meta->tablet_schema_hash()
                           << " for txn: " << rowset_meta->txn_id();
+                if (rowset_meta->tablet_schema() == nullptr) {
+                    rowset_meta->set_tablet_schema(tablet->tablet_schema());
+                }
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
@@ -504,6 +507,9 @@ Status DataDir::load() {
                              << " txn id:" << rowset_meta->txn_id()
                              << " start_version: " << rowset_meta->version().first
                              << " end_version: " << rowset_meta->version().second;
+            }
+            if (rowset_meta->tablet_schema() == nullptr) {
+                rowset_meta->set_tablet_schema(tablet->tablet_schema());
             }
         } else {
             LOG(WARNING) << "find invalid rowset: " << rowset_meta->rowset_id()

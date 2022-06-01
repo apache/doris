@@ -93,6 +93,8 @@ message RowsetMetaPB {
     optional int64 num_segments = 22;
     // rowset id definition, it will replace required rowset id 
     optional string rowset_id_v2 = 23;
+    // tablet schema,
+    optional TabletSchemaPB tablet_schema = 24;
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
     // to indicate whether the data between the segments overlap

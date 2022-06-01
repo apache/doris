@@ -37,7 +37,7 @@ public:
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable,
                  int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
-    void to_schema_pb(ColumnPB* column);
+    void to_schema_pb(ColumnPB* column) const;
     uint32_t mem_size() const;
 
     int32_t unique_id() const { return _unique_id; }
@@ -122,7 +122,7 @@ public:
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
-    void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
+    void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     uint32_t mem_size() const;
 
     size_t row_size() const;

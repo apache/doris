@@ -35,6 +35,7 @@ Rowset::Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
         Version version = _rowset_meta->version();
         _is_cumulative = version.first != version.second;
     }
+    _schema = schema;
 }
 
 Status Rowset::load(bool use_cache) {
