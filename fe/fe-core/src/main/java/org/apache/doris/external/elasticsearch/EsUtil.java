@@ -328,9 +328,8 @@ public class EsUtil {
             BoolLiteral boolLiteral = (BoolLiteral) expr;
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
-            // todo
             DateLiteral dateLiteral = (DateLiteral) expr;
-            return dateLiteral.getStringValue();
+            return dateLiteral.getLongValue();
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();

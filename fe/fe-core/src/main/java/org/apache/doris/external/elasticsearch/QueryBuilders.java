@@ -209,6 +209,9 @@ public final class QueryBuilders {
         private final List<QueryBuilder> filterClauses = new ArrayList<>();
         private final List<QueryBuilder> shouldClauses = new ArrayList<>();
 
+        /**
+         * Use for EsScanNode generate dsl.
+         **/
         public BoolQueryBuilder must(QueryBuilder queryBuilder) {
             Objects.requireNonNull(queryBuilder);
             mustClauses.add(queryBuilder);
