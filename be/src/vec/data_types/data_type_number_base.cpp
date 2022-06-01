@@ -62,7 +62,7 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
         // TODO support for Uint128
         return Status::InvalidArgument("uint128 is not support");
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
-        T val;
+        T val = 0;
         if (!read_float_text_fast_impl(val, rb)) {
             return Status::InvalidArgument(
                     fmt::format("parse number fail, string: '{}'",
@@ -70,7 +70,7 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
         }
         column_data->insert_value(val);
     } else if constexpr (std::is_integral<T>::value) {
-        T val;
+        T val = 0;
         if (!read_int_text_impl(val, rb)) {
             return Status::InvalidArgument(
                     fmt::format("parse number fail, string: '{}'",

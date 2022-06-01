@@ -256,17 +256,17 @@ static Status convert_offset_from_list_column(const arrow::Array* array, size_t 
 static Status convert_column_with_list_data(const arrow::Array* array, size_t array_idx,
                                             MutableColumnPtr& data_column, size_t num_elements,
                                             const std::string& timezone) {
-    size_t start_idx_for_data = 0;
-    size_t num_for_data = 0;
+    size_t start_idx_of_data = 0;
+    size_t num_of_data = 0;
     // get start idx and num of values from arrow offsets
     RETURN_IF_ERROR(convert_offset_from_list_column(array, array_idx, data_column, num_elements,
-                                                    &start_idx_for_data, &num_for_data));
+                                                    &start_idx_of_data, &num_of_data));
     auto& data_column_ptr = static_cast<ColumnArray&>(*data_column).get_data_ptr();
     auto concrete_array = down_cast<const arrow::ListArray*>(array);
     std::shared_ptr<arrow::Array> arrow_data = concrete_array->values();
 
-    return arrow_column_to_doris_column(arrow_data.get(), start_idx_for_data, data_column_ptr,
-                                        num_for_data, timezone);
+    return arrow_column_to_doris_column(arrow_data.get(), start_idx_of_data, data_column_ptr,
+                                        num_of_data, timezone);
 }
 
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
