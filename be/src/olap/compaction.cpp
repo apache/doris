@@ -58,18 +58,21 @@ Status Compaction::execute_compact() {
 Status Compaction::small_rowsets_compact() {
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
+        LOG(WARNING) << "The tablet is under cumulative compaction. tablet="
+                     << _tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
     }
     _input_rowsets.clear();
     int version_count = _tablet->version_count();
     int64_t now = UnixMillis();
     _tablet->pick_small_verson_rowsets(&_input_rowsets);
+    int nums = _input_rowsets.size();
     if (_input_rowsets.size() >= config::small_compaction_batch_size) {
         do_compaction(0);
         LOG(INFO) << "small_rowsets_compaction, before_versions:" << version_count
                   << ", after_versions:" << _tablet->version_count()
-                  << ", cost:" << (UnixMillis() - now) << "ms";
+                  << ", cost:" << (UnixMillis() - now) << "ms"
+                  << ", merged: " << nums << ", batch:" << config::small_compaction_batch_size;
     }
     return Status::OK();
 }

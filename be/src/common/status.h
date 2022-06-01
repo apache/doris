@@ -92,7 +92,7 @@ namespace doris {
     M(OLAP_ERR_CE_LOAD_TABLE_ERROR, -303, "", true)                      \
     M(OLAP_ERR_CE_NOT_FINISHED, -304, "", true)                          \
     M(OLAP_ERR_CE_TABLET_ID_EXIST, -305, "", true)                       \
-    M(OLAP_ERR_CE_TRY_CE_LOCK_ERROR, -306, "", true)                     \
+    M(OLAP_ERR_CE_TRY_CE_LOCK_ERROR, -306, "", false)                    \
     M(OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR, -400, "", true)            \
     M(OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR, -401, "", true)       \
     M(OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR, -402, "", true)               \

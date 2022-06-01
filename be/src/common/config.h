@@ -747,10 +747,10 @@ CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
 
 // For continuous versions that rows less than small_compaction_max_rows will  trigger compaction quickly
 // if set to 0 means turn off this feature
-CONF_Int32(small_compaction_max_rows, "1000");
+CONF_Int32(small_compaction_max_rows, "10000");
 
 // min compaction versions
-CONF_Int32(small_compaction_batch_size, "20");
+CONF_Int32(small_compaction_batch_size, "10");
 
 } // namespace config
 
