@@ -31,7 +31,7 @@ public class SimpleJobScheduler implements JobScheduler {
     }
 
     @Override
-    public void executeJobStack(PlannerContext plannerContext) throws AnalysisException {
+    public void executeJobPool(PlannerContext plannerContext) throws AnalysisException {
         JobPool pool = plannerContext.getOptimizerContext().getJobPool();
         while (!pool.isEmpty()) {
             Job job = pool.pop();

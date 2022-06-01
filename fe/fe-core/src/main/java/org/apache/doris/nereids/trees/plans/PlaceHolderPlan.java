@@ -15,48 +15,66 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
+import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
- * Abstract class for all concrete logical plan.
+ * A virtual node that represents a fixed plan.
+ * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
+ * as a place-holder when do match root.
  */
-public abstract class AbstractLogicalPlan<
-            PLAN_TYPE extends AbstractLogicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LogicalOperator>
-        extends AbstractPlan<PLAN_TYPE, OP_TYPE>
-        implements LogicalPlan<PLAN_TYPE, OP_TYPE> {
+public class PlaceHolderPlan implements LeafPlan {
 
-    protected final LogicalProperties logicalProperties;
-
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, operator, children);
-        this.logicalProperties = new LogicalProperties(Collections.emptyList());
+    @Override
+    public GroupExpression getGroupExpression() {
+        return null;
     }
 
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator,
-            GroupExpression groupExpression, LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, children);
-        this.logicalProperties = logicalProperties;
+    @Override
+    public NodeType getType() {
+        return NodeType.FIXED;
+    }
+
+    @Override
+    public TreeNode newChildren(List children) {
+        throw new RuntimeException();
+    }
+
+    @Override
+    public PlanOperator getOperator() {
+        throw new RuntimeException();
     }
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        return logicalProperties;
+        throw new RuntimeException();
     }
 
     @Override
     public List<Slot> getOutput() {
-        return logicalProperties.getOutput();
+        throw new RuntimeException();
+    }
+
+    @Override
+    public String treeString() {
+        throw new RuntimeException();
+    }
+
+    @Override
+    public List<Plan> children() {
+        throw new RuntimeException();
+    }
+
+    @Override
+    public Plan child(int index) {
+        throw new RuntimeException();
     }
 }

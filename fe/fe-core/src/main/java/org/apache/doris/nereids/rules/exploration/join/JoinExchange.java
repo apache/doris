@@ -48,15 +48,15 @@ public class JoinExchange extends OneExplorationRuleFactory {
             Plan d = rightJoin.right();
 
             Plan newLeftJoin = plan(
-                    new LogicalJoin(leftJoin.op.getJoinType(), leftJoin.op.getOnClause()),
+                    new LogicalJoin(leftJoin.operator.getJoinType(), leftJoin.operator.getOnClause()),
                     a, c
             );
             Plan newRightJoin = plan(
-                    new LogicalJoin(rightJoin.op.getJoinType(), rightJoin.op.getOnClause()),
+                    new LogicalJoin(rightJoin.operator.getJoinType(), rightJoin.operator.getOnClause()),
                     b, d
             );
             Plan newTopJoin = plan(
-                    new LogicalJoin(topJoin.op.getJoinType(), topJoin.op.getOnClause()),
+                    new LogicalJoin(topJoin.operator.getJoinType(), topJoin.operator.getOnClause()),
                     newLeftJoin, newRightJoin
             );
             return newTopJoin;

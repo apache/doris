@@ -51,7 +51,7 @@ public class JoinCommutative extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin().then(join -> plan(
-            new LogicalJoin(join.op.getJoinType().swap(), join.op.getOnClause()),
+            new LogicalJoin(join.operator.getJoinType().swap(), join.operator.getOnClause()),
             join.right(),
             join.left()
         )).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
