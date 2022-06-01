@@ -63,7 +63,7 @@ DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
 ## Notice
 * Currently only index of bitmap type is supported.
 * The bitmap index is only created on a single column.
-* Bitmap indexes can be applied to all columns of the `Duplicate` data model and key columns of the `Aggregate` and `Uniq` models.
+* Bitmap indexes can be applied to all columns of the `Duplicate` , `Uniq`  data model and key columns of the `Aggregate`  models.
 * The data types supported by bitmap indexes are as follows:
     * `TINYINT`
     * `SMALLINT`
