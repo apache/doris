@@ -355,6 +355,7 @@ nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias, lock_alias;
 nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
+nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
@@ -4230,9 +4231,9 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_partition_names:partitionNames opt_table_alias:alias opt_common_hints:commonHints
+    table_name:name opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, commonHints);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, commonHints);
     :}
     ;
 
@@ -4278,6 +4279,24 @@ opt_partition_names ::=
     | partition_names:partitionNames
     {:
         RESULT = partitionNames;
+    :}
+    ;
+
+opt_tablet_list ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | tablet_list:tabletList
+    {:
+        RESULT = tabletList;
+    :}
+    ;
+
+tablet_list ::=
+    KW_TABLET LPAREN integer_list:tabletIds RPAREN
+    {:
+        RESULT = Lists.newArrayList(tabletIds);
     :}
     ;
 

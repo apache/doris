@@ -653,6 +653,10 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
+            if (desc.getSampleTabletIds().size() != 0) {
+                tabletIds.retainAll(desc.getSampleTabletIds());
+                LOG.debug("after sample tablets: {}", tabletIds);
+            }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {

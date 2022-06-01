@@ -43,6 +43,7 @@ public class TupleDescriptor {
     private final TupleId id;
     private final String debugName; // debug only
     private final ArrayList<SlotDescriptor> slots;
+    private List<Long> sampleTabletIds = Lists.newArrayList();
 
     // underlying table, if there is one
     private Table table;
@@ -157,6 +158,14 @@ public class TupleDescriptor {
 
     public void setTable(Table tbl) {
         table = tbl;
+    }
+
+    public List<Long> getSampleTabletIds() {
+        return sampleTabletIds;
+    }
+
+    public void setSampleTabletIds(List<Long> tabletIds) {
+        sampleTabletIds = tabletIds;
     }
 
     public int getByteSize() {

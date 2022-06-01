@@ -808,4 +808,10 @@ public class SelectStmtTest {
         FunctionCallExpr expr = (FunctionCallExpr) stmt1.getSelectList().getItems().get(1).getExpr();
         Assert.assertTrue(expr.getFnParams().isDistinct());
     }
+
+    @Test
+    public void testSelectSampleTablet() throws Exception {
+        String sql1 = "SELECT * FROM db1.table1 TABLET(10031,10032,10033)";
+        Assert.assertFalse(dorisAssert.query(sql1).explainQuery().contains("tabletList=10031,10032,10033"));
+    }
 }
