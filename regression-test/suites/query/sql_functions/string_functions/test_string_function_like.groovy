@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_string_function_like", "query") {
+    sql "set enable_vectorized_engine = true;"
+    sql "set batch_size = 4096;"
+
     def tbName = "test_string_function_like"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
