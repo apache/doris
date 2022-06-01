@@ -1143,6 +1143,12 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 
 缓存存储页大小
 
+### `storage_page_cache_shard_size`
+
+默认值: 16
+
+StoragePageCache的分片大小，值为 2^n (n=0,1,2,...)。建议设置为接近BE CPU核数的值，可减少StoragePageCache的锁竞争。
+
 ### `index_page_cache_percentage`
 * 类型：int32
 * 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。

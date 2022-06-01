@@ -44,7 +44,6 @@ set(EXEC_FILES
     hash_table.cpp
     local_file_reader.cpp
     merge_node.cpp
-    merge_join_node.cpp
     scan_node.cpp
     select_node.cpp
     text_converter.cpp

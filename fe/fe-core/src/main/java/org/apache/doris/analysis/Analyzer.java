@@ -38,6 +38,8 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -54,6 +56,7 @@ import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
+import org.apache.doris.rewrite.RewriteInPredicateRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -355,6 +358,7 @@ public class Analyzer {
             rules.add(CompoundPredicateWriteRule.INSTANCE);
             rules.add(RewriteDateLiteralRule.INSTANCE);
             rules.add(RewriteEncryptKeyRule.INSTANCE);
+            rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
@@ -670,6 +674,11 @@ public class Analyzer {
                 // if doing restore with table, throw exception here
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
             }
+        }
+
+        if (table.getType() == TableType.HUDI && table.getFullSchema().isEmpty()) {
+            // resolve hudi table's schema when table schema is empty from doris meta
+            table = HudiUtils.resolveHudiTable((HudiTable) table);
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.

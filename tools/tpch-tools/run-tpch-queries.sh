@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to create TPC-H tables
+# This script is used to run TPC-H queries
 ##############################################################
 
 set -eo pipefail
@@ -43,6 +43,7 @@ Usage: $0
 OPTS=$(getopt \
     -n $0 \
     -o '' \
+    -o 'h' \
     -- "$@")
 
 eval set -- "$OPTS"

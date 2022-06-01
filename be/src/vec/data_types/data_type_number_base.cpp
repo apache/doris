@@ -22,13 +22,10 @@
 
 #include <type_traits>
 
-#include "gen_cpp/data.pb.h"
 #include "gutil/strings/numbers.h"
-#include "vec/columns/column_const.h"
+#include "util/mysql_global.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/nan_utils.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {

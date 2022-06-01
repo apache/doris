@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.exceptions;
 
-import org.apache.doris.common.AnalysisException;
-
 /**
  * Exception for calling function only implement in bound expression or plan.
  */
-public class UnboundException extends AnalysisException {
+public class UnboundException extends RuntimeException {
     public UnboundException(String msg) {
         super(String.format("Invalid call to %s on unbound object", msg));
     }

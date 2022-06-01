@@ -136,7 +136,7 @@ TEST(VGenericIteratorsTest, Union) {
     delete iter;
 }
 
-TEST(VGenericIteratorsTest, Merge) {
+TEST(VGenericIteratorsTest, MergeAgg) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
     std::vector<RowwiseIterator*> inputs;
@@ -145,7 +145,7 @@ TEST(VGenericIteratorsTest, Merge) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(inputs, -1);
+    auto iter = vectorized::new_merge_iterator(inputs, -1, false);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -175,6 +175,47 @@ TEST(VGenericIteratorsTest, Merge) {
         } else {
             base_value = row_count - 300;
         }
+
+        EXPECT_EQ(base_value, (*c0)[i].get<int>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        row_count++;
+    }
+
+    delete iter;
+}
+
+TEST(VGenericIteratorsTest, MergeUnique) {
+    EXPECT_TRUE(1);
+    auto schema = create_schema();
+    std::vector<RowwiseIterator*> inputs;
+
+    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
+    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
+    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
+
+    auto iter = vectorized::new_merge_iterator(inputs, -1, true);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    vectorized::Block block;
+    create_block(schema, block);
+
+    do {
+        st = iter->next_batch(&block);
+    } while (st.ok());
+
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(block.rows(), 300);
+
+    auto c0 = block.get_by_position(0).column;
+    auto c1 = block.get_by_position(1).column;
+    auto c2 = block.get_by_position(2).column;
+
+    size_t row_count = 0;
+    for (size_t i = 0; i < block.rows(); ++i) {
+        size_t base_value = row_count;
 
         EXPECT_EQ(base_value, (*c0)[i].get<int>());
         EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
@@ -275,7 +316,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
                                                  seq_id_in_every_file));
     }
 
-    auto iter = vectorized::new_merge_iterator(inputs, seq_column_id);
+    auto iter = vectorized::new_merge_iterator(inputs, seq_column_id, true);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -288,17 +329,13 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     } while (st.ok());
 
     EXPECT_TRUE(st.is_end_of_file());
-    EXPECT_EQ(block.rows(), seg_iter_num);
+    EXPECT_EQ(block.rows(), 1);
 
     auto col0 = block.get_by_position(0).column;
     auto col1 = block.get_by_position(1).column;
     auto seq_col = block.get_by_position(seq_column_id).column;
-
-    for (size_t i = 0; i < seg_iter_num; i++) {
-        size_t expected_value = seg_iter_num - i - 1; // in Descending
-        size_t actual_value = (*seq_col)[i].get<int>();
-        EXPECT_EQ(expected_value, actual_value);
-    }
+    size_t actual_value = (*seq_col)[0].get<int>();
+    EXPECT_EQ(seg_iter_num - 1, actual_value);
 
     delete iter;
 }

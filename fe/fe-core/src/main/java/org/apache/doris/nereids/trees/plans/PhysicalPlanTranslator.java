@@ -11,6 +11,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -134,6 +135,16 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visitPhysicalHashJoinPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan,
                                                   PlanContext context) {
+        PlanFragment leftFragment =
+            visit((PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) physicalPlan.child(0), context);
+        PlanFragment rightFragment =
+            visit((PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) physicalPlan.child(0), context);
+        PhysicalHashJoin physicalHashJoin = (PhysicalHashJoin) physicalPlan.getOperator();
+        if (physicalHashJoin.isCrossJoin()) {
+
+        } else {
+
+        }
 
     }
 

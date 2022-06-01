@@ -359,3 +359,11 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
    举例而言：ulimit -n 65536; 表示将文件句柄设成65536。
 
    启动BE进程之后，可以通过 cat /proc/$pid/limits 查看进程实际生效的句柄数
+
+   如果使用了supervisord，遇到句柄数错误，可以通过修改supervisord的minfds参数解决。
+
+   ```shell
+   vim /etc/supervisord.conf
+
+   minfds=65535                 ; (min. avail startup file descriptors;default 1024)
+   ```

@@ -1385,7 +1385,7 @@ public class Coordinator {
         HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
-            // the parameters of getScanRangeLocations may ignore, It dosn't take effect
+            // the parameters of getScanRangeLocations may ignore, It doesn't take effect
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(0);
             if (locations == null) {
                 // only analysis olap scan node

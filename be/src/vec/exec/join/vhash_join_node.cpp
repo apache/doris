@@ -820,6 +820,8 @@ Status HashJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
 
+    VExpr::close(_build_expr_ctxs, state);
+    VExpr::close(_probe_expr_ctxs, state);
     if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
 
     _hash_table_mem_tracker->release(_mem_used);
@@ -997,6 +999,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(_hash_table_build(state));
 }
 

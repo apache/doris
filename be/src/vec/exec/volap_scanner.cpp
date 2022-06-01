@@ -20,10 +20,7 @@
 #include <memory>
 
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_complex.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scan_node.h"
@@ -66,7 +63,6 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
             }
             _num_rows_read += block->rows();
             _update_realtime_counter();
-
             RETURN_IF_ERROR(
                     VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
         } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
