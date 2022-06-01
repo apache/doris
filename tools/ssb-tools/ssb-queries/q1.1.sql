@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 SELECT SUM(lo_extendedprice * lo_discount) AS REVENUE
-FROM lineorder, date
+FROM lineorder, dates
 WHERE
     lo_orderdate = d_datekey
     AND d_year = 1993

@@ -71,7 +71,7 @@ echo 'Loading data for table: date'
 curl --location-trusted -u $USER:$PASSWORD \
     -H "column_separator:|" \
     -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
-    -T $SSB_DATA_DIR/date.tbl http://$FE_HOST:$FE_HTTP_PORT/api/$DB/date/_stream_load
+    -T $SSB_DATA_DIR/date.tbl http://$FE_HOST:$FE_HTTP_PORT/api/$DB/dates/_stream_load
 
 echo 'Loading data for table: supplier'
 curl --location-trusted -u $USER:$PASSWORD \
