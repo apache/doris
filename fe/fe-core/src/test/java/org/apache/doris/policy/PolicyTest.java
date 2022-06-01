@@ -40,7 +40,6 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
-import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
@@ -208,12 +207,13 @@ public class PolicyTest extends TestWithFeService {
     }
 
     @Test
-    public void testReadWrite() throws IOException {
+    public void testReadWrite() throws IOException, AnalysisException {
         PolicyTypeEnum type = PolicyTypeEnum.ROW;
         String policyName = "policy_name";
         long dbId = 10;
         UserIdentity user = new UserIdentity("test_policy", "%");
-        String originStmt = "test sql";
+        String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1" +
+                            " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
         FilterType filterType = FilterType.PERMISSIVE;
         Expr wherePredicate = null;
@@ -234,10 +234,11 @@ public class PolicyTest extends TestWithFeService {
         Assertions.assertEquals(type, newRowPolicy.getType());
         Assertions.assertEquals(policyName, newRowPolicy.getPolicyName());
         Assertions.assertEquals(dbId, newRowPolicy.getDbId());
+        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        newRowPolicy.getUser().analyze(SystemInfoService.DEFAULT_CLUSTER);
         Assertions.assertEquals(user.getQualifiedUser(), newRowPolicy.getUser().getQualifiedUser());
         Assertions.assertEquals(originStmt, newRowPolicy.getOriginStmt());
         Assertions.assertEquals(tableId, newRowPolicy.getTableId());
         Assertions.assertEquals(filterType, newRowPolicy.getFilterType());
-        Assertions.assertNull(newRowPolicy.getWherePredicate());
     }
 }
