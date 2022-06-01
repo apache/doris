@@ -75,17 +75,17 @@ Status StorageEngine::start_bg_threads() {
 
     int32_t convert_rowset_thread_num = config::convert_rowset_thread_num;
     if (convert_rowset_thread_num > 0) {
+        ThreadPoolBuilder("ConvertRowsetTaskThreadPool")
+                .set_min_threads(convert_rowset_thread_num)
+                .set_max_threads(convert_rowset_thread_num)
+                .build(&_convert_rowset_thread_pool);
+
         // alpha rowset scan thread
         RETURN_IF_ERROR(Thread::create(
                 "StorageEngine", "alpha_rowset_scan_thread",
                 [this]() { this->_alpha_rowset_scan_thread_callback(); },
                 &_alpha_rowset_scan_thread));
         LOG(INFO) << "alpha rowset scan thread started";
-
-        ThreadPoolBuilder("ConvertRowsetTaskThreadPool")
-                .set_min_threads(convert_rowset_thread_num)
-                .set_max_threads(convert_rowset_thread_num)
-                .build(&_convert_rowset_thread_pool);
     }
 
     // compaction tasks producer thread
