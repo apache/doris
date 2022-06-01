@@ -46,9 +46,6 @@ suite("test_conditional_function", "query") {
     qt_sql "select ifnull(1,0);"
     qt_sql "select ifnull(null,10);"
 
-//    qt_sql "select nvl(1,0);"
-//    qt_sql "select nvl(null,10);"
-
     qt_sql "select nullif(1,1);"
     qt_sql "select nullif(1,0);"
 
