@@ -601,17 +601,14 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablet_stat_list(*local_cache);
 }
 
-void TabletManager::find_tablet_have_alpha_rowset(const std::vector<DataDir*>& data_dirs,
-                                                  std::vector<TabletSharedPtr>& tablets) {
-    for (auto data_dir : data_dirs) {
-        for (const auto& tablets_shard : _tablets_shards) {
-            std::shared_lock rdlock(tablets_shard.lock);
-            for (const auto& tablet_map : tablets_shard.tablet_map) {
-                const TabletSharedPtr& tablet_ptr = tablet_map.second;
-                if (!tablet_ptr->all_beta() &&
-                    tablet_ptr->can_do_compaction(data_dir->path_hash(), BASE_COMPACTION)) {
-                    tablets.push_back(tablet_ptr);
-                }
+void TabletManager::find_tablet_have_alpha_rowset(std::vector<TabletSharedPtr>& tablets) {
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& tablet_map : tablets_shard.tablet_map) {
+            const TabletSharedPtr& tablet_ptr = tablet_map.second;
+            if (!tablet_ptr->all_beta() &&
+                tablet_ptr->can_do_compaction(tablet_ptr->data_dir()->path_hash(), BASE_COMPACTION)) {
+                tablets.push_back(tablet_ptr);
             }
         }
     }

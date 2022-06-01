@@ -323,23 +323,17 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
 void StorageEngine::_alpha_rowset_scan_thread_callback() {
     LOG(INFO) << "try to start alpha rowset scan thread!";
 
-    std::vector<DataDir*> data_dirs;
-    for (auto& tmp_store : _store_map) {
-        data_dirs.push_back(tmp_store.second);
-    }
-
     auto scan_interval_sec = config::scan_alpha_rowset_min_interval_sec;
     auto max_convert_task = config::convert_rowset_thread_num * 2;
     do {
         std::vector<TabletSharedPtr> tablet_have_alpha_rowset;
-        _tablet_manager->find_tablet_have_alpha_rowset(data_dirs, tablet_have_alpha_rowset);
+        _tablet_manager->find_tablet_have_alpha_rowset(tablet_have_alpha_rowset);
 
         std::random_device rd;
         std::mt19937 g(rd());
         std::shuffle(tablet_have_alpha_rowset.begin(), tablet_have_alpha_rowset.end(), g);
 
-        int task_count = 0;
-        for (int i = 0; i < tablet_have_alpha_rowset.size(); ++i) {
+        for (int i = 0; i < max_convert_task && i < tablet_have_alpha_rowset.size(); ++i) {
             auto tablet = tablet_have_alpha_rowset[i];
             auto st = _convert_rowset_thread_pool->submit_func([=]() {
                 CgroupsMgr::apply_system_cgroup();
@@ -348,10 +342,6 @@ void StorageEngine::_alpha_rowset_scan_thread_callback() {
             });
             if (!st.ok()) {
                 LOG(WARNING) << "submit convert tablet tasks failed.";
-            }
-            if (++task_count == max_convert_task) {
-                _convert_rowset_thread_pool->wait();
-                task_count = 0;
             }
         }
 
