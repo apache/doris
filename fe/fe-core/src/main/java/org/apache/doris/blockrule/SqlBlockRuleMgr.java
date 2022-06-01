@@ -47,6 +47,9 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
+/**
+ * Manage SqlBlockRule.
+ **/
 public class SqlBlockRuleMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(SqlBlockRuleMgr.class);
 
@@ -63,10 +66,16 @@ public class SqlBlockRuleMgr implements Writable {
         lock.writeLock().unlock();
     }
 
+    /**
+     * Judge whether exist rule by ruleName.
+     **/
     public boolean existRule(String name) {
         return nameToSqlBlockRuleMap.containsKey(name);
     }
 
+    /**
+     * Get SqlBlockRule by show stmt.
+     **/
     public List<SqlBlockRule> getSqlBlockRule(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
         String ruleName = stmt.getRuleName();
         if (StringUtils.isNotEmpty(ruleName)) {
@@ -79,9 +88,11 @@ public class SqlBlockRuleMgr implements Writable {
         return Lists.newArrayList(nameToSqlBlockRuleMap.values());
     }
 
-    // check limitation's  effectiveness of a sql_block_rule
-    public static void verifyLimitations(SqlBlockRule sqlBlockRule) throws DdlException {
-        if (sqlBlockRule.getPartitionNum() < 0){
+    /**
+     * Check limitation's  effectiveness of a SqlBlockRule.
+     **/
+    private static void verifyLimitations(SqlBlockRule sqlBlockRule) throws DdlException {
+        if (sqlBlockRule.getPartitionNum() < 0) {
             throw new DdlException("the value of partition_num can't be a negative");
         }
         if (sqlBlockRule.getTabletNum() < 0){
@@ -92,6 +103,9 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
+    /**
+     * Create SqlBlockRule for create stmt.
+     **/
     public void createSqlBlockRule(CreateSqlBlockRuleStmt stmt) throws UserException {
         writeLock();
         try {
@@ -108,11 +122,17 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
+    /**
+     * Add local cache when receive editLog.
+     **/
     public void replayCreate(SqlBlockRule sqlBlockRule) {
         unprotectedAdd(sqlBlockRule);
         LOG.info("replay create sql block rule: {}", sqlBlockRule);
     }
 
+    /**
+     * Alter SqlBlockRule for alter stmt.
+     **/
     public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws AnalysisException, DdlException {
         writeLock();
         try {
@@ -159,14 +179,17 @@ public class SqlBlockRuleMgr implements Writable {
         LOG.info("replay alter sql block rule: {}", sqlBlockRule);
     }
 
-    public void unprotectedUpdate(SqlBlockRule sqlBlockRule) {
+    private void unprotectedUpdate(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
     }
 
-    public void unprotectedAdd(SqlBlockRule sqlBlockRule) {
+    private void unprotectedAdd(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
     }
 
+    /**
+     * Drop SqlBlockRule for drop stmt.
+     **/
     public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
         writeLock();
         try {
@@ -192,9 +215,13 @@ public class SqlBlockRuleMgr implements Writable {
         ruleNames.forEach(name -> nameToSqlBlockRuleMap.remove(name));
     }
 
+    /**
+     * Match SQL according to rules.
+     **/
     public void matchSql(String originSql, String sqlHash, String user) throws AnalysisException {
         // match global rule
-        List<SqlBlockRule> globalRules = nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
+        List<SqlBlockRule> globalRules =
+                nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
         for (SqlBlockRule rule : globalRules) {
             matchSql(rule, originSql, sqlHash);
         }
@@ -209,25 +236,30 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
-    public void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
+    private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
         if (rule.getEnable()) {
-            if (StringUtils.isNotEmpty(rule.getSqlHash()) &&
-                    (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash))) {
+            if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
+                    && rule.getSqlHash().equals(sqlHash)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            } else if (StringUtils.isNotEmpty(rule.getSql()) &&
-                    (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSql()) && rule.getSqlPattern().matcher(originSql).find())) {
+            } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
+                    && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
             }
         }
     }
 
-    public void checkLimitaions(Long partitionNum, Long tabletNum, Long cardinality, String user) throws AnalysisException {
+    /**
+     * Check number whether legal by user.
+     **/
+    public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
+            throws AnalysisException {
         // match global rule
-        List<SqlBlockRule> globalRules = nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
+        List<SqlBlockRule> globalRules =
+                nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
         for (SqlBlockRule rule : globalRules) {
-            checkLimitaions(rule, partitionNum, tabletNum, cardinality);
+            checkLimitations(rule, partitionNum, tabletNum, cardinality);
         }
         // match user rule
         String[] bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
@@ -236,24 +268,32 @@ public class SqlBlockRuleMgr implements Writable {
             if (rule == null) {
                 continue;
             }
-            checkLimitaions(rule, partitionNum, tabletNum, cardinality);
+            checkLimitations(rule, partitionNum, tabletNum, cardinality);
         }
     }
 
-    public void checkLimitaions(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality) throws AnalysisException {
+    /**
+     * Check number whether legal by SqlBlockRule.
+     **/
+    private void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality)
+            throws AnalysisException {
         if (rule.getPartitionNum() == 0 && rule.getTabletNum() == 0 && rule.getCardinality() == 0) {
             return;
         } else if (rule.getEnable()) {
-            if ((rule.getPartitionNum() != 0 && rule.getPartitionNum() < partitionNum)
-                    || (rule.getTabletNum() != 0 && rule.getTabletNum() < tabletNum)
-                    || (rule.getCardinality() != 0 && rule.getCardinality() < cardinality)) {
+            if ((rule.getPartitionNum() != 0 && rule.getPartitionNum() < partitionNum) || (rule.getTabletNum() != 0
+                    && rule.getTabletNum() < tabletNum) || (rule.getCardinality() != 0
+                    && rule.getCardinality() < cardinality)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 if (rule.getPartitionNum() < partitionNum && rule.getPartitionNum() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach partition_num : " + rule.getPartitionNum());
+                    throw new AnalysisException(
+                            "sql hits sql block rule: " + rule.getName() + ", reach partition_num : "
+                                    + rule.getPartitionNum());
                 } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : " + rule.getTabletNum());
+                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
+                            + rule.getTabletNum());
                 } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : " + rule.getCardinality());
+                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
+                            + rule.getCardinality());
                 }
             }
         }
