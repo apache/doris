@@ -25,7 +25,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Table;
 
 import java.util.List;
 import java.util.Map;
