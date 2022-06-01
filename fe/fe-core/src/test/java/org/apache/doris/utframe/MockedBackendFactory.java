@@ -345,6 +345,15 @@ public class MockedBackendFactory {
         }
 
         @Override
+        public void execPlanFragmentPrepare(InternalService.PExecPlanFragmentRequest request,
+                StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+            System.out.println("get exec_plan_fragment_prepare request");
+            responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
         public void execPlanFragmentStart(InternalService.PExecPlanFragmentStartRequest request,
                 StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment_start request");
