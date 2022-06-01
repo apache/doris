@@ -20,10 +20,7 @@
 #include <memory>
 
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_complex.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scan_node.h"
