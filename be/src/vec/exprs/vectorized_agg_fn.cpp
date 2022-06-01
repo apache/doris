@@ -20,13 +20,13 @@
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 #include "runtime/descriptors.h"
+#include "vec/aggregate_functions/aggregate_function_java_udaf.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
-
 namespace doris::vectorized {
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
@@ -87,8 +87,16 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
-    _function = AggregateFunctionSimpleFactory::instance().get(
-            _fn.name.function_name, argument_types, params, _data_type->is_nullable());
+    if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
+#ifdef LIBJVM
+        _function = AggregateJavaUdaf::create(_fn, argument_types, params, _data_type);
+#else
+        return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
+#endif
+    } else {
+        _function = AggregateFunctionSimpleFactory::instance().get(
+                _fn.name.function_name, argument_types, params, _data_type->is_nullable());
+    }
     if (_function == nullptr) {
         return Status::InternalError(
                 fmt::format("Agg Function {} is not implemented", _fn.name.function_name));

@@ -90,6 +90,9 @@ public class AggregateFunction extends Function {
     // empty input in BE).
     private boolean returnsNonNullOnEmpty;
 
+    //use for java-udaf to point the class of user define
+    private String symbolName;
+
     // only used for serialization
     protected AggregateFunction() {
     }
@@ -317,6 +320,7 @@ public class AggregateFunction extends Function {
         String mergeFnSymbol;
         String removeFnSymbol;
         String getValueFnSymbol;
+        String symbolName;
 
         private AggregateFunctionBuilder(TFunctionBinaryType binaryType) {
             this.binaryType = binaryType;
@@ -395,12 +399,18 @@ public class AggregateFunction extends Function {
             return this;
         }
 
+        public AggregateFunctionBuilder symbolName(String symbol) {
+            this.symbolName = symbol;
+            return this;
+        }
+
         public AggregateFunction build() {
             AggregateFunction fn = new AggregateFunction(name, argTypes, retType, hasVarArgs, intermediateType,
                     location, initFnSymbol, updateFnSymbol, mergeFnSymbol,
                     serializeFnSymbol, finalizeFnSymbol,
                     getValueFnSymbol, removeFnSymbol);
             fn.setBinaryType(binaryType);
+            fn.symbolName = symbolName;
             return fn;
         }
     }
@@ -431,6 +441,10 @@ public class AggregateFunction extends Function {
 
     public String getFinalizeFnSymbol() {
         return finalizeFnSymbol;
+    }
+
+    public String getSymbolName() {
+        return symbolName;
     }
 
     public boolean ignoresDistinct() {
@@ -485,6 +499,10 @@ public class AggregateFunction extends Function {
         finalizeFnSymbol = fn;
     }
 
+    public void setSymbolName(String fn) {
+        symbolName = fn;
+    }
+
     public void setIntermediateType(Type t) {
         intermediateType = t;
     }
@@ -510,6 +528,9 @@ public class AggregateFunction extends Function {
         }
         if (getFinalizeFnSymbol() != null) {
             sb.append(",\n  \"FINALIZE_FN\"=\"" + getFinalizeFnSymbol() + "\"");
+        }
+        if (getSymbolName() != null) {
+            sb.append(",\n  \"SYMBOL\"=\"" + getSymbolName() + "\"");
         }
 
         sb.append(",\n  \"OBJECT_FILE\"=")
@@ -538,6 +559,9 @@ public class AggregateFunction extends Function {
         }
         if (finalizeFnSymbol  != null) {
             aggFn.setFinalizeFnSymbol(finalizeFnSymbol);
+        }
+        if (symbolName != null) {
+            aggFn.setSymbol(symbolName);
         }
         if (intermediateType != null) {
             aggFn.setIntermediateType(intermediateType.toThrift());
@@ -568,6 +592,7 @@ public class AggregateFunction extends Function {
         IOUtils.writeOptionString(output, getValueFnSymbol);
         IOUtils.writeOptionString(output, removeFnSymbol);
         IOUtils.writeOptionString(output, finalizeFnSymbol);
+        IOUtils.writeOptionString(output, symbolName);
 
         output.writeBoolean(ignoresDistinct);
         output.writeBoolean(isAnalyticFn);
@@ -588,6 +613,8 @@ public class AggregateFunction extends Function {
         getValueFnSymbol = IOUtils.readOptionStringOrNull(input);
         removeFnSymbol = IOUtils.readOptionStringOrNull(input);
         finalizeFnSymbol = IOUtils.readOptionStringOrNull(input);
+        symbolName = IOUtils.readOptionStringOrNull(input);
+
         ignoresDistinct = input.readBoolean();
         isAnalyticFn = input.readBoolean();
         isAggregateFn = input.readBoolean();
@@ -611,6 +638,9 @@ public class AggregateFunction extends Function {
         }
         if (removeFnSymbol != null) {
             properties.put(CreateFunctionStmt.REMOVE_KEY, removeFnSymbol);
+        }
+        if (symbolName != null) {
+            properties.put(CreateFunctionStmt.SYMBOL_KEY, symbolName);
         }
         return new Gson().toJson(properties);
     }

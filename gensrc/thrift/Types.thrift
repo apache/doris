@@ -308,6 +308,8 @@ struct TAggregateFunction {
   8: optional string get_value_fn_symbol
   9: optional string remove_fn_symbol
   10: optional bool is_analytic_only_fn = false
+  // used for java-udaf to point user defined class
+  11: optional string symbol
 }
 
 // Represents a function in the Catalog.
