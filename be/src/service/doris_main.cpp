@@ -50,7 +50,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/minidump.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -468,15 +467,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    // 5. init minidump
-    doris::Minidump minidump;
-    status = minidump.init();
-    if (!status.ok()) {
-        LOG(ERROR) << "Failed to initialize minidump: " << status.get_error_msg();
-        doris::shutdown_logging();
-        exit(1);
-    }
-
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
@@ -496,7 +486,6 @@ int main(int argc, char** argv) {
     be_server->stop();
     be_server->join();
     engine->stop();
-    minidump.stop();
 
     delete be_server;
     be_server = nullptr;

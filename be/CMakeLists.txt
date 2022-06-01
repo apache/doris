@@ -323,9 +323,6 @@ set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
-add_library(breakpad STATIC IMPORTED)
-set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
-
 if (WITH_KERBEROS)
     # kerberos lib for libhdfs3 
     add_library(gsasl STATIC IMPORTED)
@@ -497,7 +494,6 @@ include_directories(
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
-    ${THIRDPARTY_DIR}/include/breakpad/
 )
 
 set(WL_START_GROUP "-Wl,--start-group")
@@ -602,7 +598,6 @@ set(COMMON_THIRDPARTY
     odbc
     cctz
     minizip
-    breakpad
     ${AWS_LIBS}
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp
