@@ -23,8 +23,10 @@ Status ConvertRowset::do_convert() {
     if (!_tablet->init_succeeded()) {
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
-    std::unique_lock<std::mutex> base_compaction_lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
-    std::unique_lock<std::mutex> cumulative_compaction_lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    std::unique_lock<std::mutex> base_compaction_lock(_tablet->get_base_compaction_lock(),
+                                                      std::try_to_lock);
+    std::unique_lock<std::mutex> cumulative_compaction_lock(
+            _tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!base_compaction_lock.owns_lock() || !cumulative_compaction_lock.owns_lock()) {
         LOG(INFO) << "The tablet is under compaction. tablet=" << _tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
@@ -35,6 +37,8 @@ Status ConvertRowset::do_convert() {
 
     Merger::Statistics stats;
     Status res;
+    const size_t max_convert_row_count = 20000000;
+    size_t row_count = 0;
     for (size_t i = 0; i < alpah_rowsets.size(); ++i) {
         Version output_version =
                 Version(alpah_rowsets[i]->start_version(), alpah_rowsets[i]->end_version());
@@ -44,8 +48,8 @@ Status ConvertRowset::do_convert() {
 
         std::unique_ptr<RowsetWriter> output_rs_writer;
         _tablet->create_rowset_writer(output_version, VISIBLE, NONOVERLAPPING, &output_rs_writer);
-        res = Merger::merge_rowsets(_tablet, ReaderType::READER_CUMULATIVE_COMPACTION,
-                                    {input_rs_reader}, output_rs_writer.get(), &stats);
+        res = Merger::merge_rowsets(_tablet, ReaderType::READER_BASE_COMPACTION, {input_rs_reader},
+                                    output_rs_writer.get(), &stats);
 
         if (!res.ok()) {
             LOG(WARNING) << "fail to convert rowset. res=" << res
@@ -61,11 +65,18 @@ Status ConvertRowset::do_convert() {
 
             RETURN_NOT_OK(check_correctness(alpah_rowsets[i], output_rowset, stats));
 
+            row_count += alpah_rowsets[i]->num_rows();
+
             _modify_rowsets(alpah_rowsets[i], output_rowset);
 
             LOG(INFO) << "succeed to convert rowset"
-                << ". tablet=" << _tablet->full_name() << ", output_version=" << output_version
-                << ", disk=" << _tablet->data_dir()->path();
+                      << ". tablet=" << _tablet->full_name()
+                      << ", output_version=" << output_version
+                      << ", disk=" << _tablet->data_dir()->path();
+
+            if (row_count >= max_convert_row_count) {
+                break;
+            }
         }
     }
     return Status::OK();

@@ -140,7 +140,8 @@ public:
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
-    void find_tablet_have_alpha_rowset(std::vector<TabletSharedPtr>& tablets);
+    void find_tablet_have_alpha_rowset(const std::vector<DataDir*>& data_dirs,
+                                       std::vector<TabletSharedPtr>& tablets);
 
 private:
     // Add a tablet pointer to StorageEngine
