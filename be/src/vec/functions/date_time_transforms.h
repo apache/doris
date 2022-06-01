@@ -57,6 +57,7 @@ TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());
 TIME_FUNCTION_IMPL(DayOfMonthImpl, dayofmonth, day());
 TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
+TIME_FUNCTION_IMPL(WeekDayImpl, weekday, weekday());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
 
