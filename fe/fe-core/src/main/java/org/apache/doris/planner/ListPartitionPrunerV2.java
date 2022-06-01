@@ -38,6 +38,10 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * ListPartitionPrunerV2
+ * @since 1.0
+ */
 @SuppressWarnings("UnstableApiUsage")
 public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
     private final Map<UniqueId, Range<PartitionKey>> uidToPartitionRange;
