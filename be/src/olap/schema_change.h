@@ -200,6 +200,8 @@ public:
     // schema change v2, it will not set alter task in base tablet
     OLAPStatus process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
+    bool tablet_in_converting(int64_t tablet_id);
+
 private:
 
     // Check the status of schema change and clear information between "a pair" of Schema change tables
@@ -211,7 +213,7 @@ private:
                                                    const TAlterTabletReq& request);
 
     OLAPStatus _get_versions_to_be_changed(TabletSharedPtr base_tablet,
-                                           std::vector<Version>* versions_to_be_changed);
+                                           std::vector<Version>* versions_to_be_changed, RowsetSharedPtr* max_rowset);
 
     struct AlterMaterializedViewParam {
         std::string column_name;
@@ -252,6 +254,8 @@ private:
     SchemaChangeHandler& operator=(const SchemaChangeHandler&) = delete;
 
     std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_mutex _mutex;
+    std::unordered_set<int64_t> _tablet_ids_in_converting;
 };
 
 using RowBlockDeleter = std::function<void(RowBlock*)>;

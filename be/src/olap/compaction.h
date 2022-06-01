@@ -63,7 +63,7 @@ protected:
     OLAPStatus do_compaction(int64_t permits);
     OLAPStatus do_compaction_impl(int64_t permits);
 
-    void modify_rowsets();
+    OLAPStatus modify_rowsets();
     void gc_output_rowset();
 
     OLAPStatus construct_output_rowset_writer();

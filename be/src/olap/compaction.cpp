@@ -122,7 +122,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     TRACE("check correctness finished");
 
     // 4. modify rowsets in memory
-    modify_rowsets();
+    RETURN_NOT_OK(modify_rowsets());
     TRACE("modify rowsets finished");
 
     // 5. update last success compaction time
@@ -191,13 +191,14 @@ OLAPStatus Compaction::construct_input_rowset_readers() {
     return OLAP_SUCCESS;
 }
 
-void Compaction::modify_rowsets() {
+OLAPStatus Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
 
     WriteLock wrlock(_tablet->get_header_lock());
-    _tablet->modify_rowsets(output_rowsets, _input_rowsets);
+    RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     _tablet->save_meta();
+    return OLAP_SUCCESS;
 }
 
 void Compaction::gc_output_rowset() {
