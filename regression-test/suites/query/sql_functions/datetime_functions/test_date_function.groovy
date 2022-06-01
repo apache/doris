@@ -32,6 +32,12 @@ suite("test_date_function", "query") {
 
     qt_sql """ SELECT convert_tz('2019-08-01 13:21:03', '+08:00', 'America/London') result; """
 
+    // some invalid date
+    qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
+    qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
+    qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
+
+
 
     // curdate,current_date
     // 获取当前的日期，以DATE类型返回
