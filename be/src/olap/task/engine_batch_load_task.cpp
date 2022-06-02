@@ -18,6 +18,7 @@
 #include "olap/task/engine_batch_load_task.h"
 
 #include <pthread.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <cstdio>
 #include <ctime>
@@ -26,7 +27,6 @@
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "boost/lexical_cast.hpp"
 #include "gen_cpp/AgentService_types.h"
 #include "http/http_client.h"

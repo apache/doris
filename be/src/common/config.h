@@ -226,6 +226,9 @@ CONF_Int64(index_stream_cache_capacity, "10737418240");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
+// Shard size for page cache, the value must be power of two.
+// It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
+CONF_Int32(storage_page_cache_shard_size, "16");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
@@ -687,21 +690,6 @@ CONF_mInt32(segment_cache_capacity, "1000000");
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
 
-// Set to true to disable the minidump feature.
-CONF_Bool(disable_minidump, "false");
-
-// The dir to save minidump file.
-// Make sure that the user who run Doris has permission to create and visit this dir,
-// So Doris will fail to start.
-CONF_String(minidump_dir, "${DORIS_HOME}/minidump");
-
-// The max minidump file size in MB.
-CONF_Int32(max_minidump_file_size_mb, "200");
-
-// The max number of minidump file.
-// Doris will only keep latest 10 minidump files by default.
-CONF_Int32(max_minidump_file_number, "10");
-
 // If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
 // the value set by the fallback version kafka_broker_version_fallback will be used,
 // and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
@@ -742,6 +730,10 @@ CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
+
+// When the rows number reached this limit, will check the filter rate the of bloomfilter
+// if it is lower than a specific threshold, the predicate will be disabled.
+CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
 
 } // namespace config
 

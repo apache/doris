@@ -20,14 +20,17 @@ package org.apache.doris.nereids;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.scheduler.JobPool;
 import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
+import org.apache.doris.nereids.jobs.scheduler.JobStack;
+import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.trees.TreeNode;
 
 /**
  * Context used in memo.
  */
-public class OptimizerContext {
-    private final Memo memo;
+public class OptimizerContext<NODE_TYPE extends TreeNode> {
+    private final Memo<NODE_TYPE> memo;
     private RuleSet ruleSet;
     private JobPool jobPool;
     private final JobScheduler jobScheduler;
@@ -36,15 +39,12 @@ public class OptimizerContext {
      * Constructor of OptimizerContext.
      *
      * @param memo {@link Memo} reference
-     * @param ruleSet All rules to apply on query plan
-     * @param jobPool {@link JobPool} reference contain pending rules
-     * @param jobScheduler schedule pending jobs
      */
-    public OptimizerContext(Memo memo, RuleSet ruleSet, JobPool jobPool, JobScheduler jobScheduler) {
+    public OptimizerContext(Memo<NODE_TYPE> memo) {
         this.memo = memo;
-        this.ruleSet = ruleSet;
-        this.jobPool = jobPool;
-        this.jobScheduler = jobScheduler;
+        this.ruleSet = new RuleSet();
+        this.jobPool = new JobStack();
+        this.jobScheduler = new SimpleJobScheduler();
     }
 
     public JobPool getJobPool() {
@@ -63,12 +63,12 @@ public class OptimizerContext {
         this.ruleSet = ruleSet;
     }
 
-    public Memo getMemo() {
+    public Memo<NODE_TYPE> getMemo() {
         return memo;
     }
 
-    public void pushTask(Job task) {
-        jobPool.push(task);
+    public void pushJob(Job job) {
+        jobPool.push(job);
     }
 
     public JobScheduler getJobScheduler() {

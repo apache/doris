@@ -22,14 +22,15 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
-public abstract class Job {
+public abstract class Job<NODE_TYPE extends TreeNode> {
     protected JobType type;
     protected PlannerContext context;
 
@@ -39,15 +40,25 @@ public abstract class Job {
     }
 
     public void pushTask(Job job) {
-        context.getOptimizerContext().pushTask(job);
+        context.getOptimizerContext().pushJob(job);
     }
 
     public RuleSet getRuleSet() {
         return context.getOptimizerContext().getRuleSet();
     }
 
-    public void prunedInvalidRules(GroupExpression groupExpression, List<Rule<Plan>> candidateRules) {
-
+    /**
+     * Get the rule set of this job. Filter out already applied rules and rules that are not matched on root node.
+     *
+     * @param groupExpression group expression to be applied on
+     * @param candidateRules rules to be applied
+     * @return all rules that can be applied on this group expression
+     */
+    public List<Rule<NODE_TYPE>> getValidRules(GroupExpression groupExpression,
+            List<Rule<NODE_TYPE>> candidateRules) {
+        return candidateRules.stream()
+                .filter(rule -> rule.getPattern().matchOperator(groupExpression.getOperator())
+                        && groupExpression.notApplied(rule)).collect(Collectors.toList());
     }
 
     public abstract void execute() throws AnalysisException;

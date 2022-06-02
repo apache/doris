@@ -42,7 +42,7 @@ module.exports = [
     ],
   },
   {
-    title: "Install and deploy",
+    title: "Install And Deploy",
     directoryPath: "install/",
     initialOpenGroupIndex: -1,
     children: [
@@ -84,7 +84,7 @@ module.exports = [
     ],
   },
   {
-    title: "Data Operate",
+    title: "Data Operation",
     directoryPath: "data-operate/",
     initialOpenGroupIndex: -1,
     children: [
@@ -150,7 +150,7 @@ module.exports = [
     ],
   },
   {
-    title: "Advanced usage",
+    title: "Advanced Usage",
     directoryPath: "advanced/",
     initialOpenGroupIndex: -1,
     children: [
@@ -270,7 +270,7 @@ module.exports = [
     ],
   },
   {
-    title: "SQL manual",
+    title: "SQL Manual",
     directoryPath: "sql-manual/",
     initialOpenGroupIndex: -1,
     children: [
@@ -473,6 +473,7 @@ module.exports = [
               "coalesce",
               "if",
               "ifnull",
+              "nvl",
               "nullif"
             ],
           },
@@ -610,6 +611,7 @@ module.exports = [
                 initialOpenGroupIndex: -1,
                 children: [
                   "ALTER-DATABASE",
+                  "ALTER-RESOURCE",
                   "ALTER-SQL-BLOCK-RULE",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",
@@ -706,7 +708,8 @@ module.exports = [
                   "DELETE",
                   "INSERT",
                   "UPDATE",
-                  "SELECT"
+                  "SELECT",
+                  "EXPORT"
                 ],
               },
               "OUTFILE"             
@@ -1004,8 +1007,7 @@ module.exports = [
     directoryPath: "benchmark/",
     initialOpenGroupIndex: -1,
     children: [
-      "ssb",
-      "tpc-h"
+      "ssb"
     ],
   },
   {

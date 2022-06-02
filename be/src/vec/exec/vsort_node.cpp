@@ -107,8 +107,7 @@ Status VSortNode::close(RuntimeState* state) {
     }
     _block_mem_tracker->release(_total_mem_usage);
     _vsort_exec_exprs.close(state);
-    ExecNode::close(state);
-    return Status::OK();
+    return ExecNode::close(state);
 }
 
 void VSortNode::debug_string(int indentation_level, stringstream* out) const {

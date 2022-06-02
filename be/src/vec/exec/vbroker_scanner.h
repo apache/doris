@@ -39,9 +39,6 @@ public:
 private:
     std::unique_ptr<TextConverter> _text_converter;
 
-    Status _write_text_column(char* value, int length, SlotDescriptor* slot,
-                              MutableColumnPtr* column_ptr, RuntimeState* state);
-
     Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
 };
 } // namespace doris::vectorized

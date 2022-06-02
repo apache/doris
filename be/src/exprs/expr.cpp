@@ -38,20 +38,16 @@
 #include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
 #include "exprs/info_func.h"
-#include "exprs/is_null_predicate.h"
 #include "exprs/literal.h"
 #include "exprs/null_literal.h"
 #include "exprs/rpc_fn_call.h"
 #include "exprs/scalar_fn_call.h"
 #include "exprs/slot_ref.h"
 #include "exprs/tuple_is_null_predicate.h"
-#include "gen_cpp/Data_types.h"
 #include "gen_cpp/Exprs_types.h"
-#include "gen_cpp/PaloService_types.h"
-#include "runtime/raw_value.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
-#include "util/debug_util.h"
 
 using std::vector;
 namespace doris {
@@ -359,7 +355,8 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new IfExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "nullif") {
             *expr = pool->add(new NullIfExpr(texpr_node));
-        } else if (texpr_node.fn.name.function_name == "ifnull") {
+        } else if (texpr_node.fn.name.function_name == "ifnull" ||
+                   texpr_node.fn.name.function_name == "nvl") {
             *expr = pool->add(new IfNullExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "coalesce") {
             *expr = pool->add(new CoalesceExpr(texpr_node));

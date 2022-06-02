@@ -22,11 +22,9 @@
 #include <memory>
 
 #include "olap/rowset/segment_v2/options.h"
-#include "olap/rowset/segment_v2/page_builder.h"
-#include "olap/rowset/segment_v2/page_decoder.h"
+#include "runtime/large_int_value.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
@@ -83,7 +81,14 @@ public:
 
         for (uint i = 0; i < size; i++) {
             if (src[i] != values[i]) {
-                FAIL() << "Fail at index " << i << " inserted=" << src[i] << " got=" << values[i];
+                if constexpr (Type == OLAP_FIELD_TYPE_LARGEINT) {
+                    FAIL() << "Fail at index " << i
+                           << " inserted=" << LargeIntValue::to_string(src[i])
+                           << " got=" << LargeIntValue::to_string(values[i]);
+                } else {
+                    FAIL() << "Fail at index " << i << " inserted=" << src[i]
+                           << " got=" << values[i];
+                }
             }
         }
 

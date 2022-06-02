@@ -184,15 +184,20 @@ public class SystemInfoServiceTest {
         BeSelectionPolicy policy10 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga, tagb))
                 .setStorageMedium(TStorageMedium.SSD).build();
         Assert.assertEquals(4, infoService.selectBackendIdsByPolicy(policy10, 4).size());
+        Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy10, 3).size());
+        // check return as many as possible
+        Assert.assertEquals(4, infoService.selectBackendIdsByPolicy(policy10, -1).size());
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy10, 5).size());
 
-        BeSelectionPolicy policy11 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(tagb))
-                .setStorageMedium(TStorageMedium.HDD).build();
+        BeSelectionPolicy policy11 =
+                new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(tagb)).setStorageMedium(TStorageMedium.HDD)
+                        .build();
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy11, 1).size());
 
         // 7. check disk usage
-        BeSelectionPolicy policy12 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
-                .setStorageMedium(TStorageMedium.HDD).build();
+        BeSelectionPolicy policy12 =
+                new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga)).setStorageMedium(TStorageMedium.HDD)
+                        .build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy12, 1).size());
         BeSelectionPolicy policy13 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).needCheckDiskUsage().build();

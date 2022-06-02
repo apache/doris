@@ -17,10 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Abstract class for all logical plan that have one child.
@@ -31,5 +38,16 @@ public class LogicalUnary<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE exten
 
     public LogicalUnary(OP_TYPE operator, CHILD_TYPE child) {
         super(NodeType.LOGICAL, operator, child);
+    }
+
+    public LogicalUnary(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
+        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, child);
+    }
+
+    @Override
+    public LogicalUnary newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalUnary(operator, groupExpression, logicalProperties, (Plan) children.get(0));
     }
 }

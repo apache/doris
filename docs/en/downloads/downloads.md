@@ -26,7 +26,7 @@ under the License.
 
 # Downloads
 
-## Doris Core
+## Apache Doris
 
 You can download source code from following links, then compile and install Doris.
 
@@ -40,7 +40,7 @@ You can download source code from following links, then compile and install Dori
 | 0.11.0 | 2019-11-29 | [Source](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz.sha512)) ||
 | 0.10.0 | 2019-07-02 | [Source](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.sha512)) ||
 | 0.9.0 | 2019-02-18 | [Source](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.sha512)) ||
- 
+
 ## Flink Doris Connector
 
 | Version | Flink Version | Scala Version | Release Date | Download Source from Mirror |

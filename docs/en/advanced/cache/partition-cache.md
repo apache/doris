@@ -251,7 +251,7 @@ query_cache_elasticity_size_mb=128
 
 Calculation method:
 
-If 10K queries are cached, each query caches 1000 rows, each row is 128 bytes, distributed on 10 BEs, then each BE requires 128M memory (10K*1000*128/10).
+If 10000 queries are cached, each query caches 1000 rows, each row is 128 bytes, distributed on 10 BEs, then each BE requires about 128M memory (10000 * 1000 * 128/10).
 
 ## Unfinished Matters
 

@@ -49,7 +49,7 @@ CREATE SQL_BLOCK_RULE rule_name
 
 参数说明：
 
-- sql：匹配规则(基于正则匹配,特殊字符需要转译)，可选，默认值为 "NULL"
+- sql：匹配规则(基于正则匹配,特殊字符需要转译,如`select *`使用`select \\*`)，可选，默认值为 "NULL"
 - sqlHash: sql hash值，用于完全匹配，我们会在`fe.audit.log`打印这个值，可选，这个参数和sql只能二选一，默认值为 "NULL"
 - partition_num: 一个扫描节点会扫描的最大partition数量，默认值为0L
 - tablet_num: 一个扫描节点会扫描的最大tablet数量，默认值为0L
@@ -64,7 +64,7 @@ CREATE SQL_BLOCK_RULE rule_name
    ```sql
    mysql> CREATE SQL_BLOCK_RULE test_rule 
        -> PROPERTIES(
-       ->   "sql"="select * from order_analysis;",
+       ->   "sql"="select \\* from order_analysis;",
        ->   "global"="false",
        ->   "enable"="true"
        -> );
@@ -82,7 +82,8 @@ CREATE SQL_BLOCK_RULE rule_name
 
    ```sql
    mysql> CREATE SQL_BLOCK_RULE test_rule2 
-       -> PROPERTIES (
+       -> PROPERTIES
+    (
        -> "partition_num" = "30",
        -> "cardinality" = "10000000000",
        -> "global" = "false",

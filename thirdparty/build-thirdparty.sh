@@ -311,9 +311,19 @@ build_protobuf() {
     CXXFLAGS="-fPIC -O2 -I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create" \
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
-    cd src
-    sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
-    cd -
+
+    # ATTN: If protoc is not built fully statically the linktime libc may newer than runtime.
+    #       This will casue protoc cannot run
+    #       If you really need to dynamically link protoc, please set the environment variable DYN_LINK_PROTOC=1
+
+    if [[ "${DYN_LINK_PROTOC}" == "1" ]]; then
+        echo "link protoc dynamiclly"
+    else 
+        cd src
+        sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
+        cd -
+    fi
+
     make -j $PARALLEL && make install
 }
 
@@ -525,7 +535,7 @@ build_mysql() {
     -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT=$TP_INSTALL_DIR \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
     -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DENABLE_DTRACE=0
-    ${BUILD_SYSTEM} -v -j $PARALLEL mysqlclient
+    ${BUILD_SYSTEM} -j $PARALLEL mysqlclient
 
     # copy headers manually
     rm -rf ../../../installed/include/mysql/
@@ -670,6 +680,7 @@ build_arrow() {
     -Dzstd_SOURCE=SYSTEM \
     -DSnappy_LIB=$TP_INSTALL_DIR/lib/libsnappy.a -DSnappy_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DSnappy_SOURCE=SYSTEM \
+    -DBOOST_ROOT=$TP_INSTALL_DIR --no-warn-unused-cli \
     -DThrift_ROOT=$TP_INSTALL_DIR ..
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
@@ -868,6 +879,10 @@ build_aws_sdk() {
 
 # lzma
 build_lzma() {
+    if [ ! -x "$(command -v autopoint)" ]; then
+        echo "autopoint is required by $0, install it first"
+        return -1
+    fi
     check_if_source_exist $LZMA_SOURCE
     cd $TP_SOURCE_DIR/$LZMA_SOURCE
     export ACLOCAL_PATH=/usr/share/aclocal
@@ -879,6 +894,10 @@ build_lzma() {
 
 # xml2
 build_xml2() {
+    if [ ! -x "$(command -v pkg-config)" ]; then
+        echo "pkg-config is required by $0, install it first"
+        return -1
+    fi
     check_if_source_exist $XML2_SOURCE
     cd $TP_SOURCE_DIR/$XML2_SOURCE
     export ACLOCAL_PATH=/usr/share/aclocal

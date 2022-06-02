@@ -45,12 +45,12 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
             Plan c = topJoin.right();
 
             Plan newBottomJoin = plan(
-                    new LogicalJoin(bottomJoin.op.getJoinType(), bottomJoin.op.getOnClause()),
+                    new LogicalJoin(bottomJoin.operator.getJoinType(), bottomJoin.operator.getOnClause()),
                     a, c
             );
 
             Plan newTopJoin = plan(
-                    new LogicalJoin(bottomJoin.op.getJoinType(), topJoin.op.getOnClause()),
+                    new LogicalJoin(bottomJoin.operator.getJoinType(), topJoin.operator.getOnClause()),
                     newBottomJoin, b
             );
             return newTopJoin;

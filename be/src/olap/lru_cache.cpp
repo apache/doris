@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 
+#include "gutil/bits.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_index.h"
@@ -430,19 +431,25 @@ inline uint32_t ShardedLRUCache::_hash_slice(const CacheKey& s) {
     return s.hash(s.data(), s.size(), 0);
 }
 
-uint32_t ShardedLRUCache::_shard(uint32_t hash) {
-    return hash >> (32 - kNumShardBits);
-}
-
-ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type)
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                                 uint32_t num_shards)
         : _name(name),
+          _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
+          _num_shards(num_shards),
+          _shards(nullptr),
           _last_id(1),
           _mem_tracker(MemTracker::create_tracker(-1, name, nullptr, MemTrackerLevel::OVERVIEW)) {
-    const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
-    for (int s = 0; s < kNumShards; s++) {
-        _shards[s] = new LRUCache(type);
-        _shards[s]->set_capacity(per_shard);
+    CHECK(num_shards > 0) << "num_shards cannot be 0";
+    CHECK_EQ((num_shards & (num_shards - 1)), 0)
+            << "num_shards should be power of two, but got " << num_shards;
+
+    const size_t per_shard = (total_capacity + (_num_shards - 1)) / _num_shards;
+    LRUCache** shards = new (std::nothrow) LRUCache*[_num_shards];
+    for (int s = 0; s < _num_shards; s++) {
+        shards[s] = new LRUCache(type);
+        shards[s]->set_capacity(per_shard);
     }
+    _shards = shards;
 
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("lru_cache:") + name, {{"name", name}});
@@ -456,8 +463,11 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
-    for (int s = 0; s < kNumShards; s++) {
-        delete _shards[s];
+    if (_shards) {
+        for (int s = 0; s < _num_shards; s++) {
+            delete _shards[s];
+        }
+        delete[] _shards;
     }
     _entity->deregister_hook(_name);
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
@@ -501,7 +511,7 @@ uint64_t ShardedLRUCache::new_id() {
 
 int64_t ShardedLRUCache::prune() {
     int64_t num_prune = 0;
-    for (int s = 0; s < kNumShards; s++) {
+    for (int s = 0; s < _num_shards; s++) {
         num_prune += _shards[s]->prune();
     }
     return num_prune;
@@ -509,7 +519,7 @@ int64_t ShardedLRUCache::prune() {
 
 int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
     int64_t num_prune = 0;
-    for (int s = 0; s < kNumShards; s++) {
+    for (int s = 0; s < _num_shards; s++) {
         num_prune += _shards[s]->prune_if(pred);
     }
     return num_prune;
@@ -520,7 +530,7 @@ void ShardedLRUCache::update_cache_metrics() const {
     size_t total_usage = 0;
     size_t total_lookup_count = 0;
     size_t total_hit_count = 0;
-    for (int i = 0; i < kNumShards; i++) {
+    for (int i = 0; i < _num_shards; i++) {
         total_capacity += _shards[i]->get_capacity();
         total_usage += _shards[i]->get_usage();
         total_lookup_count += _shards[i]->get_lookup_count();
@@ -536,12 +546,9 @@ void ShardedLRUCache::update_cache_metrics() const {
                                                  : ((double)total_hit_count / total_lookup_count));
 }
 
-Cache* new_lru_cache(const std::string& name, size_t capacity) {
-    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE);
-}
-
-Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type) {
-    return new ShardedLRUCache(name, capacity, type);
+Cache* new_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
+                     uint32_t num_shards) {
+    return new ShardedLRUCache(name, capacity, type, num_shards);
 }
 
 } // namespace doris

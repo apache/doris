@@ -222,7 +222,8 @@ public:
     }
 
     template <typename ColumnType>
-    void update_result_auto_simd(MutableColumnPtr& result_column_ptr, uint8* __restrict then_idx,
+    void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
+                                 const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) {
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
@@ -326,7 +327,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        CaseState* case_state = reinterpret_cast<CaseState*>(
+        auto* case_state = reinterpret_cast<CaseState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
         return execute_get_type(case_state->result_type, block, arguments, result,

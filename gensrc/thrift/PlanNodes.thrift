@@ -29,7 +29,7 @@ enum TPlanNodeType {
   CSV_SCAN_NODE, // deprecated
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
-  MERGE_JOIN_NODE,
+  MERGE_JOIN_NODE, // deprecated
   AGGREGATION_NODE,
   PRE_AGGREGATION_NODE,
   SORT_NODE,
@@ -213,6 +213,16 @@ struct TEsScanRange {
   4: required i32 shard_id
 }
 
+struct TFileScanRange {
+
+}
+
+// Scan range for external datasource, such as file on hdfs, es datanode, etc.
+struct TExternalScanRange {
+    1: optional TFileScanRange file_scan_range
+    // TODO: add more scan range type?
+}
+
 // Specification of an individual data range which is held in its entirety
 // by a storage server
 struct TScanRange {
@@ -221,6 +231,7 @@ struct TScanRange {
   5: optional binary kudu_scan_token // Decrepated
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
+  8: optional TExternalScanRange ext_scan_range
 }
 
 struct TMySQLScanNode {
@@ -366,7 +377,7 @@ enum TJoinOp {
   RIGHT_OUTER_JOIN,
   FULL_OUTER_JOIN,
   CROSS_JOIN,
-  MERGE_JOIN,
+  MERGE_JOIN, // deprecated
 
   RIGHT_SEMI_JOIN,
   LEFT_ANTI_JOIN,

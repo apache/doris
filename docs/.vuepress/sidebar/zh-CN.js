@@ -473,6 +473,7 @@ module.exports = [
               "coalesce",
               "if",
               "ifnull",
+              "nvl",
               "nullif"
             ],
           },
@@ -610,6 +611,7 @@ module.exports = [
                 initialOpenGroupIndex: -1,
                 children: [
                   "ALTER-DATABASE",
+                  "ALTER-RESOURCE",
                   "ALTER-SQL-BLOCK-RULE",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",
@@ -706,7 +708,8 @@ module.exports = [
                   "DELETE",
                   "INSERT",
                   "UPDATE",
-                  "SELECT"
+                  "SELECT",
+                  "EXPORT"
                 ],
               },
               "OUTFILE"             
@@ -1004,8 +1007,7 @@ module.exports = [
     directoryPath: "benchmark/",
     initialOpenGroupIndex: -1,
     children: [
-      "ssb",
-      "tpc-h"
+      "ssb"
     ],
   },
   {

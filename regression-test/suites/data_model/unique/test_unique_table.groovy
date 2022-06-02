@@ -23,7 +23,7 @@ suite("test_unique_table", "data_model") {
     }
     sql "use ${dbName}"
 
-    // test duplicate table
+    // test uniq table
     def tbName = "test_uniq"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
