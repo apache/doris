@@ -28,7 +28,7 @@ under the License.
 
 ## Apache Doris
 
-You can download source code from following links, then compile and install Doris.
+You can download the Doris source code from the following link for compilation and deployment. After version 1.0, you can directly download the binary version for direct installation and deployment.
 
 | Version | Release Date | Download Source | Download Binary |
 |---|---|---| --- |
