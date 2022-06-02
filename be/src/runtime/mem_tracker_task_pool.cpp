@@ -91,7 +91,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
     for (auto tid : expired_tasks) {
         // This means that after all RuntimeState is destructed,
         // there are still task mem trackers that are get or register.
-        // The only known case: after an import task ends all fragments on a BE,`tablet_writer_open` is still
+        // The only known case: after an load task ends all fragments on a BE,`tablet_writer_open` is still
         // called to create a channel, and the load task tracker will be re-registered in the channel open.
         if (_task_mem_trackers[tid].use_count() == 1) {
             _task_mem_trackers.erase(tid);
