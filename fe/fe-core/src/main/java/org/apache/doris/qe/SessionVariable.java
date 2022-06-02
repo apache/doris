@@ -182,7 +182,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
 
-    public static final String ENABLE_COMPLEX_TYPE = "enable_complex_type";
+    static final String ENABLE_COMPLEX_TYPE = "enable_complex_type";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -447,7 +447,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COMPLEX_TYPE)
-    public boolean enableComplexType = false;
+    boolean enableComplexType = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
