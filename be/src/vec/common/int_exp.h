@@ -26,23 +26,27 @@
 
 namespace exp_details {
 
+// compile-time exp(v, n) by linear recursion
 template <typename T, T v, std::size_t n>
 constexpr inline const T exp = v * exp<T, v, n - 1>;
 
 template <typename T, T v>
 constexpr inline const T exp<T, v, 0> = 1;
 
+// compile-time exponentiation table { exp(v, I) ... }
 template <typename T, T v, std::size_t ...I>
 constexpr inline const T exp_table[] = { exp<T, v, I>... };
 
+// get value from compile-time exponentiation table by a (maybe) runtime offset
 template <typename T, T v, std::size_t ...I>
-constexpr T exp_maker_helper(std::size_t x, std::index_sequence<I...>) {
+constexpr T get_exp_helper(std::size_t x, std::index_sequence<I...>) {
     return exp_table<T, v, I...>[x];
 }
 
+// get_exp_helper with table { exp(v, 0), exp(v, 1) ... exp(v, N) }
 template <typename T, T v, std::size_t N>
-constexpr T exp_maker(std::size_t x) {
-    return exp_maker_helper<T, v>(x, std::make_index_sequence<N>{});
+constexpr T get_exp(std::size_t x) {
+    return get_exp_helper<T, v>(x, std::make_index_sequence<N>{});
 }
 
 }
@@ -57,21 +61,21 @@ inline uint64_t int_exp10(int x) {
     if (x < 0) return 0;
     if (x > 19) return std::numeric_limits<uint64_t>::max();
 
-    return exp_details::exp_maker<uint64_t, 10, 20>(x);
+    return exp_details::get_exp<uint64_t, 10, 20>(x);
 }
 
 namespace common {
 
 inline std::int32_t exp10_i32(int x) {
-    return exp_details::exp_maker<std::int32_t, 10, 10>(x);
+    return exp_details::get_exp<std::int32_t, 10, 10>(x);
 }
 
 inline std::int64_t exp10_i64(int x) {
-    return exp_details::exp_maker<std::int64_t, 10, 19>(x);
+    return exp_details::get_exp<std::int64_t, 10, 19>(x);
 }
 
 inline __int128 exp10_i128(int x) {
-    return exp_details::exp_maker<__int128, 10, 39>(x);
+    return exp_details::get_exp<__int128, 10, 39>(x);
 }
 
 } // namespace common
