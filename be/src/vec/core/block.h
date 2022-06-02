@@ -245,6 +245,9 @@ public:
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
 
+    // copy a new block by the offset column
+    Block copy_block(const std::vector<int>& column_offset) const;
+
     static Status filter_block(Block* block, int filter_conlumn_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
