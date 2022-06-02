@@ -147,6 +147,7 @@ booleanExpression
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
+    | NOT valueExpression                                                                    #not
     ;
 
 primaryExpression
@@ -171,6 +172,10 @@ constant
 
 comparisonOperator
     : EQ | NEQ | LT | LTE | GT | GTE | NSEQ
+    ;
+
+logicalOperator
+    : AND | OR
     ;
 
 booleanValue

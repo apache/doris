@@ -17,8 +17,14 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Not expression: not a.
@@ -35,7 +41,30 @@ public class Not<CHILD_TYPE extends Expression> extends Expression<Not<CHILD_TYP
     }
 
     @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitNotExpression(this, context);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Not other = (Not) o;
+        return Objects.equals(child(), other.child());
+    }
+
+    @Override
     public String toString() {
         return "( not " + child() + ")";
+    }
+
+    @Override
+    public Not newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Not((Expression) children.get(0));
     }
 }

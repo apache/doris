@@ -15,38 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees;
+package org.apache.doris.nereids.rules.expression.rewrite;
 
-/**
- * Types for all TreeNode in Nereids, include Plan and Expression.
- */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
+import org.apache.doris.nereids.trees.expressions.Expression;
 
-    // expressions
-    EXPRESSION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
+public abstract class AbstractExpressionRewriteRule extends ExpressionVisitor<Expression, ExpressionRewriteContext> implements ExpressionRewriteRule {
 
-    // pattern
-    PATTERN,
+    @Override
+    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+        return (Expression) expr.accept(this, ctx);
+    }
 
-    // fixed
-    FIXED,
-    ;
+    @Override
+    public Expression visitExpression(Expression expr, ExpressionRewriteContext ctx) {
+        return expr;
+    }
 }

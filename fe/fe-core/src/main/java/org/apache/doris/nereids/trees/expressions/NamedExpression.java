@@ -49,6 +49,11 @@ public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYP
         throw new UnboundException("qualifier");
     }
 
+    @Override
+    public boolean isVariable() {
+        return true;
+    }
+
     /**
      * Get qualified name of NamedExpression.
      *

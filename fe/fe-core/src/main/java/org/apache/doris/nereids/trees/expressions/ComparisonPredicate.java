@@ -17,10 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Comparison predicate expression.
@@ -44,6 +50,27 @@ public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD
     @Override
     public DataType getDataType() throws UnboundException {
         return BooleanType.INSTANCE;
+    }
+
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitComparisonPredicate(this, context);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        ComparisonPredicate other = (ComparisonPredicate) o;
+        return (type == other.getType()) && Objects.equals(left(), other.left()) && Objects.equals(right(), other.right());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type, left(), right());
     }
 
     @Override

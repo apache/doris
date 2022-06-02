@@ -25,4 +25,6 @@ import org.apache.doris.nereids.trees.UnaryNode;
 public interface UnaryExpression<EXPR_TYPE extends UnaryExpression<EXPR_TYPE, CHILD_TYPE>,
         CHILD_TYPE extends Expression> extends UnaryNode<EXPR_TYPE, CHILD_TYPE> {
 
+    @Override
+    default CHILD_TYPE child() {return child(0);}
 }

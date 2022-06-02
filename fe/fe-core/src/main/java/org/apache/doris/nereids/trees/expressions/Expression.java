@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -47,6 +48,10 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
         throw new UnboundException("nullable");
     }
 
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitExpression(this, context);
+    }
+
     @Override
     public List<Expression> children() {
         return (List) children;
@@ -60,5 +65,14 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
     @Override
     public EXPR_TYPE newChildren(List<TreeNode> children) {
         throw new RuntimeException();
+    }
+
+    public boolean isVariable() {
+        for (Expression child : children()) {
+            if (child.isVariable()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

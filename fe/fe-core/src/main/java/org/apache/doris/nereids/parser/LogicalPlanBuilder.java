@@ -44,6 +44,8 @@ import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
+import org.apache.doris.nereids.DorisParser.ExpressionContext;
+import org.apache.doris.nereids.DorisParser.NotContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -146,6 +148,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.whereClause(),
                     from);
         };
+        return ParserUtils.withOrigin(ctx, f);
+    }
+
+    @Override
+    public Expression visitExpression(ExpressionContext ctx) {
+        Supplier<Expression> f = () -> (Expression) visit(ctx.booleanExpression());
         return ParserUtils.withOrigin(ctx, f);
     }
 
@@ -385,6 +393,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             default:
                 return null;
         }
+    }
+
+    /**
+     * Create a not expression.
+     * format: NOT Expression
+     * for example:
+     * not 1
+     * not 1=1
+     * @param ctx
+     * @return
+     */
+    @Override
+    public Expression visitNot(NotContext ctx) {
+        Expression child = expression(ctx.valueExpression());
+        return new Not(child);
     }
 
     /**

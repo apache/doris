@@ -17,8 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
+
+import java.util.List;
 
 /**
  * Greater than and equal expression: a >= b.
@@ -43,5 +47,11 @@ public class GreaterThanEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TY
     @Override
     public String toString() {
         return "(" + left() + " >= " + right() + ")";
+    }
+
+    @Override
+    public GreaterThanEqual newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new GreaterThanEqual((Expression) children.get(0), (Expression) children.get(1));
     }
 }

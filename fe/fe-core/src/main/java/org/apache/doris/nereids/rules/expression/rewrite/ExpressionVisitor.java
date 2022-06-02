@@ -15,38 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees;
+package org.apache.doris.nereids.rules.expression.rewrite;
 
-/**
- * Types for all TreeNode in Nereids, include Plan and Expression.
- */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Not;
 
-    // expressions
-    EXPRESSION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
+public abstract class ExpressionVisitor<R, C> {
 
-    // pattern
-    PATTERN,
+    public abstract R visitExpression(Expression expr, C context);
 
-    // fixed
-    FIXED,
-    ;
+    public R visitNotExpression(Not expr, C context) {
+        return visitExpression(expr, context);
+    }
+
+    public R visitComparisonPredicate(ComparisonPredicate expr, C context) {
+        return visitExpression(expr, context);
+    }
+
+    public R visitLiteral(Literal expr, C context) {
+        return visitExpression(expr, context);
+    }
 }
