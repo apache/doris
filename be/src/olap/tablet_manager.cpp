@@ -607,7 +607,8 @@ void TabletManager::find_tablet_have_alpha_rowset(std::vector<TabletSharedPtr>& 
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             const TabletSharedPtr& tablet_ptr = tablet_map.second;
             if (!tablet_ptr->all_beta() &&
-                tablet_ptr->can_do_compaction(tablet_ptr->data_dir()->path_hash(), BASE_COMPACTION)) {
+                tablet_ptr->can_do_compaction(tablet_ptr->data_dir()->path_hash(),
+                                              BASE_COMPACTION)) {
                 tablets.push_back(tablet_ptr);
             }
         }
