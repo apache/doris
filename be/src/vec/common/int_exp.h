@@ -22,6 +22,30 @@
 
 #include <cstdint>
 #include <limits>
+#include <utility>
+
+namespace exp_details {
+
+template <typename T, T v, std::size_t n>
+constexpr inline const T exp = v * exp<T, v, n - 1>;
+
+template <typename T, T v>
+constexpr inline const T exp<T, v, 0> = 1;
+
+template <typename T, T v, std::size_t ...I>
+constexpr inline const T exp_table[] = { exp<T, v, I>... };
+
+template <typename T, T v, std::size_t ...I>
+constexpr T exp_maker_helper(std::size_t x, std::index_sequence<I...>) {
+    return exp_table<T, v, I...>[x];
+}
+
+template <typename T, T v, std::size_t N>
+constexpr T exp_maker(std::size_t x) {
+    return exp_maker_helper<T, v>(x, std::make_index_sequence<N>{});
+}
+
+}
 
 /// On overlow, the function returns unspecified value.
 
@@ -33,103 +57,21 @@ inline uint64_t int_exp10(int x) {
     if (x < 0) return 0;
     if (x > 19) return std::numeric_limits<uint64_t>::max();
 
-    static const uint64_t table[20] = {1ULL,
-                                       10ULL,
-                                       100ULL,
-                                       1000ULL,
-                                       10000ULL,
-                                       100000ULL,
-                                       1000000ULL,
-                                       10000000ULL,
-                                       100000000ULL,
-                                       1000000000ULL,
-                                       10000000000ULL,
-                                       100000000000ULL,
-                                       1000000000000ULL,
-                                       10000000000000ULL,
-                                       100000000000000ULL,
-                                       1000000000000000ULL,
-                                       10000000000000000ULL,
-                                       100000000000000000ULL,
-                                       1000000000000000000ULL,
-                                       10000000000000000000ULL};
-
-    return table[x];
+    return exp_details::exp_maker<uint64_t, 10, 20>(x);
 }
 
 namespace common {
 
-inline int exp10_i32(int x) {
-    static const int values[] = {1,      10,      100,      1000,      10000,
-                                 100000, 1000000, 10000000, 100000000, 1000000000};
-    return values[x];
+inline std::int32_t exp10_i32(int x) {
+    return exp_details::exp_maker<std::int32_t, 10, 10>(x);
 }
 
-inline int64_t exp10_i64(int x) {
-    static const int64_t values[] = {1ll,
-                                     10ll,
-                                     100ll,
-                                     1000ll,
-                                     10000ll,
-                                     100000ll,
-                                     1000000ll,
-                                     10000000ll,
-                                     100000000ll,
-                                     1000000000ll,
-                                     10000000000ll,
-                                     100000000000ll,
-                                     1000000000000ll,
-                                     10000000000000ll,
-                                     100000000000000ll,
-                                     1000000000000000ll,
-                                     10000000000000000ll,
-                                     100000000000000000ll,
-                                     1000000000000000000ll};
-    return values[x];
+inline std::int64_t exp10_i64(int x) {
+    return exp_details::exp_maker<std::int64_t, 10, 19>(x);
 }
 
 inline __int128 exp10_i128(int x) {
-    static const __int128 values[] = {
-            static_cast<__int128>(1ll),
-            static_cast<__int128>(10ll),
-            static_cast<__int128>(100ll),
-            static_cast<__int128>(1000ll),
-            static_cast<__int128>(10000ll),
-            static_cast<__int128>(100000ll),
-            static_cast<__int128>(1000000ll),
-            static_cast<__int128>(10000000ll),
-            static_cast<__int128>(100000000ll),
-            static_cast<__int128>(1000000000ll),
-            static_cast<__int128>(10000000000ll),
-            static_cast<__int128>(100000000000ll),
-            static_cast<__int128>(1000000000000ll),
-            static_cast<__int128>(10000000000000ll),
-            static_cast<__int128>(100000000000000ll),
-            static_cast<__int128>(1000000000000000ll),
-            static_cast<__int128>(10000000000000000ll),
-            static_cast<__int128>(100000000000000000ll),
-            static_cast<__int128>(1000000000000000000ll),
-            static_cast<__int128>(1000000000000000000ll) * 10ll,
-            static_cast<__int128>(1000000000000000000ll) * 100ll,
-            static_cast<__int128>(1000000000000000000ll) * 1000ll,
-            static_cast<__int128>(1000000000000000000ll) * 10000ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000ll,
-            static_cast<__int128>(1000000000000000000ll) * 1000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 10000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 1000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 10000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 1000000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 10000000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 1000000000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 10000000000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000000000000000ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000000000000000ll * 10ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000000000000000ll * 100ll,
-            static_cast<__int128>(1000000000000000000ll) * 100000000000000000ll * 1000ll};
-    return values[x];
+    return exp_details::exp_maker<__int128, 10, 39>(x);
 }
 
 } // namespace common
