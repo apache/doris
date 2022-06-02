@@ -349,6 +349,7 @@ void StorageEngine::_alpha_rowset_scan_thread_callback() {
             scan_interval_sec = std::min(3600, scan_interval_sec * 2);
         } else {
             _convert_rowset_thread_pool->wait();
+            scan_interval_sec = config::scan_alpha_rowset_min_interval_sec;
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(scan_interval_sec)));
 }

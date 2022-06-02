@@ -32,7 +32,7 @@ private:
     Status check_correctness(RowsetSharedPtr input_rowset, RowsetSharedPtr output_rowset,
                              const Merger::Statistics& stats);
     int64_t _get_input_num_rows_from_seg_grps(RowsetSharedPtr rowset);
-    void _modify_rowsets(RowsetSharedPtr input_rowset, RowsetSharedPtr output_rowset);
+    Status _modify_rowsets(RowsetSharedPtr input_rowset, RowsetSharedPtr output_rowset);
 
 private:
     TabletSharedPtr _tablet;

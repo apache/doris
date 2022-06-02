@@ -47,7 +47,8 @@ Status ConvertRowset::do_convert() {
         RETURN_NOT_OK(alpah_rowsets[i]->create_reader(&input_rs_reader));
 
         std::unique_ptr<RowsetWriter> output_rs_writer;
-        _tablet->create_rowset_writer(output_version, VISIBLE, NONOVERLAPPING, &output_rs_writer);
+        RETURN_NOT_OK(_tablet->create_rowset_writer(output_version, VISIBLE, NONOVERLAPPING,
+                                                    &output_rs_writer));
         res = Merger::merge_rowsets(_tablet, ReaderType::READER_BASE_COMPACTION, {input_rs_reader},
                                     output_rs_writer.get(), &stats);
 
@@ -67,7 +68,7 @@ Status ConvertRowset::do_convert() {
 
             row_count += alpah_rowsets[i]->num_rows();
 
-            _modify_rowsets(alpah_rowsets[i], output_rowset);
+            RETURN_NOT_OK(_modify_rowsets(alpah_rowsets[i], output_rowset));
 
             LOG(INFO) << "succeed to convert rowset"
                       << ". tablet=" << _tablet->full_name()
@@ -124,7 +125,7 @@ int64_t ConvertRowset::_get_input_num_rows_from_seg_grps(RowsetSharedPtr rowset)
     }
     return num_rows;
 }
-void ConvertRowset::_modify_rowsets(RowsetSharedPtr input_rowset, RowsetSharedPtr output_rowset) {
+Status ConvertRowset::_modify_rowsets(RowsetSharedPtr input_rowset, RowsetSharedPtr output_rowset) {
     std::vector<RowsetSharedPtr> input_rowsets;
     input_rowsets.push_back(input_rowset);
 
@@ -132,7 +133,8 @@ void ConvertRowset::_modify_rowsets(RowsetSharedPtr input_rowset, RowsetSharedPt
     output_rowsets.push_back(output_rowset);
 
     std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
-    _tablet->modify_rowsets(output_rowsets, input_rowsets);
+    RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, input_rowsets, true));
     _tablet->save_meta();
+    return Status::OK();
 }
 } // namespace doris
