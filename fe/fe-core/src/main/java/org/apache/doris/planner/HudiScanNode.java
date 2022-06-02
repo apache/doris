@@ -305,7 +305,7 @@ public class HudiScanNode extends BrokerScanNode {
         } else if (this.inputFormatName.toLowerCase(Locale.ROOT).contains("orc")) {
             fileFormatType = TFileFormatType.FORMAT_ORC;
         } else {
-            throw new UserException("unsupported hudi table format [" + this.inputFormatName + "].");
+            throw new UserException("Unsupported hudi table format [" + this.inputFormatName + "].");
         }
 
         ParamCreateContext context = getParamCreateContexts().get(0);
