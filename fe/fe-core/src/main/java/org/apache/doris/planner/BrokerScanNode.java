@@ -152,7 +152,7 @@ public class BrokerScanNode extends LoadScanNode {
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
         if (ConnectContext.get() != null) {
-            this.userIdentity = ConnectContext.get().getUserIdentity();
+            this.userIdentity = ConnectContext.get().getCurrentUserIdentity();
         }
     }
 
@@ -163,7 +163,7 @@ public class BrokerScanNode extends LoadScanNode {
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
         if (ConnectContext.get() != null) {
-            this.userIdentity = ConnectContext.get().getUserIdentity();
+            this.userIdentity = ConnectContext.get().getCurrentUserIdentity();
         }
     }
 
