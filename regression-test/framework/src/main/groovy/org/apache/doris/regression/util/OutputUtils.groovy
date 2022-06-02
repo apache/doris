@@ -24,6 +24,8 @@ import org.apache.commons.csv.CSVPrinter
 import org.apache.commons.csv.CSVRecord
 import org.apache.commons.io.LineIterator
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.util.function.Function
 import java.sql.ResultSetMetaData
 
@@ -54,7 +56,7 @@ class OutputUtils {
     }
 
     static String checkCell(String info, int line, String expectCell, String realCell, String dataType) {
-        if (dataType == "FLOAT" || dataType == "DOUBLE") {
+        if (dataType == "FLOAT" || dataType == "DOUBLE" || dataType == "DECIMAL") {
             Boolean expectNull = expectCell.equals("\\\\N")
             Boolean actualNull = realCell.equals("\\\\N")
 
@@ -69,6 +71,18 @@ class OutputUtils {
                 double expectRelativeError = 1e-10
 
                 if(expectRelativeError < realRelativeError) {
+                    // Keep the scale of low precision data to solve TPCH cases like:
+                    // "Expect cell is: 0.0395, But real is: 0.039535109"
+                    int expectDecimalPlaces = expectCell.contains(".") ? expectCell.length() - expectCell.lastIndexOf(".") - 1 : 0
+                    int realDecimalPlaces = realCell.contains(".") ? realCell.length() - realCell.lastIndexOf(".") - 1 : 0
+                    if (expectDecimalPlaces != realDecimalPlaces) {
+                        int lowDecimalPlaces = Math.min(expectDecimalPlaces, realDecimalPlaces)
+                        double lowNumber = expectDecimalPlaces < realDecimalPlaces ? expectDouble : realDouble
+                        double highNumber = expectDecimalPlaces < realDecimalPlaces ? realDouble : expectDouble
+                        if (new BigDecimal(highNumber).setScale(lowDecimalPlaces, RoundingMode.HALF_UP).doubleValue() == lowNumber) {
+                            return null
+                        }
+                    }
                     return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}\nrelative error is: ${realRelativeError}, bigger than ${expectRelativeError}"
                 }
             }
