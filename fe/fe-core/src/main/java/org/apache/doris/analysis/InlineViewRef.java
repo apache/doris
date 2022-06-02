@@ -207,15 +207,6 @@ public class InlineViewRef extends TableRef {
             materializedTupleIds.add(desc.getId());
         }
 
-        // anlayzeLateralViewRefs
-        analyzeLateralViewRef(analyzer);
-
-        // We need to analyze join behind create sMap and baseTblSmap, because SlotDescriptors of inline view's
-        // output slots will be generated when create sMap and baseTblSmap. Before generate SlotDescriptors,
-        // we need to analyze join clause. Since SlotDescriptors need to be set as nullable if its TupleDescriptor is
-        // an outer join tuple.
-        analyzeJoin(analyzer);
-
         // create sMap and baseTblSmap and register auxiliary eq predicates between our
         // tuple descriptor's slots and our *unresolved* select list exprs;
         // we create these auxiliary predicates so that the analyzer can compute the value
@@ -242,6 +233,16 @@ public class InlineViewRef extends TableRef {
             LOG.debug("inline view " + getUniqueAlias() + " smap: " + sMap.debugString());
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
+
+        // analyzeLateralViewRefs
+        analyzeLateralViewRef(analyzer);
+
+        // Now do the remaining join analysis
+        // In general, we should do analyze join before do RegisterColumnRef. However, We cannot move analyze join
+        // before generate sMap and baseTblSmap, because generate sMap and baseTblSmap will register all column refs
+        // in the inline view. If inline view is on right side of left semi join, exception will be thrown.
+        // Instead, we do a little trick in RegisterColumnRef to avoid this problem.
+        analyzeJoin(analyzer);
     }
 
     /**
