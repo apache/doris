@@ -346,4 +346,5 @@ public class AggregationNode extends PlanNode {
         result.addAll(aggregateSlotIds);
         return result;
     }
+
 }
