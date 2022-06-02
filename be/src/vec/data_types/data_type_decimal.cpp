@@ -65,7 +65,7 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
 template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
-    T val;
+    T val = 0;
     if (!read_decimal_text_impl<T>(val, rb)) {
         return Status::InvalidArgument(fmt::format("parse date fail, string: '{}'",
                                                    std::string(rb.position(), rb.count()).c_str()));
