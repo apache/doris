@@ -1,5 +1,4 @@
-<!-- 
-Licensed to the Apache Software Foundation (ASF) under one
+<!-- Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
 regarding copyright ownership.  The ASF licenses this file
@@ -16,42 +15,57 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
 <template>
-  <ParentLayout :key="renderIndex">
-    <Content></Content>
-    <footer slot="page-bottom">
-      <CustomFooter />
-    </footer>
-  </ParentLayout>
+  <Common :sidebarItems="sidebarItems" :showModule="recoShowModule">
+    <component v-if="$frontmatter.home" :is="homeCom"/>
+    <Page v-else :sidebar-items="sidebarItems"/>
+    <Footer v-if="$frontmatter.home" class="footer" />
+  </Common>
 </template>
-<script>
-import ParentLayout from "@parent-theme/layouts/Layout.vue";
-import CustomFooter from "@theme/components/Footer.vue";
-import axios from "axios"
 
-export default {
-  components: {
-    ParentLayout,
-    CustomFooter
-  },
-  data: () => ({ renderIndex: 0 }), 
-  mounted() {
-    // fetching versions from asf-site repo
-    axios
-      .get("/versions.json")
-      .then(res => {
-        Object.keys(this.$site.themeConfig.locales).forEach(k => {
-          const nav = res.data[k.replace(/\//gi, "")] || []
-          const localNav = nav.filter(item => this.$site.themeConfig.locales[k].nav.every(v => v.text !== item.text))
-          this.$site.themeConfig.locales[k].nav = this.$site.themeConfig.locales[k].nav.concat(localNav)
-        })
-        this.renderIndex = 1
-      })
-      .catch(err => {
-        this.renderIndex = 1
-        console.log(err)
-      })
+<script>
+import { defineComponent, computed } from 'vue-demi'
+import Home from '@theme/components/Home'
+import HomeBlog from '@theme/components/HomeBlog'
+import Page from '@theme/components/Page'
+import Footer from '@theme/components/Footer'
+import Common from '@theme/components/Common'
+import { resolveSidebarItems } from '@theme/helpers/utils'
+import moduleTransitonMixin from '@theme/mixins/moduleTransiton'
+import { useInstance } from '@theme/helpers/composable'
+
+export default defineComponent({
+  mixins: [moduleTransitonMixin],
+  components: { HomeBlog, Home, Page, Common, Footer },
+  setup (props, ctx) {
+    const instance = useInstance()
+
+    const sidebarItems = computed(() => {
+      const { $page, $site, $localePath } = instance
+      if ($page) {
+        return resolveSidebarItems(
+          $page,
+          $page.regularPath,
+          $site,
+          $localePath
+        )
+      } else {
+        return []
+      }
+    })
+
+    const homeCom = computed(() => {
+      const { type } = instance.$themeConfig || {}
+      if (type) {
+        return type == 'blog' ? 'HomeBlog' : type
+      }
+      return 'Home'
+    })
+
+    return { sidebarItems, homeCom }
   }
-};
+})
 </script>
+
+<style src="prismjs/themes/prism-tomorrow.css"></style>
+<style src="../styles/theme.styl" lang="stylus"></style>
