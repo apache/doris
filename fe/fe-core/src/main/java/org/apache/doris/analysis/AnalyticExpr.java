@@ -280,35 +280,50 @@ public class AnalyticExpr extends Expr {
 
     /**
      * Rewrite ntile().
-     * ntile(B) over([partition by clause] order by clause)
-     *    = floor(min(Count, B) * (RowNumber - 1)/Count) + 1
-     * where,
-     *  RowNumber = row_number() over([partition by clause] order by clause)
-     *  Count = count() over([partition by clause])
+     * The logic is translated from be class WindowFunctionNTile.
+     * count = bigBucketNum * (smallBucketSize + 1) + smallBucketNum * smallBucketSize
+     * bigBucketNum + smallBucketNum = bucketNum
      */
     private static Expr createNTile(AnalyticExpr analyticExpr) {
         Preconditions.checkState(AnalyticExpr.isNTileFn(analyticExpr.getFnCall().getFn()));
-        Expr bucketExpr = analyticExpr.getChild(0);
-        AnalyticExpr rowNumExpr = create("row_number", analyticExpr, true, false);
-        AnalyticExpr countExpr = create("count", analyticExpr, false, false);
+        Expr bucketNum = analyticExpr.getChild(0);
+        AnalyticExpr rowNum = create("row_number", analyticExpr, true, false);
+        AnalyticExpr count = create("count", analyticExpr, false, false);
+
+        IntLiteral one = new IntLiteral(1);
+        ArithmeticExpr smallBucketSize = new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                count, bucketNum);
+        ArithmeticExpr bigBucketNum = new ArithmeticExpr(ArithmeticExpr.Operator.MOD,
+                count, bucketNum);
+        ArithmeticExpr firstSmallBucketRowIndex = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY,
+                bigBucketNum,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                        smallBucketSize, one));
+        ArithmeticExpr rowIndex = new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT,
+                rowNum, one);
+
 
         List<Expr> ifParams = new ArrayList<>();
         ifParams.add(
-            new BinaryPredicate(BinaryPredicate.Operator.LT, bucketExpr, countExpr));
-        ifParams.add(bucketExpr);
-        ifParams.add(countExpr);
+            new BinaryPredicate(BinaryPredicate.Operator.GE, rowIndex, firstSmallBucketRowIndex));
 
-        IntLiteral one = new IntLiteral(1);
-        ArithmeticExpr minMultiplyRowMinusOne =
-                new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY,
-                        new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT, rowNumExpr, one),
-                        new FunctionCallExpr("if", ifParams));
-        ArithmeticExpr divideAddOne =
+        ArithmeticExpr rowInSmallBucket = new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
                 new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
-                        new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
-                            minMultiplyRowMinusOne, countExpr),
+                        bigBucketNum, one),
+                new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT,
+                                rowIndex, firstSmallBucketRowIndex),
+                        smallBucketSize));
+        ArithmeticExpr rowInBigBucket = new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                        rowIndex,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                                smallBucketSize, one)),
                 one);
-        return divideAddOne;
+        ifParams.add(rowInSmallBucket);
+        ifParams.add(rowInBigBucket);
+
+        return new FunctionCallExpr("if", ifParams);
     }
 
     /**

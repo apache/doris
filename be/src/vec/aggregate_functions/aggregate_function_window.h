@@ -175,13 +175,24 @@ public:
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        WindowFunctionNTile::data(place).rows++;
-        int64_t bucket_size = columns[0]->get_int(0);
+        // some variables are partition related, but there is no chance to init them
+        // when the new partition arrives, so we calculate them evey time now.
+        // Partition = big_bucket_num * big_bucket_size + small_bucket_num * small_bucket_size
+        int64_t row_index = ++WindowFunctionNTile::data(place).rows - 1;
+        int64_t bucket_num = columns[0]->get_int(0);
         int64_t partition_size = partition_end - partition_start;
-        WindowFunctionNTile::data(place).bucket_index =
-                std::min(bucket_size, partition_size) *
-                        (WindowFunctionNTile::data(place).rows - 1) / partition_size +
-                1;
+
+        int64 small_bucket_size = partition_size / bucket_num;
+        int64 big_bucket_num = partition_size % bucket_num;
+        int64 first_small_bucket_row_index = big_bucket_num * (small_bucket_size + 1);
+        if (row_index >= first_small_bucket_row_index) {
+            // small_bucket_size can't be zero
+            WindowFunctionNTile::data(place).bucket_index =
+                    big_bucket_num + 1 +
+                    (row_index - first_small_bucket_row_index) / small_bucket_size;
+        } else {
+            WindowFunctionNTile::data(place).bucket_index = row_index / (small_bucket_size + 1) + 1;
+        }
     }
 
     void reset(AggregateDataPtr place) const override { WindowFunctionNTile::data(place).rows = 0; }
