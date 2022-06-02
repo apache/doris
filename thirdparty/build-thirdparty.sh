@@ -312,14 +312,17 @@ build_protobuf() {
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create" \
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
 
-    # ATTN: If protoc is built fully statically with clang-14 on ubuntu,
-    #       it may core dump when parse some protobuf source files.
-    #       The root cause remains unknown, but it is possibly related glibc...
-    #       And, we don't actually need to be that static,
-    #       dyn-linking to glibc and etc. is OK
-    # cd src
-    # sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
-    # cd -
+    # ATTN: If protoc is not built fully statically the linktime libc may newer than runtime.
+    #       This will casue protoc cannot run
+    #       If you really need to dynamically link protoc, please set the environment variable DYN_LINK_PROTOC=1
+
+    if [[ "${DYN_LINK_PROTOC}" == "1" ]]; then
+        echo "link protoc dynamiclly"
+    else 
+        cd src
+        sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
+        cd -
+    fi
 
     make -j $PARALLEL && make install
 }
@@ -677,6 +680,7 @@ build_arrow() {
     -Dzstd_SOURCE=SYSTEM \
     -DSnappy_LIB=$TP_INSTALL_DIR/lib/libsnappy.a -DSnappy_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DSnappy_SOURCE=SYSTEM \
+    -DBOOST_ROOT=$TP_INSTALL_DIR --no-warn-unused-cli \
     -DThrift_ROOT=$TP_INSTALL_DIR ..
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install

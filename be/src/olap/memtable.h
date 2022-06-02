@@ -185,6 +185,9 @@ private:
 
     std::unique_ptr<VecTable> _vec_skip_list;
     VecTable::Hint _vec_hint;
+    void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
+                                            const TupleDescriptor* tuple_desc);
+    std::vector<int> _column_offset;
 
     RowsetWriter* _rowset_writer;
 
