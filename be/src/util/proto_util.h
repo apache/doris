@@ -19,13 +19,12 @@
 
 namespace doris {
 
-// When the tuple/block data is greater than 2G - 256M, embed the tuple/block data
+// When the tuple/block data is greater than 2G, embed the tuple/block data
 // and the request serialization string in the attachment, and use "http" brpc.
 // "http"brpc requires that only one of request and attachment be non-null.
 //
 // 2G: In the default "baidu_std" brpcd, upper limit of the request and attachment length is 2G.
-// 256M: Reserve a buffer of 256M for embedding request serialization strings, etc.
-constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31) - (1 << 27);
+constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
 
 // TODO(zxy) delete in v1.3 version
 // Transfer RowBatch in ProtoBuf Request to Controller Attachment.
