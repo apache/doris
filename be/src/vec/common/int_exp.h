@@ -28,28 +28,28 @@ namespace exp_details {
 
 // compile-time exp(v, n) by linear recursion
 template <typename T, T v, std::size_t n>
-constexpr inline const T exp = v * exp<T, v, n - 1>;
+constexpr inline const T exp = v* exp<T, v, n - 1>;
 
 template <typename T, T v>
 constexpr inline const T exp<T, v, 0> = 1;
 
 // compile-time exponentiation table { exp(v, I) ... }
-template <typename T, T v, std::size_t ...I>
-constexpr inline const T exp_table[] = { exp<T, v, I>... };
+template <typename T, T v, std::size_t... I>
+constexpr inline const T exp_table[] = {exp<T, v, I>...};
 
 // get value from compile-time exponentiation table by a (maybe) runtime offset
-template <typename T, T v, std::size_t ...I>
+template <typename T, T v, std::size_t... I>
 constexpr T get_exp_helper(std::size_t x, std::index_sequence<I...>) {
     return exp_table<T, v, I...>[x];
 }
 
-// get_exp_helper with table { exp(v, 0), exp(v, 1) ... exp(v, N) }
+// get_exp_helper with table { exp(v, 0), exp(v, 1) ... exp(v, N - 1) }
 template <typename T, T v, std::size_t N>
 constexpr T get_exp(std::size_t x) {
-    return get_exp_helper<T, v>(x, std::make_index_sequence<N>{});
+    return get_exp_helper<T, v>(x, std::make_index_sequence<N> {});
 }
 
-}
+} // namespace exp_details
 
 /// On overlow, the function returns unspecified value.
 
