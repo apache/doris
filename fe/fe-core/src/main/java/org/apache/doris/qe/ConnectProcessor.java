@@ -54,8 +54,6 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Scope;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -210,24 +208,16 @@ public class ConnectProcessor {
                 if (i > 0) {
                     ctx.resetReturnRows();
                 }
-                ctx.initTracer("tracer query");
-                Span rootSpan = ctx.getTracer().spanBuilder("").startSpan();
-                rootSpan.setAttribute("sql", originStmt);
-                try (Scope scope = rootSpan.makeCurrent()) {
-                    rootSpan.setAttribute("fehost", Catalog.getCurrentCatalog().getSelfNode().first);
-                    parsedStmt = stmts.get(i);
-                    parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
-                    parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-                    executor = new StmtExecutor(ctx, parsedStmt);
-                    ctx.setExecutor(executor);
-                    executor.execute();
+                parsedStmt = stmts.get(i);
+                parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                executor = new StmtExecutor(ctx, parsedStmt);
+                ctx.setExecutor(executor);
+                executor.execute();
 
-                    if (i != stmts.size() - 1) {
-                        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                        finalizeCommand();
-                    }
-                } finally {
-                    rootSpan.end();
+                if (i != stmts.size() - 1) {
+                    ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+                    finalizeCommand();
                 }
                 auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
                 alreadyAddedToAuditInfoList = true;

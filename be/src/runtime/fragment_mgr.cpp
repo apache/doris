@@ -464,7 +464,11 @@ static void empty_function(PlanFragmentExecutor* exec) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
+#ifndef BE_TEST
     auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
+#else
+    auto span = telemetry::get_noop_tracer()->StartSpan(func_name);
+#endif
     auto scope = opentelemetry::trace::Scope {span};
     span->SetAttribute("host", BackendOptions::get_localhost());
     span->SetAttribute("query_id", print_id(exec_state->query_id()));

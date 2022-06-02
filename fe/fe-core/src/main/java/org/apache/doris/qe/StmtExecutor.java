@@ -307,7 +307,16 @@ public class StmtExecutor implements ProfileWriter {
     public void execute() throws Exception {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        execute(queryId);
+        context.initTracer("query tracing");
+        Span rootSpan = context.getTracer().spanBuilder(DebugUtil.printId(queryId)).startSpan();
+        if (originStmt != null) {
+            rootSpan.setAttribute("sql", originStmt.originStmt);
+        }
+        try (Scope scope = rootSpan.makeCurrent()) {
+            execute(queryId);
+        } finally {
+            rootSpan.end();
+        }
     }
 
     // Execute one statement with queryId
@@ -318,7 +327,6 @@ public class StmtExecutor implements ProfileWriter {
     // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
         Span span = Span.fromContext(Context.current());
-        span.updateName(DebugUtil.printId(queryId));
         context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
