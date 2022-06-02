@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.collection;
 
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
@@ -33,7 +33,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/***
+/**
  * Used to store statistics job info,
  * including job status, progress, etc.
  */
@@ -244,7 +244,7 @@ public class StatisticsJob {
      * get statisticsJob from analyzeStmt.
      * AnalyzeStmt: analyze t1(c1,c2,c3)
      * tableId: [t1]
-     * tableIdToColumnName <t1, [c1,c2,c3]>
+     * tableIdToColumnName &lt;t1, [c1,c2,c3]&gt;
      */
     public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) throws AnalysisException {
         long dbId = analyzeStmt.getDbId();

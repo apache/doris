@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.collection;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -27,6 +27,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.statistics.StatsCategoryDesc;
+import org.apache.doris.statistics.StatsGranularityDesc;
+import org.apache.doris.statistics.StatsType;
 
 import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;

@@ -36,7 +36,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.derivation.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TPlan;

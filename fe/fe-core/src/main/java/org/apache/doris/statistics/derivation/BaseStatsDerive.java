@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.derivation;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
@@ -32,6 +32,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
+/**
+ *
+ */
 public class BaseStatsDerive {
     private static final Logger LOG = LogManager.getLogger(BaseStatsDerive.class);
     // estimate of the output rowCount of this node;
@@ -49,8 +52,9 @@ public class BaseStatsDerive {
         for (PlanNode childNode : node.getChildren()) {
             StatsDeriveResult result = childNode.getStatsDeriveResult();
             if (result == null) {
-                throw new UserException("childNode statsDeriveResult is null, childNodeType is " + childNode.getNodeType()
-                + "parentNodeType is " + node.getNodeType());
+                throw new UserException("childNode statsDeriveResult is null"
+                        + ", childNodeType is " + childNode.getNodeType()
+                        + ", parentNodeType is " + node.getNodeType());
             }
             childrenStatsResult.add(result);
         }
@@ -95,8 +99,8 @@ public class BaseStatsDerive {
      * 1. The individual selectivities of conjuncts may be unknown.
      * 2. Two selectivities, whether known or unknown, could be correlated. Assuming
      * independence can lead to significant underestimation.
-     * <p>
-     * The first issue is addressed by using a single default selectivity that is
+     *
+     * <p>The first issue is addressed by using a single default selectivity that is
      * representative of all conjuncts with unknown selectivities.
      * The second issue is addressed by an exponential backoff when multiplying each
      * additional selectivity into the final result.

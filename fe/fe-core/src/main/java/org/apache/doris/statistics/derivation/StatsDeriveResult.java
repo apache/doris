@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.derivation;
 
 import org.apache.doris.analysis.SlotId;
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.collection;
 
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
@@ -44,7 +44,7 @@ public class StatisticsJobManager {
     private static final Logger LOG = LogManager.getLogger(StatisticsJobManager.class);
 
     /**
-     * save statistics job status information
+     * save statistics job status information.
      */
     private final Map<Long, StatisticsJob> idToStatisticsJob = Maps.newConcurrentMap();
 
@@ -95,10 +95,10 @@ public class StatisticsJobManager {
     }
 
     /**
-     * The statistical job has the following restrict:
-     * - Rule1: The same table cannot have two unfinished statistics jobs
-     * - Rule2: The unfinished statistics job could not more than Config.max_statistics_job_num
-     * - Rule3: The job for external table is not supported
+     * The statistical job has the following restrict.
+     * <p>- Rule1: The same table cannot have two unfinished statistics jobs
+     * <p>- Rule2: The unfinished statistics job could not more than Config.max_statistics_job_num
+     * <p>- Rule3: The job for external table is not supported
      */
     private void checkRestrict(long dbId, Set<Long> tableIds) throws AnalysisException {
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
@@ -108,7 +108,8 @@ public class StatisticsJobManager {
             for (Long tableId : tableIds) {
                 Table table = db.getTableOrAnalysisException(tableId);
                 if (table.getType() != Table.TableType.OLAP) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(), table.getName(), "ANALYZE");
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE,
+                            db.getFullName(), table.getName(), "ANALYZE");
                 }
             }
         } finally {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.collection;
 
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
@@ -24,8 +24,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.statistics.StatisticsJob.JobState;
-import org.apache.doris.statistics.StatisticsTask.TaskState;
+import org.apache.doris.statistics.StatisticsManager;
+import org.apache.doris.statistics.StatsCategoryDesc;
+import org.apache.doris.statistics.collection.StatisticsJob.JobState;
+import org.apache.doris.statistics.collection.StatisticsTask.TaskState;
 import org.apache.doris.statistics.StatsCategoryDesc.StatsCategory;
 
 import com.google.common.collect.Lists;

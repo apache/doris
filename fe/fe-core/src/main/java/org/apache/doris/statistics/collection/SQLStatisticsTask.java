@@ -15,9 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.collection;
 
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.statistics.StatsCategoryDesc;
+import org.apache.doris.statistics.StatsGranularityDesc;
+import org.apache.doris.statistics.StatsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;

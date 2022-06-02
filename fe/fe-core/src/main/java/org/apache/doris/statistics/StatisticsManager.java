@@ -30,6 +30,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.collection.StatisticsTaskResult;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
