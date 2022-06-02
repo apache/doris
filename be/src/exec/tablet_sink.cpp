@@ -942,7 +942,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     }
 
     // check intolerable failure
-    for (auto index_channel : _channels) {
+    for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
     return Status::OK();
