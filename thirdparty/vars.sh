@@ -365,14 +365,6 @@ BENCHMARK_NAME=benchmark-1.5.6.tar.gz
 BENCHMARK_SOURCE=benchmark-1.5.6
 BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
 
-# breakpad
-# breakpad has no release version, the source is from commit@38ee0be,
-# and also add lss files. See README.md in it.
-BREAKPAD_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/breakpad-src-38ee0be-with-lss.tar.gz"
-BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
-BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
-BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
-
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
 XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz"
@@ -444,7 +436,6 @@ HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
-BREAKPAD
 XSIMD
 SIMDJSON
 LIBBACKTRACE"
