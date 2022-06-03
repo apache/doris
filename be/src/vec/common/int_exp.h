@@ -28,7 +28,7 @@ namespace exp_details {
 
 // compile-time exp(v, n) by linear recursion
 template <typename T, T v, std::size_t n>
-constexpr inline const T exp = v* exp<T, v, n - 1>;
+constexpr inline const T exp = T(v) * exp<T, v, n - 1>;
 
 template <typename T, T v>
 constexpr inline const T exp<T, v, 0> = 1;
