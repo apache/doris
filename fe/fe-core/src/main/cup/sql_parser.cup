@@ -5285,11 +5285,11 @@ admin_stmt ::=
     {:
         RESULT = new AdminDiagnoseTabletStmt(tabletId);
     :}
-    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT
+    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(false);
     :}
-    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
+    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(true);
     :}
