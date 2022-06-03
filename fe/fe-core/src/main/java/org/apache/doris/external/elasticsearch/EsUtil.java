@@ -32,6 +32,7 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
@@ -44,10 +45,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Util for ES, some static method.
@@ -235,7 +236,7 @@ public class EsUtil {
         if (expr == null) {
             return null;
         }
-        // CompoundPredicate
+        // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             switch (compoundPredicate.getOp()) {
@@ -267,7 +268,7 @@ public class EsUtil {
             }
         }
         TExprOpcode opCode = expr.getOpcode();
-        String column = expr.getChild(0).getSrcSlotRef().getColumnName();
+        String column = ((SlotRef) expr.getChild(0)).getColumnName();
         if (expr instanceof BinaryPredicate) {
             Object value = extractDorisLiteral(expr.getChild(1));
             switch (opCode) {
@@ -284,7 +285,7 @@ public class EsUtil {
                 case LT:
                     return QueryBuilders.rangeQuery(column).lt(value);
                 case EQ_FOR_NULL:
-                    return QueryBuilders.termQuery(column, null);
+                    return QueryBuilders.termQuery(column, value);
                 default:
                     return null;
             }
@@ -307,11 +308,8 @@ public class EsUtil {
         }
         if (expr instanceof InPredicate) {
             InPredicate inPredicate = (InPredicate) expr;
-            List<Expr> listChildren = inPredicate.getListChildren();
-            List<Object> values = new ArrayList<>();
-            for (int i = 1; i < listChildren.size(); i++) {
-                values.add(extractDorisLiteral(listChildren.get(i)));
-            }
+            List<Object> values = inPredicate.getListChildren().stream().map(EsUtil::extractDorisLiteral)
+                    .collect(Collectors.toList());
             if (inPredicate.isNotIn()) {
                 return QueryBuilders.boolQuery().mustNot(QueryBuilders.termsQuery(column, values));
             }

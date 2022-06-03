@@ -17,6 +17,16 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -40,22 +50,14 @@ public class EsUtilTest extends EsTestCase {
 
     private List<Column> columns = new ArrayList<>();
 
-    private String jsonStr = "{\"settings\": {\n"
-            + "               \"index\": {\n"
-            + "                  \"bpack\": {\n"
-            + "                     \"partition\": {\n"
-            + "                        \"upperbound\": \"12\"\n"
-            + "                     }\n"
-            + "                  },\n"
-            + "                  \"number_of_shards\": \"5\",\n"
+    private String jsonStr = "{\"settings\": {\n" + "               \"index\": {\n" + "                  \"bpack\": {\n"
+            + "                     \"partition\": {\n" + "                        \"upperbound\": \"12\"\n"
+            + "                     }\n" + "                  },\n" + "                  \"number_of_shards\": \"5\",\n"
             + "                  \"provided_name\": \"indexa\",\n"
             + "                  \"creation_date\": \"1539328532060\",\n"
             + "                  \"number_of_replicas\": \"1\",\n"
-            + "                  \"uuid\": \"plNNtKiiQ9-n6NpNskFzhQ\",\n"
-            + "                  \"version\": {\n"
-            + "                     \"created\": \"5050099\"\n"
-            + "                  }\n"
-            + "               }\n"
+            + "                  \"uuid\": \"plNNtKiiQ9-n6NpNskFzhQ\",\n" + "                  \"version\": {\n"
+            + "                     \"created\": \"5050099\"\n" + "                  }\n" + "               }\n"
             + "            }}";
 
     /**
@@ -153,4 +155,80 @@ public class EsUtilTest extends EsTestCase {
         EsUtil.getJsonObject(json, "settings.index.bpack.partition.upperbound", 0);
     }
 
+    @Test
+    public void testBinaryPredicateConvertEsDsl() {
+        SlotRef k1 = new SlotRef(null, "k1");
+        IntLiteral intLiteral = new IntLiteral(3);
+        Expr eqExpr = new BinaryPredicate(Operator.EQ, k1, intLiteral);
+        Expr neExpr = new BinaryPredicate(Operator.NE, k1, intLiteral);
+        Expr leExpr = new BinaryPredicate(Operator.LE, k1, intLiteral);
+        Expr geExpr = new BinaryPredicate(Operator.GE, k1, intLiteral);
+        Expr ltExpr = new BinaryPredicate(Operator.LT, k1, intLiteral);
+        Expr gtExpr = new BinaryPredicate(Operator.GT, k1, intLiteral);
+        Expr efnExpr = new BinaryPredicate(Operator.EQ_FOR_NULL, new SlotRef(null, "k1"), new IntLiteral(3));
+        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.convertToEsDsl(eqExpr).toJson());
+        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.convertToEsDsl(neExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", EsUtil.convertToEsDsl(leExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", EsUtil.convertToEsDsl(geExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", EsUtil.convertToEsDsl(ltExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", EsUtil.convertToEsDsl(gtExpr).toJson());
+        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.convertToEsDsl(efnExpr).toJson());
+    }
+
+    @Test
+    public void testCompoundPredicateConvertEsDsl() {
+        SlotRef k1 = new SlotRef(null, "k1");
+        IntLiteral intLiteral1 = new IntLiteral(3);
+        SlotRef k2 = new SlotRef(null, "k2");
+        IntLiteral intLiteral2 = new IntLiteral(5);
+        BinaryPredicate binaryPredicate1 = new BinaryPredicate(Operator.EQ, k1, intLiteral1);
+        BinaryPredicate binaryPredicate2 = new BinaryPredicate(Operator.GT, k2, intLiteral2);
+        CompoundPredicate andPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1,
+                binaryPredicate2);
+        CompoundPredicate orPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, binaryPredicate1,
+                binaryPredicate2);
+        CompoundPredicate notPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT, binaryPredicate1, null);
+        Assert.assertEquals("{\"bool\":{\"must\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
+                EsUtil.convertToEsDsl(andPredicate).toJson());
+        Assert.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
+                EsUtil.convertToEsDsl(orPredicate).toJson());
+        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
+                EsUtil.convertToEsDsl(notPredicate).toJson());
+    }
+
+    @Test
+    public void testIsNullPredicateConvertEsDsl() {
+        SlotRef k1 = new SlotRef(null, "k1");
+        IsNullPredicate isNullPredicate = new IsNullPredicate(k1, false);
+        IsNullPredicate isNotNullPredicate = new IsNullPredicate(k1, true);
+        Assert.assertEquals("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"k1\"}}}}",
+                EsUtil.convertToEsDsl(isNullPredicate).toJson());
+        Assert.assertEquals("{\"exists\":{\"field\":\"k1\"}}", EsUtil.convertToEsDsl(isNotNullPredicate).toJson());
+    }
+
+    @Test
+    public void testLikePredicateConvertEsDsl() {
+        SlotRef k1 = new SlotRef(null, "k1");
+        StringLiteral stringLiteral1 = new StringLiteral("%1%");
+        StringLiteral stringLiteral2 = new StringLiteral("*1*");
+        LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral1);
+        LikePredicate regexPredicate = new LikePredicate(LikePredicate.Operator.REGEXP, k1, stringLiteral2);
+        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.convertToEsDsl(likePredicate).toJson());
+        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.convertToEsDsl(regexPredicate).toJson());
+    }
+
+    @Test
+    public void testInPredicateConvertEsDsl() {
+        SlotRef k1 = new SlotRef(null, "k1");
+        IntLiteral intLiteral1 = new IntLiteral(3);
+        IntLiteral intLiteral2 = new IntLiteral(5);
+        List<Expr> intLiterals = new ArrayList<>();
+        intLiterals.add(intLiteral1);
+        intLiterals.add(intLiteral2);
+        InPredicate isInPredicate = new InPredicate(k1, intLiterals, false);
+        InPredicate isNotInPredicate = new InPredicate(k1, intLiterals, true);
+        Assert.assertEquals("{\"terms\":{\"k1\":[3,5]}}", EsUtil.convertToEsDsl(isInPredicate).toJson());
+        Assert.assertEquals("{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}",
+                EsUtil.convertToEsDsl(isNotInPredicate).toJson());
+    }
 }
