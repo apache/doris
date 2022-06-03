@@ -45,6 +45,11 @@ public:
                             PExecPlanFragmentResult* result,
                             google::protobuf::Closure* done) override;
 
+    void exec_plan_fragment_prepare(google::protobuf::RpcController* controller,
+                                    const PExecPlanFragmentRequest* request,
+                                    PExecPlanFragmentResult* result,
+                                    google::protobuf::Closure* done) override;
+
     void exec_plan_fragment_start(google::protobuf::RpcController* controller,
                                   const PExecPlanFragmentStartRequest* request,
                                   PExecPlanFragmentResult* result,

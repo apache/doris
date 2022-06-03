@@ -120,6 +120,13 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     st.to_protobuf(response->mutable_status());
 }
 
+void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcController* cntl_base,
+                                                      const PExecPlanFragmentRequest* request,
+                                                      PExecPlanFragmentResult* response,
+                                                      google::protobuf::Closure* done) {
+    exec_plan_fragment(cntl_base, request, response, done);
+}
+
 void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* controller,
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
