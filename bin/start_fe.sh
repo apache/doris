@@ -132,6 +132,7 @@ fi
 
 # check java version and choose correct JAVA_OPTS
 java_version=$(jdk_version)
+final_java_opt=$JAVA_OPTS
 if [ $java_version -gt 8 ]; then
     if [ -z "$JAVA_OPTS_FOR_JDK_9" ]; then
         echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >> $LOG_DIR/fe.out
