@@ -132,21 +132,12 @@ fi
 
 # check java version and choose correct JAVA_OPTS
 java_version=$(jdk_version)
-final_java_opt=$JAVA_OPTS_4G
-MemTotal="$(cat /proc/meminfo | grep 'MemAvailable' | awk '{print int($2 / 1024 / 1024)}')"
-if [ $MemTotal > 8 ] ; then
-   final_java_opt=$JAVA_OPTS_8G
-if
 if [ $java_version -gt 8 ]; then
     if [ -z "$JAVA_OPTS_FOR_JDK_9" ]; then
         echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >> $LOG_DIR/fe.out
         exit 1
     fi
-    if [ $MemTotal > 8 ] ; then
-       final_java_opt=$JAVA_OPTS_FOR_JDK_9_8G
-    else
-       final_java_opt=$JAVA_OPTS_FOR_JDK_9_4G
-    if
+    final_java_opt=$JAVA_OPTS_FOR_JDK_9
 fi
 echo "using java version $java_version" >> $LOG_DIR/fe.out
 echo $final_java_opt >> $LOG_DIR/fe.out
