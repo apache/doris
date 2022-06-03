@@ -82,7 +82,7 @@ public class BeLoadRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
-            LOG.info("cluster is balance: {} with medium: {}. skip", clusterName, medium);
+            LOG.debug("cluster is balance: {} with medium: {}. skip", clusterName, medium);
             return alternativeTablets;
         }
 
@@ -186,9 +186,11 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         } // end for high backends
 
-        LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
-                clusterName, medium, alternativeTablets.size(),
-                alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        if (!alternativeTablets.isEmpty()) {
+            LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
+                    clusterName, medium, alternativeTablets.size(),
+                    alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        }
         return alternativeTablets;
     }
 

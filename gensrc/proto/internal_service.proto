@@ -128,10 +128,20 @@ message PTabletWriterCancelRequest {
 message PTabletWriterCancelResult {
 };
 
+enum PFragmentRequestVersion {
+    VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
+    VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
+};
+
 message PExecPlanFragmentRequest {
     optional bytes request = 1;
     optional bool compact = 2;
+    optional PFragmentRequestVersion version = 3 [default = VERSION_2];
 };
+
+message PExecPlanFragmentStartRequest {
+    optional PUniqueId query_id = 1;
+}
 
 message PExecPlanFragmentResult {
     required PStatus status = 1;
@@ -423,7 +433,11 @@ message PResetRPCChannelResponse {
 
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
+    // If #fragments of a query is < 3, use exec_plan_fragment directly.
+    // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
+    rpc exec_plan_fragment_prepare(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
+    rpc exec_plan_fragment_start(PExecPlanFragmentStartRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);

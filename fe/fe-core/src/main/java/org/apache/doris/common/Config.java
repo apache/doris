@@ -1031,15 +1031,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_local_replica_selection_fallback = false;
 
-
-    /**
-     * The timeout of executing async remote fragment.
-     * In normal case, the async remote fragment will be executed in a short time. If system are under high load
-     * condition，try to set this timeout longer.
-     */
-    @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
-
     /**
      * The number of query retries.
      * A query may retry if we encounter RPC exception and no result has been sent to user.

@@ -139,6 +139,8 @@ public:
     void set_pipe(std::shared_ptr<StreamLoadPipe> pipe) { _pipe = pipe; }
     std::shared_ptr<StreamLoadPipe> get_pipe() const { return _pipe; }
 
+    void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
+
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
 
@@ -170,6 +172,9 @@ private:
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
     // The pipe for data transfering, such as insert.
     std::shared_ptr<StreamLoadPipe> _pipe;
+
+    // If set the true, this plan fragment will be executed only after FE send execution start rpc.
+    bool _need_wait_execution_trigger = false;
 };
 
 FragmentExecState::FragmentExecState(const TUniqueId& query_id,
@@ -224,6 +229,11 @@ Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
 }
 
 Status FragmentExecState::execute() {
+    if (_need_wait_execution_trigger) {
+        // if _need_wait_execution_trigger is true, which means this instance
+        // is prepared but need to wait for the signal to do the rest execution.
+        _fragments_ctx->wait_for_start();
+    }
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -518,6 +528,22 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     }
 }
 
+Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
+    std::lock_guard<std::mutex> lock(_lock);
+    TUniqueId query_id;
+    query_id.__set_hi(request->query_id().hi());
+    query_id.__set_lo(request->query_id().lo());
+    auto search = _fragments_ctx_map.find(query_id);
+    if (search == _fragments_ctx_map.end()) {
+        return Status::InternalError(
+                strings::Substitute("Failed to get query fragments context. Query may be "
+                                    "timeout or be cancelled. host: ",
+                                    BackendOptions::get_localhost()));
+    }
+    search->second->set_ready_to_execute();
+    return Status::OK();
+}
+
 void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
                            std::shared_ptr<StreamLoadPipe> pipe) {
     {
@@ -553,65 +579,62 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     std::shared_ptr<FragmentExecState> exec_state;
-    if (!params.__isset.is_simplified_param) {
-        // This is an old version params, all @Common components is set in TExecPlanFragmentParams.
-        exec_state.reset(new FragmentExecState(params.params.query_id,
-                                               params.params.fragment_instance_id,
-                                               params.backend_num, _exec_env, params.coord));
+    std::shared_ptr<QueryFragmentsCtx> fragments_ctx;
+    if (params.is_simplified_param) {
+        // Get common components from _fragments_ctx_map
+        std::lock_guard<std::mutex> lock(_lock);
+        auto search = _fragments_ctx_map.find(params.params.query_id);
+        if (search == _fragments_ctx_map.end()) {
+            return Status::InternalError(
+                    strings::Substitute("Failed to get query fragments context. Query may be "
+                                        "timeout or be cancelled. host: ",
+                                        BackendOptions::get_localhost()));
+        }
+        fragments_ctx = search->second;
     } else {
-        std::shared_ptr<QueryFragmentsCtx> fragments_ctx;
-        if (params.is_simplified_param) {
-            // Get common components from _fragments_ctx_map
-            std::lock_guard<std::mutex> lock(_lock);
-            auto search = _fragments_ctx_map.find(params.params.query_id);
-            if (search == _fragments_ctx_map.end()) {
-                return Status::InternalError(
-                        strings::Substitute("Failed to get query fragments context. Query may be "
-                                            "timeout or be cancelled. host: ",
-                                            BackendOptions::get_localhost()));
-            }
-            fragments_ctx = search->second;
-        } else {
-            // This may be a first fragment request of the query.
-            // Create the query fragments context.
-            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host, _exec_env));
-            fragments_ctx->query_id = params.params.query_id;
-            RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
-                                                  &(fragments_ctx->desc_tbl)));
-            fragments_ctx->coord_addr = params.coord;
-            fragments_ctx->query_globals = params.query_globals;
+        // This may be a first fragment request of the query.
+        // Create the query fragments context.
+        fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host, _exec_env));
+        fragments_ctx->query_id = params.params.query_id;
+        RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
+                                              &(fragments_ctx->desc_tbl)));
+        fragments_ctx->coord_addr = params.coord;
+        fragments_ctx->query_globals = params.query_globals;
 
-            if (params.__isset.resource_info) {
-                fragments_ctx->user = params.resource_info.user;
-                fragments_ctx->group = params.resource_info.group;
-                fragments_ctx->set_rsc_info = true;
-            }
+        if (params.__isset.resource_info) {
+            fragments_ctx->user = params.resource_info.user;
+            fragments_ctx->group = params.resource_info.group;
+            fragments_ctx->set_rsc_info = true;
+        }
 
-            if (params.__isset.query_options) {
-                fragments_ctx->timeout_second = params.query_options.query_timeout;
-                if (params.query_options.__isset.resource_limit) {
-                    fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
-                }
-            }
-
-            {
-                // Find _fragments_ctx_map again, in case some other request has already
-                // create the query fragments context.
-                std::lock_guard<std::mutex> lock(_lock);
-                auto search = _fragments_ctx_map.find(params.params.query_id);
-                if (search == _fragments_ctx_map.end()) {
-                    _fragments_ctx_map.insert(
-                            std::make_pair(fragments_ctx->query_id, fragments_ctx));
-                } else {
-                    // Already has a query fragmentscontext, use it
-                    fragments_ctx = search->second;
-                }
+        if (params.__isset.query_options) {
+            fragments_ctx->timeout_second = params.query_options.query_timeout;
+            if (params.query_options.__isset.resource_limit) {
+                fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
             }
         }
 
-        exec_state.reset(new FragmentExecState(fragments_ctx->query_id,
-                                               params.params.fragment_instance_id,
-                                               params.backend_num, _exec_env, fragments_ctx));
+        {
+            // Find _fragments_ctx_map again, in case some other request has already
+            // create the query fragments context.
+            std::lock_guard<std::mutex> lock(_lock);
+            auto search = _fragments_ctx_map.find(params.params.query_id);
+            if (search == _fragments_ctx_map.end()) {
+                _fragments_ctx_map.insert(std::make_pair(fragments_ctx->query_id, fragments_ctx));
+            } else {
+                // Already has a query fragmentscontext, use it
+                fragments_ctx = search->second;
+            }
+        }
+    }
+
+    exec_state.reset(new FragmentExecState(fragments_ctx->query_id,
+                                           params.params.fragment_instance_id, params.backend_num,
+                                           _exec_env, fragments_ctx));
+    if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
+        // set need_wait_execution_trigger means this instance will not actually being executed
+        // until the execPlanFragmentStart RPC trigger to start it.
+        exec_state->set_need_wait_execution_trigger();
     }
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
@@ -663,6 +686,7 @@ void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     do {
         std::vector<TUniqueId> to_cancel;
+        std::vector<TUniqueId> to_cancel_queries;
         DateTimeValue now = DateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
@@ -673,6 +697,9 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _fragments_ctx_map.begin(); it != _fragments_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
+                    // The execution logic of the instance needs to be notified.
+                    // The execution logic of the instance will eventually cancel the execution plan.
+                    it->second->set_ready_to_execute();
                     it = _fragments_ctx_map.erase(it);
                 } else {
                     ++it;

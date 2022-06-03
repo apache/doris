@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <string>
 
 #include "common/object_pool.h"
@@ -65,6 +66,21 @@ public:
         return _thread_token.get();
     }
 
+    void set_ready_to_execute() {
+        {
+            std::lock_guard<std::mutex> l(_start_lock);
+            _ready_to_execute = true;
+        }
+        _start_cond.notify_all();
+    }
+
+    void wait_for_start() {
+        std::unique_lock<std::mutex> l(_start_lock);
+        while (!_ready_to_execute.load()) {
+            _start_cond.wait(l);
+        }
+    }
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -94,6 +110,12 @@ private:
     // So that we can control the max thread that a query can be used to execute.
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
     std::unique_ptr<ThreadPoolToken> _thread_token;
+
+    std::mutex _start_lock;
+    std::condition_variable _start_cond;
+    // Only valid when _need_wait_execution_trigger is set to true in FragmentExecState.
+    // And all fragments of this query will start execution when this is set to true.
+    std::atomic<bool> _ready_to_execute {false};
 };
 
 } // end of namespace

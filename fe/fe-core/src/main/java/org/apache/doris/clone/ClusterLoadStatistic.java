@@ -183,7 +183,7 @@ public class ClusterLoadStatistic {
             }
         }
 
-        LOG.info("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
+        LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
                 medium, avgLoadScore, lowCounter, midCounter, highCounter);
     }
 

@@ -277,8 +277,18 @@ struct TTxnParams {
   10: optional double max_filter_ratio
 }
 
-// ExecPlanFragment
+// Definition of global dict, global dict is used to accelerate query performance of low cardinality data
+struct TColumnDict {
+  1: optional Types.TPrimitiveType type
+  2: list<string> str_dict  // map one string to a integer, using offset as id
+}
 
+struct TGlobalDict {
+  1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
+  2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
+}
+
+// ExecPlanFragment
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
 
@@ -330,9 +340,19 @@ struct TExecPlanFragmentParams {
 
   // If true, all @Common components is unset and should be got from BE's cache
   // If this field is unset or it set to false, all @Common components is set.
-  16: optional bool is_simplified_param
+  16: optional bool is_simplified_param = false;
   17: optional TTxnParams txn_conf
   18: optional i64 backend_id
+  19: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
+
+  // If it is true, after this fragment is prepared on the BE side,
+  // it will wait for the FE to send the "start execution" command before it is actually executed.
+  // Otherwise, the fragment will start executing directly on the BE side.
+  20: optional bool need_wait_execution_trigger = false;
+}
+
+struct TExecPlanFragmentParamsList {
+    1: optional list<TExecPlanFragmentParams> paramsList;
 }
 
 struct TExecPlanFragmentResult {
