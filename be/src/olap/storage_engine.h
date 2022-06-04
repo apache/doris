@@ -251,6 +251,8 @@ private:
 
     void _compaction_tasks_producer_callback();
 
+    void _alpha_rowset_scan_thread_callback();
+
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
@@ -325,6 +327,7 @@ private:
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
     std::shared_ptr<MemTracker> _tablet_mem_tracker;
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
+    std::shared_ptr<MemTracker> _convert_rowset_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -362,6 +365,9 @@ private:
     HeartbeatFlags* _heartbeat_flags;
 
     std::unique_ptr<ThreadPool> _compaction_thread_pool;
+
+    scoped_refptr<Thread> _alpha_rowset_scan_thread;
+    std::unique_ptr<ThreadPool> _convert_rowset_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 

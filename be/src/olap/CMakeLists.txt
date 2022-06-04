@@ -39,6 +39,7 @@ add_library(Olap STATIC
     compaction_permit_limiter.cpp
     comparison_predicate.cpp
     compress.cpp
+    convert_rowset.cpp
     cumulative_compaction.cpp
     cumulative_compaction_policy.cpp
     delete_handler.cpp

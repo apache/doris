@@ -116,6 +116,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
                                                             false, MemTrackerLevel::OVERVIEW)),
           _tablet_mem_tracker(MemTracker::CreateTracker(-1, "TabletHeader", nullptr, false, false,
                                                         MemTrackerLevel::OVERVIEW)),
+          _convert_rowset_mem_tracker(MemTracker::CreateTracker(-1, "ConvertRowset", nullptr, false,
+                                                                false, MemTrackerLevel::OVERVIEW)),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -145,6 +147,9 @@ StorageEngine::~StorageEngine() {
 
     if (_compaction_thread_pool) {
         _compaction_thread_pool->shutdown();
+    }
+    if (_convert_rowset_thread_pool) {
+        _convert_rowset_thread_pool->shutdown();
     }
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
@@ -562,6 +567,9 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
+    if (_alpha_rowset_scan_thread) {
+        THREAD_JOIN(_alpha_rowset_scan_thread);
+    }
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
