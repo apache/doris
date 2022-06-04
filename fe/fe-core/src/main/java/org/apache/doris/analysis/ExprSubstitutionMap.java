@@ -142,9 +142,9 @@ public final class ExprSubstitutionMap {
     }
 
     /**
-     * Returns the subtraction of two substitution maps
-     * f <A.id, B.id> g <A.id, C.id>
-     * return: g-f <B,id, C,id>
+     * Returns the subtraction of two substitution maps.
+     * f [A.id, B.id] g [A.id, C.id]
+     * return: g-f [B,id, C,id]
      */
     public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g) {
         if (f == null && g == null) {
@@ -169,8 +169,8 @@ public final class ExprSubstitutionMap {
 
     /**
      * Returns the replace of two substitution maps.
-     * f <A.id, B.id> <A.name, B.name> g <A.id, C.id> <A.age, C.age>
-     * return: <A.id, C,id> <A.name, B.name> <A.age, C.age>
+     * f [A.id, B.id] [A.name, B.name] g [A.id, C.id] [A.age, C.age]
+     * return: [A.id, C,id] [A.name, B.name] [A.age, C.age]
      */
     public static ExprSubstitutionMap combineAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g) {
         if (f == null && g == null) {
