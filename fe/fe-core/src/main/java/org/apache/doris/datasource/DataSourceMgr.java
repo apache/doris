@@ -19,27 +19,34 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Maps;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.Map;
 
 /**
  * DataSourceMgr will loaded all data sources at FE startup,
  * and save them in maps mapping with id and name.
  */
-public class DataSourceMgr {
+public class DataSourceMgr implements Writable {
+    private Map<Long, DataSourceIf> idToDataSource = Maps.newConcurrentMap();
+    private Map<String, DataSourceIf> nameToDataSource = Maps.newConcurrentMap();
 
-    private Map<Long, ExternalDataSource> idToDataSource = Maps.newConcurrentMap();
-    private Map<String, ExternalDataSource> nameToDataSource = Maps.newConcurrentMap();
+    // Use a separate instance to facilitate access.
+    // internalDataSource still exists in idToDataSource and nameToDataSource
+    private InternalDataSource internalDataSource;
 
     public DataSourceMgr() {
-        loadDataSources();
+        initInternalDataSource();
     }
 
-    public void loadDataSources() {
-        // TODO: Actually, we should initialize the data source object where user executing "create catalog" cmd,
-        //       not loaded from config file.
+    private void initInternalDataSource() {
+        internalDataSource = new InternalDataSource();
+        idToDataSource.put(internalDataSource.getId(), internalDataSource);
+        nameToDataSource.put(internalDataSource.getName(), internalDataSource);
     }
 
     private void registerDataSource(ExternalDataSource ds) {
@@ -48,16 +55,22 @@ public class DataSourceMgr {
         nameToDataSource.put(ds.getName(), ds);
     }
 
-    public <E extends MetaNotFoundException> ExternalDataSource getDataSourceOrException(long id, java.util.function.Function<Long, E> e) throws E {
-        ExternalDataSource ds = idToDataSource.get(id);
+    public InternalDataSource getInternalDataSource() {
+        return internalDataSource;
+    }
+
+    public <E extends MetaNotFoundException> DataSourceIf getDataSourceOrException(long id,
+            java.util.function.Function<Long, E> e) throws E {
+        DataSourceIf ds = idToDataSource.get(id);
         if (ds == null) {
             throw e.apply(id);
         }
         return ds;
     }
 
-    public <E extends MetaNotFoundException> ExternalDataSource getDataSourceOrException(String name, java.util.function.Function<String, E> e) throws E {
-        ExternalDataSource ds = nameToDataSource.get(name);
+    public <E extends MetaNotFoundException> DataSourceIf getDataSourceOrException(String name,
+            java.util.function.Function<String, E> e) throws E {
+        DataSourceIf ds = nameToDataSource.get(name);
         if (ds == null) {
             throw e.apply(name);
         }
@@ -66,5 +79,10 @@ public class DataSourceMgr {
 
     public boolean hasDataSource(String name) {
         return nameToDataSource.containsKey(name);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        
     }
 }

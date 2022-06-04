@@ -18,7 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -113,63 +113,63 @@ public abstract class ExternalDataSource implements DataSourceIf {
 
     @Nullable
     @Override
-    public Database getDbNullable(String dbName) {
+    public DatabaseIf getDbNullable(String dbName) {
         return null;
     }
 
     @Nullable
     @Override
-    public Database getDbNullable(long dbId) {
+    public DatabaseIf getDbNullable(long dbId) {
         return null;
     }
 
     @Override
-    public Optional<Database> getDb(String dbName) {
+    public Optional<DatabaseIf> getDb(String dbName) {
         return Optional.empty();
     }
 
     @Override
-    public Optional<Database> getDb(long dbId) {
+    public Optional<DatabaseIf> getDb(long dbId) {
         return Optional.empty();
     }
 
     @Override
-    public <E extends Exception> Database getDbOrException(String dbName, Function<String, E> e) throws E {
+    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
         return null;
     }
 
     @Override
-    public <E extends Exception> Database getDbOrException(long dbId, Function<Long, E> e) throws E {
+    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
         return null;
     }
 
     @Override
-    public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
+    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
+    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public Database getDbOrDdlException(String dbName) throws DdlException {
+    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
         return null;
     }
 
     @Override
-    public Database getDbOrDdlException(long dbId) throws DdlException {
+    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
         return null;
     }
 
     @Override
-    public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
+    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
         return null;
     }
 
     @Override
-    public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
+    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
         return null;
     }
 }
