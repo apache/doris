@@ -200,6 +200,7 @@ import java.util.function.Function;
 public class InternalDataSource implements DataSourceIf {
     private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
     public static final String INTERNAL_DS_NAME = "__internal";
+    public static final long INTERNAL_DS_ID = 0L;
 
     private QueryableReentrantLock lock = new QueryableReentrantLock(true);
     private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();

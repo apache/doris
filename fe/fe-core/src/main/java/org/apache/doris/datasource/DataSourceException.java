@@ -23,7 +23,7 @@ public class DataSourceException extends UserException {
     public DataSourceException(String msg) {
         super(msg);
     }
-
+ 
     public DataSourceException(String msg, Throwable cause) {
         super(msg, cause);
     }

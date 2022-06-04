@@ -19,53 +19,38 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.external.ExternalScanRange;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
 /**
  * The abstract class for all types of external data sources.
  */
-public abstract class ExternalDataSource implements DataSourceIf {
-
+public abstract class ExternalDataSource implements DataSourceIf, Writable {
     // Unique id of this data source, will be assigned after data source is loaded.
+    @SerializedName(value = "id")
     private long id;
-
+    @SerializedName(value = "name")
+    private String name;
+    @SerializedName(value = "type")
+    private String type;
     // save properties of this data source, such as hive meta store url.
-    private Map<String, String> properties = Maps.newHashMap();
-
-    private Map<Long, ExternalDatabase> idToDbs = Maps.newConcurrentMap();
-    private Map<String, ExternalDatabase> nameToDbs = Maps.newConcurrentMap();
-
-    public void setId(long id) {
-        this.id = id;
-    }
-
-    public long getId() {
-        return id;
-    }
-
-    public String getProperty(String key) {
-        return properties.get(key);
-    }
-
-    public String getPropertyOrException(String key) throws DataSourceException {
-        if (properties.containsKey(key)) {
-            return properties.get(key);
-        }
-        throw new DataSourceException("Not found property " + key + " in data source " + getName());
-    }
-
+    @SerializedName(value = "dsProperty")
+    private DataSourceProperty dsProperty = new DataSourceProperty();
 
     /**
      * @return names of database in this data source.
@@ -101,13 +86,24 @@ public abstract class ExternalDataSource implements DataSourceIf {
      */
     public abstract List<ExternalScanRange> getExternalScanRanges(SessionContext ctx);
 
+
     @Override
-    public String getType() {
-        return null;
+    public long getId() {
+        return id;
     }
 
     @Override
     public String getName() {
+        return name;
+    }
+
+    @Override
+    public String getType() {
+        return type;
+    }
+
+    @Override
+    public List<String> getDbNames() {
         return null;
     }
 
@@ -171,5 +167,15 @@ public abstract class ExternalDataSource implements DataSourceIf {
     @Override
     public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
         return null;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static ExternalDataSource read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ExternalDataSource.class);
     }
 }

@@ -17,12 +17,16 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Writable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
@@ -32,8 +36,11 @@ import java.util.Map;
  * and save them in maps mapping with id and name.
  */
 public class DataSourceMgr implements Writable {
+    private static final Logger LOG = LogManager.getLogger(DataSourceMgr.class);
+
     private Map<Long, DataSourceIf> idToDataSource = Maps.newConcurrentMap();
     private Map<String, DataSourceIf> nameToDataSource = Maps.newConcurrentMap();
+    private DataSourceMgrProperty dsMgrProperty = new DataSourceMgrProperty();
 
     // Use a separate instance to facilitate access.
     // internalDataSource still exists in idToDataSource and nameToDataSource
@@ -49,10 +56,8 @@ public class DataSourceMgr implements Writable {
         nameToDataSource.put(internalDataSource.getName(), internalDataSource);
     }
 
-    private void registerDataSource(ExternalDataSource ds) {
-        ds.setId(Catalog.getCurrentCatalog().getNextId());
-        idToDataSource.put(ds.getId(), ds);
-        nameToDataSource.put(ds.getName(), ds);
+    private void registerNewDataSource(ExternalDataSource ds) {
+        // TODO
     }
 
     public InternalDataSource getInternalDataSource() {
@@ -83,6 +88,42 @@ public class DataSourceMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        
+        if (Config.disable_cluster_feature) {
+            return;
+        }
+        Preconditions.checkState(false, "Do not call this until multi catalog feature is ready");
+        int size = idToDataSource.size();
+        if (idToDataSource.get(InternalDataSource.INTERNAL_DS_ID) != null) {
+            // No need to persis internal data source
+            size -= 1;
+        }
+        out.writeInt(size);
+        for (DataSourceIf ds : idToDataSource.values()) {
+            if (ds.getId() == InternalDataSource.INTERNAL_DS_ID) {
+                continue;
+            }
+            ExternalDataSource extDs = (ExternalDataSource) ds;
+            extDs.write(out);
+        }
+        dsMgrProperty.write(out);
+    }
+
+    public static DataSourceMgr read(DataInput in) throws IOException {
+        if (Config.disable_cluster_feature) {
+            return null;
+        }
+        DataSourceMgr mgr = new DataSourceMgr();
+        mgr.readFields(in);
+        return mgr;
+    }
+
+    private void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; ++i) {
+            ExternalDataSource extDs = ExternalDataSource.read(in);
+            idToDataSource.put(extDs.getId(), extDs);
+            nameToDataSource.put(extDs.getName(), extDs);
+        }
+        dsMgrProperty = DataSourceMgrProperty.read(in);
     }
 }
