@@ -25,6 +25,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/volap_scanner.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -546,6 +547,27 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(materialized_block);
         }
+        {
+            std::lock_guard<std::mutex> l(_free_blocks_lock);
+            MutableBlock mutable_block =
+                    block->mem_reuse()
+                    ? MutableBlock(block)
+                    : MutableBlock(
+                            VectorizedUtils::create_empty_columnswithtypename(
+                                    row_desc()));
+            MutableColumns& mcol = mutable_block.mutable_columns();
+            auto slots = _tuple_desc->slots();
+            for (int i = 0; i < slots.size(); i++) {
+                if (_output_slot_flags[i]) {
+                    auto& columnPtr = block->get_by_position(i).column;
+                    for (int j = 0; j < columnPtr->size(); j++) {
+                        mcol[i]->insert_from(*columnPtr.get(), j);
+                    }
+                }
+            }
+            block->swap(mutable_block.to_block());
+        }
+
         return Status::OK();
     }
 

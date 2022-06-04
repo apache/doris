@@ -237,7 +237,9 @@ Status OlapScanner::_init_tablet_reader_params(
 }
 
 Status OlapScanner::_init_return_columns() {
-    for (auto slot : _tuple_desc->slots()) {
+    auto slots = _tuple_desc->slots();
+    for (int i = 0; i < slots.size(); i++) {
+        auto slot = slots[i];
         if (!slot->is_materialized()) {
             continue;
         }
