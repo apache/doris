@@ -83,7 +83,8 @@ export default defineComponent({
         let currentVersion = 'master'
         if (!this.currentItem.text) {
           const versionKeys = this.$themeLocaleConfig.versions.items.map(v => v.text)
-          currentVersion = versionKeys.find(v => this.$route.path.indexOf(v) > -1) || 'master'
+          const matchVersion = versionKeys.find(v => this.$route.path.indexOf(v) > -1)
+          currentVersion = matchVersion || versionKeys[0]
         } else {
           currentVersion = this.currentItem.text
         }

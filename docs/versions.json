@@ -1,30 +1,15 @@
+
 {
     "en": [
           {
             "text": "master",
             "link": "/docs/get-starting/get-starting.html"
-          },
-          {
-            "text": "1.0",
-            "link": "/1.0/installing/compilation.html"
-          },
-          {
-            "text": "0.15",
-            "link": "/0.15/installing/compilation.html"
           }
     ],
     "zh-CN": [
           {
             "text": "master",
             "link": "/zh-CN/docs/get-starting/get-starting.html"
-          },
-          {
-            "text": "1.0",
-            "link": "/zh-CN/1.0/installing/compilation.html"
-          },
-          {
-            "text": "0.15",
-            "link": "/zh-CN/0.15/installing/compilation.html"
           }
     ]
   }
