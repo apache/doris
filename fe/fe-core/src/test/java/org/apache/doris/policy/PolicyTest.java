@@ -18,6 +18,7 @@
 package org.apache.doris.policy;
 
 import org.apache.doris.analysis.CreateUserStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.TablePattern;
@@ -36,6 +37,11 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -198,5 +204,41 @@ public class PolicyTest extends TestWithFeService {
                         + "     PREDICATES: `k1` = 1, `k2` = 1"));
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
+    }
+
+    @Test
+    public void testReadWrite() throws IOException, AnalysisException {
+        PolicyTypeEnum type = PolicyTypeEnum.ROW;
+        String policyName = "policy_name";
+        long dbId = 10;
+        UserIdentity user = new UserIdentity("test_policy", "%");
+        String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1"
+                            + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
+        long tableId = 100;
+        FilterType filterType = FilterType.PERMISSIVE;
+        Expr wherePredicate = null;
+
+        Policy rowPolicy = new RowPolicy(type, policyName, dbId, user,
+                                         originStmt, tableId, filterType, wherePredicate);
+
+        ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();
+        DataOutputStream output = new DataOutputStream(emptyOutputStream);
+        rowPolicy.write(output);
+        byte[] bytes = emptyOutputStream.toByteArray();
+        System.out.println(emptyOutputStream.toString());
+        DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));
+
+        Policy newPolicy = Policy.read(input);
+        Assertions.assertTrue(newPolicy instanceof RowPolicy);
+        RowPolicy newRowPolicy = (RowPolicy) newPolicy;
+        Assertions.assertEquals(type, newRowPolicy.getType());
+        Assertions.assertEquals(policyName, newRowPolicy.getPolicyName());
+        Assertions.assertEquals(dbId, newRowPolicy.getDbId());
+        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        newRowPolicy.getUser().analyze(SystemInfoService.DEFAULT_CLUSTER);
+        Assertions.assertEquals(user.getQualifiedUser(), newRowPolicy.getUser().getQualifiedUser());
+        Assertions.assertEquals(originStmt, newRowPolicy.getOriginStmt());
+        Assertions.assertEquals(tableId, newRowPolicy.getTableId());
+        Assertions.assertEquals(filterType, newRowPolicy.getFilterType());
     }
 }
