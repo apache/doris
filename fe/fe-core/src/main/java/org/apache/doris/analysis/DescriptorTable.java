@@ -117,7 +117,7 @@ public class DescriptorTable {
 
     public List<TupleDescriptor> getTupleDesc(List<TupleId> idList) throws AnalysisException {
         List<TupleDescriptor> result = Lists.newArrayList();
-        for (TupleId tupleId: idList) {
+        for (TupleId tupleId : idList) {
             TupleDescriptor tupleDescriptor = getTupleDesc(tupleId);
             if (tupleDescriptor == null) {
                 throw new AnalysisException("Invalid tuple id:" + tupleId.toString());
