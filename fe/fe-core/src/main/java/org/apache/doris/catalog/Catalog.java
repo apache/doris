@@ -3132,35 +3132,49 @@ public class Catalog {
 
     public <E extends Exception> Database getDbOrException(
             String dbName, java.util.function.Function<String, E> e) throws E {
-        return (Database) getInternalDataSource().getDbOrException(dbName, e);
+        Database db = getDbNullable(dbName);
+        if (db == null) {
+            throw e.apply(dbName);
+        }
+        return db;
     }
 
     public <E extends Exception> Database getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E {
-        return (Database) getInternalDataSource().getDbOrException(dbId, e);
+        Database db = getDbNullable(dbId);
+        if (db == null) {
+            throw e.apply(dbId);
+        }
+        return db;
     }
 
     public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return (Database) getInternalDataSource().getDbOrMetaException(dbName);
+        return getDbOrException(dbName,
+                s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return (Database) getInternalDataSource().getDbOrMetaException(dbId);
+        return getDbOrException(dbId,
+                s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrDdlException(String dbName) throws DdlException {
-        return (Database) getInternalDataSource().getDbOrDdlException(dbName);
+        return getDbOrException(dbName,
+                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrDdlException(long dbId) throws DdlException {
-        return (Database) getInternalDataSource().getDbOrDdlException(dbId);
+        return getDbOrException(dbId,
+                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return (Database) getInternalDataSource().getDbOrAnalysisException(dbName);
+        return getDbOrException(dbName,
+                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return (Database) getInternalDataSource().getDbOrAnalysisException(dbId);
+        return getDbOrException(dbId,
+                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public EditLog getEditLog() {
