@@ -54,8 +54,9 @@ public:
     const std::string full_name() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
+    int64_t replica_id() const;
     int32_t schema_hash() const;
-    int16_t shard_id();
+    int16_t shard_id() const;
     bool equal(int64_t tablet_id, int32_t schema_hash);
 
     // properties encapsulated in TabletSchema
@@ -123,11 +124,15 @@ inline int64_t BaseTablet::tablet_id() const {
     return _tablet_meta->tablet_id();
 }
 
+inline int64_t BaseTablet::replica_id() const {
+    return _tablet_meta->replica_id();
+}
+
 inline int32_t BaseTablet::schema_hash() const {
     return _tablet_meta->schema_hash();
 }
 
-inline int16_t BaseTablet::shard_id() {
+inline int16_t BaseTablet::shard_id() const {
     return _tablet_meta->shard_id();
 }
 

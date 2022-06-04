@@ -118,11 +118,13 @@ struct TCreateTabletReq {
     14: optional TTabletType tablet_type
     15: optional TStorageParam storage_param
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
+    17: optional Types.TReplicaId replica_id = 0
 }
 
 struct TDropTabletReq {
     1: required Types.TTabletId tablet_id
     2: optional Types.TSchemaHash schema_hash
+    3: optional Types.TReplicaId replica_id = 0
 }
 
 struct TAlterTabletReq {
@@ -204,6 +206,7 @@ struct TCloneReq {
     8: optional i64 src_path_hash;
     9: optional i64 dest_path_hash;
     10: optional i32 timeout_s;
+    11: optional Types.TReplicaId replica_id
 }
 
 struct TCompactionReq {

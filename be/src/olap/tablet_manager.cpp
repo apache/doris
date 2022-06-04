@@ -17,6 +17,7 @@
 
 #include "olap/tablet_manager.h"
 
+#include <gen_cpp/Types_types.h>
 #include <rapidjson/document.h>
 #include <re2/re2.h>
 #include <thrift/protocol/TDebugProtocol.h>
@@ -184,7 +185,8 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     if (drop_old) {
         // If the new tablet is fresher than the existing one, then replace
         // the existing tablet with the new one.
-        RETURN_NOT_OK_LOG(_drop_tablet_unlocked(tablet_id, keep_files),
+        // Use default replica_id to ignore whether replica_id is match when drop tablet.
+        RETURN_NOT_OK_LOG(_drop_tablet_unlocked(tablet_id, /* replica_id */ 0, keep_files),
                           strings::Substitute("failed to drop old tablet when add new tablet. "
                                               "tablet_id=$0",
                                               tablet_id));
@@ -368,7 +370,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     }
     // something is wrong, we need clear environment
     if (is_tablet_added) {
-        Status status = _drop_tablet_unlocked(new_tablet_id, false);
+        Status status = _drop_tablet_unlocked(new_tablet_id, request.replica_id, false);
         if (!status.ok()) {
             LOG(WARNING) << "fail to drop tablet when create tablet failed. res=" << res;
         }
@@ -446,10 +448,15 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
     return nullptr;
 }
 
-Status TabletManager::drop_tablet(TTabletId tablet_id, bool keep_files) {
-    std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
+Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files) {
+    auto& shard = _get_tablets_shard(tablet_id);
+    std::lock_guard wrlock(shard.lock);
+    if (shard.tablets_under_clone.count(tablet_id) > 0) {
+        LOG(INFO) << "tablet " << tablet_id << " is under clone, skip drop task";
+        return Status::OK();
+    }
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    return _drop_tablet_unlocked(tablet_id, keep_files);
+    return _drop_tablet_unlocked(tablet_id, replica_id, keep_files);
 }
 
 // Drop specified tablet, the main logical is as follows:
@@ -460,7 +467,8 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, bool keep_files) {
 //          base-tablet cannot be dropped;
 //      b. other cases:
 //          drop specified tablet directly and clear schema change info.
-Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, bool keep_files) {
+Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id,
+                                            bool keep_files) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
@@ -471,8 +479,12 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, bool keep_files
                      << "tablet_id=" << tablet_id;
         return Status::OK();
     }
-
-    return _drop_tablet_directly_unlocked(tablet_id, keep_files);
+    if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
+        LOG(WARNING) << "fail to drop tablet because replica_id not match. "
+                     << "tablet_id=" << tablet_id;
+        return Status::OK();
+    }
+    return _drop_tablet_directly_unlocked(std::move(to_drop_tablet), keep_files);
 }
 
 Status TabletManager::drop_tablets_on_error_root_path(
@@ -1220,8 +1232,9 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
     return res;
 }
 
-Status TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files) {
-    TabletSharedPtr dropped_tablet = _get_tablet_unlocked(tablet_id);
+Status TabletManager::_drop_tablet_directly_unlocked(TabletSharedPtr dropped_tablet,
+                                                     bool keep_files) {
+    auto tablet_id = dropped_tablet->tablet_id();
     if (dropped_tablet == nullptr) {
         LOG(WARNING) << "fail to drop tablet because it does not exist. "
                      << " tablet_id=" << tablet_id;

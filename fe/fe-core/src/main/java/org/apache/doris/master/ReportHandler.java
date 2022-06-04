@@ -594,7 +594,7 @@ public class ReportHandler extends Daemon {
                                     Set<String> bfColumns = olapTable.getCopiedBfColumns();
                                     double bfFpp = olapTable.getBfFpp();
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
-                                            tableId, partitionId, indexId, tabletId, indexMeta.getShortKeyColumnCount(),
+                                            tableId, partitionId, indexId, tabletId, replica.getId(), indexMeta.getShortKeyColumnCount(),
                                             indexMeta.getSchemaHash(), partition.getVisibleVersion(),
                                             indexMeta.getKeysType(),
                                             TStorageType.COLUMN,
@@ -692,7 +692,8 @@ public class ReportHandler extends Daemon {
 
             if (needDelete) {
                 // drop replica
-                DropReplicaTask task = new DropReplicaTask(backendId, tabletId, backendTabletInfo.getSchemaHash());
+                long replicaId = backendTabletInfo.getReplicaId();
+                DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId, backendTabletInfo.getSchemaHash());
                 batchTask.addTask(task);
                 LOG.warn("delete tablet[" + tabletId + "] from backend[" + backendId + "] because not found in meta");
                 ++deleteFromBackendCounter;
