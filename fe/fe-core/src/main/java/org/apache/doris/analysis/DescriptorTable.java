@@ -117,6 +117,7 @@ public class DescriptorTable {
 
     /**
      * Return all tuple desc by idList.
+     * 
      * @param idList the tuple id list.
      */
     public List<TupleDescriptor> getTupleDesc(List<TupleId> idList) throws AnalysisException {
