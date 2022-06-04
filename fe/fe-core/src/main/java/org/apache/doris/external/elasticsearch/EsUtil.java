@@ -25,6 +25,7 @@ import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -300,8 +301,26 @@ public class EsUtil {
         if (expr instanceof LikePredicate) {
             LikePredicate likePredicate = (LikePredicate) expr;
             if (likePredicate.getOp().equals(Operator.LIKE)) {
-                return QueryBuilders.wildcardQuery(column,
-                        likePredicate.getChild(1).getStringValue().replaceAll("%", "*"));
+                char[] chars = likePredicate.getChild(1).getStringValue().toCharArray();
+                // example of translation :
+                //      abc_123  ===> abc?123
+                //      abc%ykz  ===> abc*123
+                //      %abc123  ===> *abc123
+                //      _abc123  ===> ?abc123
+                //      \\_abc1  ===> \\_abc1
+                //      abc\\_123 ===> abc\\_123
+                //      abc\\%123 ===> abc\\%123
+                // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
+                for (int i = 0; i < chars.length; i++) {
+                    if (chars[i] == '_' || chars[i] == '%') {
+                        if (i == 0) {
+                            chars[i] = (chars[i] == '_') ? '?' : '*';
+                        } else if (chars[i - 1] != '\\') {
+                            chars[i] = (chars[i] == '_') ? '?' : '*';
+                        }
+                    }
+                }
+                return QueryBuilders.wildcardQuery(column, new String(chars));
             } else {
                 return QueryBuilders.wildcardQuery(column, likePredicate.getChild(1).getStringValue());
             }
@@ -314,6 +333,13 @@ public class EsUtil {
                 return QueryBuilders.boolQuery().mustNot(QueryBuilders.termsQuery(column, values));
             }
             return QueryBuilders.termsQuery(column, values);
+        }
+        if (expr instanceof FunctionCallExpr) {
+            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+            if ("esquery".equals(functionCallExpr.getFnName().getFunction())) {
+                String stringValue = functionCallExpr.getChild(1).getStringValue();
+                return new QueryBuilders.EsQueryBuilder(stringValue);
+            }
         }
         return null;
     }

@@ -18,14 +18,18 @@
 package org.apache.doris.external.elasticsearch;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 
@@ -171,7 +175,7 @@ public final class QueryBuilders {
 
         private static final Logger LOG = LogManager.getLogger(QueryBuilder.class);
 
-        private final ObjectMapper mapper = new ObjectMapper();
+        final ObjectMapper mapper = new ObjectMapper();
 
         /**
          * Convert query to JSON format
@@ -196,6 +200,32 @@ public final class QueryBuilders {
                 return null;
             }
             return writer.toString();
+        }
+    }
+
+    /**
+     * Use for esquery, directly save value.
+     **/
+    public static class EsQueryBuilder extends QueryBuilder {
+
+        private final String value;
+
+        public EsQueryBuilder(String value) {
+            this.value = value;
+        }
+
+        @Override
+        void toJson(JsonGenerator out) throws IOException {
+            JsonNode jsonNode = mapper.readTree(value);
+            out.writeStartObject();
+            out.writeObject(jsonNode);
+            Iterator<Entry<String, JsonNode>> values = jsonNode.fields();
+            while (values.hasNext()) {
+                Entry<String, JsonNode> value = values.next();
+                out.writeFieldName(value.getKey());
+                out.writeObject(value.getValue());
+            }
+            out.writeEndObject();
         }
     }
 

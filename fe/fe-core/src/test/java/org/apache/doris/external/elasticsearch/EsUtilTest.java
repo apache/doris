@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -211,10 +212,13 @@ public class EsUtilTest extends EsTestCase {
         SlotRef k1 = new SlotRef(null, "k1");
         StringLiteral stringLiteral1 = new StringLiteral("%1%");
         StringLiteral stringLiteral2 = new StringLiteral("*1*");
-        LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral1);
+        StringLiteral stringLiteral3 = new StringLiteral("1_2");
+        LikePredicate likePredicate1 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral1);
         LikePredicate regexPredicate = new LikePredicate(LikePredicate.Operator.REGEXP, k1, stringLiteral2);
-        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.convertToEsDsl(likePredicate).toJson());
+        LikePredicate likePredicate2 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral3);
+        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.convertToEsDsl(likePredicate1).toJson());
         Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.convertToEsDsl(regexPredicate).toJson());
+        Assert.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", EsUtil.convertToEsDsl(likePredicate2).toJson());
     }
 
     @Test
@@ -230,5 +234,26 @@ public class EsUtilTest extends EsTestCase {
         Assert.assertEquals("{\"terms\":{\"k1\":[3,5]}}", EsUtil.convertToEsDsl(isInPredicate).toJson());
         Assert.assertEquals("{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}",
                 EsUtil.convertToEsDsl(isNotInPredicate).toJson());
+    }
+
+    @Test
+    public void testFunctionCallConvertEsDsl() {
+        SlotRef k1 = new SlotRef(null, "k1");
+        String str = "{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}";
+        StringLiteral stringLiteral = new StringLiteral(str);
+        List<Expr> exprs = new ArrayList<>();
+        exprs.add(k1);
+        exprs.add(stringLiteral);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("esquery", exprs);
+        Assert.assertEquals(str, EsUtil.convertToEsDsl(functionCallExpr).toJson());
+
+        SlotRef k2 = new SlotRef(null, "k2");
+        IntLiteral intLiteral = new IntLiteral(5);
+        BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, k2, intLiteral);
+        CompoundPredicate compoundPredicate =
+                new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate, functionCallExpr);
+        Assert.assertEquals(
+                "{\"bool\":{\"must\":[{\"term\":{\"k2\":5}},{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}]}}",
+                EsUtil.convertToEsDsl(compoundPredicate).toJson());
     }
 }
