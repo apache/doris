@@ -14,10 +14,10 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ## WINDOW FUNCTION NTILE
 ### description
 
-Divides rows in a sorted partition into a specific number of groups. Each group is assigned a bucket number starting at one.
+For NTILE(n), this function will divides rows in a sorted partition into a specific number of groups(in this case, n buckets). Each group is assigned a bucket number starting at one. For the case that cannot be distributed evenly, rows are preferentially allocated to the bucket with the smaller number. The number of rows in all buckets cannot differ by more than 1. For now, n must be constant positive integer.
 
 ```sql
-NTILE() OVER(partition_by_clause order_by_clause)
+NTILE(n) OVER(partition_by_clause order_by_clause)
 ```
 
 ### example

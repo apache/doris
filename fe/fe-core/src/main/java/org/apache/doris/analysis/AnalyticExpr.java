@@ -643,11 +643,11 @@ public class AnalyticExpr extends Expr {
             Preconditions.checkState(window == null, "Unexpected window set for ntile()");
 
             Expr bucketExpr = getFnCall().getFnParams().exprs().get(0);
-            if (bucketExpr instanceof LiteralExpr) {
+            if (bucketExpr instanceof LiteralExpr && bucketExpr.getType().getPrimitiveType().isIntegerType()) {
                 Preconditions.checkState(((LiteralExpr) bucketExpr).getLongValue() > 0,
                         "Parameter n in ntile(n) should be positive.");
             } else {
-                throw new AnalysisException("Parameter n in ntile(n) should be constant.");
+                throw new AnalysisException("Parameter n in ntile(n) should be constant positive integer.");
             }
 
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
