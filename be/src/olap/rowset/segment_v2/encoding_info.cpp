@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/binary_prefix_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/frame_of_reference_page.h"
 #include "olap/rowset/segment_v2/plain_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
@@ -312,7 +313,13 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
         : _create_builder_func(TraitsClass::create_page_builder),
           _create_decoder_func(TraitsClass::create_page_decoder),
           _type(TraitsClass::type),
-          _encoding(TraitsClass::encoding) {}
+          _encoding(TraitsClass::encoding) {
+    if (_encoding == BIT_SHUFFLE) {
+        _data_page_pre_decoder = std::make_unique<BitShufflePagePreDecoder<false>>();
+    } else if (_encoding == DICT_ENCODING) {
+        _data_page_pre_decoder = std::make_unique<BitShufflePagePreDecoder<true>>();
+    }
+}
 
 Status EncodingInfo::get(const TypeInfo* type_info, EncodingTypePB encoding_type,
                          const EncodingInfo** out) {
