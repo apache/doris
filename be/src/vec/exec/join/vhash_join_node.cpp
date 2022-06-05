@@ -1219,9 +1219,23 @@ void HashJoinNode::_hash_table_init() {
             _hash_table_variants.emplace<I64HashTableContext>();
             break;
         case TYPE_LARGEINT:
-        case TYPE_DECIMALV2:
-            _hash_table_variants.emplace<I128HashTableContext>();
+        case TYPE_DECIMALV2: {
+            DataTypePtr& type_ptr = _build_expr_ctxs[0]->root()->data_type();
+            TypeIndex idx = _build_expr_ctxs[0]->root()->is_nullable()
+                                    ? assert_cast<const DataTypeNullable&>(*type_ptr)
+                                              .get_nested_type()
+                                              ->get_type_id()
+                                    : type_ptr->get_type_id();
+            WhichDataType which(idx);
+            if (which.is_decimal32()) {
+                _hash_table_variants.emplace<I32HashTableContext>();
+            } else if (which.is_decimal64()) {
+                _hash_table_variants.emplace<I64HashTableContext>();
+            } else {
+                _hash_table_variants.emplace<I128HashTableContext>();
+            }
             break;
+        }
         default:
             _hash_table_variants.emplace<SerializedHashTableContext>();
         }
