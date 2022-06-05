@@ -137,7 +137,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             String planNodeName, TableType tableType) {
         super(id, desc, planNodeName, NodeType.BROKER_SCAN_NODE);
         if (ConnectContext.get() != null) {
-            this.userIdentity = ConnectContext.get().getUserIdentity();
+            this.userIdentity = ConnectContext.get().getCurrentUserIdentity();
         }
         this.tableType = tableType;
 

@@ -1714,26 +1714,31 @@ public class SingleNodePlanner {
                 break;
             case HIVE:
                 if (Config.enable_external_file_scan) {
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
+                            TableType.HIVE);
+
+                } else {
                     scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
                             null, -1);
-                } else {
-                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode", TableType.HIVE);
                 }
 
                 break;
             case ICEBERG:
                 if (Config.enable_external_file_scan) {
-                    scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode", null, -1);
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
+                            TableType.ICEBERG);
                 } else {
-                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode", TableType.ICEBERG);
+                    scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
+                            null, -1);
                 }
                 break;
             case HUDI:
                 if (Config.enable_external_file_scan) {
-                    scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
-                        null, -1);
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
+                            TableType.HUDI);
                 } else {
-                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode", TableType.HUDI);
+                    scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
+                            null, -1);
                 }
                 break;
             default:
