@@ -808,6 +808,8 @@ void SegmentIterator::_init_current_block(
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
+            } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
+                current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
         }

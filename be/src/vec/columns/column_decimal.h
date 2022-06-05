@@ -112,7 +112,6 @@ public:
         }
     }
 
-    void insert_many_decimalv2_data(const char* data_ptr, size_t num) override;
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(T()); }

@@ -185,11 +185,6 @@ public:
     /// All data will be inserted as single element
     virtual void insert_data(const char* pos, size_t length) = 0;
 
-    // just used for ColumnDecimal to be compatible with decimalv2
-    virtual void insert_many_decimalv2_data(const char* pos, size_t num) {
-        LOG(FATAL) << "Method insert_many_decimalv2_data is not supported for " << get_name();
-    }
-
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
         LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
     }
@@ -481,13 +476,16 @@ public:
 
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
+    virtual bool is_decimalv2_type() const { return is_decimalv2; }
 
     virtual void set_date_type() { is_date = true; }
     virtual void set_datetime_type() { is_date_time = true; }
+    virtual void set_decimalv2_type() { is_decimalv2 = true; }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
+    bool is_decimalv2 = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.
