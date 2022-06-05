@@ -633,6 +633,10 @@ Status OlapScanNode::normalize_conjuncts() {
         }
 
         case TYPE_DECIMALV2: {
+            // TODO predicate pushdown for decimalv3
+            if (config::enable_execution_decimalv3) {
+                break;
+            }
             ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
                                                    slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
