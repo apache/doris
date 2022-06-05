@@ -1646,4 +1646,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
+    @ConfField(mutable = true)
+    public static boolean enable_external_file_scan = true;
 }

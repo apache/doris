@@ -57,11 +57,14 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -1710,16 +1713,28 @@ public class SingleNodePlanner {
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
                 break;
             case HIVE:
-                scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
-                        null, -1);
+                if (Config.enable_external_file_scan) {
+                    scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
+                            null, -1);
+                } else {
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode", TableType.HIVE);
+                }
+
                 break;
             case ICEBERG:
-                scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
-                        null, -1);
+                if (Config.enable_external_file_scan) {
+                    scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode", null, -1);
+                } else {
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode", TableType.ICEBERG);
+                }
                 break;
             case HUDI:
-                scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
+                if (Config.enable_external_file_scan) {
+                    scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
                         null, -1);
+                } else {
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode", TableType.HUDI);
+                }
                 break;
             default:
                 break;
