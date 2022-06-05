@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
 
 import java.util.List;
 
@@ -46,5 +49,11 @@ public abstract class PhysicalUnaryOperator<
 
     public List<Slot> doComputeOutput(LogicalProperties logicalProperties, INPUT_TYPE input) {
         return logicalProperties.getOutput();
+    }
+
+    @Override
+    public PhysicalUnary toTreeNode(GroupExpression groupExpression) {
+        LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        return new PhysicalUnary(this, groupExpression, logicalProperties, new PlaceHolderPlan());
     }
 }

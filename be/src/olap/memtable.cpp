@@ -53,6 +53,7 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         // TODO: Support ZOrderComparator in the future
         _vec_skip_list = std::make_unique<VecTable>(
                 _vec_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
+        _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     } else {
         _vec_skip_list = nullptr;
         if (_keys_type == KeysType::DUP_KEYS) {
@@ -73,6 +74,18 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         }
         _skip_list = std::make_unique<Table>(_row_comparator.get(), _table_mem_pool.get(),
                                              _keys_type == KeysType::DUP_KEYS);
+    }
+}
+void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
+                                                  const TupleDescriptor* tuple_desc) {
+    for (auto slot_desc : *slot_descs) {
+        const auto& slots = tuple_desc->slots();
+        for (int j = 0; j < slots.size(); ++j) {
+            if (slot_desc->id() == slots[j]->id()) {
+                _column_offset.emplace_back(j);
+                break;
+            }
+        }
     }
 }
 
@@ -114,21 +127,22 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
                                *_pblock, -1);
 }
 
-void MemTable::insert(const vectorized::Block* block, const std::vector<int>& row_idxs) {
+void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
+    auto target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
         _is_first_insertion = false;
-        auto cloneBlock = block->clone_without_columns();
+        auto cloneBlock = target_block.clone_without_columns();
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         _vec_row_comparator->set_block(&_input_mutable_block);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         if (_keys_type != KeysType::DUP_KEYS) {
-            _init_agg_functions(block);
+            _init_agg_functions(&target_block);
         }
     }
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    _input_mutable_block.add_rows(block, row_idxs.data(), row_idxs.data() + num_rows);
-    size_t input_size = block->allocated_bytes() * num_rows / block->rows();
+    _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
+    size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
     _mem_tracker->consume(input_size);
 

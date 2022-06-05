@@ -76,8 +76,23 @@ suite("test_materialized_view", "rollup") {
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id order by store_id;"
     qt_sql "SELECT * FROM ${tbName2} order by record_id;"
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id order by store_id;"
+
+
+    sql "CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+    res = "null"
+    while (!res.contains("FINISHED") || !res.contains("amt_count")){
+        res = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
+        Thread.sleep(1000)
+    }
+    sql "SELECT store_id, count(sale_amt) FROM ${tbName1} t GROUP BY store_id;"
+
     sql "DROP TABLE ${tbName1}"
     sql "DROP TABLE ${tbName2}"
+
 }
 
 

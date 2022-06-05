@@ -14,35 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+suite("test_hash_function", "query") {
+    sql "set enable_vectorized_engine = true;"
+    sql "set batch_size = 4096;"
 
-package org.apache.doris.nereids.pattern;
-
-import org.apache.doris.nereids.trees.plans.Plan;
-
-import java.util.Iterator;
-
-/**
- * Get all pattern matching subtree in query plan.
- */
-public class PatternMatching implements Iterable<Plan<?, ?>> {
-
-    @Override
-    public Iterator<Plan<?, ?>> iterator() {
-        return new PatternMatchingIterator();
-    }
-
-    /**
-     * Iterator to get all subtrees.
-     */
-    public static class PatternMatchingIterator implements Iterator<Plan<?, ?>> {
-        @Override
-        public boolean hasNext() {
-            return false;
-        }
-
-        @Override
-        public Plan<?, ?> next() {
-            return null;
-        }
-    }
+    qt_sql "SELECT murmur_hash3_32(null);"
+    qt_sql "SELECT murmur_hash3_32(\"hello\");"
+    qt_sql "SELECT murmur_hash3_32(\"hello\", \"world\");"
 }

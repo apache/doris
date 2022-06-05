@@ -543,4 +543,27 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
 
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
+
+TEST(VTimestampFunctionsTest, weekday_test) {
+    std::string func_name = "weekday";
+
+    {
+        InputTypeSet input_types = {TypeIndex::DateTime};
+
+        DataSet data_set = {{{std::string("2001-02-03 12:34:56")}, 5},
+                            {{std::string("2019-06-25")}, 1},
+                            {{std::string("2020-00-01 00:00:00")}, Null()},
+                            {{std::string("2020-01-00 00:00:00")}, Null()}};
+
+        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    }
+    InputTypeSet input_types = {TypeIndex::Date};
+
+    DataSet data_set = {{{std::string("2001-02-03")}, 5},
+                        {{std::string("2019-06-25")}, 1},
+                        {{std::string("2020-00-01")}, Null()},
+                        {{std::string("2020-01-00")}, Null()}};
+
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+}
 } // namespace doris::vectorized

@@ -34,7 +34,7 @@ This document mainly introduces the performance of Doris on the SSB test set.
 >
 > Note 2: The operations involved in this document are all performed in the Ubuntu Server 20.04 environment, and CentOS 7 can also be tested.
 
-On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1 version and Doris 0.15.3 version peer-to-peer, and the overall performance improved by 2-3 times.
+On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1 version and Doris 0.15.0 RC04 version peer-to-peer, and the overall performance improved by 2-3 times.
 
 ![ssb_v11_v015_compare](/images/ssb_v11_v015_compare.png)
 
@@ -52,7 +52,7 @@ On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1
 - Doris deploys 3BE 1FE;
 - Kernel version: Linux version 5.4.0-96-generic (buildd@lgw01-amd64-051)
 - OS version: Ubuntu Server 20.04 LTS 64 bit
-- Doris software version: Apache Doris 1.1, Apache Doris 0.15
+- Doris software version: Apache Doris 1.1, Apache Doris 0.15.0 RC04
 - JDK: openjdk version "11.0.14" 2022-01-18
 
 ## 3. Test data volume
@@ -68,23 +68,23 @@ On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1
 
 ## 4. Test Results
 
-Here we use the upcoming Doris-1.1 version and Doris-0.15.3 version for comparative testing. The test results are as follows:
+Here we use the upcoming Doris-1.1 version and Doris-0.15.0 RC04 version for comparative testing. The test results are as follows:
 
-| Query | Doris-1.1(ms) | Doris-0.15.3(ms) |
-| ----- | ------------- | ---------------- |
-| Q1.1  | 90            | 250              |
-| Q1.2  | 10            | 30               |
-| Q1.3  | 70            | 120              |
-| Q2.1  | 360           | 900              |
-| Q2.2  | 340           | 1020             |
-| Q2.3  | 260           | 770              |
-| Q3.1  | 550           | 1710             |
-| Q3.2  | 290           | 670              |
-| Q3.3  | 240           | 550              |
-| Q3.4  | 20            | 30               |
-| Q4.1  | 480           | 1250             |
-| Q4.2  | 240           | 400              |
-| Q4.3  | 200           | 330              |
+| Query | Doris-1.1(ms) | Doris-0.15.0 RC04(ms) |
+| ----- | ------------- | --------------------- |
+| Q1.1  | 90            | 250                   |
+| Q1.2  | 10            | 30                    |
+| Q1.3  | 70            | 120                   |
+| Q2.1  | 360           | 900                   |
+| Q2.2  | 340           | 1020                  |
+| Q2.3  | 260           | 770                   |
+| Q3.1  | 550           | 1710                  |
+| Q3.2  | 290           | 670                   |
+| Q3.3  | 240           | 550                   |
+| Q3.4  | 20            | 30                    |
+| Q4.1  | 480           | 1250                  |
+| Q4.2  | 240           | 400                   |
+| Q4.3  | 200           | 330                   |
 
 **Interpretation of results**
 
@@ -108,7 +108,7 @@ The scripts covered in the following documents are stored in `tools/ssb-tools/` 
 
 > **Notice:**
 >
-> The above two parameters do not have these two parameters in version 0.15.3 and do not need to be configured.
+> The above two parameters do not have these two parameters in version 0.15.0 RC04 and do not need to be configured.
 
 ## 6. Data Preparation
 
