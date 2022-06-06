@@ -109,7 +109,7 @@ module.exports = {
       },
     ],
     // js 上传
-    ["script", { type: "text/javascript", src: "/js/jquery-2.1.4.min.js" }],
+    ["script", { type: "text/javascript", src: "https://cdn.jsdelivr.net/npm/jquery@2.1.4/dist/jquery.min.js" }],
     ["script", { type: "text/javascript", src: "/js/xRoll.js" }],
     ["script", { type: "text/javascript", src: "/js/js.js" }],
   ],
