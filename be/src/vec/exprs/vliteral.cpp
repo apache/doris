@@ -22,6 +22,7 @@
 #include "runtime/large_int_value.h"
 #include "util/string_parser.hpp"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
