@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Equal to expression: a = b.

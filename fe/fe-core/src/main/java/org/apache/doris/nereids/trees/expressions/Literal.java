@@ -98,11 +98,8 @@ public class Literal extends Expression<Literal> implements LeafExpression<Liter
     }
 
     @Override
-    public boolean isVariable() {
-        // for test
-        if (value instanceof String)
-            return true;
-        return false;
+    public boolean isConstant() {
+        return true;
     }
 
     @Override

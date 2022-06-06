@@ -19,7 +19,11 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-public abstract class AbstractExpressionRewriteRule extends ExpressionVisitor<Expression, ExpressionRewriteContext> implements ExpressionRewriteRule {
+/**
+ * Base class of expression rewrite rule.
+ */
+public abstract class AbstractExpressionRewriteRule extends ExpressionVisitor<Expression, ExpressionRewriteContext>
+        implements ExpressionRewriteRule {
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {

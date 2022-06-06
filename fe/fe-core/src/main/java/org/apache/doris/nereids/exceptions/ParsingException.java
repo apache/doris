@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.exceptions;
 
+/**
+ * sql parsing exception.
+ */
 public class ParsingException extends RuntimeException {
 
     public ParsingException(String message) {

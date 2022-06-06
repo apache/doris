@@ -67,9 +67,12 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
         throw new RuntimeException();
     }
 
-    public boolean isVariable() {
+    /**
+     * Whether the expression is a constant.
+     */
+    public boolean isConstant() {
         for (Expression child : children()) {
-            if (child.isVariable()) {
+            if (child.isConstant()) {
                 return true;
             }
         }

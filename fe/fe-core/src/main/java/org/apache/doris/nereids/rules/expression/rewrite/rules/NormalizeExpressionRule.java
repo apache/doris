@@ -29,7 +29,11 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 
-
+/**
+ * Normalizes binary predicates of the form 'expr' op 'slot' so that the slot is on the left-hand side.
+ * For example:
+ * 5 > id -> id < 5
+ */
 public class NormalizeExpressionRule extends AbstractExpressionRewriteRule {
 
     public static NormalizeExpressionRule INSTANCE = new NormalizeExpressionRule();

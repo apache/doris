@@ -26,12 +26,23 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Not;
 
-public class NotExpressionRule extends AbstractExpressionRewriteRule {
+/**
+ * Rewrite rule of NOT expression.
+ * For example:
+ * not a -> not a.
+ * not not a -> a.
+ * not not not a -> not a.
+ * not a > b -> a <= b.
+ * not a < b -> a >= b.
+ * not a >= b -> a < b.
+ * not a <= b -> a > b.
+ * not a=b -> not a=b.
+ */
+public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
 
-    public static NotExpressionRule INSTANCE = new NotExpressionRule();
+    public static SimplifyNotExprRule INSTANCE = new SimplifyNotExprRule();
 
 
     @Override
@@ -60,14 +71,9 @@ public class NotExpressionRule extends AbstractExpressionRewriteRule {
 
         if (child instanceof Not) {
             Not son = (Not) child;
-            return son.child();
+            return rewrite(son.child(), context);
         }
 
-        return expr;
-    }
-
-    @Override
-    public Expression visitLiteral(Literal expr, ExpressionRewriteContext context) {
         return expr;
     }
 

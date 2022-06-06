@@ -17,18 +17,22 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressionRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.NotExpressionRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LeafExpression;
 
+import com.google.common.collect.Lists;
+
 import java.util.List;
 
+/**
+ * Expression rewrite entry, which contains all rewrite rules.
+ */
 public class ExpressionRewriter {
 
     public static final List<ExpressionRewriteRule> REWRITE_RULES = Lists.newArrayList(
-        new NotExpressionRule(),
+        new SimplifyNotExprRule(),
         new NormalizeExpressionRule()
     );
 
@@ -45,7 +49,12 @@ public class ExpressionRewriter {
         this.ctx = new ExpressionRewriteContext();
     }
 
+    /**
+     * Given an expression, returns a rewritten expression.
 
+     * @param root need rewrite expression.
+     * @return rewritten expression.
+     */
     public Expression rewrite(Expression root) {
         Expression result = root;
         for (ExpressionRewriteRule rule : rules) {
@@ -60,6 +69,7 @@ public class ExpressionRewriter {
         return rewrittenExpr;
     }
 
+    //todo: flag whether expr has changed
     private Expression applyRuleBottomUp(Expression expr, ExpressionRewriteRule rule) {
         List<Expression> children = Lists.newArrayList();
         for (int i = 0; i < expr.children().size(); ++i) {

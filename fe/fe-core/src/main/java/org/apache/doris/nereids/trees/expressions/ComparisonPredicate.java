@@ -17,15 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -52,8 +49,18 @@ public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD
         return BooleanType.INSTANCE;
     }
 
+    @Override
+    public String sql() {
+        return toString();
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitComparisonPredicate(this, context);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type, left(), right());
     }
 
     @Override
@@ -65,16 +72,7 @@ public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD
             return false;
         }
         ComparisonPredicate other = (ComparisonPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left()) && Objects.equals(right(), other.right());
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(type, left(), right());
-    }
-
-    @Override
-    public String sql() {
-        return toString();
+        return (type == other.getType()) && Objects.equals(left(), other.left())
+                && Objects.equals(right(), other.right());
     }
 }

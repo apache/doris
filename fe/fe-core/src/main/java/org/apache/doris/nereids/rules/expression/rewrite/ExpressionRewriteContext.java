@@ -17,5 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+/**
+ * expression rewrite context.
+ */
 public class ExpressionRewriteContext {
 }

@@ -22,6 +22,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Not;
 
+/**
+ * Use the visitor pattern to iterate over all expressions for expression rewriting.
+ */
 public abstract class ExpressionVisitor<R, C> {
 
     public abstract R visitExpression(Expression expr, C context);

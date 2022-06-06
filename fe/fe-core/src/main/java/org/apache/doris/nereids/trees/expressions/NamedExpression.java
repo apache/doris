@@ -50,8 +50,8 @@ public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYP
     }
 
     @Override
-    public boolean isVariable() {
-        return true;
+    public boolean isConstant() {
+        return false;
     }
 
     /**

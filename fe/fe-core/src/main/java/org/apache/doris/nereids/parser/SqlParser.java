@@ -48,10 +48,6 @@ public class SqlParser {
         return (LogicalPlan) parse(sql, DorisParser::singleStatement);
     }
 
-    public Expression createExpression(String expression) {
-        return (Expression) parse(expression, DorisParser::expression);
-    }
-
     private TreeNode parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         try {
             DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
@@ -67,8 +63,7 @@ public class SqlParser {
                 // first, try parsing with potentially faster SLL mode
                 parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
                 tree = parseFunction.apply(parser);
-            }
-            catch (ParseCancellationException ex) {
+            } catch (ParseCancellationException ex) {
                 // if we fail, parse with LL mode
                 tokenStream.seek(0); // rewind input stream
                 parser.reset();
@@ -80,9 +75,12 @@ public class SqlParser {
             LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
             return (TreeNode) logicalPlanBuilder.visit(tree);
 
-        }
-        catch (StackOverflowError e) {
+        } catch (StackOverflowError e) {
             throw new ParsingException(e.getMessage());
         }
+    }
+
+    public Expression createExpression(String expression) {
+        return (Expression) parse(expression, DorisParser::expression);
     }
 }

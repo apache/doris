@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.nereids.parser.SqlParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressionRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.NotExpressionRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import org.apache.logging.log4j.LogManager;
@@ -28,6 +28,9 @@ import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
 
+/**
+ * all expr rewrite rule test case.
+ */
 public class ExpressionRewriteTest {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
@@ -36,49 +39,41 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNotExpressionRewrite() {
-        rewriter = new ExpressionRewriter(NotExpressionRule.INSTANCE);
+        rewriter = new ExpressionRewriter(SimplifyNotExprRule.INSTANCE);
 
-        assertRewrite("NOT 'X'", "NOT 'X'");
-        assertRewrite("NOT NOT 'X'", "'X'");
-        assertRewrite("NOT NOT NOT 'X'", "NOT 'X'");
-        assertRewrite("NOT 'X' > 'Y'", "'X' <= 'Y'");
-        assertRewrite("NOT 'X' < 'Y'", "'X' >= 'Y'");
-        assertRewrite("NOT 'X' >= 'Y'", "'X' < 'Y'");
-        assertRewrite("NOT 'X' <= 'Y'", "'X' > 'Y'");
-        assertRewrite("NOT 'X' = 'Y'", "NOT 'X' = 'Y'");
-        assertRewrite("NOT NOT 'X' > 'Y'", "'X' > 'Y'");
-        assertRewrite("NOT NOT NOT 'X' > 'Y'", "'X' <= 'Y'");
-        assertRewrite("NOT NOT NOT 'X' >  NOT NOT 'Y'", "'X' <= 'Y'");
-        assertRewrite("NOT 'X' > NOT NOT 'Y'", "'X' <= 'Y'");
-
+        assertRewrite("NOT x > y", "x <= y");
+        assertRewrite("NOT x < y", "x >= y");
+        assertRewrite("NOT x >= y", "x < y");
+        assertRewrite("NOT x <= y", "x > y");
+        assertRewrite("NOT x = y", "NOT x = y");
+        assertRewrite("NOT NOT x > y", "x > y");
+        assertRewrite("NOT NOT NOT x > y", "x <= y");
     }
 
     @Test
     public void testNormalizeExpressionRewrite() {
         rewriter = new ExpressionRewriter(NormalizeExpressionRule.INSTANCE);
 
-        assertRewrite("2 > 'x'", "'x' < 2");
-        assertRewrite("2 >= 'x'", "'x' <= 2");
-        assertRewrite("2 < 'x'", "'x' > 2");
-        assertRewrite("2 <= 'x'", "'x' >= 2");
-        assertRewrite("2 = 'x'", "'x' = 2");
+        assertRewrite("2 > x", "x < 2");
+        assertRewrite("2 >= x", "x <= 2");
+        assertRewrite("2 < x", "x > 2");
+        assertRewrite("2 <= x", "x >= 2");
+        assertRewrite("2 = x", "x = 2");
         /*
-        assertRewrite("'a' = 1", "'a' = 1");
-        assertRewrite("'a' = 1 and 1 = 'a'", "'a' = 1");
-        assertRewrite("'a' = 1 and 'b' > 2 and 'a' = 1", "'a' = 1 and 'b' > 2");
-        assertRewrite("'a' = 1 and 'a' = 1 and 'b' > 2 and 'a' = 1 and 'a' = 1", "'a' = 1 and 'b' > 2");
+        assertRewrite("a = 1", "a = 1");
+        assertRewrite("a = 1 and 1 = a", "a = 1");
+        assertRewrite("a = 1 and b > 2 and a = 1", "a = 1 and b > 2");
+        assertRewrite("a = 1 and a = 1 and b > 2 and a = 1 and a = 1", "a = 1 and b > 2");
 
-        assertRewrite("'a' = 1 or 'a' = 1", "'a' = 1");
-        assertRewrite("'a' = 1 or 'a' = 1 or 'b' >= 1", "'a' = 1 or 'b' >= 1");
+        assertRewrite("a = 1 or a = 1", "a = 1");
+        assertRewrite("a = 1 or a = 1 or b >= 1", "a = 1 or b >= 1");
         */
     }
 
     private void assertRewrite(String expression, String expected) {
-        Expression expectedExpression = PARSER.createExpression(expected);
         Expression needRewriteExpression = PARSER.createExpression(expression);
+        Expression expectedExpression = PARSER.createExpression(expected);
         Expression rewrittenExpression = rewriter.rewrite(needRewriteExpression);
-        LOG.info("original expression : {} expected expression : {} rewritten expression : {}", needRewriteExpression, expectedExpression, rewrittenExpression);
         Assert.assertEquals(expectedExpression, rewrittenExpression);
     }
-
 }

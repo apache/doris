@@ -19,6 +19,9 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+/**
+ * The interface of expression rewrite rule.
+ */
 public interface ExpressionRewriteRule {
     Expression rewrite(Expression expr, ExpressionRewriteContext ctx);
 }

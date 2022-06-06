@@ -23,6 +23,7 @@ import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
+import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.DorisParser.JoinRelationContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
+import org.apache.doris.nereids.DorisParser.NotContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
@@ -44,8 +46,6 @@ import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
-import org.apache.doris.nereids.DorisParser.ExpressionContext;
-import org.apache.doris.nereids.DorisParser.NotContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -401,12 +401,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * for example:
      * not 1
      * not 1=1
-     * @param ctx
-     * @return
      */
     @Override
     public Expression visitNot(NotContext ctx) {
-        Expression child = expression(ctx.valueExpression());
+        Expression child = expression(ctx.booleanExpression());
         return new Not(child);
     }
 
