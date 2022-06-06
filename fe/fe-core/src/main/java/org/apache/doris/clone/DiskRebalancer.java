@@ -136,7 +136,7 @@ public class DiskRebalancer extends Rebalancer {
         // first we should check if mid backends is available.
         // if all mid backends is not available, we should not start balance
         if (midBEs.stream().noneMatch(BackendLoadStatistic::isAvailable)) {
-            LOG.info("all mid load backends is dead: {} with medium: {}. skip",
+            LOG.debug("all mid load backends is dead: {} with medium: {}. skip",
                     lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
@@ -231,9 +231,11 @@ public class DiskRebalancer extends Rebalancer {
 
         // remove balanced BEs from prio backends
         prioBackends.keySet().removeIf(id -> !unbalancedBEs.contains(id));
-        LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
-                clusterName, medium, alternativeTablets.size(),
-                alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        if (!alternativeTablets.isEmpty()) {
+            LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
+                    clusterName, medium, alternativeTablets.size(),
+                    alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        }
         return alternativeTablets;
     }
 

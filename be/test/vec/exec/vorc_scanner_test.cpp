@@ -71,7 +71,6 @@ private:
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
     std::vector<TExpr> _pre_filter;
-    bool _fill_tuple;
 };
 
 TEST_F(VOrcScannerTest, normal) {

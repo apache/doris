@@ -985,15 +985,6 @@ build_benchmark() {
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/build/src/libbenchmark.a $TP_LIB_DIR/
 }
 
-# breakpad
-build_breakpad() {
-    check_if_source_exist $BREAKPAD_SOURCE
-
-    cd $TP_SOURCE_DIR/$BREAKPAD_SOURCE
-    ./configure --prefix=$TP_INSTALL_DIR
-    make -j $PARALLEL && make install
-}
-
 # simdjson
 build_simdjson() {
     check_if_source_exist $SIMDJSON_SOURCE
@@ -1058,7 +1049,6 @@ build_krb5
 build_hdfs3
 build_hdfs3_with_kerberos
 build_benchmark
-build_breakpad
 build_simdjson
 build_libbacktrace
 

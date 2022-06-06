@@ -15,29 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.rpc;
+#pragma once
 
-import com.google.common.base.Strings;
+#include "olap/merger.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 
-public class RpcException extends Exception {
+namespace doris {
+class DataDir;
+class ConvertRowset {
+public:
+    ConvertRowset(TabletSharedPtr tablet) : _tablet(tablet) {}
+    Status do_convert();
 
-    private String host;
+private:
+    Status check_correctness(RowsetSharedPtr input_rowset, RowsetSharedPtr output_rowset,
+                             const Merger::Statistics& stats);
+    int64_t _get_input_num_rows_from_seg_grps(RowsetSharedPtr rowset);
+    Status _modify_rowsets(RowsetSharedPtr input_rowset, RowsetSharedPtr output_rowset);
 
-    public RpcException(String host, String message) {
-        super(message);
-        this.host = host;
-    }
+private:
+    TabletSharedPtr _tablet;
 
-    public RpcException(String host, String message, Exception e) {
-        super(message, e);
-        this.host = host;
-    }
-
-    @Override
-    public String getMessage() {
-        if (Strings.isNullOrEmpty(host)) {
-            return super.getMessage();
-        }
-        return super.getMessage() + ", host: " + host;
-    }
-}
+    DISALLOW_COPY_AND_ASSIGN(ConvertRowset);
+};
+} // namespace doris

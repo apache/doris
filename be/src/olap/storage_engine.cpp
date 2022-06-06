@@ -160,6 +160,9 @@ StorageEngine::~StorageEngine() {
     if (_compaction_thread_pool) {
         _compaction_thread_pool->shutdown();
     }
+    if (_convert_rowset_thread_pool) {
+        _convert_rowset_thread_pool->shutdown();
+    }
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
@@ -578,6 +581,9 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
+    if (_alpha_rowset_scan_thread) {
+        THREAD_JOIN(_alpha_rowset_scan_thread);
+    }
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
