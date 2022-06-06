@@ -447,7 +447,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COMPLEX_TYPE)
-    boolean enableComplexType = false;
+    boolean enableComplexType = true;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
