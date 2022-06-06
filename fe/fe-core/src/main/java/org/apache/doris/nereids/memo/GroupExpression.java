@@ -17,14 +17,15 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.clearspring.analytics.util.Lists;
 
 import java.util.BitSet;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Representation for group expression in cascades optimizer.
@@ -32,25 +33,29 @@ import java.util.List;
 public class GroupExpression {
     private Group parent;
     private List<Group> children;
-    private final Plan<?, ?> plan;
+    private final Operator op;
     private final BitSet ruleMasks;
     private boolean statDerived;
 
-    public GroupExpression(Plan<?, ?> plan) {
-        this(plan, Lists.newArrayList());
+    public GroupExpression(Operator op) {
+        this(op, Lists.newArrayList());
     }
 
     /**
      * Constructor for GroupExpression.
      *
-     * @param plan {@link Plan} to reference
+     * @param op {@link Operator} to reference
      * @param children children groups in memo
      */
-    public GroupExpression(Plan<?, ?> plan, List<Group> children) {
-        this.plan = plan;
-        this.children = children;
+    public GroupExpression(Operator op, List<Group> children) {
+        this.op = Objects.requireNonNull(op);
+        this.children = Objects.requireNonNull(children);
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
+    }
+
+    public int arity() {
+        return children.size();
     }
 
     public void addChild(Group child) {
@@ -65,11 +70,15 @@ public class GroupExpression {
         this.parent = parent;
     }
 
-    public Plan<?, ?> getPlan() {
-        return plan;
+    public Operator getOperator() {
+        return op;
     }
 
-    public List<Group> getChildren() {
+    public Group child(int i) {
+        return children.get(i);
+    }
+
+    public List<Group> children() {
         return children;
     }
 
@@ -77,11 +86,15 @@ public class GroupExpression {
         this.children = children;
     }
 
-    public boolean hasExplored(Rule rule) {
+    public boolean hasApplied(Rule rule) {
         return ruleMasks.get(rule.getRuleType().ordinal());
     }
 
-    public void setExplored(Rule rule) {
+    public boolean notApplied(Rule rule) {
+        return !hasApplied(rule);
+    }
+
+    public void setApplied(Rule rule) {
         ruleMasks.set(rule.getRuleType().ordinal());
     }
 
@@ -91,5 +104,22 @@ public class GroupExpression {
 
     public void setStatDerived(boolean statDerived) {
         this.statDerived = statDerived;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        GroupExpression that = (GroupExpression) o;
+        return children.equals(that.children) && op.equals(that.op);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(children, op);
     }
 }

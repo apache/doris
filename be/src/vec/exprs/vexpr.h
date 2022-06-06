@@ -33,10 +33,19 @@ namespace vectorized {
 
 class VExpr {
 public:
+    // resize inserted param column to make sure column size equal to block.rows()
+    // and return param column index
+    static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
+        // usualy elem.column always is const column, so we just clone it.
+        elem.column = elem.column->clone_resized(size);
+        block->insert(std::move(elem));
+        return block->columns() - 1;
+    }
+
     VExpr(const TExprNode& node);
     VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable);
     // only used for test
-    VExpr() {}
+    VExpr() = default;
     virtual ~VExpr() = default;
 
     virtual VExpr* clone(ObjectPool* pool) const = 0;
@@ -108,10 +117,7 @@ public:
                                           VExpr* parent, int* node_idx, VExpr** root_expr,
                                           VExprContext** ctx);
     const std::vector<VExpr*>& children() const { return _children; }
-    void set_children(RuntimeState* state, VExprContext* ctx, std::vector<VExpr*> children) {
-        close(state, ctx, ctx->get_function_state_scope());
-        _children = children;
-    }
+    void set_children(std::vector<VExpr*> children) { _children = children; }
     virtual std::string debug_string() const;
     static std::string debug_string(const std::vector<VExpr*>& exprs);
     static std::string debug_string(const std::vector<VExprContext*>& ctxs);

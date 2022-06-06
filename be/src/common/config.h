@@ -294,6 +294,12 @@ CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_compaction_threads, "10");
 
+// This config can be set to limit thread number in convert rowset thread pool.
+CONF_mInt32(convert_rowset_thread_num, "0");
+
+// initial sleep interval in seconds of scan alpha rowset
+CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
+
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
 
@@ -689,21 +695,6 @@ CONF_mInt32(segment_cache_capacity, "1000000");
 
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
-
-// Set to true to disable the minidump feature.
-CONF_Bool(disable_minidump, "false");
-
-// The dir to save minidump file.
-// Make sure that the user who run Doris has permission to create and visit this dir,
-// So Doris will fail to start.
-CONF_String(minidump_dir, "${DORIS_HOME}/minidump");
-
-// The max minidump file size in MB.
-CONF_Int32(max_minidump_file_size_mb, "200");
-
-// The max number of minidump file.
-// Doris will only keep latest 10 minidump files by default.
-CONF_Int32(max_minidump_file_number, "10");
 
 // If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
 // the value set by the fallback version kafka_broker_version_fallback will be used,

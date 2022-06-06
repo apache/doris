@@ -28,6 +28,11 @@ public class RpcException extends Exception {
         this.host = host;
     }
 
+    public RpcException(String host, String message, Exception e) {
+        super(message, e);
+        this.host = host;
+    }
+
     @Override
     public String getMessage() {
         if (Strings.isNullOrEmpty(host)) {

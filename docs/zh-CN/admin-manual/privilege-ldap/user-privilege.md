@@ -71,11 +71,17 @@ Doris 目前支持以下几种权限
 
 1. Node_priv
 
-   节点变更权限。包括 FE、BE、BROKER 节点的添加、删除、下线等操作。目前该权限只能授予 Root 用户。
+   节点变更权限。包括 FE、BE、BROKER 节点的添加、删除、下线等操作。
+
+   Root 用户默认拥有该权限。同时拥有 Grant_priv 和 Node_priv 的用户，可以将该权限赋予其他用户。
+
+   该权限只能赋予 Global 级别。
 
 2. Grant_priv
 
    权限变更权限。允许执行包括授权、撤权、添加/删除/变更 用户/角色 等操作。
+
+   但拥有该权限的用户能不赋予其他用户 node_priv 权限，除非用户本身拥有 node_priv 权限。
 
 3. Select_priv
 
@@ -136,13 +142,13 @@ ADMIN_PRIV 和 GRANT_PRIV 权限同时拥有**授予权限**的权限，较为�
 ## 一些说明
 
 1. Doris 初始化时，会自动创建如下用户和角色：
-   1. operator 角色：该角色拥有 Node_priv 和 Admin_priv，即对Doris的所有权限。后续某个升级版本中，我们可能会将该角色的权限限制为 Node_priv，即仅授予节点变更权限。以满足某些云上部署需求。
+   1. operator 角色：该角色拥有 Node_priv 和 Admin_priv，即对Doris的所有权限。
    2. admin 角色：该角色拥有 Admin_priv，即除节点变更以外的所有权限。
    3. root@'%'：root 用户，允许从任意节点登陆，角色为 operator。
    4. admin@'%'：admin 用户，允许从任意节点登陆，角色为 admin。
 2. 不支持删除或更改默认创建的角色或用户的权限。
 
-3. operator 角色的用户有且只有一个。admin 角色的用户可以创建多个。
+3. operator 角色的用户有且只有一个，即 Root。admin 角色的用户可以创建多个。
 
 4. 一些可能产生冲突的操作说明
 
