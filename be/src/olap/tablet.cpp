@@ -874,18 +874,29 @@ void Tablet::calculate_cumulative_point() {
 }
 
 //find rowsets that rows less then "config::small_compaction_max_rows"
-Status Tablet::pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets) {
+Status Tablet::pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
+                                         int64_t* permits) {
+    if (!init_succeeded()) {
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
+    }
     int max_series_num = 1000;
     int max_rows = config::small_compaction_max_rows;
     if (max_rows <= 0) return Status::OK();
     std::vector<std::vector<RowsetSharedPtr>> samll_version_rowsets(max_series_num);
     int idx = 0;
+    std::shared_lock rdlock(_meta_lock);
+    std::vector<RowsetSharedPtr> sortedRowset;
+    for (auto& rs : _rs_version_map) {
+        sortedRowset.push_back(rs.second);
+    }
+    std::sort(sortedRowset.begin(), sortedRowset.end(), Rowset::comparator);
     if (tablet_state() == TABLET_RUNNING) {
-        for (auto& rs : _rs_version_map) {
-            bool is_delete = version_for_delete_predicate(rs.first);
-            if (!is_delete && rs.first.first > 0 && rs.first.first > cumulative_layer_point()) {
-                if (rs.second->num_rows() < max_rows) {
-                    samll_version_rowsets[idx].push_back(rs.second);
+        for (int i = 0; i < sortedRowset.size(); i++) {
+            bool is_delete = version_for_delete_predicate(sortedRowset[i]->version());
+            if (!is_delete && sortedRowset[i]->start_version() > 0 &&
+                sortedRowset[i]->start_version() > cumulative_layer_point()) {
+                if (sortedRowset[i]->num_rows() < max_rows) {
+                    samll_version_rowsets[idx].push_back(sortedRowset[i]);
                 } else {
                     idx++;
                     if (idx > max_series_num) {
@@ -902,9 +913,9 @@ Status Tablet::pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_row
             }
         }
         for (int i = 0; i < result.size(); i++) {
+            *permits += result[i]->num_segments();
             input_rowsets->push_back(result[i]);
         }
-        std::sort(input_rowsets->begin(), input_rowsets->end(), Rowset::comparator);
     }
     return Status::OK();
 }

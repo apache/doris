@@ -72,7 +72,7 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete);
-    Status pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets);
+    Status pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets, int64_t* permits);
 
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -367,6 +367,7 @@ private:
 public:
     IntCounter* flush_bytes;
     IntCounter* flush_count;
+    std::atomic<int64_t> publised_count = 0;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

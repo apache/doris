@@ -719,23 +719,29 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                          << ", error_code=" << res;
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            int submit_tablets = 0;
-            for (int i = 0; i < succ_tablet_ids.size(); i++) {
-                TabletSharedPtr tablet =
-                        StorageEngine::instance()->tablet_manager()->get_tablet(succ_tablet_ids[i]);
-                if (tablet->version_count() < config::small_compaction_batch_size) {
-                    continue;
+            if (config::small_compaction_batch_size > 0) {
+                int submit_tablets = 0;
+                for (int i = 0; i < succ_tablet_ids.size(); i++) {
+                    TabletSharedPtr tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(
+                                    succ_tablet_ids[i]);
+                    if (tablet != nullptr) {
+                        submit_tablets++;
+                        tablet->publised_count++;
+                        if (tablet->publised_count % config::small_compaction_batch_size == 0) {
+                            StorageEngine::instance()->submit_small_compaction_task(tablet);
+                            LOG(INFO) << "trigger small compaction succ, tabletid:"
+                                      << succ_tablet_ids[i]
+                                      << ", publised:" << tablet->publised_count;
+                        }
+                    } else {
+                        LOG(WARNING) << "trigger samll compaction failed, tabletid:"
+                                     << succ_tablet_ids[i];
+                    }
                 }
-                if (tablet != nullptr) {
-                    submit_tablets++;
-                    StorageEngine::instance()->submit_small_compaction_task(tablet);
-                    LOG(INFO) << "tirgger samll compaction succ" << succ_tablet_ids[i];
-                } else {
-                    LOG(WARNING) << "tirgger samll compaction failed" << succ_tablet_ids[i];
-                }
+                LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature
+                          << ", size:" << submit_tablets;
             }
-            LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature
-                      << ", size:" << submit_tablets;
         }
 
         res.to_thrift(&finish_task_request.task_status);

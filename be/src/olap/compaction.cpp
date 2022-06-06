@@ -62,17 +62,57 @@ Status Compaction::small_rowsets_compact() {
                      << _tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
     }
+
+    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
+    // for compaction may change. In this case, current compaction task should not be executed.
+    if (_tablet->get_clone_occurred()) {
+        _tablet->set_clone_occurred(false);
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_CLONE_OCCURRED);
+    }
+
     _input_rowsets.clear();
     int version_count = _tablet->version_count();
     int64_t now = UnixMillis();
-    _tablet->pick_small_verson_rowsets(&_input_rowsets);
+    int64_t permits = 0;
+    _tablet->pick_small_verson_rowsets(&_input_rowsets, &permits);
+    std::string input_ver = "";
+    for (int i = 0; i < _input_rowsets.size(); i++) {
+        input_ver.append("[" + std::to_string(_input_rowsets[i]->start_version()) + ",");
+        input_ver.append(std::to_string(_input_rowsets[i]->start_version()) + "]");
+    }
+
+    std::vector<Version> missedVersions;
+    find_longest_consecutive_version(&_input_rowsets, &missedVersions);
+    if (missedVersions.size() != 0) {
+        std::string logstr = "";
+        for (int i = 0; i < missedVersions.size(); i++) {
+            logstr.append("[" + std::to_string(missedVersions[i].first));
+            logstr.append("," + std::to_string(missedVersions[i].second));
+            logstr.append("]");
+        }
+        LOG(WARNING) << "small_rowsets_compaction, find missed version" << logstr
+                     << ",input_size:" << _input_rowsets.size() << "version:" << input_ver;
+    }
     int nums = _input_rowsets.size();
-    if (_input_rowsets.size() >= config::small_compaction_batch_size) {
-        do_compaction(0);
-        LOG(INFO) << "small_rowsets_compaction, before_versions:" << version_count
-                  << ", after_versions:" << _tablet->version_count()
-                  << ", cost:" << (UnixMillis() - now) << "ms"
-                  << ", merged: " << nums << ", batch:" << config::small_compaction_batch_size;
+    if (_input_rowsets.size() >= config::small_compaction_min_rowsets) {
+        Status st = check_version_continuity(_input_rowsets);
+        if (!st.ok()) {
+            LOG(WARNING) << "small_rowsets_compaction failed, cause version not continuous";
+            return st;
+        }
+        st = do_compaction(permits);
+        if (!st.ok()) {
+            gc_output_rowset();
+            LOG(WARNING) << "small_rowsets_compaction failed";
+        } else {
+            LOG(INFO) << "small_rowsets_compaction succ"
+                      << ", before_versions:" << version_count
+                      << ", after_versions:" << _tablet->version_count()
+                      << ", cost:" << (UnixMillis() - now) << "ms"
+                      << ", merged: " << nums << ", batch:" << config::small_compaction_batch_size
+                      << ", segments:" << permits << ", tabletid:" << _tablet->tablet_id();
+            _tablet->set_last_small_compaction_success_time(UnixMillis());
+        }
     }
     return Status::OK();
 }

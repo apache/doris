@@ -751,6 +751,8 @@ CONF_Int32(small_compaction_max_rows, "10000");
 
 // min compaction versions
 CONF_Int32(small_compaction_batch_size, "10");
+// do compaction min rowsets
+CONF_Int32(small_compaction_min_rowsets, "10");
 
 } // namespace config
 
