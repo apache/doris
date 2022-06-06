@@ -99,7 +99,7 @@ module.exports = {
         href: "//at.alicdn.com/t/font_3319292_bdqvc63l075.css",
       },
     ],
-    ["link", { rel: "stylesheet", href: "/css/animate.min.css" }],
+    ["link", { rel: "stylesheet", href: "https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" }],
     // meta 描述
     [
       "meta",
