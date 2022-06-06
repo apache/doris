@@ -163,6 +163,8 @@ struct TimeRound {
     static constexpr auto name = Impl::name;
     static constexpr uint64_t FIRST_DAY = 19700101000000;
     static constexpr uint64_t FIRST_SUNDAY = 19700104000000;
+    static constexpr int8_t FLOOR = 0;
+    static constexpr int8_t CEIL = 1;
 
     static void time_round(const doris::vectorized::VecDateTimeValue& ts2, Int32 period,
                            doris::vectorized::VecDateTimeValue& ts1, UInt8& is_null) {
@@ -172,43 +174,70 @@ struct TimeRound {
         }
 
         int64_t diff;
+        int64_t trivial_part_ts1;
+        int64_t trivial_part_ts2;
         if constexpr (Impl::Unit == YEAR) {
-            int year = (ts2.year() - ts1.year());
-            diff = year - (ts2.to_int64() % 10000000000 < ts1.to_int64() % 10000000000);
+            diff = (ts2.year() - ts1.year());
+            trivial_part_ts2 = ts2.to_int64() % 10000000000;
+            trivial_part_ts1 = ts1.to_int64() % 10000000000;
         }
         if constexpr (Impl::Unit == MONTH) {
-            int month = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-            diff = month - (ts2.to_int64() % 100000000 < ts1.to_int64() % 100000000);
+            diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+            trivial_part_ts2 = ts2.to_int64() % 100000000;
+            trivial_part_ts1 = ts1.to_int64() % 100000000;
         }
         if constexpr (Impl::Unit == MONTH) {
-            int month = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-            diff = month - (ts2.to_int64() % 100000000 < ts1.to_int64() % 100000000);
+            diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+            trivial_part_ts2 = ts2.to_int64() % 100000000;
+            trivial_part_ts1 = ts1.to_int64() % 100000000;
         }
         if constexpr (Impl::Unit == WEEK) {
-            int week = ts2.daynr() / 7 - ts1.daynr() / 7;
-            diff = week - (ts2.daynr() % 7 < ts1.daynr() % 7 + (ts2.time_part_diff(ts1) < 0));
+            diff = ts2.daynr() / 7 - ts1.daynr() / 7;
+            trivial_part_ts2 = ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 + ts2.minute() * 60 +
+                               ts2.second();
+            trivial_part_ts1 = ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 + ts1.minute() * 60 +
+                               ts1.second();
         }
         if constexpr (Impl::Unit == DAY) {
-            int day = ts2.daynr() - ts1.daynr();
-            diff = day - (ts2.time_part_diff(ts1) < 0);
+            diff = ts2.daynr() - ts1.daynr();
+            trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
+            trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
         }
         if constexpr (Impl::Unit == HOUR) {
-            int hour = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
-            diff = hour - ((ts2.minute() * 60 + ts2.second()) < (ts1.minute() * 60 - ts1.second()));
+            diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
+            trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
+            trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
         }
         if constexpr (Impl::Unit == MINUTE) {
-            int minute = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
-                         (ts2.minute() - ts1.minute());
-            diff = minute - (ts2.second() < ts1.second());
+            diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
+                   (ts2.minute() - ts1.minute());
+            trivial_part_ts2 = ts2.second();
+            trivial_part_ts1 = ts1.second();
         }
         if constexpr (Impl::Unit == SECOND) {
             diff = ts2.second_diff(ts1);
+            trivial_part_ts1 = 0;
+            trivial_part_ts2 = 0;
         }
 
-        int64_t count = period;
-        int64_t step = diff - (diff % count + count) % count + (Impl::Type == 0 ? 0 : count);
-        bool is_neg = step < 0;
+        //round down/up to specific time-unit(HOUR/DAY/MONTH...) by increase/decrease diff variable
+        if constexpr (Impl::Type == CEIL) {
+            //e.g. hour_ceil(ts: 00:00:40, origin: 00:00:30), ts should be rounded to 01:00:30
+            diff += trivial_part_ts2 > trivial_part_ts1;
+        }
+        if constexpr (Impl::Type == FLOOR) {
+            //e.g. hour_floor(ts: 01:00:20, origin: 00:00:30), ts should be rounded to 00:00:30
+            diff -= trivial_part_ts2 < trivial_part_ts1;
+        }
 
+        //round down/up inside time period(several time-units)
+        int64_t count = period;
+        int64_t delta_inside_period = (diff % count + count) % count;
+        int64_t step = diff - delta_inside_period +
+                       (Impl::Type == FLOOR        ? 0
+                        : delta_inside_period == 0 ? 0
+                                                   : count);
+        bool is_neg = step < 0;
         TimeInterval interval(Impl::Unit, is_neg ? -step : step, is_neg);
         is_null = !ts1.date_add_interval(interval, Impl::Unit);
         return;
