@@ -1714,8 +1714,7 @@ public class SingleNodePlanner {
                 break;
             case HIVE:
                 if (Config.enable_external_file_scan) {
-                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
-                            TableType.HIVE);
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode");
 
                 } else {
                     scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
@@ -1725,8 +1724,7 @@ public class SingleNodePlanner {
                 break;
             case ICEBERG:
                 if (Config.enable_external_file_scan) {
-                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
-                            TableType.ICEBERG);
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode");
                 } else {
                     scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
                             null, -1);
@@ -1734,8 +1732,7 @@ public class SingleNodePlanner {
                 break;
             case HUDI:
                 if (Config.enable_external_file_scan) {
-                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
-                            TableType.HUDI);
+                    scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode");
                 } else {
                     scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
                             null, -1);
