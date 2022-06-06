@@ -12,7 +12,7 @@ public class TypeArgument implements JavaAstNode {
 
     public TypeArgument(ArgType argType, TypeType typeType) {
         this.argType = argType;
-        this.typeType = Optional.of(typeType);
+        this.typeType = Optional.ofNullable(typeType);
     }
 
     @Override
@@ -27,7 +27,7 @@ public class TypeArgument implements JavaAstNode {
             case UNKNOWN:
                 return "?";
             default:
-                throw new UnsupportedOperationException("Unknown argument type: " + argType.toString());
+                throw new UnsupportedOperationException("Unknown argument type: " + argType);
         }
     }
 }

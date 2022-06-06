@@ -12,62 +12,20 @@ public class LogicalBinaryPatternGenerator extends PatternGenerator {
     }
 
     @Override
-    public String generate() {
-        String opClassName = opType.name;
-        String methodName = getPatternMethodName();
+    public String genericType() {
+        return "<LogicalBinary<" + opType.name + ", Plan, Plan>, Plan>";
+    }
 
-        String generateParamPlan = "<LogicalBinary<" + opClassName + ", Plan, Plan>, Plan>";
-        String generateParamChildren = "<LogicalBinary<" + opClassName + ", C1, C2>, Plan>";
-
-        String patterns = "default PatternDescriptor" + generateParamPlan + " " + methodName + "() {\n"
-                + "    return new PatternDescriptor" + generateParamPlan + "(\n"
-                + "        new TypePattern(" + opClassName + ".class),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n"
-                + "\n"
-                + "default <C1 extends Plan, C2 extends Plan>\n"
-                + "PatternDescriptor" + generateParamChildren + "\n"
-                + "        " + methodName + "(PatternDescriptor<C1, Plan> leftChildPattern,"
-                + " PatternDescriptor<C2, Plan> rightChildPattern) {\n"
-                + "    return new PatternDescriptor" + generateParamChildren + "(\n"
-                + "        new TypePattern(" + opClassName + ".class, leftChildPattern.pattern,"
-                + " rightChildPattern.pattern),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n"
-                + "\n";
-
-        for (EnumFieldPatternInfo info : enumFieldPatternInfos) {
-            patterns +=
-                    "default PatternDescriptor" + generateParamPlan + " " + info.patternName + "() {\n"
-                    + "    return new PatternDescriptor" + generateParamPlan + "(\n"
-                    + "        new TypePattern(" + opClassName + ".class),\n"
-                    + "        defaultPromise()\n"
-                    + "    ).when(p -> p.op." + info.enumInstanceGetter + "() == "
-                            + info.enumType + "." + info.enumInstance + ");\n"
-                    + "}\n"
-                    + "\n"
-                    + "default <C1 extends Plan, C2 extends Plan>\n"
-                    + "PatternDescriptor" + generateParamChildren + "\n"
-                    + "        " + info.patternName + "(PatternDescriptor<C1, Plan> leftChildPattern,"
-                    + " PatternDescriptor<C2, Plan> rightChildPattern) {\n"
-                    + "    return new PatternDescriptor" + generateParamChildren + "(\n"
-                    + "        new TypePattern(" + opClassName + ".class, leftChildPattern.pattern,"
-                    + " rightChildPattern.pattern),\n"
-                    + "        defaultPromise()\n"
-                    + "    ).when(p -> p.op." + info.enumInstanceGetter + "() == "
-                            + info.enumType + "." + info.enumInstance + ");\n"
-                    + "}\n\n";
-        }
-
-        return patterns;
+    @Override
+    public String genericTypeWithChildren() {
+        return "<LogicalBinary<" + opType.name + ", C1, C2>, Plan>";
     }
 
     @Override
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
+        imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalBinary");
         enumFieldPatternInfos.stream()

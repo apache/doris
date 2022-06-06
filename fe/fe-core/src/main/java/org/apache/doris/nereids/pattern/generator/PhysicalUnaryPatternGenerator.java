@@ -12,30 +12,20 @@ public class PhysicalUnaryPatternGenerator extends PatternGenerator {
     }
 
     @Override
-    public String generate() {
-        String opClassName = opType.name;
-        String methodName = getPatternMethodName();
-        return "default PatternDescriptor<PhysicalUnary<" + opClassName + ", Plan>, Plan> " + methodName + "() {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n"
-                + "\n"
-                + "default <C extends Plan>\n"
-                + "PatternDescriptor<PhysicalUnary<" + opClassName + ", C>, Plan>\n"
-                + "        " + methodName + "(PatternDescriptor<C, Plan> childPattern) {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class, childPattern.pattern),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n";
+    public String genericType() {
+        return "<PhysicalUnary<" + opType.name + ", Plan>, Plan>";
+    }
+
+    @Override
+    public String genericTypeWithChildren() {
+        return "<PhysicalUnary<" + opType.name + ", C1>, Plan>";
     }
 
     @Override
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
+        imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalUnary");
         enumFieldPatternInfos.stream()

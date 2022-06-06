@@ -53,58 +53,6 @@ public interface Patterns {
     }
 
     /**
-     * create a unboundRelation pattern.
-     */
-    default PatternDescriptor<LogicalLeaf<UnboundRelation>, Plan> unboundRelation() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_UNBOUND_RELATION),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a logicalFilter pattern.
-     */
-    default PatternDescriptor<LogicalUnary<LogicalFilter, Plan>, Plan> logicalFilter() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_FILTER, new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a logicalFilter pattern with child pattern.
-     */
-    default <T extends Plan> PatternDescriptor<LogicalUnary<LogicalFilter, T>, Plan>
-            logicalFilter(PatternDescriptor<T, Plan> childPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_FILTER, childPattern.pattern),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a logicalProject pattern.
-     */
-    default PatternDescriptor<LogicalUnary<LogicalProject, Plan>, Plan> logicalProject() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_PROJECT, new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a logicalProject pattern.
-     */
-    default <T extends Plan> PatternDescriptor<LogicalUnary<LogicalProject, T>, Plan>
-            logicalProject(PatternDescriptor<T, Plan> childPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_PROJECT, childPattern.pattern),
-                defaultPromise()
-        );
-    }
-
-    /**
      * create a logicalJoin pattern.
      */
     default PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan> logicalJoin() {

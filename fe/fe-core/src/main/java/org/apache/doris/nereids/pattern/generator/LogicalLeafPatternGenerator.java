@@ -16,12 +16,27 @@ public class LogicalLeafPatternGenerator extends PatternGenerator {
         String opClassName = opType.name;
         String methodName = getPatternMethodName();
 
-        return "default PatternDescriptor<LogicalLeaf<" + opClassName + ">, Plan> " + methodName + "() {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n";
+        String patternParam = "<LogicalLeaf<" + opClassName + ">, Plan>";
+
+        generateTypePattern(methodName, opClassName, patternParam, "", false);
+
+        for (EnumFieldPatternInfo info : enumFieldPatternInfos) {
+            String predicate = ".when(p -> p.operator." + info.enumInstanceGetter + "() == "
+                    + info.enumType + "." + info.enumInstance + ")";
+            generateTypePattern(info.patternName, opClassName, patternParam, predicate, false);
+        }
+
+        return generatePatterns();
+    }
+
+    @Override
+    public String genericType() {
+        return  "<LogicalLeaf<" + opType.name + ">, Plan>";
+    }
+
+    @Override
+    public String genericTypeWithChildren() {
+        throw new IllegalStateException("Can not get children generic type by LeafPlan");
     }
 
     @Override

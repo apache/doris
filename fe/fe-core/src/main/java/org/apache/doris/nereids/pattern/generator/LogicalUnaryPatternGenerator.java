@@ -12,30 +12,20 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
     }
 
     @Override
-    public String generate() {
-        String opClassName = opType.name;
-        String methodName = getPatternMethodName();
-        return "default PatternDescriptor<LogicalUnary<" + opClassName + ", Plan>, Plan> " + methodName + "() {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n"
-                + "\n"
-                + "default <C extends Plan>\n"
-                + "PatternDescriptor<LogicalUnary<" + opClassName + ", C>, Plan>\n"
-                + "        " + methodName + "(PatternDescriptor<C, Plan> childPattern) {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class, childPattern.pattern),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n";
+    public String genericType() {
+        return "<LogicalUnary<" + opType.name + ", Plan>, Plan>";
+    }
+
+    @Override
+    public String genericTypeWithChildren() {
+        return "<LogicalUnary<" + opType.name + ", C1>, Plan>";
     }
 
     @Override
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
+        imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalUnary");
         enumFieldPatternInfos.stream()

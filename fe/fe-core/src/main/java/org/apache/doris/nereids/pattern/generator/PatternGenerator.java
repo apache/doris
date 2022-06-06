@@ -8,6 +8,8 @@ import org.apache.doris.nereids.pattern.generator.javaast.MethodDeclaration;
 import org.apache.doris.nereids.pattern.generator.javaast.VariableDeclarator;
 
 import com.google.common.base.Joiner;
+import org.apache.commons.lang.math.IntRange;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
@@ -29,6 +31,7 @@ public abstract class PatternGenerator {
     protected final ClassDeclaration opType;
     protected final Set<String> parentClass;
     protected final List<EnumFieldPatternInfo> enumFieldPatternInfos;
+    protected final List<String> generatePatterns = new ArrayList<>();
 
     public PatternGenerator(OperatorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
         this.analyzer = analyzer;
@@ -197,13 +200,87 @@ public abstract class PatternGenerator {
                 .collect(Collectors.joining(""));
     }
 
-    public abstract String generate();
+    public String generate() {
+        String opClassName = opType.name;
+        String methodName = getPatternMethodName();
+
+        generateTypePattern(methodName, opClassName, genericType(), "", false);
+        if (childrenNum() > 0) {
+            generateTypePattern(methodName, opClassName, genericTypeWithChildren(), "", true);
+        }
+
+        for (EnumFieldPatternInfo info : enumFieldPatternInfos) {
+            String predicate = ".when(p -> p.operator." + info.enumInstanceGetter + "() == "
+                    + info.enumType + "." + info.enumInstance + ")";
+            generateTypePattern(info.patternName, opClassName, genericType(), predicate, false);
+            if (childrenNum() > 0) {
+                generateTypePattern(info.patternName, opClassName, genericTypeWithChildren(), predicate, true);
+            }
+        }
+        return generatePatterns();
+    }
+
+    public abstract String genericType();
+
+    public abstract String genericTypeWithChildren();
 
     public abstract Set<String> getImports();
 
     public abstract boolean isLogical();
 
     public abstract int childrenNum();
+
+    public String generateTypePattern(String patterName, String className,
+            String genericParam, String predicate, boolean specifyChildren) {
+
+        int childrenNum = childrenNum();
+
+        if (specifyChildren) {
+            String methodGeneric = Arrays.stream(new IntRange(1, childrenNum).toArray())
+                    .mapToObj(i -> "C" + i + " extends Plan")
+                    .collect(Collectors.joining(", ", "<", ">"));
+
+            String methodParam = Arrays.stream(new IntRange(1, childrenNum).toArray())
+                    .mapToObj(i -> "PatternDescriptor<C" + i + ", Plan> child" + i)
+                    .collect(Collectors.joining(", "));
+
+            String childrenPattern = Arrays.stream(new IntRange(1, childrenNum).toArray())
+                    .mapToObj(i -> "child" + i + ".pattern")
+                    .collect(Collectors.joining(", "));
+            if (childrenNum > 0) {
+                childrenPattern = ", " + childrenPattern;
+            }
+
+            String pattern =  "default " + methodGeneric + "\n"
+                    + "PatternDescriptor" + genericParam + "\n"
+                    + "        " + patterName + "(" + methodParam + ") {\n"
+                    + "    return new PatternDescriptor" + genericParam + "(\n"
+                    + "        new TypePattern(" + className + ".class" + childrenPattern + "),\n"
+                    + "        defaultPromise()\n"
+                    + "    )" + predicate + ";\n"
+                    + "}\n";
+            generatePatterns.add(pattern);
+            return pattern;
+        } else {
+            String childrenPattern = StringUtils.repeat("new Pattern<>(OperatorType.FIXED)", ", ", childrenNum);
+            if (childrenNum > 0) {
+                childrenPattern = ", " + childrenPattern;
+            }
+
+            String pattern = "default PatternDescriptor" + genericParam + " " + patterName + "() {\n"
+                    + "    return new PatternDescriptor" + genericParam + "(\n"
+                    + "        new TypePattern(" + className + ".class" + childrenPattern + "),\n"
+                    + "        defaultPromise()\n"
+                    + "    )" + predicate + ";\n"
+                    + "}\n";
+            generatePatterns.add(pattern);
+            return pattern;
+        }
+    }
+
+    public String generatePatterns() {
+        return generatePatterns.stream().collect(Collectors.joining("\n"));
+    }
 
     static class EnumFieldPatternInfo {
         public final String patternName;

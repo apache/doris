@@ -832,10 +832,7 @@ under the License.
                         <configuration>
                             <proc>only</proc>
                             <compilerArgs>
-                                <arg>-AoperatorPath=
-                                      ${basedir}/src/main/java/org/apache/doris/nereids/operators,
-                                      ${basedir}/src/main/java/org/apache/doris/nereids/analyzer
-                                </arg>
+                                <arg>-AoperatorPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
                             </compilerArgs>
                             <includes>
                                 <include>org/apache/doris/nereids/pattern/PatternGenerator.java</include>

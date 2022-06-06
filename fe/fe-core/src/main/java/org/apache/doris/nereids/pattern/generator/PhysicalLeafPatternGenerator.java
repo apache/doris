@@ -12,15 +12,13 @@ public class PhysicalLeafPatternGenerator extends PatternGenerator {
     }
 
     @Override
-    public String generate() {
-        String opClassName = opType.name;
-        String methodName = getPatternMethodName();
-        return "default PatternDescriptor<PhysicalLeaf<" + opClassName + ">, Plan> " + methodName + "() {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n";
+    public String genericType() {
+        return "<PhysicalLeaf<" + opType.name + ">, Plan>";
+    }
+
+    @Override
+    public String genericTypeWithChildren() {
+        throw new IllegalStateException("Can not get children generic type by LeafPlan");
     }
 
     @Override

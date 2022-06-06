@@ -12,32 +12,20 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
     }
 
     @Override
-    public String generate() {
-        String opClassName = opType.name;
-        String methodName = getPatternMethodName();
-        return "default PatternDescriptor<PhysicalBinary<" + opClassName + ", Plan, Plan>, Plan> " + methodName + "() {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n"
-                + "\n"
-                + "default <C1 extends Plan, C2 extends Plan>\n"
-                + "PatternDescriptor<PhysicalBinary<" + opClassName + ", C1, C2>, Plan>\n"
-                + "        " + methodName + "(PatternDescriptor<C1, Plan> leftChildPattern,"
-                + " PatternDescriptor<C2, Plan> rightChildPattern) {\n"
-                + "    return new PatternDescriptor<>(\n"
-                + "        new TypePattern(" + opClassName + ".class, leftChildPattern.pattern,"
-                + " rightChildPattern.pattern),\n"
-                + "        defaultPromise()\n"
-                + "    );\n"
-                + "}\n";
+    public String genericType() {
+        return "<PhysicalBinary<" + opType.name + ", Plan, Plan>, Plan>";
+    }
+
+    @Override
+    public String genericTypeWithChildren() {
+        return "<PhysicalBinary<" + opType.name + ", C1, C2>, Plan>";
     }
 
     @Override
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
+        imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalBinary");
         enumFieldPatternInfos.stream()
