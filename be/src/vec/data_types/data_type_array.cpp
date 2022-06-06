@@ -99,25 +99,9 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
     auto& data_column =
             assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
     auto& offsets = data_column.get_offsets();
-    // Since parquet is imported in batches, the offsets corresponding to each batch are continuous,
-    // but the data in each batch(IColumn) are independent.
-    // for example, the offsets in the first batch are [0~2047], and the data in IColumn is also [0~2047],
-    // but the offsets in the second batch is [2048~4095], and the data in IColumn is still [0~2047].
-    // so if we want to get the correct data, we must use relative offsets, not absolute offsets
-
-    // calc relative start offset
-    size_t data_size = data_column.get_data().size();
-    size_t last_offset = offsets.back();
-    // for example, data_size = 2000, offsets = [4000, 5000], so start_offset = 5000 - 2000 = 3000
-    size_t start_offset = last_offset - data_size; // true starting offset
 
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
-    if (row_num == 0) {
-        // if it is the first row, use start_offset insteed
-        // for row_num = 0, the offsets[row_num - 1] is always 0, it's not what we want
-        offset = start_offset;
-    }
 
     const IColumn& nested_column = data_column.get_data();
     ostr.write("[", 1);
@@ -125,8 +109,7 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
         if (i != offset) {
             ostr.write(",", 1);
         }
-        // use relative offset
-        nested->to_string(nested_column, i - start_offset, ostr);
+        nested->to_string(nested_column, i, ostr);
     }
     ostr.write("]", 1);
 }
@@ -136,17 +119,8 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
             assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
     auto& offsets = data_column.get_offsets();
 
-    // calc relative start offset
-    size_t data_size = data_column.get_data().size();
-    size_t last_offset = offsets.back();
-    size_t start_offset = last_offset - data_size;
-
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
-    if (row_num == 0) {
-        // if is the first row, use start_offset insteed
-        offset = start_offset;
-    }
     const IColumn& nested_column = data_column.get_data();
     std::stringstream ss;
     ss << "[";
@@ -154,7 +128,7 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
         if (i != offset) {
             ss << ",";
         }
-        ss << nested->to_string(nested_column, i - start_offset);
+        ss << nested->to_string(nested_column, i);
     }
     ss << "]";
     return ss.str();

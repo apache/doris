@@ -1093,9 +1093,10 @@ private:
         bool from_empty_array = is_nothing(from_nested_type);
 
         if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
-            !from_empty_array)
+            !from_empty_array) {
             LOG(FATAL)
                     << "CAST AS Array can only be performed between same-dimensional array types";
+        }
 
         const DataTypePtr& to_nested_type = to_type.get_nested_type();
 
@@ -1122,7 +1123,7 @@ private:
                 size_t nested_result = block.columns();
                 block.insert({to_nested_type, ""});
                 RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
-                                                from_column->size()));
+                                                from_col_array->get_data_ptr()->size()));
                 auto nested_result_column = block.get_by_position(nested_result).column;
 
                 /// set converted nested column to result
