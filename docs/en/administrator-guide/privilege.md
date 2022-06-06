@@ -73,9 +73,17 @@ Doris currently supports the following permissions
 
 	Nodes change permissions. Including FE, BE, BROKER node addition, deletion, offline operations. Currently, this permission can only be granted to Root users.
 
+    The root user has this permission by default.
+
+    Users who have both Grant_priv and Node_priv can grant this privilege to other users.
+
+    This permission can only be granted to the Global level.
+
 2. Grant_priv
 
 	Permissions change permissions. Allow the execution of operations including authorization, revocation, add/delete/change user/role, etc.
+
+    However, a user with this permission can not grant node_priv permission to other users, unless the user itself has node_priv permission.
 
 3. Select_priv
 
@@ -149,7 +157,7 @@ ADMIN\_PRIV and GRANT\_PRIV have the authority of **"grant authority"** at the s
 
 2. It is not supported to delete or change the permissions of default created roles or users.
 
-3. The user of the operator role has one and only one user. Users of admin roles can create multiple.
+3. The user of the operator role has one and only one user, that is, root. Users of admin roles can create multiple.
 
 4. Operational instructions for possible conflicts
 
