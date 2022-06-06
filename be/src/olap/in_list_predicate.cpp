@@ -133,13 +133,12 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                             vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);        \
                     auto& data_array = nested_col_ptr->get_data();                               \
                     std::vector<bool> selected;                                                  \
-                    size_t dict_word_num = 0;                                                    \
-                    nested_col_ptr->find_codes(_values, selected, dict_word_num);                \
+                    nested_col_ptr->find_codes(_values, selected);                               \
                     for (uint16_t i = 0; i < *size; i++) {                                       \
                         uint16_t idx = sel[i];                                                   \
                         sel[new_size] = idx;                                                     \
                         const auto& cell_value = data_array[idx];                                \
-                        bool ret = !null_bitmap[idx] && (selected[cell_value] OP false);                    \
+                        bool ret = !null_bitmap[idx] && (selected[cell_value] OP false);         \
                         new_size += _opposite ? !ret : ret;                                      \
                     }                                                                            \
                 }                                                                                \
@@ -162,14 +161,13 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(      \
                                 column);                                                         \
                 auto& data_array = dict_col.get_data();                                          \
-                std::vector<bool> selected;                                                  \
-                size_t dict_word_num = 0;                                                    \
-                dict_col.find_codes(_values, selected, dict_word_num);                \
+                std::vector<bool> selected;                                                      \
+                dict_col.find_codes(_values, selected);                                          \
                 for (uint16_t i = 0; i < *size; i++) {                                           \
                     uint16_t idx = sel[i];                                                       \
                     sel[new_size] = idx;                                                         \
                     const auto& cell_value = data_array[idx];                                    \
-                    auto result = (selected[cell_value] OP false);             \
+                    auto result = (selected[cell_value] OP false);                               \
                     new_size += _opposite ? !result : result;                                    \
                 }                                                                                \
             }                                                                                    \
