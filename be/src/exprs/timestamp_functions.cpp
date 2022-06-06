@@ -581,47 +581,74 @@ DateTimeVal TimestampFunctions::time_round(FunctionContext* ctx, const DateTimeV
     DateTimeValue ts1 = DateTimeValue::from_datetime_val(origin);
     DateTimeValue ts2 = DateTimeValue::from_datetime_val(ts_val);
     int64_t diff;
+    int64_t trivial_part_ts1;
+    int64_t trivial_part_ts2;
     switch (unit) {
     case YEAR: {
-        int year = (ts2.year() - ts1.year());
-        diff = year - (ts2.to_int64() % 10000000000 < ts1.to_int64() % 10000000000);
+        diff = (ts2.year() - ts1.year());
+        trivial_part_ts2 = ts2.to_int64() % 10000000000;
+        trivial_part_ts1 = ts1.to_int64() % 10000000000;
         break;
     }
     case MONTH: {
-        int month = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-        diff = month - (ts2.to_int64() % 100000000 < ts1.to_int64() % 100000000);
+        diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+        trivial_part_ts2 = ts2.to_int64() % 100000000;
+        trivial_part_ts1 = ts1.to_int64() % 100000000;
         break;
     }
     case WEEK: {
-        int week = ts2.daynr() / 7 - ts1.daynr() / 7;
-        diff = week - (ts2.daynr() % 7 < ts1.daynr() % 7 + (ts2.time_part_diff(ts1) < 0));
+        diff = ts2.daynr() / 7 - ts1.daynr() / 7;
+        trivial_part_ts2 =
+                ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
+        trivial_part_ts1 =
+                ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
         break;
     }
     case DAY: {
-        int day = ts2.daynr() - ts1.daynr();
-        diff = day - (ts2.time_part_diff(ts1) < 0);
+        diff = ts2.daynr() - ts1.daynr();
+        trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
+        trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
         break;
     }
     case HOUR: {
-        int hour = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
-        diff = hour - ((ts2.minute() * 60 + ts2.second()) < (ts1.minute() * 60 - ts1.second()));
+        diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
+        trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
+        trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
         break;
     }
     case MINUTE: {
-        int minute = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
-                     (ts2.minute() - ts1.minute());
-        diff = minute - (ts2.second() < ts1.second());
+        diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
+               (ts2.minute() - ts1.minute());
+        trivial_part_ts2 = ts2.second();
+        trivial_part_ts1 = ts1.second();
         break;
     }
     case SECOND: {
         diff = ts2.second_diff(ts1);
+        trivial_part_ts1 = 0;
+        trivial_part_ts2 = 0;
         break;
     }
     default:
         return DateTimeVal::null();
     }
+
+    //round down/up to specific time-unit(HOUR/DAY/MONTH...) by increase/decrease diff variable
+    if (type == CEIL) {
+        //e.g. hour_ceil(ts: 00:00:40, origin: 00:00:30), ts should be rounded to 01:00:30
+        diff += trivial_part_ts2 > trivial_part_ts1;
+    } else if (type == FLOOR) {
+        //e.g. hour_floor(ts: 01:00:20, origin: 00:00:30), ts should be rounded to 00:00:30
+        diff -= trivial_part_ts2 < trivial_part_ts1;
+    }
+
+    //round down/up inside time period(several time-units)
     int64_t count = period.val;
-    int64_t step = diff - (diff % count + count) % count + (type == FLOOR ? 0 : count);
+    int64_t delta_inside_period = (diff % count + count) % count;
+    int64_t step = diff - delta_inside_period +
+                   (type == FLOOR              ? 0
+                    : delta_inside_period == 0 ? 0
+                                               : count);
     bool is_neg = step < 0;
 
     TimeInterval interval(unit, is_neg ? -step : step, is_neg);
