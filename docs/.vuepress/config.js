@@ -66,24 +66,24 @@ function buildAlgoliaSearchConfig(lang) {
   };
 }
 
-function buildNavVersion(lang) {
+function getVersionItems (lang) {
   if (!versions) return [];
-  const realLang = lang.replace(/\//gi, "");
-  return versions[realLang];
+  const versionLang = lang.indexOf('zh-CN') > -1 ? 'zh-CN' : 'en'
+  return versions[versionLang];
 }
 
 function buildSidebarVersion(lang) {
   if (!versions) return [];
-  const realLang = lang.replace(/\//gi, ""); // /en/ => / => ''; /zh-CN/ => zh-CN
-  const versionItems = versions[realLang];
-  if (!versionItems) return []
+  const versionItems = getVersionItems(lang);
+  if (!versionItems || !versionItems.length) return []
   const sideBar = {};
+  const pathPrefix = lang.indexOf('zh-CN') > -1 ? '/zh-CN/' : lang.indexOf('en') > -1 ? '/en/' : '/'
   versionItems.forEach((item) => {
     const version = item.text;
     const docName = version === "master" ? 'docs' : version
-    const path = `/${realLang}/${docName}/`;
+    const path = `${pathPrefix}${docName}/`;
     sideBar[path] = convertSidebar(
-      require(`./sidebar/${realLang}/${docName}.js`),
+      require(`./sidebar${pathPrefix}${docName}.js`),
       path
     );
   });
@@ -155,7 +155,7 @@ module.exports = {
         versions: {
           text: "versions",
           icon: "doris doris-xiala",
-          items: buildNavVersion("en"),
+          items: getVersionItems("en"),
         },
         // 导航栏
         nav: [
@@ -240,7 +240,7 @@ module.exports = {
         versions: {
           text: "versions",
           icon: "doris doris-xiala",
-          items: buildNavVersion("zh-CN"),
+          items: getVersionItems("zh-CN"),
         },
         // 导航栏
         nav: [
