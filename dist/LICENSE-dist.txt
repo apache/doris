@@ -830,9 +830,9 @@ The Apache Software License, Version 2.0
     * EL:
         - commons-el:commons-el:1.0 (http://jakarta.apache.org/commons/el/)
     * Fabric8 :: Kubernetes :: Java Client:
-        - io.fabric8:kubernetes-client:1.4.27 (http://fabric8.io/kubernetes-client/)
+        - io.fabric8:kubernetes-client:5.12.2 (http://fabric8.io/kubernetes-client/)
     * Fabric8 :: Kubernetes Model:
-        - io.fabric8:kubernetes-model:1.0.64 (http://fabric8.io/kubernetes-model/)
+        - io.fabric8:kubernetes-model:5.12.2 (http://fabric8.io/kubernetes-model/)
     * FindBugs-jsr305:
         - com.google.code.findbugs:jsr305:3.0.0 (http://findbugs.sourceforge.net/)
         - com.google.code.findbugs:jsr305:3.0.2 (http://findbugs.sourceforge.net/)
@@ -1270,8 +1270,6 @@ The Apache Software License, Version 2.0
         - com.univocity:univocity-parsers:2.7.3 (http://github.com/univocity/univocity-parsers)
     * wildfly-common:
         - org.wildfly.common:wildfly-common:1.3.0.Final (http://www.jboss.org/wildfly-common)
-    * zjsonpatch:
-        - io.fabric8:zjsonpatch:0.2.3 (https://github.com/fabric8io/zjsonpatch/)
     * Apache XBean :: ASM 6 shaded (repackaged):
         - org.apache.xbean:xbean-asm6-shaded:4.8 (http://geronimo.apache.org/maven/xbean/4.8/xbean-asm6-shaded)
     * Jettison:
