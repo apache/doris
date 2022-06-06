@@ -37,7 +37,7 @@ public class SerialExecutorService {
 
     private SerialExecutorService(int numOfSlots, ExecutorService taskPool) {
         this.numOfSlots = numOfSlots;
-        this.slots = new SerialExecutor[numOfSlots];
+        slots = new SerialExecutor[numOfSlots];
         this.taskPool = taskPool;
         for (int i = 0; i < numOfSlots; i++) {
             slots[i] = new SerialExecutor(taskPool);
