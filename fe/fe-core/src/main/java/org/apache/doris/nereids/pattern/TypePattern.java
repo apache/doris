@@ -1,5 +1,6 @@
 package org.apache.doris.nereids.pattern;
 
+import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.TreeNode;
 
@@ -23,5 +24,10 @@ public class TypePattern<T extends TreeNode> extends Pattern<T> {
     @Override
     protected boolean doMatchRoot(T root) {
         return type.isInstance(root) && predicates.stream().allMatch(predicate -> predicate.test(root));
+    }
+
+    @Override
+    public boolean matchOperator(Operator operator) {
+        return type.isInstance(operator);
     }
 }
