@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner.external;
 
+import com.google.common.base.Strings;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
@@ -28,17 +29,8 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.HiveTable;
-import org.apache.doris.catalog.IcebergTable;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.*;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -46,7 +38,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.HMSExternalDataSource;
 import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.external.hudi.HudiProperty;
 import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.mysql.privilege.UserProperty;
 
 import org.apache.doris.planner.PlanNodeId;
@@ -54,25 +48,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
-import org.apache.doris.thrift.TBrokerRangeDesc;
-import org.apache.doris.thrift.TBrokerScanNode;
-import org.apache.doris.thrift.TBrokerScanRange;
-import org.apache.doris.thrift.TBrokerScanRangeParams;
-import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.THdfsParams;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
-import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.*;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -84,18 +66,21 @@ import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.mortbay.log.Log;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.stream.Collectors;
+
+import static org.apache.doris.planner.HiveScanNode.HIVE_DEFAULT_COLUMN_SEPARATOR;
+import static org.apache.doris.planner.HiveScanNode.HIVE_DEFAULT_LINE_DELIMITER;
 
 public class ExternalFileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(ExternalFileScanNode.class);
@@ -108,7 +93,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         public String timezone;
     }
 
-    private org.apache.doris.catalog.Table table;
+    private final org.apache.doris.catalog.Table catalogTable;
 
     private final List<String> partitionKeys = new ArrayList<>();
 
@@ -141,16 +126,17 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
         this.tableType = tableType;
 
-        this.table = desc.getTable();
+        this.catalogTable = desc.getTable();
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         assignBackends();
+        resolvHiveTable();
+
         initContext(context);
 
-        resolvHiveTable();
         if (!partitionKeys.isEmpty()) {
             extractHivePartitionPredicate();
         }
@@ -182,15 +168,28 @@ public class ExternalFileScanNode extends ExternalScanNode {
         Collections.shuffle(backends, random);
     }
 
-    private void initContext(ParamCreateContext context) {
+    private void initContext(ParamCreateContext context) throws DdlException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
         context.slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.params = new TBrokerScanRangeParams();
+        if (getTableFormatType().equals(TFileFormatType.FORMAT_CSV_PLAIN)) {
+            Map<String, String> serDeInfoParams = remoteHiveTable.getSd().getSerdeInfo().getParameters();
+            String columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
+                ? HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
+            String lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim"))
+                ? HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
+            context.params.setColumnSeparator(columnSeparator.getBytes(StandardCharsets.UTF_8)[0]);
+            context.params.setLineDelimiter(lineDelimiter.getBytes(StandardCharsets.UTF_8)[0]);
+            context.params.setColumnSeparatorStr(columnSeparator);
+            context.params.setLineDelimiterStr(lineDelimiter);
+            context.params.setColumnSeparatorLength(columnSeparator.getBytes(StandardCharsets.UTF_8).length);
+            context.params.setLineDelimiterLength(lineDelimiter.getBytes(StandardCharsets.UTF_8).length);
+        }
 
         Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
 
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> columns = catalogTable.getBaseSchema(false);
         // init slot desc add expr map, also transform hadoop functions
         for (Column column : columns) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(context.srcTupleDescriptor);
@@ -217,7 +216,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private void extractHivePartitionPredicate() throws DdlException {
         for (Expr conjunct : conjuncts) {
             ExprNodeGenericFuncDesc hiveExpr =
-                    HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct, partitionKeys, table.getName());
+                    HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct, partitionKeys, catalogTable.getName());
             if (hiveExpr != null) {
                 hivePredicates.add(hiveExpr);
             }
@@ -233,7 +232,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         } else {
             // have no predicate, make a dummy predicate "1=1" to get all partitions
             HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
-                    new HiveMetaStoreClientHelper.ExprBuilder(table.getName());
+                    new HiveMetaStoreClientHelper.ExprBuilder(catalogTable.getName());
             hivePartitionPredicate = exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
                     .val(TypeInfoFactory.intTypeInfo, 1)
                     .pred("=", 2).build();
@@ -256,8 +255,52 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    private TFileFormatType getTableFormatType() {
-        return TFileFormatType.FORMAT_PARQUET;
+    public enum DLAType {
+        HIVE,
+        HUDI,
+        ICE_BERG
+    }
+
+    private DLAType getDLAType() {
+        if (remoteHiveTable.getParameters().containsKey("table_type") &&
+            remoteHiveTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG")){
+            return DLAType.ICE_BERG;
+        } else if (remoteHiveTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
+            return DLAType.HUDI;
+        } else {
+            return DLAType.HIVE;
+        }
+    }
+
+    private TFileFormatType getTableFormatType() throws DdlException {
+        TFileFormatType type = null;
+        switch (getDLAType()) {
+            case HUDI:
+                type = TFileFormatType.FORMAT_PARQUET;
+                break;
+            case ICE_BERG:
+                String iceberg_format  = remoteHiveTable.getParameters()
+                    .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+                if (iceberg_format.equals("parquet")) {
+                    type = TFileFormatType.FORMAT_PARQUET;
+                } else if (iceberg_format.equals("orc")) {
+                    type = TFileFormatType.FORMAT_ORC;
+                } else {
+                    throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", iceberg_format));
+                }
+                break;
+            case HIVE:
+                String hive_format = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(this.inputFormatName);
+                if (hive_format.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
+                    type = TFileFormatType.FORMAT_PARQUET;
+                } else if (hive_format.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
+                    type = TFileFormatType.FORMAT_ORC;
+                } else if (hive_format.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
+                    type = TFileFormatType.FORMAT_CSV_PLAIN;
+                }
+                break;
+        }
+        return type;
     }
 
     private TFileType getTableFileType() {
@@ -268,13 +311,13 @@ public class ExternalFileScanNode extends ExternalScanNode {
         Map<String, String> props = Maps.newHashMap();
         switch (tableType) {
             case HIVE:
-                props = ((HiveTable)table).getHiveProperties();
+                props = ((HiveTable) catalogTable).getHiveProperties();
                 break;
             case HUDI:
-                props = ((HudiTable)table).getTableProperties();
+                props = ((HudiTable) catalogTable).getTableProperties();
                 break;
             case ICEBERG:
-                props =((IcebergTable)table).getIcebergProperties();
+                props =((IcebergTable) catalogTable).getIcebergProperties();
             default:
                 break;
         }
@@ -286,16 +329,16 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String tableName = "src";
         switch (tableType) {
             case HIVE:
-                dbName = ((HiveTable)table).getHiveDb();
-                tableName = ((HiveTable)table).getHiveTable();
+                dbName = ((HiveTable) catalogTable).getHiveDb();
+                tableName = ((HiveTable) catalogTable).getHiveTable();
                 break;
             case HUDI:
-                dbName = ((HudiTable)table).getHmsDatabaseName();
-                tableName = ((HudiTable)table).getHmsTableName();
+                dbName = ((HudiTable) catalogTable).getHmsDatabaseName();
+                tableName = ((HudiTable) catalogTable).getHmsTableName();
                 break;
             case ICEBERG:
-                dbName =((IcebergTable)table).getIcebergDb();
-                tableName =((IcebergTable)table).getIcebergDbTable();
+                dbName =((IcebergTable) catalogTable).getIcebergDb();
+                tableName =((IcebergTable) catalogTable).getIcebergTbl();
             default:
                 break;
         }
@@ -303,10 +346,25 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     private String getMetaStoreUrl() {
-        return getTableProperties().get(HMSExternalDataSource.HIVE_METASTORE_URIS);
+        String url = "";
+        switch (tableType) {
+            case HIVE:
+                url = getTableProperties().get(HMSExternalDataSource.HIVE_METASTORE_URIS);
+                break;
+            case HUDI:
+                url =  getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
+                break;
+            case ICEBERG:
+                url = getTableProperties().get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS);
+                break;
+        }
+        return url;
     }
 
     private InputSplit[] getSplits() throws UserException, IOException {
+        if (tableType == TableType.ICEBERG) {
+            return getFileStatus();
+        }
         String splitsPath = basePath;
         if (partitionKeys.size() > 0) {
             extractHivePartitionPredicate();
@@ -318,15 +376,35 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     .map(x -> x.getSd().getLocation()).collect(Collectors.joining(","));
         }
 
-
         Configuration configuration = new Configuration();
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
-        // alway get fileSplits from inputformat,
-        // because all hoodie input format have UseFileSplitsFromInputFormat annotation
         JobConf jobConf = new JobConf(configuration);
         FileInputFormat.setInputPaths(jobConf, splitsPath);
         return inputFormat.getSplits(jobConf, 0);
+    }
 
+    protected InputSplit[] getFileStatus() throws UserException {
+        List<Expression> icebergPredicates = new ArrayList<>();
+        for (Expr conjunct : conjuncts) {
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);
+            if (expression != null) {
+                icebergPredicates.add(expression);
+            }
+        }
+
+        org.apache.iceberg.Table table = ((IcebergTable)catalogTable).getTable();
+        TableScan scan = table.newScan();
+        for (Expression predicate : icebergPredicates) {
+            scan = scan.filter(predicate);
+        }
+        List<FileSplit> splits = new ArrayList<>();
+
+        for (FileScanTask task : scan.planFiles()) {
+            for (FileScanTask spitTask: task.split(128 * 1024 * 1024)) {
+                splits.add(new FileSplit(new Path(spitTask.file().path().toString()), spitTask.start(), spitTask.length(), new String[0]));
+            }
+        }
+        return splits.toArray(new InputSplit[0]);
     }
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
@@ -394,7 +472,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return locations;
     }
 
-    private TBrokerRangeDesc createBrokerRangeDesc(FileSplit fileSplit, List<String> columnsFromPath, int numberOfColumnsFromFile) {
+    private TBrokerRangeDesc createBrokerRangeDesc(FileSplit fileSplit, List<String> columnsFromPath, int numberOfColumnsFromFile) throws DdlException {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFileType(getTableFileType());
         rangeDesc.setFormatType(getTableFormatType());
@@ -532,11 +610,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return null;
+        return scanRangeLocations;
     }
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        return prefix + "TABLE: " + table.getName() + "\n" + prefix + "TYPE: " + table.getType() + "\n";
+        return prefix + "TABLE: " + catalogTable.getName() + "\n" + prefix + "TYPE: " + catalogTable.getType() + "\n";
     }
 }

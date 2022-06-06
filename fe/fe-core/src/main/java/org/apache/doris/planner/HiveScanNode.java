@@ -49,8 +49,8 @@ import java.util.Map;
 public class HiveScanNode extends BrokerScanNode {
     private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
 
-    private static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
-    private static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";
+    public static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
+    public static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";
 
     private HiveTable hiveTable;
     // partition column predicates of hive table

@@ -172,7 +172,7 @@ public class IcebergTable extends Table {
     }
 
     // get the iceberg table instance, if table is not loaded, load it.
-    private org.apache.iceberg.Table getTable() throws Exception {
+    public org.apache.iceberg.Table getTable() throws UserException {
         if (isLoaded.get()) {
             Preconditions.checkNotNull(icebergTable);
             return icebergTable;
@@ -189,7 +189,7 @@ public class IcebergTable extends Table {
                 LOG.info("finished to load iceberg table: {}", name);
             } catch (Exception e) {
                 LOG.warn("failed to load iceberg table {} from {}", name, icebergProperty.getHiveMetastoreUris(), e);
-                throw e;
+                throw new UserException(e);
             }
 
             isLoaded.set(true);
