@@ -18,8 +18,9 @@
 #include "olap/tablet_schema.h"
 
 #include "tablet_meta.h"
+#include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -403,6 +404,16 @@ void TabletColumn::add_sub_column(TabletColumn& sub_column) {
     _sub_columns.push_back(sub_column);
     sub_column._parent = this;
     _sub_column_count += 1;
+}
+
+vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
+        vectorized::DataTypes argument_types, std::string suffix) const {
+    std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
+    std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    return vectorized::AggregateFunctionSimpleFactory::instance().get(
+            agg_name, argument_types, {}, argument_types.back()->is_nullable());
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {

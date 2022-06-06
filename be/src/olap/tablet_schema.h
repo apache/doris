@@ -23,8 +23,8 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
-#include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace vectorized {
@@ -65,14 +65,7 @@ public:
     void set_index_length(size_t index_length) { _index_length = index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
-                                                            std::string suffix) const {
-        std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
-        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-
-        return vectorized::AggregateFunctionSimpleFactory::instance().get(
-                agg_name, argument_types, {}, argument_types.back()->is_nullable());
-    }
+                                                            std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     bool visible() const { return _visible; }
