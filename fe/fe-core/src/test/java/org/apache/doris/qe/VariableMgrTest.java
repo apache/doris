@@ -179,6 +179,7 @@ public class VariableMgrTest {
             Deencapsulation.setField(Catalog.class, "checkpointThreadId", Thread.currentThread().getId());
             currentCatalog.getCheckpointer().doCheckpoint();
         } catch (Throwable e) {
+            e.printStackTrace();
             Assert.fail(e.getMessage());
         } finally {
             // Restore the ckptThreadId

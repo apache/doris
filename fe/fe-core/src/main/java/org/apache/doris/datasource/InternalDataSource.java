@@ -3208,6 +3208,10 @@ public class InternalDataSource implements DataSourceIf {
             }
             Catalog.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
         }
+        // ATTN: this should be done after load Db, and before loadAlterJob
+        recreateTabletInvertIndex();
+        // rebuild es state state
+        getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
     }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.persist.meta;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -107,4 +107,15 @@ public class MetaFooter {
         this.length = length;
     }
 
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("checksum: ").append(checksum);
+        sb.append("\nlength: ").append(length);
+        sb.append("\nindices:");
+        for (MetaIndex metaIndex : metaIndices) {
+            sb.append("\n\t").append(metaIndex.toString());
+        }
+        return sb.toString();
+    }
 }
