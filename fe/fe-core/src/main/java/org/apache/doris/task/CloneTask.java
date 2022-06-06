@@ -68,7 +68,7 @@ public class CloneTask extends AgentTask {
     public void setPathHash(long srcPathHash, long destPathHash) {
         this.srcPathHash = srcPathHash;
         this.destPathHash = destPathHash;
-        this.taskVersion = VERSION_2;
+        taskVersion = VERSION_2;
     }
 
     public int getTaskVersion() {
