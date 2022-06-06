@@ -89,7 +89,7 @@ protected:
     int _line_delimiter_length;
 
     // Reader
-    FileReader* _cur_file_reader;
+    std::shared_ptr<FileReader> _cur_file_reader;
     LineReader* _cur_line_reader;
     JsonReader* _cur_json_reader;
     bool _cur_reader_eof;
@@ -98,9 +98,6 @@ protected:
     // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line
     bool _skip_next_line;
-
-    // used to hold current StreamLoadPipe
-    std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
 };
 
 class JsonDataInternal {

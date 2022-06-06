@@ -17,17 +17,17 @@
 
 #pragma once
 
-#include <hdfs/hdfs.h>
+#define _FILE_OFFSET_BITS 64
+#include <stdio.h>
 
-#include "exec/file_reader.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include "file_reader.h"
 
 namespace doris {
 
-class HdfsFileReader : public FileReader {
+class LocalFileReader : public FileReader {
 public:
-    HdfsFileReader(const THdfsParams& hdfs_params, const std::string& path, int64_t start_offset);
-    virtual ~HdfsFileReader();
+    LocalFileReader(const std::string& path, int64_t start_offset);
+    virtual ~LocalFileReader();
 
     virtual Status open() override;
 
@@ -46,16 +46,10 @@ public:
     virtual bool closed() override;
 
 private:
-    Status connect();
-
-private:
-    THdfsParams _hdfs_params;
-    std::string _namenode;
     std::string _path;
     int64_t _current_offset;
     int64_t _file_size;
-    hdfsFS _hdfs_fs;
-    hdfsFile _hdfs_file;
+    FILE* _fp;
 };
 
 } // namespace doris
