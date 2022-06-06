@@ -46,7 +46,7 @@ inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
              0xffff0000);
 #else
     uint32_t mask = 0;
-    for (size_t i = 0; i < 32; ++i) {
+    for (std::size_t i = 0; i < 32; ++i) {
         mask |= static_cast<uint32_t>(1 == *(data + i)) << i;
     }
 #endif

@@ -734,14 +734,14 @@ public class Alter {
     }
 
     public AlterHandler getSchemaChangeHandler() {
-        return this.schemaChangeHandler;
+        return schemaChangeHandler;
     }
 
     public AlterHandler getMaterializedViewHandler() {
-        return this.materializedViewHandler;
+        return materializedViewHandler;
     }
 
     public AlterHandler getClusterHandler() {
-        return this.clusterHandler;
+        return clusterHandler;
     }
 }

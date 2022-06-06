@@ -37,6 +37,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/path_util.h"
@@ -239,8 +240,8 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
-void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                            std::vector<RowsetSharedPtr>& to_delete) {
+Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
+                              std::vector<RowsetSharedPtr>& to_delete, bool check_delete) {
     // the compaction process allow to compact the single version, eg: version[4-4].
     // this kind of "single version compaction" has same "input version" and "output version".
     // which means "to_add->version()" equals to "to_delete->version()".
@@ -265,6 +266,22 @@ void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
         }
     } else {
         same_version = false;
+    }
+
+    if (check_delete) {
+        for (auto& rs : to_delete) {
+            auto find_rs = _rs_version_map.find(rs->version());
+            if (find_rs == _rs_version_map.end()) {
+                LOG(WARNING) << "try to delete not exist version " << rs->version() << " from "
+                             << full_name();
+                return Status::OLAPInternalError(OLAP_ERR_DELETE_VERSION_ERROR);
+            } else if (find_rs->second->rowset_id() != rs->rowset_id()) {
+                LOG(WARNING) << "try to delete version " << rs->version() << " from " << full_name()
+                             << ", but rowset id changed, delete rowset id is " << rs->rowset_id()
+                             << ", exists rowsetid is" << find_rs->second->rowset_id();
+                return Status::OLAPInternalError(OLAP_ERR_DELETE_VERSION_ERROR);
+            }
+        }
     }
 
     std::vector<RowsetMetaSharedPtr> rs_metas_to_delete;
@@ -303,6 +320,7 @@ void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
             StorageEngine::instance()->add_unused_rowset(rs);
         }
     }
+    return Status::OK();
 }
 
 // snapshot manager may call this api to check if version exists, so that
@@ -707,6 +725,15 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
             return false;
         }
     }
+
+    if (tablet_state() == TABLET_NOTREADY) {
+        // Before doing schema change, tablet's rowsets that versions smaller than max converting version will be
+        // removed. So, we only need to do the compaction when it is being converted.
+        // After being converted, tablet's state will be changed to TABLET_RUNNING.
+        auto schema_change_handler = SchemaChangeHandler::instance();
+        return schema_change_handler->tablet_in_converting(tablet_id());
+    }
+
     return true;
 }
 
@@ -798,13 +825,15 @@ void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
 }
 
 void Tablet::max_continuous_version_from_beginning(Version* version, Version* max_version) {
+    bool has_version_cross;
     std::shared_lock rdlock(_meta_lock);
-    _max_continuous_version_from_beginning_unlocked(version, max_version);
+    _max_continuous_version_from_beginning_unlocked(version, max_version, &has_version_cross);
 }
 
-void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
-                                                             Version* max_version) const {
+void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, Version* max_version,
+                                                             bool* has_version_cross) const {
     std::vector<Version> existing_versions;
+    *has_version_cross = false;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
@@ -816,10 +845,12 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
                   return left.first < right.first;
               });
 
-    Version max_continuous_version = {-1, 0};
+    Version max_continuous_version = {-1, -1};
     for (int i = 0; i < existing_versions.size(); ++i) {
         if (existing_versions[i].first > max_continuous_version.second + 1) {
             break;
+        } else if (existing_versions[i].first <= max_continuous_version.second) {
+            *has_version_cross = true;
         }
         max_continuous_version = existing_versions[i];
     }
@@ -1018,6 +1049,15 @@ void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
     std::shared_lock rdlock(_meta_lock);
     _cumulative_compaction_policy->pick_candidate_rowsets(skip_window_sec, _rs_version_map,
                                                           _cumulative_point, candidate_rowsets);
+}
+
+void Tablet::find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const {
+    std::shared_lock rdlock(_meta_lock);
+    for (auto& it : _rs_version_map) {
+        if (it.second->rowset_meta()->rowset_type() == RowsetTypePB::ALPHA_ROWSET) {
+            rowsets->push_back(it.second);
+        }
+    }
 }
 
 void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
@@ -1248,7 +1288,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     // We start from the initial version and traverse backwards until we meet a discontinuous version.
     Version cversion;
     Version max_version;
-    _max_continuous_version_from_beginning_unlocked(&cversion, &max_version);
+    bool has_version_cross;
+    _max_continuous_version_from_beginning_unlocked(&cversion, &max_version, &has_version_cross);
     tablet_info->__set_version_miss(cversion.second < max_version.second);
     // find rowset with max version
     auto iter = _rs_version_map.find(max_version);
@@ -1263,6 +1304,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
         // still sets the state to normal when reporting. Note that every task has an timeout,
         // so if the task corresponding to this change hangs, when the task timeout, FE will know
         // and perform state modification operations.
+    }
+
+    if (has_version_cross && tablet_state() == TABLET_RUNNING) {
+        tablet_info->__set_used(false);
     }
 
     // the report version is the largest continuous version, same logic as in FE side

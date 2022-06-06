@@ -66,7 +66,7 @@ import java.util.stream.Collectors;
 public class HashJoinNode extends PlanNode {
     private final static Logger LOG = LogManager.getLogger(HashJoinNode.class);
 
-    private final TableRef     innerRef;
+    private TableRef innerRef;
     private final JoinOperator joinOp;
     // predicates of the form 'a=b' or 'a<=>b'
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
@@ -97,6 +97,60 @@ public class HashJoinNode extends PlanNode {
         if (VectorizedUtil.isVectorized()) {
             if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
                     || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+                tupleIds.addAll(outer.getTupleIds());
+            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+                tupleIds.addAll(inner.getTupleIds());
+            } else {
+                tupleIds.addAll(outer.getTupleIds());
+                tupleIds.addAll(inner.getTupleIds());
+            }
+        } else {
+            tupleIds.addAll(outer.getTupleIds());
+            tupleIds.addAll(inner.getTupleIds());
+        }
+
+        for (Expr eqJoinPredicate : eqJoinConjuncts) {
+            Preconditions.checkArgument(eqJoinPredicate instanceof BinaryPredicate);
+            BinaryPredicate eqJoin = (BinaryPredicate) eqJoinPredicate;
+            if (eqJoin.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                Preconditions.checkArgument(eqJoin.getChildren().size() == 2);
+                if (!eqJoin.getChild(0).isNullable() || !eqJoin.getChild(1).isNullable()) {
+                    eqJoin.setOp(BinaryPredicate.Operator.EQ);
+                }
+            }
+            this.eqJoinConjuncts.add(eqJoin);
+        }
+        this.distrMode = DistributionMode.NONE;
+        this.otherJoinConjuncts = otherJoinConjuncts;
+        children.add(outer);
+        children.add(inner);
+
+        // Inherits all the nullable tuple from the children
+        // Mark tuples that form the "nullable" side of the outer join as nullable.
+        nullableTupleIds.addAll(inner.getNullableTupleIds());
+        nullableTupleIds.addAll(outer.getNullableTupleIds());
+        if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
+            nullableTupleIds.addAll(outer.getTupleIds());
+            nullableTupleIds.addAll(inner.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
+            nullableTupleIds.addAll(inner.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
+            nullableTupleIds.addAll(outer.getTupleIds());
+        }
+    }
+
+    public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
+                        List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
+        super(id, "HASH JOIN");
+        Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
+        Preconditions.checkArgument(otherJoinConjuncts != null);
+        tblRefIds.addAll(outer.getTblRefIds());
+        tblRefIds.addAll(inner.getTblRefIds());
+        this.joinOp = joinOp;
+        // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
+        if (VectorizedUtil.isVectorized()) {
+            if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 tupleIds.addAll(outer.getTupleIds());
             } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
                 tupleIds.addAll(inner.getTupleIds());

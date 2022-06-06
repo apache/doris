@@ -5,6 +5,7 @@ import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -14,18 +15,12 @@ public class PhysicalHashJoin
 
     private JoinType joinType;
 
-    // TODO: temp define, use Predicate when it's ready
-    private ComparisonPredicate predicate;
-
-    private List<Expression>  eqConjuncts;
-
-    private List<Expression> otherConjuncts;
+    private Expression predicate;
 
     public PhysicalHashJoin(OperatorType type, JoinType joinType, ComparisonPredicate predicate) {
         super(type);
         this.joinType = joinType;
         this.predicate = predicate;
-        this.eqConjuncts =
     }
 
     public PhysicalHashJoin() {
@@ -36,8 +31,7 @@ public class PhysicalHashJoin
         return joinType;
     }
 
-    public boolean isCrossJoin() {
-        return joinType.equals(JoinType.CROSS_JOIN) || eqConjuncts.isEmpty();
+    public Expression getPredicate() {
+        return predicate;
     }
-
 }

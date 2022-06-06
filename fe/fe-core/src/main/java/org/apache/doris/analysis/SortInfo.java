@@ -73,6 +73,16 @@ public class SortInfo {
         materializedOrderingExprs = Lists.newArrayList();
     }
 
+    public SortInfo(List<Expr> orderingExprs,
+                    List<Boolean> isAscOrder,
+                    List<Boolean> nullsFirstParams,
+                    TupleDescriptor sortTupleDesc) {
+        this.orderingExprs = orderingExprs;
+        this.isAscOrder = isAscOrder;
+        this.nullsFirstParams = nullsFirstParams;
+        this.sortTupleDesc = sortTupleDesc;
+    }
+
     /**
      * C'tor for cloning.
      */
