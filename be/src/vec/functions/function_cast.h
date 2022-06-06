@@ -814,7 +814,7 @@ struct ConvertThroughParsing {
             bool parsed;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
-                        vec_to.get_scale());
+                                                    vec_to.get_scale());
             } else {
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
             }
