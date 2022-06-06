@@ -71,7 +71,7 @@ under the License.
     <li>
       <a href="/blogs/PracticalCases/flink-cdc-to-doris.html">
         <div class="newsboxTitle">
-          <p class="t">Use Flink CDC to realize real-time MySQL data into Apache Doris</p>
+          <p class="t">Use Flink CDC to import real-time MySQL data into Apache Doris</p>
           <!-- <p class="s">Use Flink CDC to realize real-time MySQL data into Apache Doris</p> -->
           <i class="doris doris-jiantou_xiangyouliangci"></i>
         </div>
@@ -105,7 +105,7 @@ under the License.
         <img src="/blog-images/data.png" alt="Data" />
         <div class="dim"><img src="/blog-images/data-1.png" alt="Data" /></div>
       </div>
-      <div class="al wow fadeInUp"><a href="/docs/get-starting/get-starting.html" class="a">Understand more</a></div>
+      <div class="al wow fadeInUp"><a href="/docs/get-starting/get-starting.html" class="a">Understand More</a></div>
     </div>
   </div>
 </div>
@@ -113,9 +113,9 @@ under the License.
 <div class="apacheDoris">
   <div class="appleft">
     <div class="apptitle">
-      <p class="t wow fadeInUp">Data import </p>
+      <p class="t wow fadeInUp">Data Import </p>
       <p class="s wow fadeInUp">Apache Doris provides rich data synchronization methods, supports fast loading of data from localhost, Hadoop, Flink, Spark, Kafka and other  systems.</p>
-      <div class="al wow fadeInUp"><a href="/zh-CN/docs/data-operate/import/load-manual.html">Understand more</a></div>
+      <div class="al wow fadeInUp"><a href="/zh-CN/docs/data-operate/import/load-manual.html">Understand More</a></div>
     </div>
     <div class="appimg wow fadeInUp">
       <img src="/blog-images/doris1.png" alt="doris">
@@ -127,8 +127,8 @@ under the License.
   <div class="appright">
     <div class="apptitle">
       <p class="t wow fadeInUp">Data Access</p>
-      <p class="s wow fadeInUp">Apache Doris can directly access data in MySQL, PostgreSQL, Oracle, S3, Hive, Iceberg, Elasticsearch and other systems without data replication. At the same time, the data stored in Doris can also be read by Spark and Flink, and can be output to the upstream data application for display and analysis.</p>
-      <div class="al wow fadeInUp"><a href="/docs/ecosystem/external-table/doris-on-es.html">Understand more</a></div>
+      <p class="s wow fadeInUp">Apache Doris can directly access data in MySQL, PostgreSQL, Oracle, S3, Hive, Iceberg, Elasticsearch and other systems without data replication. At the same time, the data stored in Doris can also be read by Spark and Flink, and can be output to the downstream data application for display and analysis.</p>
+      <div class="al wow fadeInUp"><a href="/docs/ecosystem/external-table/doris-on-es.html">Understand More</a></div>
     </div>
     <div class="appimg wow fadeInUp">
       <img src="/blog-images/doris2.png" alt="doris">
@@ -139,9 +139,9 @@ under the License.
   </div>
   <div class="appleft appleft3">
     <div class="apptitle">
-      <p class="t wow fadeInUp">Data application</p>
-      <p class="s wow fadeInUp">Apache Doris supports outputting data to downstream applications through JDBC standard protocol, and also supports various Bi / Client tools to connect Doris through MySQL protocol。Based on this, Apache Doris can be well applied in many business fields, such as multi-dimensional reporting, user portrait, ad-hoc query, real-time dashboard and so on.</p>
-      <div class="al wow fadeInUp"><a href="/docs/get-starting/get-starting.html">Understand more</a></div>
+      <p class="t wow fadeInUp">Data Application</p>
+      <p class="s wow fadeInUp">Apache Doris supports outputting data to downstream applications through JDBC standard protocol, and also supports various BI / Client tools to connect Doris through MySQL protocol。Based on this, Apache Doris can be well applied in many business fields, such as multi-dimensional reporting, user portrait, ad-hoc query, real-time dashboard and so on.</p>
+      <div class="al wow fadeInUp"><a href="/docs/get-starting/get-starting.html">Understand More</a></div>
     </div>
     <div class="appimg wow fadeInUp">
       <img src="/blog-images/doris3.png" alt="doris">
@@ -160,7 +160,7 @@ under the License.
         </div>
         <div class="icotitle">
           <p class="t">Extreme<br>Performance</p>
-          <p class="s">Efficient column storage engineand modern MPP architecture,combined with intelligentmaterialized view,vectorizedexecution and various indexacceleration, achieve the ultimate query performance.</p>
+          <p class="s">Efficient column storage engine and modern MPP architecture,combined with intelligent materialized view,vectorized execution and various index acceleration, achieve the ultimate query performance.</p>
         </div>
       </li>
       <li class="wow fadeInUp" data-wow-delay="400ms">
@@ -169,7 +169,7 @@ under the License.
         </div>
         <div class="icotitle">
           <p class="t">Easy<br>to Use</p>
-          <p class="s">Fully compatible with MySQLprotocol and standard SQL, user-friendly. Support online tablestructure change and preaggregation rollup, and easilyintegrate with the existing system framework.</p>
+          <p class="s">Fully compatible with MySQL protocol and standard SQL, user-friendly. Support online table structure change and pre aggregation rollup, and easily integrate with the existing system framework.</p>
         </div>
       </li>
       <li class="wow fadeInUp" data-wow-delay="600ms">
@@ -178,7 +178,7 @@ under the License.
         </div>
         <div class="icotitle">
           <p class="t">Hybrid<br>Batch-Stream</p>
-          <p class="s">Support efficient import of offlinebatch data and real-time streamingdata, and ensure second level real-time performance.Multi version polarmechanism combined with importtransaction support solves read-writeconflicts and implements exactly once</p>
+          <p class="s">Support efficient import of offline batch data and real-time streaming data, and ensure second level real-time performance. Multi version polar mechanism combined with  import transaction support solves read-write conflicts and implements exactly once</p>
         </div>
       </li>
       <li class="wow fadeInUp" data-wow-delay="200ms">
@@ -187,7 +187,7 @@ under the License.
         </div>
         <div class="icotitle">
           <p class="t">Simple<br>Maintenance</p>
-          <p class="s">Highly integrated, without any dependence on externalcomponents, and the cluster scaleis elastically scalable online.Thesystem is highly available, node failure, automatic replicaswitching, data fragmentation and automatic load balancing.</p>
+          <p class="s">Highly integrated, without any dependence on external components, and the cluster scale is elastically scalable online.The system is highly available, node failure, automatic replica switching, data fragmentation and automatic load balancing.</p>
         </div>
       </li>
       <li class="wow fadeInUp" data-wow-delay="400ms">
@@ -196,7 +196,7 @@ under the License.
         </div>
         <div class="icotitle">
           <p class="t">Rich<br>Ecology</p>
-          <p class="s">Support loading and accessingmultiple heterogeneous datasources, has extensive big dataecological compatibility, andadapts with mainstream Bi toolsto realize the ecological closedloop from data processing to data analysis.</p>
+          <p class="s">Support loading and accessing multiple heterogeneous data sources, has extensive big data ecological compatibility, and adapts with mainstream BI tools to realize the ecological closed loop from data processing to data analysis.</p>
         </div>
       </li>
       <li class="wow fadeInUp" data-wow-delay="600ms">
@@ -205,7 +205,7 @@ under the License.
         </div>
         <div class="icotitle">
           <p class="t">Ultra-high<br>Concurency</p>
-          <p class="s">Without concurrent bottleneck, itcan support tens of thousands ofusers to use at the same time in thereal production environment.Through flexible resource allocationstrategy, it can meet high concurrentpoint queries and high throughputlarge queries at the same time.</p>
+          <p class="s">Without concurrent bottleneck, it can support tens of thousands of users to use at the same time in thereal production environment. Through flexible resource allocations trategy, it can meet high concurrent point queries and high through put large queries at the same time.</p>
         </div>
       </li>
     </ul>
@@ -226,7 +226,7 @@ under the License.
           </div>
           <div class="coretitle">
             <p class="t"> Vectorization execution engine</p>
-            <p class="s">Give full play to the parallel planning ability of modern CPU through vectorization execution engine.</p>
+            <p class="s">Give full play to the parallel planning ability of modern CPU through <br />vectorization execution engine.</p>
           </div>
         </li>
         <li class="wow fadeInUp">
