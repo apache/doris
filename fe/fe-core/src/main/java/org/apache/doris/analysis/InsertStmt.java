@@ -689,9 +689,8 @@ public class InsertStmt extends DdlStmt {
                     resultExprs.add(NullLiteral.create(col.getType()));
                 }
                 else {
-                    if (col.getType().isDatetime() && col.isCurrentTimestamp()) {
-                        DateLiteral defaultValueExpr = FEFunctions.now();
-                        resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                    if (col.getDefaultValueExprDef() != null) {
+                        resultExprs.add(col.getDefaultValueExpr());
                     } else {
                         StringLiteral defaultValueExpr;
                         defaultValueExpr = new StringLiteral(col.getDefaultValue());

@@ -61,24 +61,25 @@ public class ColumnDef {
     public static class DefaultValue {
         public boolean isSet;
         public String value;
-        // only used for datetime column type
-        public boolean isCurrentTimestamp;
+        // used for column which defaultValue is an expression.
+        public DefaultValueExprDef defaultValueExprDef;
 
         public DefaultValue(boolean isSet, String value) {
             this.isSet = isSet;
             this.value = value;
-            this.isCurrentTimestamp = false;
+            this.defaultValueExprDef = null;
         }
 
-        public DefaultValue(boolean isSet, String value, boolean isCurrentTimestamp) {
+        public DefaultValue(boolean isSet, String value, String exprName) {
             this.isSet = isSet;
             this.value = value;
-            this.isCurrentTimestamp = true;
+            this.defaultValueExprDef = new DefaultValueExprDef(exprName);
         }
 
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
-        public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, true);
+        public static String NOW = "now";
+        public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
@@ -265,11 +266,11 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet && defaultValue.value != null) {
-            validateDefaultValue(type, defaultValue.value, defaultValue.isCurrentTimestamp);
+            validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
         }
     }
 
-    public static void validateDefaultValue(Type type, String defaultValue, boolean isCurrentTimestamp) throws AnalysisException {
+    public static void validateDefaultValue(Type type, String defaultValue, DefaultValueExprDef defaultValueExprDef) throws AnalysisException {
         Preconditions.checkNotNull(defaultValue);
         Preconditions.checkArgument(type.isScalarType());
         ScalarType scalarType = (ScalarType) type;
@@ -304,7 +305,7 @@ public class ColumnDef {
                 DateLiteral dateLiteral = new DateLiteral(defaultValue, type);
                 break;
             case DATETIME:
-                if (!isCurrentTimestamp) {
+                if (defaultValueExprDef == null || !defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                     DateLiteral datetimeLiteral = new DateLiteral(defaultValue, type);
                 }
                 break;
@@ -358,7 +359,7 @@ public class ColumnDef {
 
     public Column toColumn() {
         return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment,
-                visible, defaultValue.isCurrentTimestamp);
+                visible, defaultValue.defaultValueExprDef);
     }
 
     @Override

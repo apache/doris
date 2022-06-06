@@ -160,8 +160,8 @@ public abstract class LoadScanNode extends ScanNode {
                 } else {
                     Column column = destSlotDesc.getColumn();
                     if (column.getDefaultValue() != null) {
-                        if(column.getType().isDatetime() && column.isCurrentTimestamp()) {
-                            expr = FEFunctions.now();
+                        if(column.getDefaultValueExprDef() != null) {
+                            expr = column.getDefaultValueExpr();
                         } else {
                             expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
                         }

@@ -778,6 +778,17 @@ public class FunctionCallExpr extends Expr {
                 fnName, fnParams.isStar() ? "*" : Joiner.on(", ").join(argTypesSql));
     }
 
+    public void analyzeImplForDefaultValue() throws AnalysisException {
+        fn = getBuiltinFunction(null, fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        type = fn.getReturnType();
+        for (int i = 0; i < children.size(); ++i) {
+            if (getChild(i).getType().isNull()) {
+                uncheckedCastChild(Type.BOOLEAN, i);
+            }
+        }
+        return;
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (isMergeAggFn) {

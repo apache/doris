@@ -1354,8 +1354,8 @@ public class Load {
                         exprs.add(funcExpr.getChild(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            if(column.getType().isDatetime() && column.isCurrentTimestamp()) {
-                                exprs.add(FEFunctions.now()); 
+                            if (column.getDefaultValueExprDef() != null) {
+                                exprs.add(column.getDefaultValueExpr()); 
                             } else {
                                 exprs.add(new StringLiteral(column.getDefaultValue()));
                             }
@@ -1377,8 +1377,8 @@ public class Load {
                         innerIfExprs.add(funcExpr.getChild(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            if(column.getType().isDatetime() && column.isCurrentTimestamp()) {
-                                innerIfExprs.add(FEFunctions.now()); 
+                            if(column.getDefaultValueExprDef() != null) {
+                                innerIfExprs.add(column.getDefaultValueExpr()); 
                             } else {
                                 innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
                             }
