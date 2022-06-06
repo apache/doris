@@ -368,8 +368,8 @@ public class BrokerMgr {
         }
 
         public ModifyBrokerInfo(String brokerName, List<FsBroker> brokerAddresses) {
-            this.brokerName = brokerName;
-            this.brokerAddresses = brokerAddresses;
+            brokerName = brokerName;
+            brokerAddresses = brokerAddresses;
         }
 
         @Override
