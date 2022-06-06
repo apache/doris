@@ -38,9 +38,9 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
         String stmt = "admin set frontend config(\"unknown_config\" = \"unknown\");";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
         DdlException exception = Assertions.assertThrows(DdlException.class,
-            () -> Catalog.getCurrentCatalog().setConfig(adminSetConfigStmt));
+                () -> Catalog.getCurrentCatalog().setConfig(adminSetConfigStmt));
         Assertions.assertEquals("errCode = 2, detailMessage = Config 'unknown_config' does not exist",
-            exception.getMessage());
+                exception.getMessage());
     }
 
     @Test
@@ -49,6 +49,6 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
                 Assertions.assertThrows(AnalysisException.class,
                         () -> parseAndAnalyzeStmt("admin set frontend config;"));
         Assertions.assertEquals("errCode = 2, detailMessage = config parameter size is not equal to 1",
-            exception.getMessage());
+                exception.getMessage());
     }
 }

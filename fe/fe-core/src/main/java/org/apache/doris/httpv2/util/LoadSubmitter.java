@@ -106,7 +106,7 @@ public class LoadSubmitter {
 
             File loadFile = checkAndGetFile(loadContext.file);
             try (BufferedOutputStream bos = new BufferedOutputStream(conn.getOutputStream());
-                 BufferedInputStream bis = new BufferedInputStream(new FileInputStream(loadFile));) {
+                    BufferedInputStream bis = new BufferedInputStream(new FileInputStream(loadFile));) {
                 int i;
                 while ((i = bis.read()) > 0) {
                     bos.write(i);

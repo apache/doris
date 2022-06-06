@@ -51,7 +51,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/minidump.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -332,9 +331,11 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
+#ifdef USE_MEM_TRACKER
     if (doris::config::track_new_delete) {
         init_hook();
     }
+#endif // USE_MEM_TRACKER
 #endif
 
     std::vector<doris::StorePath> paths;
@@ -455,15 +456,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    // 5. init minidump
-    doris::Minidump minidump;
-    status = minidump.init();
-    if (!status.ok()) {
-        LOG(ERROR) << "Failed to initialize minidump: " << status.get_error_msg();
-        doris::shutdown_logging();
-        exit(1);
-    }
-
 #ifdef LIBJVM
     // 6. init jni
     status = doris::JniUtil::Init();
@@ -497,7 +489,6 @@ int main(int argc, char** argv) {
     be_server->stop();
     be_server->join();
     engine->stop();
-    minidump.stop();
 
     delete be_server;
     be_server = nullptr;

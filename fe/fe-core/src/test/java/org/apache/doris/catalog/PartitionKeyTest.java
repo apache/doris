@@ -198,7 +198,7 @@ public class PartitionKeyTest {
 
     @Test
     public void testSerialization() throws Exception {
-        FakeCatalog fakeCatalog = new FakeCatalog();
+        FakeCatalog fakeCatalog = new FakeCatalog(); // CHECKSTYLE IGNORE THIS LINE
         FakeCatalog.setMetaVersion(FeConstants.meta_version);
 
         // 1. Write objects to file

@@ -33,6 +33,7 @@
 #include "util/thread.h"
 #include "vec/exec/vbroker_scanner.h"
 #include "vec/exec/vjson_scanner.h"
+#include "vec/exec/vorc_scanner.h"
 #include "vec/exec/vparquet_scanner.h"
 
 namespace doris {
@@ -237,9 +238,15 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         }
         break;
     case TFileFormatType::FORMAT_ORC:
-        scan = new ORCScanner(_runtime_state, runtime_profile(), scan_range.params,
-                              scan_range.ranges, scan_range.broker_addresses, _pre_filter_texprs,
-                              counter);
+        if (_vectorized) {
+            scan = new vectorized::VORCScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                               scan_range.ranges, scan_range.broker_addresses,
+                                               _pre_filter_texprs, counter);
+        } else {
+            scan = new ORCScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                  scan_range.ranges, scan_range.broker_addresses,
+                                  _pre_filter_texprs, counter);
+        }
         break;
     case TFileFormatType::FORMAT_JSON:
         if (_vectorized) {

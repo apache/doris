@@ -330,9 +330,6 @@ set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
-add_library(breakpad STATIC IMPORTED)
-set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
-
 if (WITH_KERBEROS)
     # kerberos lib for libhdfs3 
     add_library(gsasl STATIC IMPORTED)
@@ -396,7 +393,7 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
 if (USE_LLD)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
 endif ()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
@@ -436,6 +433,14 @@ endif()
 
 if (WITH_LZO)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
+endif()
+
+# Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
+# and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
+# Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
+# which will bring about a 2% performance improvement, which may be useful in performance POC.
+if (USE_MEM_TRACKER)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_MEM_TRACKER")
 endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
@@ -508,7 +513,6 @@ include_directories(
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
-    ${THIRDPARTY_DIR}/include/breakpad/
 )
 
 if (BUILD_JAVA_UDF)
@@ -624,7 +628,6 @@ set(COMMON_THIRDPARTY
     odbc
     cctz
     minizip
-    breakpad
     ${AWS_LIBS}
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp

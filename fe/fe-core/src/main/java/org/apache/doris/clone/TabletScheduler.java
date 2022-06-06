@@ -338,7 +338,7 @@ public class TabletScheduler extends MasterDaemon {
                         infoService, invertedIndex);
                 clusterLoadStatistic.init();
                 newStatisticMap.put(clusterName, tag, clusterLoadStatistic);
-                LOG.info("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
+                LOG.debug("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
             }
         }
 
@@ -368,7 +368,7 @@ public class TabletScheduler extends MasterDaemon {
             pendingTablets.add(tabletCtx);
         }
 
-        LOG.info("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
+        LOG.debug("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
     }
 
     /**
@@ -545,13 +545,14 @@ public class TabletScheduler extends MasterDaemon {
                 try {
                     DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
                     for (TransactionState transactionState : dbTransactionMgr.getPreCommittedTxnList()) {
-                        if(transactionState.getTableIdList().contains(tbl.getId())) {
+                        if (transactionState.getTableIdList().contains(tbl.getId())) {
                             // If table releate to transaction with precommitted status, do not allow to do balance.
                             throw new SchedException(Status.UNRECOVERABLE,
                                     "There exists PRECOMMITTED transaction related to table");
                         }
                     }
                 } catch (AnalysisException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
             }
 
@@ -578,8 +579,8 @@ public class TabletScheduler extends MasterDaemon {
             }
 
             // for disk balance more accurately, we only schedule tablet when has lastly stat info about disk
-            if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE &&
-                   tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.DISK_BALANCE) {
+            if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE
+                    && tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.DISK_BALANCE) {
                 checkDiskBalanceLastSuccTime(tabletCtx.getTempSrcBackendId(), tabletCtx.getTempSrcPathHash());
             }
             // we do not concern priority here.

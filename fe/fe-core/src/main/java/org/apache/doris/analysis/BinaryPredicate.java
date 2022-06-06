@@ -134,11 +134,17 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
+        public boolean isEquivalence() {
+            return this == EQ || this == EQ_FOR_NULL;
+        }
 
-        public boolean isUnNullSafeEquivalence() { return this == EQ; };
+        public boolean isUnNullSafeEquivalence() {
+            return this == EQ;
+        }
 
-        public boolean isUnequivalence() { return this == NE; }
+        public boolean isUnequivalence() {
+            return this == NE;
+        }
     }
 
     private Operator op;
@@ -163,15 +169,20 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected BinaryPredicate(BinaryPredicate other) {
         super(other);
         op = other.op;
-        slotIsleft= other.slotIsleft;
+        slotIsleft = other.slotIsleft;
         isInferred = other.isInferred;
     }
 
-    public boolean isInferred() { return isInferred; }
-    public void setIsInferred() { isInferred = true; }
+    public boolean isInferred() {
+        return isInferred;
+    }
+
+    public void setIsInferred() {
+        isInferred = true;
+    }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
+        for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {
                 continue; // NULL is handled through type promotion.
             }
@@ -201,7 +212,9 @@ public class BinaryPredicate extends Predicate implements Writable {
         return op;
     }
 
-    public void setOp(Operator op) { this.op = op; }
+    public void setOp(Operator op) {
+        this.op = op;
+    }
 
     @Override
     public Expr negate() {
@@ -339,17 +352,17 @@ public class BinaryPredicate extends Predicate implements Writable {
         // When int column compares with string, Mysql will convert string to int.
         // So it is also compatible with Mysql.
 
-        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 ==PrimitiveType.STRING)) {
+        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) {
             Expr rightChild = getChild(1);
             Long parsedLong = Type.tryParseToLong(rightChild);
-            if(parsedLong != null) {
+            if (parsedLong != null) {
                 return Type.BIGINT;
             }
         }
-        if ((t1 == PrimitiveType.VARCHAR || t1 ==PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
+        if ((t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
             Expr leftChild = getChild(0);
             Long parsedLong = Type.tryParseToLong(leftChild);
-            if(parsedLong != null) {
+            if (parsedLong != null) {
                 return Type.BIGINT;
             }
         }
@@ -404,8 +417,8 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         // determine selectivity
         Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
-        if (op == Operator.EQ && isSingleColumnPredicate(slotRefRef,
-          null) && slotRefRef.getRef().getNumDistinctValues() > 0) {
+        if (op == Operator.EQ && isSingleColumnPredicate(slotRefRef, null)
+                && slotRefRef.getRef().getNumDistinctValues() > 0) {
             Preconditions.checkState(slotRefRef.getRef() != null);
             selectivity = 1.0 / slotRefRef.getRef().getNumDistinctValues();
             selectivity = Math.max(0, Math.min(1, selectivity));
@@ -604,11 +617,11 @@ public class BinaryPredicate extends Predicate implements Writable {
         recursiveResetChildrenResult();
         final Expr leftChildValue = getChild(0);
         final Expr rightChildValue = getChild(1);
-        if(!(leftChildValue instanceof LiteralExpr)
+        if (!(leftChildValue instanceof LiteralExpr)
                 || !(rightChildValue instanceof LiteralExpr)) {
             return this;
         }
-        return compareLiteral((LiteralExpr)leftChildValue, (LiteralExpr)rightChildValue);
+        return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
     }
 
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
@@ -621,13 +634,13 @@ public class BinaryPredicate extends Predicate implements Writable {
                 return new BoolLiteral(false);
             }
         } else  {
-            if (isFirstNull || isSecondNull){
+            if (isFirstNull || isSecondNull) {
                 return new NullLiteral();
             }
         }
 
         final int compareResult = first.compareLiteral(second);
-        switch(op) {
+        switch (op) {
             case EQ:
             case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
@@ -649,7 +662,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     @Override
     public void setSelectivity() {
-        switch(op) {
+        switch (op) {
             case EQ:
             case EQ_FOR_NULL: {
                 Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
@@ -661,7 +674,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     }
                 }
                 break;
-            } default: {
+            }
+            default: {
                 // Reference hive
                 selectivity = 1.0 / 3.0;
                 break;

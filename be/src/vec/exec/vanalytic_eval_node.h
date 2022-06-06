@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
 #include "runtime/tuple.h"
-#include "thrift/protocol/TDebugProtocol.h"
 #include "vec/common/arena.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vectorized_agg_fn.h"

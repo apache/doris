@@ -27,7 +27,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
-import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -718,8 +718,6 @@ public class StmtRewriter {
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // TODO: Remove this when independent subquery evaluation is implemented.
             // TODO: Requires support for non-equi joins.
-            boolean hasGroupBy = ((SelectStmt) inlineView.getViewStmt()).hasGroupByClause();
-            // boolean hasGroupBy = false;
             if (!expr.getSubquery().returnsScalarColumn()) {
                 throw new AnalysisException("Unsupported predicate with subquery: "
                         + expr.toSql());
@@ -728,8 +726,8 @@ public class StmtRewriter {
             // TODO: Requires support for null-aware anti-join mode in nested-loop joins
             if (expr.getSubquery().isScalarSubquery() && expr instanceof InPredicate
                     && ((InPredicate) expr).isNotIn()) {
-                throw new AnalysisException("Unsupported NOT IN predicate with subquery: " +
-                        expr.toSql());
+                throw new AnalysisException("Unsupported NOT IN predicate with subquery: "
+                        + expr.toSql());
             }
 
             // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -798,8 +796,8 @@ public class StmtRewriter {
             // tbl1,...,tbln are the visible tableRefs in stmt.
             for (int j = 0; j < tableIdx; ++j) {
                 TableRef tableRef = stmt.fromClause.get(j);
-                if (tableRef.getJoinOp() == JoinOperator.LEFT_SEMI_JOIN ||
-                        tableRef.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN) {
+                if (tableRef.getJoinOp() == JoinOperator.LEFT_SEMI_JOIN
+                        || tableRef.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN) {
                     continue;
                 }
                 newItems.add(SelectListItem.createStarItem(tableRef.getAliasAsName()));
@@ -978,8 +976,8 @@ public class StmtRewriter {
                 && (!stmt.hasAggInfo()
                 || !Iterables.all(correlatedPredicates,
                 Predicates.or(Expr.IS_EQ_BINARY_PREDICATE, isSingleSlotRef)))) {
-            throw new AnalysisException("Unsupported correlated EXISTS subquery with a " +
-                    "HAVING clause: " + stmt.toSql());
+            throw new AnalysisException(
+                    "Unsupported correlated EXISTS subquery with a " + "HAVING clause: " + stmt.toSql());
         }
 
         // The following correlated subqueries with a limit clause are supported:
@@ -1189,7 +1187,7 @@ public class StmtRewriter {
             Database db = currentCatalog.getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            Policy matchPolicy = currentCatalog.getPolicyMgr().getMatchRowPolicy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentCatalog.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
             if (matchPolicy == null) {
                 continue;
             }

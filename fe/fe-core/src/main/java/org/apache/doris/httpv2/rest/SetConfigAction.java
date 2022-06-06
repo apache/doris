@@ -116,7 +116,7 @@ public class SetConfigAction extends RestBaseController {
 
     @Setter
     @AllArgsConstructor
-    public static class ErrConfig{
+    public static class ErrConfig {
         @SerializedName(value = "config_name")
         @JsonProperty("config_name")
         private String configName;
@@ -143,7 +143,7 @@ public class SetConfigAction extends RestBaseController {
     @Getter
     @Setter
     @AllArgsConstructor
-    public static class SetConfigEntity{
+    public static class SetConfigEntity {
         @SerializedName(value = "set")
         @JsonProperty("set")
         Map<String, String> setConfigs;

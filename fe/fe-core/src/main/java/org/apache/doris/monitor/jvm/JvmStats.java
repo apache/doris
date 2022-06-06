@@ -96,13 +96,26 @@ public class JvmStats {
                 continue; // race protection
             }
             switch (threadInfo.getThreadState()) {
-                case NEW:           threadsNew++;           break;
-                case RUNNABLE:      threadsRunnable++;      break;
-                case BLOCKED:       threadsBlocked++;       break;
-                case WAITING:       threadsWaiting++;       break;
-                case TIMED_WAITING: threadsTimedWaiting++;  break;
-                case TERMINATED:    threadsTerminated++;    break;
-                default:                                    break;
+                case NEW:
+                    threadsNew++;
+                    break;
+                case RUNNABLE:
+                    threadsRunnable++;
+                    break;
+                case BLOCKED:
+                    threadsBlocked++;
+                    break;
+                case WAITING:
+                    threadsWaiting++;
+                    break;
+                case TIMED_WAITING:
+                    threadsTimedWaiting++;
+                    break;
+                case TERMINATED:
+                    threadsTerminated++;
+                    break;
+                default:
+                    break;
             }
         }
         Threads threads = new Threads(threadMXBean.getThreadCount(), threadMXBean.getPeakThreadCount(), threadsNew,

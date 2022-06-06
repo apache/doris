@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 
 
 /**
@@ -38,19 +39,26 @@ public class JoinExchange extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin()).then(topJoin -> {
-            LogicalJoin leftJoin = topJoin.left();
-            LogicalJoin rightJoin = topJoin.left();
+            LogicalBinary<LogicalJoin, Plan, Plan> leftJoin = topJoin.left();
+            LogicalBinary<LogicalJoin, Plan, Plan> rightJoin = topJoin.right();
 
             Plan a = leftJoin.left();
             Plan b = leftJoin.right();
             Plan c = rightJoin.left();
             Plan d = rightJoin.right();
 
-            LogicalJoin newLeftJoin = new LogicalJoin(leftJoin.getJoinType(), leftJoin.getOnClause(), a, c);
-            LogicalJoin newRightJoin = new LogicalJoin(rightJoin.getJoinType(), rightJoin.getOnClause(), b, d);
-            LogicalJoin newTopJoin =
-                    new LogicalJoin(topJoin.getJoinType(), topJoin.getOnClause(), newLeftJoin, newRightJoin);
-
+            Plan newLeftJoin = plan(
+                    new LogicalJoin(leftJoin.operator.getJoinType(), leftJoin.operator.getOnClause()),
+                    a, c
+            );
+            Plan newRightJoin = plan(
+                    new LogicalJoin(rightJoin.operator.getJoinType(), rightJoin.operator.getOnClause()),
+                    b, d
+            );
+            Plan newTopJoin = plan(
+                    new LogicalJoin(topJoin.operator.getJoinType(), topJoin.operator.getOnClause()),
+                    newLeftJoin, newRightJoin
+            );
             return newTopJoin;
         }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }

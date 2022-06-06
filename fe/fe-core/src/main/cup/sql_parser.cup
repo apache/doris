@@ -4349,8 +4349,6 @@ join_operator ::=
   {: RESULT = JoinOperator.INNER_JOIN; :}
   | KW_LEFT opt_outer KW_JOIN
   {: RESULT = JoinOperator.LEFT_OUTER_JOIN; :}
-  | KW_MERGE KW_JOIN
-  {: RESULT = JoinOperator.MERGE_JOIN; :}
   | KW_RIGHT opt_outer KW_JOIN
   {: RESULT = JoinOperator.RIGHT_OUTER_JOIN; :}
   | KW_FULL opt_outer KW_JOIN
@@ -5363,11 +5361,11 @@ admin_stmt ::=
     {:
         RESULT = new AdminDiagnoseTabletStmt(tabletId);
     :}
-    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT
+    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(false);
     :}
-    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
+    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(true);
     :}

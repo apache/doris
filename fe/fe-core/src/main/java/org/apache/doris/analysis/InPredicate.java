@@ -50,7 +50,7 @@ public class InPredicate extends Predicate {
 
     private static final String IN_SET_LOOKUP = "in_set_lookup";
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
-    private static final String IN_ITERATE= "in_iterate";
+    private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     private final boolean isNotIn;
     private static final String IN = "in";
@@ -59,7 +59,7 @@ public class InPredicate extends Predicate {
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
+        for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {
                 continue;
             }
@@ -129,8 +129,7 @@ public class InPredicate extends Predicate {
      */
     @Override
     public Expr negate() {
-      return new InPredicate(getChild(0), children.subList(1, children.size()),
-          !isNotIn);
+        return new InPredicate(getChild(0), children.subList(1, children.size()), !isNotIn);
     }
 
     public List<Expr> getListChildren() {
@@ -150,19 +149,10 @@ public class InPredicate extends Predicate {
         return true;
     }
 
-   @Override
-   public void vectorizedAnalyze(Analyzer analyzer) {
+    @Override
+    public void vectorizedAnalyze(Analyzer analyzer) {
         super.vectorizedAnalyze(analyzer);
-
-       PrimitiveType type = getChild(0).getType().getPrimitiveType();
-
-//       OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
-//               FunctionOperator.FILTER_IN, true, true, type);
-//       Preconditions.checkState(match != null);
-//       Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
-//       this.vectorOpcode = match.opcode;
-//       LOG.info(debugString() + " opcode: " + vectorOpcode);
-   }
+    }
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
@@ -172,13 +162,11 @@ public class InPredicate extends Predicate {
             // An [NOT] IN predicate with a subquery must contain two children, the second of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
-                throw new AnalysisException("Unsupported IN predicate with a subquery: " +
-                    toSql());
+                throw new AnalysisException("Unsupported IN predicate with a subquery: " + toSql());
             }
-            Subquery subquery = (Subquery)getChild(1);
+            Subquery subquery = (Subquery) getChild(1);
             if (!subquery.returnsScalarColumn()) {
-                throw new AnalysisException("Subquery must return a single column: " +
-                subquery.toSql());
+                throw new AnalysisException("Subquery must return a single column: " + subquery.toSql());
             }
 
             // Ensure that the column in the lhs of the IN predicate and the result of

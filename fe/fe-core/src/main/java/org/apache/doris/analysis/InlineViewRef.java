@@ -136,7 +136,9 @@ public class InlineViewRef extends TableRef {
         baseTblSmap = other.baseTblSmap.clone();
     }
 
-    public List<String> getExplicitColLabels() { return explicitColLabels; }
+    public List<String> getExplicitColLabels() {
+        return explicitColLabels;
+    }
 
     public List<String> getColLabels() {
         if (explicitColLabels != null) {
@@ -148,12 +150,12 @@ public class InlineViewRef extends TableRef {
 
     @Override
     public void reset() {
-      super.reset();
-      queryStmt.reset();
-      inlineViewAnalyzer = null;
-      materializedTupleIds.clear();
-      sMap.clear();
-      baseTblSmap.clear();
+        super.reset();
+        queryStmt.reset();
+        inlineViewAnalyzer = null;
+        materializedTupleIds.clear();
+        sMap.clear();
+        baseTblSmap.clear();
     }
 
     @Override
@@ -205,7 +207,7 @@ public class InlineViewRef extends TableRef {
             materializedTupleIds.add(desc.getId());
         }
 
-        // create smap_ and baseTblSmap_ and register auxiliary eq predicates between our
+        // create sMap and baseTblSmap and register auxiliary eq predicates between our
         // tuple descriptor's slots and our *unresolved* select list exprs;
         // we create these auxiliary predicates so that the analyzer can compute the value
         // transfer graph through this inline view correctly (ie, predicates can get
@@ -232,10 +234,14 @@ public class InlineViewRef extends TableRef {
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
 
-        // anlayzeLateralViewRefs
+        // analyzeLateralViewRefs
         analyzeLateralViewRef(analyzer);
 
         // Now do the remaining join analysis
+        // In general, we should do analyze join before do RegisterColumnRef. However, We cannot move analyze join
+        // before generate sMap and baseTblSmap, because generate sMap and baseTblSmap will register all column refs
+        // in the inline view. If inline view is on right side of left semi join, exception will be thrown.
+        // Instead, we do a little trick in RegisterColumnRef to avoid this problem.
         analyzeJoin(analyzer);
     }
 
@@ -378,19 +384,6 @@ public class InlineViewRef extends TableRef {
             return true;
         }
         return true;
-
-//        // Replace all SlotRefs in expr with NullLiterals, and wrap the result
-//        // into an IS NOT NULL predicate.
-//        Expr isNotNullLiteralPred = new IsNullPredicate(expr.clone(nullSMap), true);
-//        Preconditions.checkState(isNotNullLiteralPred.isConstant());
-//        // analyze to insert casts, etc.
-//        try {
-//            isNotNullLiteralPred.analyze(analyzer);
-//        } catch (AnalysisException e) {
-//            // this should never happen
-//            throw new InternalException("couldn't analyze predicate " + isNotNullLiteralPred.toSql(), e);
-//        }
-//        return FeSupport.EvalPredicate(isNotNullLiteralPred, analyzer.getQueryGlobals());
     }
 
     @Override

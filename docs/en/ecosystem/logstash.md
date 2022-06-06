@@ -77,7 +77,7 @@ Connection configuration:
 
 Configuration | Explanation
 --- | ---
-`http_hosts` | FE's HTTP interactive address eg | ["http://fe1:8030", "http://fe2:8030"]
+`http_hosts` | FE's HTTP interactive address eg : ["http://fe1:8030", "http://fe2:8030"]
 `user` | User name, the user needs to have import permission for the doris table
 `password` | Password
 `db` | Database name

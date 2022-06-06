@@ -73,7 +73,7 @@ void MetaAction::handle(HttpRequest* req) {
     if (_meta_type == META_TYPE::HEADER) {
         std::string json_meta;
         Status status = _handle_header(req, &json_meta);
-        std::string status_result = to_json(status);
+        std::string status_result = status.to_json();
         LOG(INFO) << "handle request result:" << status_result;
         if (status.ok()) {
             HttpChannel::send_reply(req, HttpStatus::OK, json_meta);

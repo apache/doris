@@ -113,7 +113,7 @@ public class MasterOpExecutor {
             if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
                 throw e;
             } else {
-                LOG.warn("Forward statement "+ ctx.getStmtId() +" to Master " + thriftAddress + " twice", e);
+                LOG.warn("Forward statement " + ctx.getStmtId() + " to Master " + thriftAddress + " twice", e);
                 result = client.forward(params);
                 isReturnToPool = true;
             }

@@ -111,7 +111,7 @@ public class MultiLoadMgr {
         if (CollectionUtils.isNotEmpty(request.getFileSize())
                 && request.getFileSize().size() != request.getFiles().size()) {
             throw new DdlException("files count and file size count not match: [" + request.getFileSize().size()
-                    + "!=" + request.getFiles().size()+"]");
+                    + "!=" + request.getFiles().size() + "]");
         }
         List<Pair<String, Long>> files = Streams.zip(request.getFiles().stream(), request.getFileSize().stream(), Pair::create)
                 .collect(Collectors.toList());
@@ -370,7 +370,7 @@ public class MultiLoadMgr {
             try {
                 loadStmt.analyze(analyzer);
             } catch (UserException e) {
-               throw new DdlException(e.getMessage());
+                throw new DdlException(e.getMessage());
             }
             return loadStmt;
         }
@@ -438,7 +438,7 @@ public class MultiLoadMgr {
             List<String> files = Lists.newArrayList();
             List<Long> fileSizes = Lists.newArrayList();
             Iterator<Map.Entry<String, List<Pair<String, Long>>>> it = filesByLabel.entrySet().iterator();
-            while(it.hasNext()) {
+            while (it.hasNext()) {
                 List<Pair<String, Long>> value = it.next().getValue();
                 value.stream().forEach(pair -> {
                     files.add(pair.first);
@@ -449,7 +449,7 @@ public class MultiLoadMgr {
             PartitionNames partitionNames = null;
             String fileFormat = properties.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
             boolean isNegative = properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE) == null ? false :
-                    Boolean.valueOf(properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE));
+                    Boolean.parseBoolean(properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE));
             Expr whereExpr = null;
             LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
             Expr deleteCondition = null;

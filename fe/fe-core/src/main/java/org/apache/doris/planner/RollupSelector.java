@@ -62,7 +62,7 @@ public final class RollupSelector {
     public long selectBestRollup(
             Collection<Long> partitionIds, List<Expr> conjuncts, boolean isPreAggregation)
             throws UserException {
-        Preconditions.checkArgument(partitionIds != null , "Paritition can't be null.");
+        Preconditions.checkArgument(partitionIds != null, "Paritition can't be null.");
 
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
@@ -268,12 +268,12 @@ public final class RollupSelector {
             return false;
         }
         if (expr instanceof InPredicate) {
-            return isInPredicateUsedForPrefixIndex((InPredicate)expr);
+            return isInPredicateUsedForPrefixIndex((InPredicate) expr);
         } else if (expr instanceof BinaryPredicate) {
             if (isJoinConjunct) {
-                return isEqualJoinConjunctUsedForPrefixIndex((BinaryPredicate)expr);
+                return isEqualJoinConjunctUsedForPrefixIndex((BinaryPredicate) expr);
             } else {
-                return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate)expr);
+                return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate) expr);
             }
         }
         return true;

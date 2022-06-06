@@ -126,26 +126,34 @@ public class GrantStmt extends DdlStmt {
         }
     }
 
-    /*
+    /**
      * Rules:
-     * 1. Can not grant/revoke NODE_PRIV to/from any other user.
-     * 2. ADMIN_PRIV can only be granted/revoked on GLOBAL level
+     * 1. ADMIN_PRIV and NODE_PRIV can only be granted/revoked on GLOBAL level
+     * 2. Only the user with NODE_PRIV can grant NODE_PRIV to other user
      * 3. Privileges can not be granted/revoked to/from ADMIN and OPERATOR role
      * 4. Only user with GLOBAL level's GRANT_PRIV can grant/revoke privileges to/from roles.
      * 5.1 User should has GLOBAL level GRANT_PRIV
      * 5.2 or user has DATABASE/TABLE level GRANT_PRIV if grant/revoke to/from certain database or table.
      * 5.3 or user should has 'resource' GRANT_PRIV if grant/revoke to/from certain 'resource'
+     *
+     * @param analyzer
+     * @param privileges
+     * @param role
+     * @param tblPattern
+     * @throws AnalysisException
      */
     public static void checkPrivileges(Analyzer analyzer, List<PaloPrivilege> privileges,
                                        String role, TablePattern tblPattern) throws AnalysisException {
         // Rule 1
-        if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
-            throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
+        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(PaloPrivilege.ADMIN_PRIV)
+                || privileges.contains(PaloPrivilege.NODE_PRIV))) {
+            throw new AnalysisException("ADMIN_PRIV and NODE_PRIV can only be granted on *.*");
         }
 
         // Rule 2
-        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
-            throw new AnalysisException("ADMIN_PRIV privilege can only be granted on *.*");
+        if (privileges.contains(PaloPrivilege.NODE_PRIV) && !Catalog.getCurrentCatalog().getAuth()
+                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+            throw new AnalysisException("Only the user with NODE_PRIV can grant NODE_PRIV to other user");
         }
 
         if (role != null) {
@@ -159,7 +167,7 @@ public class GrantStmt extends DdlStmt {
                 if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
-            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE){
+            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }

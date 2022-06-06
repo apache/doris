@@ -25,27 +25,27 @@ public class CidrTest {
     public void testWrongFormat() {
         // no mask
         try {
-            CIDR cidr = new CIDR("192.168.17.0/");
+            new CIDR("192.168.17.0/");
             // should not be here
-            Assert.assertTrue(false);
+            Assert.fail();
         }  catch (Exception e) {
             Assert.assertTrue(e instanceof IllegalArgumentException);
         }
 
         // mask is too big
         try {
-            CIDR cidr = new CIDR("192.168.17.0/88");
+            new CIDR("192.168.17.0/88");
             // should not be here
-            Assert.assertTrue(false);
+            Assert.fail();
         }  catch (Exception e) {
             Assert.assertTrue(e instanceof IllegalArgumentException);
         }
 
         // ip is too short
         try {
-            CIDR cidr = new CIDR("192.168./88");
+            new CIDR("192.168./88");
             // should not be here
-            Assert.assertTrue(false);
+            Assert.fail();
         }  catch (Exception e) {
             Assert.assertTrue(e instanceof IllegalArgumentException);
         }

@@ -249,7 +249,7 @@ void CompactionAction::handle(HttpRequest* req) {
         std::string json_result;
         Status st = _handle_show_compaction(req, &json_result);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
@@ -257,7 +257,7 @@ void CompactionAction::handle(HttpRequest* req) {
         std::string json_result;
         Status st = _handle_run_compaction(req, &json_result);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
@@ -265,7 +265,7 @@ void CompactionAction::handle(HttpRequest* req) {
         std::string json_result;
         Status st = _handle_run_status_compaction(req, &json_result);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }

@@ -56,7 +56,7 @@ public class CIDR {
     // Specify IP in CIDR format like: new IPv4("192.168.0.8/16");
     public CIDR(String cidrNotation) {
         // if there is no mask, fill "/32" as suffix
-        if(cidrNotation.indexOf("/") == -1) {
+        if (!cidrNotation.contains("/")) {
             cidrNotation += "/32";
         }
 
@@ -78,7 +78,7 @@ public class CIDR {
         return contains(toInteger(address));
     }
 
-     // Get the IP in symbolic form, i.e. xxx.xxx.xxx.xxx
+    // Get the IP in symbolic form, i.e. xxx.xxx.xxx.xxx
     public String getIP() {
         return format(address);
     }
@@ -101,7 +101,7 @@ public class CIDR {
         return sb.toString();
     }
 
-     // Get the IP and netmask in CIDR form, i.e. xxx.xxx.xxx.xxx/xx
+    // Get the IP and netmask in CIDR form, i.e. xxx.xxx.xxx.xxx/xx
     public String getCIDR() {
         int numberOfBits = maskBitNumMap.get(netmask);
         return format(address & netmask) + "/" + numberOfBits;
@@ -150,7 +150,7 @@ public class CIDR {
         return network & UNSIGNED_INT_MASK;
     }
 
-    private long broadcastLong(){
+    private long broadcastLong() {
         long network = (address & netmask);
         long broadcast = network | ~(netmask);
         return broadcast & UNSIGNED_INT_MASK;

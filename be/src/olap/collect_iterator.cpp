@@ -120,7 +120,7 @@ bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a
         return cmp_res > 0;
     }
 
-    // Second: If sequence_id_idx != 0 means we need to compare sequence. sequence only use
+    // Second: If _sequence_id_idx != 0 means we need to compare sequence. sequence only use
     // in unique key. so keep reverse order here
     if (_sequence_id_idx != -1) {
         auto seq_first_cell = first->cell(_sequence_id_idx);

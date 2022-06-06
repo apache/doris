@@ -180,7 +180,6 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         // check base rowset
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
-            // _calc_promotion_size(rs_meta, &promotion_size);
         }
         if (rs_meta->end_version() < point) {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.

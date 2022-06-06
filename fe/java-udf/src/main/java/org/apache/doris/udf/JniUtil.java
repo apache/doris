@@ -91,8 +91,7 @@ public class JniUtil {
     /**
      * Serializes input into a byte[] using the default protocol factory.
      */
-    public static <T extends TBase<?, ?>>
-    byte[] serializeToThrift(T input) throws InternalException {
+    public static <T extends TBase<?, ?>> byte[] serializeToThrift(T input) throws InternalException {
         TSerializer serializer = new TSerializer(protocolFactory_);
         try {
             return serializer.serialize(input);
@@ -104,8 +103,8 @@ public class JniUtil {
     /**
      * Serializes input into a byte[] using a given protocol factory.
      */
-    public static <T extends TBase<?, ?>, F extends TProtocolFactory>
-    byte[] serializeToThrift(T input, F protocolFactory) throws InternalException {
+    public static <T extends TBase<?, ?>, F extends TProtocolFactory> byte[] serializeToThrift(
+            T input, F protocolFactory) throws InternalException {
         TSerializer serializer = new TSerializer(protocolFactory);
         try {
             return serializer.serialize(input);
@@ -114,17 +113,16 @@ public class JniUtil {
         }
     }
 
-    public static <T extends TBase<?, ?>>
-    void deserializeThrift(T result, byte[] thriftData) throws InternalException {
+    public static <T extends TBase<?, ?>> void deserializeThrift(
+            T result, byte[] thriftData) throws InternalException {
         deserializeThrift(protocolFactory_, result, thriftData);
     }
 
     /**
      * Deserialize a serialized form of a Thrift data structure to its object form.
      */
-    public static <T extends TBase<?, ?>, F extends TProtocolFactory>
-    void deserializeThrift(F protocolFactory, T result, byte[] thriftData)
-            throws InternalException {
+    public static <T extends TBase<?, ?>, F extends TProtocolFactory> void deserializeThrift(
+            F protocolFactory, T result, byte[] thriftData) throws InternalException {
         // TODO: avoid creating deserializer for each query?
         TDeserializer deserializer = new TDeserializer(protocolFactory);
         try {

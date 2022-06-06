@@ -63,17 +63,19 @@ SegmentWriter::~SegmentWriter() {
 };
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                     const TabletColumn& column) {
+                                     const TabletColumn& column,
+                                     const TabletSchema* tablet_schema) {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
     meta->set_unique_id(column.unique_id());
     meta->set_type(column.type());
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
-    meta->set_compression(LZ4F);
+    meta->set_compression(tablet_schema->compression_type());
     meta->set_is_nullable(column.is_nullable());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-        init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
+        init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
+                         tablet_schema);
     }
 }
 
@@ -84,7 +86,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
-        init_column_meta(opts.meta, &column_id, column);
+        init_column_meta(opts.meta, &column_id, column, _tablet_schema);
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
         // and not support zone map for array type.
@@ -118,7 +120,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
     // find all row pos for short key indexes
     std::vector<size_t> short_key_pos;
-    if (UNLIKELY(_short_key_row_pos == 0)) {
+    // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
+    // build a short key index using 1st rows for first block and `_short_key_row_pos - _row_count`
+    // for next blocks.
+    // Ensure we build a short key index using 1st rows only for the first block (ISSUE-9766).
+    if (UNLIKELY(_short_key_row_pos == 0 && _row_count == 0)) {
         short_key_pos.push_back(0);
     }
     while (_short_key_row_pos + _opts.num_rows_per_block < _row_count + num_rows) {
@@ -127,7 +133,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     }
 
     // convert column data from engine format to storage layer format
-    std::vector<vectorized::IOlapColumnDataAccessorSPtr> short_key_columns;
+    std::vector<vectorized::IOlapColumnDataAccessor*> short_key_columns;
     size_t num_key_columns = _tablet_schema->num_short_key_columns();
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
         auto converted_result = _olap_data_convertor.convert_column_data(cid);

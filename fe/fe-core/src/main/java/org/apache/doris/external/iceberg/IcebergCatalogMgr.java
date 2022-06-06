@@ -45,8 +45,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class IcebergCatalogMgr {
     private static final Logger LOG = LogManager.getLogger(IcebergCatalogMgr.class);
 
-    private static final String PROPERTY_MISSING_MSG = "Iceberg %s is null. " +
-            "Please add properties('%s'='xxx') when create iceberg database.";
+    private static final String PROPERTY_MISSING_MSG = "Iceberg %s is null. "
+            + "Please add properties('%s'='xxx') when create iceberg database.";
 
     // hive metastore uri -> iceberg catalog
     // used to cache iceberg catalogs

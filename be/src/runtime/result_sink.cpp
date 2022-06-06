@@ -88,10 +88,9 @@ Status ResultSink::open(RuntimeState* state) {
 }
 
 Status ResultSink::send(RuntimeState* state, RowBatch* batch) {
-    // The memory consumption in the process of sending the results is not recorded in the query memory.
-    // 1. Avoid the query being cancelled when the memory limit is reached after the query result comes out.
-    // 2. If record this memory, also need to record on the receiving end, need to consider the life cycle of MemTracker.
-    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
+    // The memory consumption in the process of sending the results is not check query memory limit.
+    // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
     return _writer->append_row_batch(batch);
 }
 

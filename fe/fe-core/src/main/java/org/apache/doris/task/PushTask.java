@@ -99,9 +99,9 @@ public class PushTask extends AgentTask {
             String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
             List<Predicate> conditions, boolean needDecompress, TPriority priority) {
         this(resourceInfo, backendId, dbId, tableId, partitionId, indexId,
-             tabletId, replicaId, schemaHash, version, filePath,
-             fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress,
-             priority, TTaskType.PUSH, -1, tableId);
+                tabletId, replicaId, schemaHash, version, filePath,
+                fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress,
+                priority, TTaskType.PUSH, -1, tableId);
     }
 
     // for load v2 (SparkLoadJob)
@@ -110,9 +110,9 @@ public class PushTask extends AgentTask {
                     TPriority priority, long transactionId, long signature,
                     TBrokerScanRange tBrokerScanRange, TDescriptorTable tDescriptorTable) {
         this(null, backendId, dbId, tableId, partitionId, indexId,
-             tabletId, replicaId, schemaHash, -1, null,
-             0, timeoutSecond, loadJobId, pushType, null, false,
-             priority, TTaskType.REALTIME_PUSH, transactionId, signature);
+                tabletId, replicaId, schemaHash, -1, null,
+                0, timeoutSecond, loadJobId, pushType, null, false,
+                priority, TTaskType.REALTIME_PUSH, transactionId, signature);
         this.tBrokerScanRange = tBrokerScanRange;
         this.tDescriptorTable = tDescriptorTable;
     }
@@ -164,7 +164,7 @@ public class PushTask extends AgentTask {
                         tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op);
                         for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                            conditionValues.add(((LiteralExpr)inPredicate.getChild(i)).getStringValue());
+                            conditionValues.add(inPredicate.getChild(i).getStringValue());
                         }
                     }
 

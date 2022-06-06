@@ -39,7 +39,7 @@ public class HttpServer extends SpringBootServletInitializer {
     private int port;
     private int acceptors;
     private int selectors;
-    private int maxHttpPostSize ;
+    private int maxHttpPostSize;
     private int workers;
 
     private int minThreads;
@@ -54,13 +54,21 @@ public class HttpServer extends SpringBootServletInitializer {
         this.maxHttpHeaderSize = maxHttpHeaderSize;
     }
 
-    public int getMinThreads() { return minThreads; }
+    public int getMinThreads() {
+        return minThreads;
+    }
 
-    public void setMinThreads(int minThreads) { this.minThreads = minThreads; }
+    public void setMinThreads(int minThreads) {
+        this.minThreads = minThreads;
+    }
 
-    public int getMaxThreads() { return maxThreads; }
+    public int getMaxThreads() {
+        return maxThreads;
+    }
 
-    public void setMaxThreads(int maxThreads) { this.maxThreads = maxThreads; }
+    public void setMaxThreads(int maxThreads) {
+        this.maxThreads = maxThreads;
+    }
 
     public void setWorkers(int workers) {
         this.workers = workers;
@@ -103,7 +111,7 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("server.jetty.threadPool.minThreads", this.minThreads);
         properties.put("server.max-http-header-size", this.maxHttpHeaderSize);
         //Worker thread pool is not set by default, set according to your needs
-        if(this.workers > 0) {
+        if (this.workers > 0) {
             properties.put("server.jetty.workers", this.workers);
         }
         // This is to disable the spring-boot-devtools restart feature.

@@ -83,7 +83,7 @@ public class Hll {
         hashValue >>>= HLL_COLUMN_PRECISION;
         hashValue |= (1L << HLL_ZERO_COUNT_BITS);
         byte firstOneBit = (byte) (getLongTailZeroNum(hashValue) + 1);
-        registers[idx] = registers[idx] > firstOneBit ? registers[idx] : firstOneBit ;
+        registers[idx] = registers[idx] > firstOneBit ? registers[idx] : firstOneBit;
     }
 
     private void mergeRegisters(byte[] other) {
@@ -217,7 +217,7 @@ public class Hll {
                     output.writeInt(Integer.reverseBytes(nonZeroRegisterNum));
                     for (int i = 0; i < HLL_REGISTERS_COUNT; i++) {
                         if (registers[i] != 0) {
-                            output.writeShort(Short.reverseBytes((short)i));
+                            output.writeShort(Short.reverseBytes((short) i));
                             output.writeByte(registers[i]);
                         }
                     }
@@ -303,20 +303,20 @@ public class Hll {
         double estimate = alpha * numStreams * numStreams * harmonicMean;
 
         if (estimate <= numStreams * 2.5 && numZeroRegisters != 0) {
-            estimate = numStreams * Math.log(((float)numStreams) / ((float)numZeroRegisters));
+            estimate = numStreams * Math.log(((float) numStreams) / ((float) numZeroRegisters));
         } else if (numStreams == 16384 && estimate < 72000) {
             double bias = 5.9119 * 1.0e-18 * (estimate * estimate * estimate * estimate)
-                    - 1.4253 * 1.0e-12 * (estimate * estimate * estimate) +
-                    1.2940 * 1.0e-7 * (estimate * estimate)
-                    - 5.2921 * 1.0e-3 * estimate +
-                    83.3216;
+                    - 1.4253 * 1.0e-12 * (estimate * estimate * estimate)
+                    + 1.2940 * 1.0e-7 * (estimate * estimate)
+                    - 5.2921 * 1.0e-3 * estimate
+                    + 83.3216;
             estimate -= estimate * (bias / 100);
         }
 
-        return (long)(estimate + 0.5);
+        return (long) (estimate + 0.5);
     }
 
-    public int maxSerializedSize () {
+    public int maxSerializedSize() {
         switch (type) {
             case HLL_DATA_EMPTY:
             default:
@@ -335,14 +335,14 @@ public class Hll {
 
 
     private static long getLittleEndianLong(final byte[] data, final int index) {
-        return (((long) data[index    ] & 0xff)      ) |
-                (((long) data[index + 1] & 0xff) <<  8) |
-                (((long) data[index + 2] & 0xff) << 16) |
-                (((long) data[index + 3] & 0xff) << 24) |
-                (((long) data[index + 4] & 0xff) << 32) |
-                (((long) data[index + 5] & 0xff) << 40) |
-                (((long) data[index + 6] & 0xff) << 48) |
-                (((long) data[index + 7] & 0xff) << 56);
+        return (((long) data[index    ] & 0xff))
+                | (((long) data[index + 1] & 0xff) <<  8)
+                | (((long) data[index + 2] & 0xff) << 16)
+                | (((long) data[index + 3] & 0xff) << 24)
+                | (((long) data[index + 4] & 0xff) << 32)
+                | (((long) data[index + 5] & 0xff) << 40)
+                | (((long) data[index + 6] & 0xff) << 48)
+                | (((long) data[index + 7] & 0xff) << 56);
     }
 
     public static long hash64(final byte[] data, final int length, final int seed) {

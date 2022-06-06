@@ -26,15 +26,22 @@
 #include "exec/schema_scanner.h"
 #include "gen_cpp/data.pb.h"
 #include "runtime/row_batch.h"
+#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/exception.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 
 using vectorized::Int32;

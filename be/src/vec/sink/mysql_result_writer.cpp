@@ -18,10 +18,12 @@
 #include "vec/sink/mysql_result_writer.h"
 
 #include "runtime/buffer_control_block.h"
+#include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -270,6 +272,17 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
             buf_ret = buffer.push_string(string_val.data, string_val.size);
         }
         return buf_ret;
+    } else if (which.is_date_or_datetime()) {
+        auto& column_vector = assert_cast<const ColumnVector<Int64>&>(*column);
+        auto value = column_vector[row_idx].get<Int64>();
+        VecDateTimeValue datetime;
+        memcpy(static_cast<void*>(&datetime), static_cast<void*>(&value), sizeof(value));
+        if (which.is_date()) {
+            datetime.cast_to_date();
+        }
+        char buf[64];
+        char* pos = datetime.to_string(buf);
+        return buffer.push_string(buf, pos - buf - 1);
     } else if (which.is_array()) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();

@@ -161,10 +161,10 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     }
 
     case TYPE_ARRAY: {
-        auto children_type = type.children[0];
+        auto child_type = type.children[0];
         auto array_value = (const CollectionValue*)(item);
 
-        ArrayIterator iter = array_value->iterator(children_type.type);
+        ArrayIterator iter = array_value->iterator(child_type.type);
 
         _row_buffer->open_dynamic_mode();
 
@@ -175,15 +175,25 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
             if (begin != 0) {
                 buf_ret = _row_buffer->push_string(", ", 2);
             }
-            if (!iter.value()) {
+            if (!iter.get()) {
                 buf_ret = _row_buffer->push_string("NULL", 4);
             } else {
-                if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
+                if (child_type.is_string_type()) {
                     buf_ret = _row_buffer->push_string("'", 1);
-                    buf_ret = _add_row_value(index, children_type, iter.value());
+                    buf_ret = _add_row_value(index, child_type, iter.get());
                     buf_ret = _row_buffer->push_string("'", 1);
+                } else if (child_type.is_date_type()) {
+                    DateTimeVal data;
+                    iter.get(&data);
+                    auto datetime_value = DateTimeValue::from_datetime_val(data);
+                    buf_ret = _add_row_value(index, child_type, &datetime_value);
+                } else if (child_type.is_decimal_type()) {
+                    DecimalV2Val data;
+                    iter.get(&data);
+                    auto decimal_value = DecimalV2Value::from_decimal_val(data);
+                    buf_ret = _add_row_value(index, child_type, &decimal_value);
                 } else {
-                    buf_ret = _add_row_value(index, children_type, iter.value());
+                    buf_ret = _add_row_value(index, child_type, iter.get());
                 }
             }
 

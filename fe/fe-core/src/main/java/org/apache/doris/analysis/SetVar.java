@@ -49,7 +49,7 @@ public class SetVar {
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
-            this.result = (LiteralExpr)value;
+            this.result = (LiteralExpr) value;
         }
     }
 
@@ -58,7 +58,7 @@ public class SetVar {
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
-            this.result = (LiteralExpr)value;
+            this.result = (LiteralExpr) value;
         }
     }
 
@@ -114,7 +114,7 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
 
-        result = (LiteralExpr)literalExpr;
+        result = (LiteralExpr) literalExpr;
 
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
@@ -153,9 +153,9 @@ public class SetVar {
         if (getVariable().equalsIgnoreCase(SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION)) {
             String value = getValue().getStringValue();
             if (!"1".equals(value) && !"2".equals(value)) {
-                throw new AnalysisException("Value of " +
-                    SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION + " should be " +
-                    "either 1 or 2, but meet " + value);
+                throw new AnalysisException("Value of "
+                        + SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION + " should be "
+                        + "either 1 or 2, but meet " + value);
             }
         }
     }

@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 
+#include "gutil/bits.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_index.h"
@@ -283,7 +284,7 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
 
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                                 void (*deleter)(const CacheKey& key, void* value),
-                                CachePriority priority) {
+                                CachePriority priority, MemTracker* tracker) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
     LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
@@ -296,7 +297,12 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->next = e->prev = nullptr;
     e->in_cache = true;
     e->priority = priority;
+    e->mem_tracker = tracker;
     memcpy(e->key_data, key.data(), key.size());
+    // The memory of the parameter value should be recorded in the tls mem tracker,
+    // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
+    if (tracker)
+        tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(tracker, e->total_size);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard<std::mutex> l(_mutex);
@@ -425,20 +431,25 @@ inline uint32_t ShardedLRUCache::_hash_slice(const CacheKey& s) {
     return s.hash(s.data(), s.size(), 0);
 }
 
-uint32_t ShardedLRUCache::_shard(uint32_t hash) {
-    return hash >> (32 - kNumShardBits);
-}
-
-ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type)
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                                 uint32_t num_shards)
         : _name(name),
+          _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
+          _num_shards(num_shards),
+          _shards(nullptr),
           _last_id(1),
           _mem_tracker(MemTracker::create_tracker(-1, name, nullptr, MemTrackerLevel::OVERVIEW)) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_END_CLEAR(_mem_tracker);
-    const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
-    for (int s = 0; s < kNumShards; s++) {
-        _shards[s] = new LRUCache(type);
-        _shards[s]->set_capacity(per_shard);
+    CHECK(num_shards > 0) << "num_shards cannot be 0";
+    CHECK_EQ((num_shards & (num_shards - 1)), 0)
+            << "num_shards should be power of two, but got " << num_shards;
+
+    const size_t per_shard = (total_capacity + (_num_shards - 1)) / _num_shards;
+    LRUCache** shards = new (std::nothrow) LRUCache*[_num_shards];
+    for (int s = 0; s < _num_shards; s++) {
+        shards[s] = new LRUCache(type);
+        shards[s]->set_capacity(per_shard);
     }
+    _shards = shards;
 
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("lru_cache:") + name, {{"name", name}});
@@ -452,9 +463,11 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    for (int s = 0; s < kNumShards; s++) {
-        delete _shards[s];
+    if (_shards) {
+        for (int s = 0; s < _num_shards; s++) {
+            delete _shards[s];
+        }
+        delete[] _shards;
     }
     _entity->deregister_hook(_name);
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
@@ -463,12 +476,9 @@ ShardedLRUCache::~ShardedLRUCache() {
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
-    // The memory of the parameter value should be recorded in the tls mem tracker,
-    // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
-    tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(), charge);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
-    return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority);
+    return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority,
+                                         _mem_tracker.get());
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
@@ -477,13 +487,11 @@ Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
 }
 
 void ShardedLRUCache::release(Handle* handle) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
     _shards[_shard(h->hash)]->release(handle);
 }
 
 void ShardedLRUCache::erase(const CacheKey& key) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
     _shards[_shard(hash)]->erase(key, hash);
 }
@@ -502,18 +510,16 @@ uint64_t ShardedLRUCache::new_id() {
 }
 
 int64_t ShardedLRUCache::prune() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t num_prune = 0;
-    for (int s = 0; s < kNumShards; s++) {
+    for (int s = 0; s < _num_shards; s++) {
         num_prune += _shards[s]->prune();
     }
     return num_prune;
 }
 
 int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t num_prune = 0;
-    for (int s = 0; s < kNumShards; s++) {
+    for (int s = 0; s < _num_shards; s++) {
         num_prune += _shards[s]->prune_if(pred);
     }
     return num_prune;
@@ -524,7 +530,7 @@ void ShardedLRUCache::update_cache_metrics() const {
     size_t total_usage = 0;
     size_t total_lookup_count = 0;
     size_t total_hit_count = 0;
-    for (int i = 0; i < kNumShards; i++) {
+    for (int i = 0; i < _num_shards; i++) {
         total_capacity += _shards[i]->get_capacity();
         total_usage += _shards[i]->get_usage();
         total_lookup_count += _shards[i]->get_lookup_count();
@@ -540,12 +546,9 @@ void ShardedLRUCache::update_cache_metrics() const {
                                                  : ((double)total_hit_count / total_lookup_count));
 }
 
-Cache* new_lru_cache(const std::string& name, size_t capacity) {
-    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE);
-}
-
-Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type) {
-    return new ShardedLRUCache(name, capacity, type);
+Cache* new_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
+                     uint32_t num_shards) {
+    return new ShardedLRUCache(name, capacity, type, num_shards);
 }
 
 } // namespace doris

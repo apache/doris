@@ -173,6 +173,7 @@ public class CreateDataSyncJobStmtTest {
             Assert.assertEquals("testCluster:testDb", stmt.getDbName());
             Assert.assertEquals(DataSyncJobType.CANAL, stmt.getDataSyncJobType());
         } catch (UserException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 }

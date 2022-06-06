@@ -63,9 +63,9 @@ public abstract class StorageDesc {
         }
         CaseInsensitiveMap ciProperties = new CaseInsensitiveMap();
         ciProperties.putAll(properties);
-        if (StringUtils.isNotEmpty(ciProperties.get(BOS_ENDPOINT).toString()) &&
-            StringUtils.isNotEmpty(ciProperties.get(BOS_ACCESS_KEY).toString()) &&
-            StringUtils.isNotEmpty(ciProperties.get(BOS_SECRET_ACCESS_KEY).toString())) {
+        if (StringUtils.isNotEmpty(ciProperties.get(BOS_ENDPOINT).toString())
+                && StringUtils.isNotEmpty(ciProperties.get(BOS_ACCESS_KEY).toString())
+                && StringUtils.isNotEmpty(ciProperties.get(BOS_SECRET_ACCESS_KEY).toString())) {
             // bos endpoint like http[s]://gz.bcebos.com, we want to extract region gz,
             // and convert to s3 endpoint http[s]://s3.gz.bcebos.com
             String bosEndpiont = ciProperties.get(BOS_ENDPOINT).toString();
@@ -99,7 +99,7 @@ public abstract class StorageDesc {
         try {
             URI orig = new URI(path);
             URI s3url = new URI("s3", orig.getRawAuthority(),
-                orig.getRawPath(), orig.getRawQuery(), orig.getRawFragment());
+                    orig.getRawPath(), orig.getRawQuery(), orig.getRawFragment());
             return s3url.toString();
         } catch (URISyntaxException e) {
             return path;

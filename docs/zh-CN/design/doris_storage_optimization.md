@@ -187,7 +187,7 @@ message SegmentFooterPB {
 大体的写入流程如下：
 1. 写入magic
 2. 根据schema信息，生成对应的ColumnWriter，每个ColumnWriter按照不同的类型，获取对应的encoding信息（可配置），根据encoding，生成对应的encoder
-3. 调用encoder->add(value)进行数据写入，每个K行，生成一个short key index entry，并且，如果当前的page满足一定条件（大小超过1M或者行数为K），就生成一个新的page，缓存在内存中。
+3. 调用encoder->add(value)进行数据写入，每隔K行，生成一个short key index entry，并且，如果当前的page满足一定条件（大小超过1M或者行数为K），就生成一个新的page，缓存在内存中。
 4. 不断的循环步骤3，直到数据写入完成。将各个列的数据依序刷入文件中
 5. 生成FileFooterPB信息，写入文件中。
 

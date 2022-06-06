@@ -48,30 +48,30 @@ public class TruncateTableTest {
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";
-        String createTableStr = "create table test.tbl(d1 date, k1 int, k2 bigint)" +
-                                        "duplicate key(d1, k1) " +
-                                        "PARTITION BY RANGE(d1)" +
-                                        "(PARTITION p20210901 VALUES [('2021-09-01'), ('2021-09-02')))" +
-                                        "distributed by hash(k1) buckets 2 " +
-                                        "properties('replication_num' = '1');";
+        String createTableStr = "create table test.tbl(d1 date, k1 int, k2 bigint)"
+                + "duplicate key(d1, k1) "
+                + "PARTITION BY RANGE(d1)"
+                + "(PARTITION p20210901 VALUES [('2021-09-01'), ('2021-09-02')))"
+                + "distributed by hash(k1) buckets 2 "
+                + "properties('replication_num' = '1');";
         createDb(createDbStmtStr);
         createTable(createTableStr);
 
-        String createTable2 = "CREATE TABLE test.case_sensitive_table (\n" +
-                "  `date_id` date NULL COMMENT \"\",\n" +
-                "  `column2` tinyint(4) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`date_id`, `column2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE(`date_id`)\n" +
-                "(\n" +
-                "PARTITION p20211006 VALUES [('2021-10-06'), ('2021-10-07')),\n" +
-                "PARTITION P20211007 VALUES [('2021-10-07'), ('2021-10-08')),\n" +
-                "PARTITION P20211008 VALUES [('2021-10-08'), ('2021-10-09')))\n" +
-                "DISTRIBUTED BY HASH(`column2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
-                ");";
+        String createTable2 = "CREATE TABLE test.case_sensitive_table (\n"
+                + "  `date_id` date NULL COMMENT \"\",\n"
+                + "  `column2` tinyint(4) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`date_id`, `column2`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`date_id`)\n"
+                + "(\n"
+                + "PARTITION p20211006 VALUES [('2021-10-06'), ('2021-10-07')),\n"
+                + "PARTITION P20211007 VALUES [('2021-10-07'), ('2021-10-08')),\n"
+                + "PARTITION P20211008 VALUES [('2021-10-08'), ('2021-10-09')))\n"
+                + "DISTRIBUTED BY HASH(`column2`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ");";
 
         createTable(createTable2);
     }
@@ -119,7 +119,7 @@ public class TruncateTableTest {
         checkShowTabletResultNum("test.tbl", "p20210904", 5);
 
         String truncateStr = "truncate table test.tbl;";
-        TruncateTableStmt truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);
@@ -127,7 +127,7 @@ public class TruncateTableTest {
         checkShowTabletResultNum("test.tbl", "p20210904", 5);
 
         truncateStr = "truncate table test.tbl partition(p20210901, p20210902, p20210903, p20210904);";
-        truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);
@@ -135,22 +135,22 @@ public class TruncateTableTest {
         checkShowTabletResultNum("test.tbl", "p20210904", 5);
 
         truncateStr = "truncate table test.tbl partition (p20210901);";
-        truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
 
         truncateStr = "truncate table test.tbl partition (p20210902);";
-        truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);
 
         truncateStr = "truncate table test.tbl partition (p20210903);";
-        truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210903", 4);
 
         truncateStr = "truncate table test.tbl partition (p20210904);";
-        truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210904", 5);
     }

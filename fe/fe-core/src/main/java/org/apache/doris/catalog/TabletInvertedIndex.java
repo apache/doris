@@ -154,8 +154,8 @@ public class TabletInvertedIndex {
 
                         // check and set path
                         // path info of replica is only saved in Master FE
-                        if (backendTabletInfo.isSetPathHash() &&
-                                replica.getPathHash() != backendTabletInfo.getPathHash()) {
+                        if (backendTabletInfo.isSetPathHash()
+                                && replica.getPathHash() != backendTabletInfo.getPathHash()) {
                             replica.setPathHash(backendTabletInfo.getPathHash());
                         }
 

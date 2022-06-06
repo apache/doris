@@ -52,7 +52,7 @@ public class DorisRangePartitioner extends Partitioner {
                 && partitionInfo.partitionType.equalsIgnoreCase(UNPARTITIONED_TYPE)) {
             return 0;
         }
-        DppColumns key = (DppColumns)var1;
+        DppColumns key = (DppColumns) var1;
         // get the partition columns from key as partition key
         DppColumns partitionKey = new DppColumns(key, partitionKeyIndexes);
         // TODO: optimize this by use binary search
@@ -78,11 +78,11 @@ public class DorisRangePartitioner extends Partitioner {
         }
 
         public String toString() {
-            return "PartitionRangeKey{" +
-                    "isMaxPartition=" + isMaxPartition +
-                    ", startKeys=" + startKeys +
-                    ", endKeys=" + endKeys +
-                    '}';
+            return "PartitionRangeKey{"
+                    +  "isMaxPartition=" + isMaxPartition
+                    +  ", startKeys=" + startKeys
+                    +  ", endKeys=" + endKeys
+                    + '}';
         }
     }
 }

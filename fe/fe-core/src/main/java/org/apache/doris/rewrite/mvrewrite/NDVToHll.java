@@ -47,7 +47,7 @@ import java.util.List;
  *    or  select k1, approx_count_distinct(k2) from table group by k1
  * Rewritten query: select k1, hll_union_agg(mv_hll_union_k2) from table group by k1
  */
-public class NDVToHll implements ExprRewriteRule{
+public class NDVToHll implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new NDVToHll();
 
     @Override

@@ -313,7 +313,7 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public String toString() {
         return "SyncJob [jobId=" + id
-                + ", jobName=" +jobName
+                + ", jobName=" + jobName
                 + ", dbId=" + dbId
                 + ", state=" + jobState
                 + ", createTimeMs=" + TimeUtils.longToTimeString(createTimeMs)

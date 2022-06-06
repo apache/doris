@@ -36,7 +36,7 @@ public class ClearTransactionTask extends AgentTask {
 
     public TClearTransactionTaskRequest toThrift() {
         TClearTransactionTaskRequest clearTransactionTaskRequest = new TClearTransactionTaskRequest(
-            transactionId, partitionIds);
+                transactionId, partitionIds);
         return clearTransactionTaskRequest;
     }
 }

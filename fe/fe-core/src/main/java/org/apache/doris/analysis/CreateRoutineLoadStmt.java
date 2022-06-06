@@ -97,7 +97,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
     public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
 
-    public static final String FORMAT = "format";// the value is csv or json, default is csv
+    public static final String FORMAT = "format"; // the value is csv or json, default is csv
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
@@ -338,7 +338,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
         }
         if (mergeType != LoadTask.MergeType.APPEND
-                && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign()) ) {
+                && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign())) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
     }

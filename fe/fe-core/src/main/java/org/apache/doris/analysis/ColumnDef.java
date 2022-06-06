@@ -144,15 +144,41 @@ public class ColumnDef {
                 "sequence column hidden column", false);
     }
 
-    public boolean isAllowNull() { return isAllowNull; }
-    public String getDefaultValue() { return defaultValue.value; }
-    public String getName() { return name; }
-    public AggregateType getAggregateType() { return aggregateType; }
-    public void setAggregateType(AggregateType aggregateType) { this.aggregateType = aggregateType; }
-    public boolean isKey() { return isKey; }
-    public void setIsKey(boolean isKey) { this.isKey = isKey; }
-    public TypeDef getTypeDef() { return typeDef; }
-    public Type getType() { return typeDef.getType(); }
+    public boolean isAllowNull() {
+        return isAllowNull;
+    }
+
+    public String getDefaultValue() {
+        return defaultValue.value;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public AggregateType getAggregateType() {
+        return aggregateType;
+    }
+
+    public void setAggregateType(AggregateType aggregateType) {
+        this.aggregateType = aggregateType;
+    }
+
+    public boolean isKey() {
+        return isKey;
+    }
+
+    public void setIsKey(boolean isKey) {
+        this.isKey = isKey;
+    }
+
+    public TypeDef getTypeDef() {
+        return typeDef;
+    }
+
+    public Type getType() {
+        return typeDef.getType();
+    }
 
     public String getComment() {
         return comment;
@@ -181,9 +207,9 @@ public class ColumnDef {
 
         Type type = typeDef.getType();
 
-        if(!Config.enable_quantile_state_type && type.isQuantileStateType()) {
-            throw new AnalysisException("quantile_state is disabled" +
-                    "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
+        if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
+            throw new AnalysisException("quantile_state is disabled"
+                    + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
         }
 
         // disable Bitmap Hll type in keys, values without aggregate function.
@@ -283,10 +309,10 @@ public class ColumnDef {
             case SMALLINT:
             case INT:
             case BIGINT:
-                IntLiteral intLiteral = new IntLiteral(defaultValue, type);
+                new IntLiteral(defaultValue, type);
                 break;
             case LARGEINT:
-                LargeIntLiteral largeIntLiteral = new LargeIntLiteral(defaultValue);
+                new LargeIntLiteral(defaultValue);
                 break;
             case FLOAT:
                 FloatLiteral floatLiteral = new FloatLiteral(defaultValue);
@@ -295,7 +321,7 @@ public class ColumnDef {
                 }
                 break;
             case DOUBLE:
-                FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
+                new FloatLiteral(defaultValue);
                 break;
             case DECIMALV2:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
@@ -326,7 +352,7 @@ public class ColumnDef {
             case STRUCT:
                 break;
             case BOOLEAN:
-                BoolLiteral boolLiteral = new BoolLiteral(defaultValue);
+                new BoolLiteral(defaultValue);
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);
@@ -363,5 +389,7 @@ public class ColumnDef {
     }
 
     @Override
-    public String toString() { return toSql(); }
+    public String toString() {
+        return toSql();
+    }
 }

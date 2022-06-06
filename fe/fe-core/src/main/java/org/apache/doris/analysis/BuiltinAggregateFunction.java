@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TAggregationOp;
 import org.apache.doris.thrift.TFunction;
@@ -50,10 +49,8 @@ public class BuiltinAggregateFunction extends Function {
     }
 
     public BuiltinAggregateFunction(Operator op, ArrayList<Type> argTypes,
-      Type retType, org.apache.doris.catalog.Type intermediateType, boolean isAnalyticFn)
-      throws AnalysisException {
-        super(FunctionName.createBuiltinName(op.toString()), argTypes,
-          retType, false);
+            Type retType, org.apache.doris.catalog.Type intermediateType, boolean isAnalyticFn) {
+        super(FunctionName.createBuiltinName(op.toString()), argTypes, retType, false);
         Preconditions.checkState(intermediateType != null);
         Preconditions.checkState(op != null);
         // may be no need to analyze
@@ -128,8 +125,8 @@ public class BuiltinAggregateFunction extends Function {
         // The intermediate type for this function if it is constant regardless of
         // input type. Set to null if it can only be determined during analysis.
         private final org.apache.doris.catalog.Type intermediateType;
-        private Operator(String description, TAggregationOp thriftOp,
-          org.apache.doris.catalog.Type intermediateType) {
+        Operator(String description, TAggregationOp thriftOp,
+                org.apache.doris.catalog.Type intermediateType) {
             this.description = description;
             this.thriftOp = thriftOp;
             this.intermediateType = intermediateType;

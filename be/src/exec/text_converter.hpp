@@ -21,18 +21,17 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include "olap/utils.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
 #include "text_converter.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
 #include "util/types.h"
+#include "vec/columns/column_complex.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -165,6 +164,24 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
     }
 
     return true;
+}
+
+inline void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
+                                               vectorized::MutableColumnPtr* column_ptr,
+                                               const char* data, size_t len) {
+    vectorized::IColumn* col_ptr = column_ptr->get();
+    // \N means it's NULL
+    if (LIKELY(slot_desc->is_nullable())) {
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
+        if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
+            nullable_column->insert_data(nullptr, 0);
+            return;
+        } else {
+            nullable_column->get_null_map_data().push_back(0);
+            col_ptr = &nullable_column->get_nested_column();
+        }
+    }
+    reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data, len);
 }
 
 inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,

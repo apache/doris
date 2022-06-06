@@ -29,7 +29,9 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
+#include "runtime/mem_pool.h"
 #include "util/mem_util.hpp"
+#include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
@@ -309,15 +311,15 @@ public:
     }
 
     void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto dest_value = static_cast<CollectionValue*>(dest);
         // NOTICE: The address pointed by null_signs of the dest_value can NOT be modified here.
         auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_null_signs());
         direct_copy(&base, dest, src);
     }
 
     void direct_copy(uint8_t** base, void* dest, const void* src) const {
-        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
-        auto src_value = reinterpret_cast<const CollectionValue*>(src);
+        auto dest_value = static_cast<CollectionValue*>(dest);
+        auto src_value = static_cast<const CollectionValue*>(src);
 
         auto nulls_size = src_value->has_null() ? src_value->length() : 0;
         dest_value->set_data(src_value->length() ? (*base + nulls_size) : nullptr);
@@ -330,17 +332,22 @@ public:
                         src_value->length());
         }
         *base += nulls_size + src_value->length() * _item_type_info->size();
+
         // Direct copy item.
         if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
-                if (dest_value->is_null_at(i)) continue;
+                if (dest_value->is_null_at(i)) {
+                    continue;
+                }
                 dynamic_cast<const ArrayTypeInfo*>(_item_type_info.get())
                         ->direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
                                       (uint8_t*)(src_value->data()) + i * _item_size);
             }
         } else {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
-                if (dest_value->is_null_at(i)) continue;
+                if (dest_value->is_null_at(i)) {
+                    continue;
+                }
                 auto dest_address = (uint8_t*)(dest_value->mutable_data()) + i * _item_size;
                 auto src_address = (uint8_t*)(src_value->data()) + i * _item_size;
                 if (is_olap_string_type(_item_type_info->type())) {

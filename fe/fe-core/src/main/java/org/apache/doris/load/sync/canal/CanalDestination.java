@@ -106,14 +106,14 @@ public class CanalDestination implements Writable {
             return false;
         }
         CanalDestination otherDestination = (CanalDestination) other;
-        return ip.equalsIgnoreCase(otherDestination.getIp()) && port == otherDestination.getPort() &&
-                destination.equalsIgnoreCase(otherDestination.getDestination());
+        return ip.equalsIgnoreCase(otherDestination.getIp()) && port == otherDestination.getPort()
+                && destination.equalsIgnoreCase(otherDestination.getDestination());
     }
 
     @Override
     public String toString() {
-        return "CanalDestination [ip=" + ip + ", port=" + port +
-                ", destination=" + destination + "]";
+        return "CanalDestination [ip=" + ip + ", port=" + port
+                + ", destination=" + destination + "]";
     }
 
     @Override

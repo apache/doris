@@ -57,7 +57,10 @@ public class IcebergScanNode extends BrokerScanNode {
 
     @Override
     protected void initFileGroup() throws UserException {
-        fileGroups = Lists.newArrayList(new BrokerFileGroup(icebergTable));
+        fileGroups = Lists.newArrayList(
+            new BrokerFileGroup(icebergTable.getId(),
+                null,
+                icebergTable.getFileFormat()));
         brokerDesc = new BrokerDesc("IcebergTableDesc", icebergTable.getStorageType(),
                 icebergTable.getIcebergProperties());
         targetTable = icebergTable;

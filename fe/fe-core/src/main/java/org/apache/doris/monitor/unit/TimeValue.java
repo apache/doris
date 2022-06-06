@@ -323,7 +323,7 @@ public class TimeValue implements Comparable<TimeValue> {
             return Long.parseLong(s);
         } catch (final NumberFormatException e) {
             try {
-                @SuppressWarnings("unused") final double ignored = Double.parseDouble(s);
+                @SuppressWarnings("unused") final double ignored = Double.parseDouble(s); // CHECKSTYLE IGNORE THIS LINE
                 throw new NumberFormatException("failed to parse, fractional time values are not supported");
             } catch (final NumberFormatException ignored) {
                 throw new NumberFormatException("failed to parse");

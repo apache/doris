@@ -238,7 +238,9 @@ public class Column implements Writable {
         return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
     }
 
-    public PrimitiveType getDataType() { return type.getPrimitiveType(); }
+    public PrimitiveType getDataType() {
+        return type.getPrimitiveType();
+    }
 
     public Type getType() {
         return type;
@@ -248,11 +250,21 @@ public class Column implements Writable {
         this.type = type;
     }
 
-    public Type getOriginType() { return type; }
+    public Type getOriginType() {
+        return type;
+    }
 
-    public int getStrLen() { return type.getLength(); }
-    public int getPrecision() { return type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : -1; }
-    public int getScale() { return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1; }
+    public int getStrLen() {
+        return type.getLength();
+    }
+
+    public int getPrecision() {
+        return type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : -1;
+    }
+
+    public int getScale() {
+        return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1;
+    }
 
     public AggregateType getAggregationType() {
         return this.aggregationType;
@@ -408,8 +420,8 @@ public class Column implements Writable {
             Integer lSize = type.getColumnStringRepSize();
             Integer rSize = other.type.getColumnStringRepSize();
             if (rSize < lSize) {
-                throw new DdlException("Can not change from wider type " + type.toSql() +
-                                        " to narrower type " + other.type.toSql());
+                throw new DdlException("Can not change from wider type " + type.toSql()
+                        + " to narrower type " + other.type.toSql());
             }
         }
 

@@ -17,20 +17,37 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Abstract class for all logical plan that have one child.
  */
-public abstract class LogicalUnary<
-            PLAN_TYPE extends LogicalUnary<PLAN_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends Plan>
-        extends AbstractLogicalPlan<PLAN_TYPE>
-        implements UnaryPlan<PLAN_TYPE, CHILD_TYPE> {
+public class LogicalUnary<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE extends Plan>
+        extends AbstractLogicalPlan<LogicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE>
+        implements UnaryPlan<LogicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE, CHILD_TYPE> {
 
-    public LogicalUnary(NodeType type, CHILD_TYPE child) {
-        super(type, child);
+    public LogicalUnary(OP_TYPE operator, CHILD_TYPE child) {
+        super(NodeType.LOGICAL, operator, child);
+    }
+
+    public LogicalUnary(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
+        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, child);
+    }
+
+    @Override
+    public LogicalUnary newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalUnary(operator, groupExpression, logicalProperties, (Plan) children.get(0));
     }
 }

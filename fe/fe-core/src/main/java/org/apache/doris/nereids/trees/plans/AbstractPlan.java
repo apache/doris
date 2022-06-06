@@ -17,15 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Abstract class for all concrete plan node.
@@ -33,17 +34,27 @@ import java.util.List;
  * @param <PLAN_TYPE> either {@link org.apache.doris.nereids.trees.plans.logical.LogicalPlan}
  *                  or {@link org.apache.doris.nereids.trees.plans.physical.PhysicalPlan}
  */
-public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
-        extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE> {
+public abstract class AbstractPlan<
+        PLAN_TYPE extends AbstractPlan<PLAN_TYPE, OP_TYPE>,
+        OP_TYPE extends PlanOperator>
+        extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE, OP_TYPE> {
 
-    protected List<Slot> output;
+    public final OP_TYPE operator;
 
-    public AbstractPlan(NodeType type, Plan...children) {
+    public AbstractPlan(NodeType type, OP_TYPE operator, Plan... children) {
         super(type, children);
+        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    }
+
+    public AbstractPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression, Plan... children) {
+        super(type, groupExpression, children);
+        this.operator = Objects.requireNonNull(operator, "operator can not be null");
     }
 
     @Override
-    public abstract List<Slot> getOutput() throws UnboundException;
+    public OP_TYPE getOperator() {
+        return operator;
+    }
 
     @Override
     public List<Plan> children() {
@@ -67,7 +78,7 @@ public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
         return StringUtils.join(lines, "\n");
     }
 
-    private void treeString(List<String> lines, int depth, List<Boolean> lastChildren, Plan<PLAN_TYPE> plan) {
+    private void treeString(List<String> lines, int depth, List<Boolean> lastChildren, Plan plan) {
         StringBuilder sb = new StringBuilder();
         if (depth > 0) {
             if (lastChildren.size() > 1) {

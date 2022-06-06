@@ -45,14 +45,14 @@ public enum PaloPrivilege {
     };
 
     public static Map<PaloPrivilege, String> privInPaloToMysql =
-        ImmutableMap.<PaloPrivilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
-                .put(SELECT_PRIV, "SELECT")
-                .put(LOAD_PRIV, "INSERT")
-                .put(ALTER_PRIV, "ALTER")
-                .put(CREATE_PRIV, "CREATE")
-                .put(DROP_PRIV, "DROP")
-                .put(USAGE_PRIV, "USAGE")
-                .build();
+            ImmutableMap.<PaloPrivilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
+                    .put(SELECT_PRIV, "SELECT")
+                    .put(LOAD_PRIV, "INSERT")
+                    .put(ALTER_PRIV, "ALTER")
+                    .put(CREATE_PRIV, "CREATE")
+                    .put(DROP_PRIV, "DROP")
+                    .put(USAGE_PRIV, "USAGE")
+                    .build();
 
     private String name;
     private int idx;
