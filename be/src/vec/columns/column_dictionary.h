@@ -258,9 +258,9 @@ public:
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
-    phmap::flat_hash_set<int32_t> find_codes(
-            const phmap::flat_hash_set<StringValue>& values) const {
-        return _dict.find_codes(values);
+    void find_codes(const phmap::flat_hash_set<StringValue>& values, std::vector<bool>& selected,
+                    size_t& dict_word_num) const {
+        return _dict.find_codes(values, selected, dict_word_num);
     }
 
     bool is_dict_sorted() const { return _dict_sorted; }
@@ -362,16 +362,17 @@ public:
             return greater ? bound - greater + eq : bound - eq;
         }
 
-        phmap::flat_hash_set<int32_t> find_codes(
-                const phmap::flat_hash_set<StringValue>& values) const {
-            phmap::flat_hash_set<int32_t> code_set;
+        void find_codes(const phmap::flat_hash_set<StringValue>& values,
+                        std::vector<bool>& selected, size_t& dict_word_num) const {
+            dict_word_num = _dict_data.size();
+            selected.resize(dict_word_num);
+            selected.assign(dict_word_num, false);
             for (const auto& value : values) {
                 auto it = _inverted_index.find(value);
                 if (it != _inverted_index.end()) {
-                    code_set.insert(it->second);
+                    selected[it->second] = true;
                 }
             }
-            return code_set;
         }
 
         void clear() {
