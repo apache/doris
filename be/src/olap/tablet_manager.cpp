@@ -459,14 +459,7 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bo
     return _drop_tablet_unlocked(tablet_id, replica_id, keep_files);
 }
 
-// Drop specified tablet, the main logical is as follows:
-// 1. tablet not in schema change:
-//      drop specified tablet directly;
-// 2. tablet in schema change:
-//      a. schema change not finished && the dropping tablet is a base-tablet:
-//          base-tablet cannot be dropped;
-//      b. other cases:
-//          drop specified tablet directly and clear schema change info.
+// Drop specified tablet.
 Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id,
                                             bool keep_files) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id;
@@ -484,7 +477,31 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
                      << "tablet_id=" << tablet_id;
         return Status::OK();
     }
-    return _drop_tablet_directly_unlocked(std::move(to_drop_tablet), keep_files);
+
+    _remove_tablet_from_partition(to_drop_tablet);
+    tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
+    tablet_map.erase(tablet_id);
+    if (!keep_files) {
+        // drop tablet will update tablet meta, should lock
+        std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
+        LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
+                  << "tablet_id=" << tablet_id
+                  << ", tablet_path=" << to_drop_tablet->tablet_path_desc().filepath;
+        // NOTE: has to update tablet here, but must not update tablet meta directly.
+        // because other thread may hold the tablet object, they may save meta too.
+        // If update meta directly here, other thread may override the meta
+        // and the tablet will be loaded at restart time.
+        // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
+        to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN);
+        to_drop_tablet->save_meta();
+        {
+            std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
+            _shutdown_tablets.push_back(to_drop_tablet);
+        }
+    }
+
+    to_drop_tablet->deregister_tablet_from_dir();
+    return Status::OK();
 }
 
 Status TabletManager::drop_tablets_on_error_root_path(
@@ -1230,40 +1247,6 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
         }
     }
     return res;
-}
-
-Status TabletManager::_drop_tablet_directly_unlocked(TabletSharedPtr dropped_tablet,
-                                                     bool keep_files) {
-    auto tablet_id = dropped_tablet->tablet_id();
-    if (dropped_tablet == nullptr) {
-        LOG(WARNING) << "fail to drop tablet because it does not exist. "
-                     << " tablet_id=" << tablet_id;
-        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
-    }
-    _remove_tablet_from_partition(dropped_tablet);
-    tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
-    tablet_map.erase(tablet_id);
-    if (!keep_files) {
-        // drop tablet will update tablet meta, should lock
-        std::lock_guard<std::shared_mutex> wrlock(dropped_tablet->get_header_lock());
-        LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
-                  << "tablet_id=" << tablet_id
-                  << ", tablet_path=" << dropped_tablet->tablet_path_desc().filepath;
-        // NOTE: has to update tablet here, but must not update tablet meta directly.
-        // because other thread may hold the tablet object, they may save meta too.
-        // If update meta directly here, other thread may override the meta
-        // and the tablet will be loaded at restart time.
-        // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
-        dropped_tablet->set_tablet_state(TABLET_SHUTDOWN);
-        dropped_tablet->save_meta();
-        {
-            std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
-            _shutdown_tablets.push_back(dropped_tablet);
-        }
-    }
-
-    dropped_tablet->deregister_tablet_from_dir();
-    return Status::OK();
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {

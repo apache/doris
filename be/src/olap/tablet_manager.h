@@ -157,8 +157,6 @@ private:
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
-    Status _drop_tablet_directly_unlocked(TabletSharedPtr dropped_tablet, bool keep_files = false);
-
     Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
