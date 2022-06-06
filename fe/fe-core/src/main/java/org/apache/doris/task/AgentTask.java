@@ -71,15 +71,15 @@ public abstract class AgentTask {
     }
 
     public long getSignature() {
-        return this.signature;
+        return signature;
     }
 
     public long getBackendId() {
-        return this.backendId;
+        return backendId;
     }
 
     public TTaskType getTaskType() {
-        return this.taskType;
+        return taskType;
     }
 
     public long getDbId() {
@@ -107,15 +107,15 @@ public abstract class AgentTask {
     }
 
     public void failed() {
-        ++this.failedTimes;
+        ++failedTimes;
     }
 
     public int getFailedTimes() {
-        return this.failedTimes;
+        return failedTimes;
     }
 
     public void setErrorMsg(String errorMsg) {
-        this.errorMsg = errorMsg;
+        errorMsg = errorMsg;
     }
 
     public String getErrorMsg() {
@@ -123,7 +123,7 @@ public abstract class AgentTask {
     }
 
     public void setFinished(boolean isFinished) {
-        this.isFinished = isFinished;
+        isFinished = isFinished;
     }
 
     public boolean isFinished() {
