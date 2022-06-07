@@ -45,9 +45,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
+/**
+ * A HiveScanProvider to get information for scan node.
+ */
 public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     protected org.apache.doris.catalog.Table catalogTable;
+
     public ExternalHiveScanProvider(org.apache.doris.catalog.Table catalogTable) {
         this.catalogTable = catalogTable;
     }
@@ -56,12 +59,12 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     public TFileFormatType getTableFormatType() throws DdlException {
         TFileFormatType type = null;
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
-        String hive_format = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
-        if (hive_format.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
+        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
+        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
             type = TFileFormatType.FORMAT_PARQUET;
-        } else if (hive_format.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
             type = TFileFormatType.FORMAT_ORC;
-        } else if (hive_format.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
             type = TFileFormatType.FORMAT_CSV_PLAIN;
         }
         return type;
@@ -81,16 +84,17 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     public InputSplit[] getSplits(List<Expr> exprs)
             throws IOException, UserException {
         String splitsPath = getRemoteHiveTable().getSd().getLocation();
-        List<String> partitionKeys = getRemoteHiveTable().getPartitionKeys().stream().map(FieldSchema::getName).collect(Collectors.toList());
+        List<String> partitionKeys = getRemoteHiveTable().getPartitionKeys()
+            .stream().map(FieldSchema::getName).collect(Collectors.toList());
 
         if (partitionKeys.size() > 0) {
             ExprNodeGenericFuncDesc hivePartitionPredicate = extractHivePartitionPredicate(exprs, partitionKeys);
 
             String metaStoreUris = getMetaStoreUrl();
-            List<Partition> hivePartitions =
-                    HiveMetaStoreClientHelper.getHivePartitions(metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate);
-            splitsPath = hivePartitions.stream()
-                    .map(x -> x.getSd().getLocation()).collect(Collectors.joining(","));
+            List<Partition> hivePartitions = HiveMetaStoreClientHelper.getHivePartitions(
+                metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate);
+            splitsPath = hivePartitions.stream().map(x -> x.getSd().getLocation())
+                .collect(Collectors.joining(","));
         }
 
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
@@ -103,11 +107,13 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     }
 
 
-    private ExprNodeGenericFuncDesc extractHivePartitionPredicate(List<Expr> conjuncts, List<String> partitionKeys) throws DdlException {
+    private ExprNodeGenericFuncDesc extractHivePartitionPredicate(List<Expr> conjuncts, List<String> partitionKeys)
+        throws DdlException {
         ExprNodeGenericFuncDesc hivePartitionPredicate;
         List<ExprNodeDesc> exprNodeDescs = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct, partitionKeys, catalogTable.getName());
+            ExprNodeGenericFuncDesc hiveExpr =
+                HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct, partitionKeys, catalogTable.getName());
             if (hiveExpr != null) {
                 exprNodeDescs.add(hiveExpr);
             }

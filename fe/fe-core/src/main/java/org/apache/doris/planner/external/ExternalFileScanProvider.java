@@ -30,13 +30,19 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-
+/**
+ * An interface for file scan node to get the need information.
+ */
 public interface ExternalFileScanProvider {
     TFileFormatType getTableFormatType() throws DdlException;
+
     TFileType getTableFileType();
+
     String getMetaStoreUrl();
+
     InputSplit[] getSplits(List<Expr> exprs) throws IOException, UserException;
 
     Table getRemoteHiveTable() throws DdlException;
-   Map<String, String> getTableProperties();
+
+    Map<String, String> getTableProperties();
 }

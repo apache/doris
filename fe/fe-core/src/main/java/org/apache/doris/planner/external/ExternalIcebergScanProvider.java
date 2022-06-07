@@ -19,7 +19,6 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.DdlException;
@@ -44,21 +43,22 @@ import java.util.Map;
 
 public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
     private final org.apache.doris.catalog.Table catalogTable;
+
     public ExternalIcebergScanProvider(org.apache.doris.catalog.Table catalogTable) {
         this.catalogTable = catalogTable;
     }
     @Override
     public TFileFormatType getTableFormatType() throws DdlException {
-        TFileFormatType type = null;
+        TFileFormatType type;
 
-        String iceberg_format  = getRemoteHiveTable().getParameters()
+        String icebergFormat  = getRemoteHiveTable().getParameters()
                 .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
-        if (iceberg_format.equals("parquet")) {
+        if (icebergFormat.equals("parquet")) {
             type = TFileFormatType.FORMAT_PARQUET;
-        } else if (iceberg_format.equals("orc")) {
+        } else if (icebergFormat.equals("orc")) {
             type = TFileFormatType.FORMAT_ORC;
         } else {
-            throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", iceberg_format));
+            throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
         }
         return type;
     }
@@ -74,8 +74,7 @@ public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public InputSplit[] getSplits(List<Expr> exprs)
-            throws IOException, UserException {
+    public InputSplit[] getSplits(List<Expr> exprs) throws IOException, UserException {
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);

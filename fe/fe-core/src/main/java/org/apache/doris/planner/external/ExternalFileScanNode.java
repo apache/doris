@@ -18,36 +18,49 @@
 package org.apache.doris.planner.external;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.*;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.IcebergTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.mysql.privilege.UserProperty;
-
+import org.apache.doris.planner.HiveScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
-import org.apache.doris.thrift.*;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+import org.apache.doris.thrift.TBrokerRangeDesc;
+import org.apache.doris.thrift.TBrokerScanNode;
+import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TBrokerScanRangeParams;
+import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THdfsParams;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocation;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileSplit;
@@ -58,33 +71,81 @@ import org.mortbay.log.Log;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 
-import static org.apache.doris.planner.HiveScanNode.HIVE_DEFAULT_COLUMN_SEPARATOR;
-import static org.apache.doris.planner.HiveScanNode.HIVE_DEFAULT_LINE_DELIMITER;
-
+/**
+ * ExternalFileScanNode for the file access type of datasource, now only support hive,hudi and iceberg.
+ */
 public class ExternalFileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(ExternalFileScanNode.class);
 
     private static class ParamCreateContext {
         public TBrokerScanRangeParams params;
         public TupleDescriptor srcTupleDescriptor;
-        public Map<String, Expr> exprMap;
         public Map<String, SlotDescriptor> slotDescByName;
+    }
+
+    private static class BackendPolicy {
+        private final List<Backend> backends = Lists.newArrayList();
+
+        private int nextBe = 0;
+
+        public void init() throws UserException {
+            Set<Tag> tags = Sets.newHashSet();
+            if (ConnectContext.get().getCurrentUserIdentity() != null) {
+                String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
+                tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(qualifiedUser);
+                if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+                    throw new UserException("No valid resource tag for user: " + qualifiedUser);
+                }
+            } else {
+                LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");
+            }
+
+            // scan node is used for query
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                    .needQueryAvailable()
+                    .needLoadAvailable()
+                    .addTags(tags)
+                    .build();
+            for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
+                if (policy.isMatch(be)) {
+                    backends.add(be);
+                }
+            }
+            if (backends.isEmpty()) {
+                throw new UserException("No available backends");
+            }
+            Random random = new Random(System.currentTimeMillis());
+            Collections.shuffle(backends, random);
+        }
+        public Backend getNextBe() {
+            Backend selectedBackend = backends.get(nextBe++);
+            nextBe = nextBe % backends.size();
+            return selectedBackend;
+        }
+    }
+
+    private enum DLAType {
+        HIVE,
+        HUDI,
+        ICE_BERG
     }
 
     private final org.apache.doris.catalog.Table catalogTable;
 
+    private final BackendPolicy backendPolicy = new BackendPolicy();
+
+    private final ParamCreateContext context = new ParamCreateContext();
+
     private List<TScanRangeLocations> scanRangeLocations;
 
-    private UserIdentity userIdentity;
-
-    private List<Backend> backends;
-    private int nextBe = 0;
-
     private Table remoteHiveTable;
-    /* hudi table properties */
-    private final ParamCreateContext context = new ParamCreateContext();
 
     private ExternalFileScanProvider scanProvider;
 
@@ -93,9 +154,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             TupleDescriptor desc,
             String planNodeName) {
         super(id, desc, planNodeName, NodeType.BROKER_SCAN_NODE);
-        if (ConnectContext.get() != null) {
-            this.userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        }
+
         this.catalogTable = desc.getTable();
 
         DLAType type = getDLAType();
@@ -112,52 +171,44 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
+    private DLAType getDLAType() {
+        // TODO: delete this instanceof logic
+        if (this.catalogTable instanceof HiveTable) {
+            return DLAType.HIVE;
+        } else if (this.catalogTable instanceof HudiTable) {
+            return DLAType.HUDI;
+        } else if (this.catalogTable instanceof IcebergTable) {
+            return DLAType.ICE_BERG;
+        }
+        if (remoteHiveTable.getParameters().containsKey("table_type") &&
+            remoteHiveTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG")){
+            return DLAType.ICE_BERG;
+        } else if (remoteHiveTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
+            return DLAType.HUDI;
+        } else {
+            return DLAType.HIVE;
+        }
+    }
+
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        backendPolicy.init();
         this.remoteHiveTable = scanProvider.getRemoteHiveTable();
-        assignBackends();
 
         initContext(context);
-    }
-
-    private void assignBackends() throws UserException {
-        Set<Tag> tags = Sets.newHashSet();
-        if (userIdentity != null) {
-            tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(userIdentity.getQualifiedUser());
-            if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
-                throw new UserException("No valid resource tag for user: " + userIdentity.getQualifiedUser());
-            }
-        } else {
-            LOG.debug("user info in BrokerScanNode should not be null, add log to observer");
-        }
-        backends = Lists.newArrayList();
-        // broker scan node is used for query or load
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needQueryAvailable().needLoadAvailable()
-                .addTags(tags).build();
-        for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (policy.isMatch(be)) {
-                backends.add(be);
-            }
-        }
-        if (backends.isEmpty()) {
-            throw new UserException("No available backends");
-        }
-        Random random = new Random(System.currentTimeMillis());
-        Collections.shuffle(backends, random);
     }
 
     private void initContext(ParamCreateContext context) throws DdlException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
         context.slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.params = new TBrokerScanRangeParams();
         if (scanProvider.getTableFormatType().equals(TFileFormatType.FORMAT_CSV_PLAIN)) {
             Map<String, String> serDeInfoParams = remoteHiveTable.getSd().getSerdeInfo().getParameters();
             String columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
-                ? HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
+                ? HiveScanNode.HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
             String lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim"))
-                ? HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
+                ? HiveScanNode.HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
             context.params.setColumnSeparator(columnSeparator.getBytes(StandardCharsets.UTF_8)[0]);
             context.params.setLineDelimiter(lineDelimiter.getBytes(StandardCharsets.UTF_8)[0]);
             context.params.setColumnSeparatorStr(columnSeparator);
@@ -169,7 +220,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
 
         List<Column> columns = catalogTable.getBaseSchema(false);
-        // init slot desc add expr map, also transform hadoop functions
         for (Column column : columns) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(context.srcTupleDescriptor);
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
@@ -185,33 +235,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         try {
-            finalizeParams(context.slotDescByName, context.exprMap, context.params,
-                    context.srcTupleDescriptor, false, false, analyzer);
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
-        }
-        try {
+            finalizeParams(context.slotDescByName, context.params, context.srcTupleDescriptor);
             buildScanRange();
         } catch (IOException e) {
-            LOG.error("Build scan range failed.", e);
-            throw new UserException("Build scan range failed.", e);
-        }
-    }
-
-    public enum DLAType {
-        HIVE,
-        HUDI,
-        ICE_BERG
-    }
-
-    private DLAType getDLAType() {
-        if (remoteHiveTable.getParameters().containsKey("table_type") &&
-            remoteHiveTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG")){
-            return DLAType.ICE_BERG;
-        } else if (remoteHiveTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
-            return DLAType.HUDI;
-        } else {
-            return DLAType.HIVE;
+            LOG.error("Finalize failed.", e);
+            throw new UserException("Finalize failed.", e);
         }
     }
 
@@ -219,7 +247,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private void buildScanRange() throws UserException, IOException {
         scanRangeLocations = Lists.newArrayList();
         InputSplit[] inputSplits = scanProvider.getSplits(conjuncts);
-        if (inputSplits.length == 0) {
+        if (0 == inputSplits.length) {
             return;
         }
 
@@ -228,7 +256,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
         hdfsParams.setFsName(fsName);
-        Log.debug("Hudi path's host is " + fsName);
         List<String> partitionKeys = new ArrayList<>();
         for (FieldSchema fieldSchema : remoteHiveTable.getPartitionKeys()) {
             partitionKeys.add(fieldSchema.getName());
@@ -238,16 +265,18 @@ public class ExternalFileScanNode extends ExternalScanNode {
             FileSplit fileSplit = (FileSplit) split;
 
             TScanRangeLocations curLocations = newLocations(context.params);
-            List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), partitionKeys);
+            List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
+                    partitionKeys);
             int numberOfColumnsFromFile = context.slotDescByName.size() - partitionValuesFromPath.size();
 
-            TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(fileSplit, partitionValuesFromPath, numberOfColumnsFromFile);
+            TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(fileSplit, partitionValuesFromPath,
+                    numberOfColumnsFromFile);
             rangeDesc.setHdfsParams(hdfsParams);
             rangeDesc.setReadByColumnDef(true);
 
             curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
             Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
-                    + " with hudi split: " +  fileSplit.getPath()
+                    + " with table split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
 
             // Put the last file
@@ -257,11 +286,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    protected TScanRangeLocations newLocations(TBrokerScanRangeParams params) {
-
-        Backend selectedBackend = backends.get(nextBe++);
-        nextBe = nextBe % backends.size();
-
+    private TScanRangeLocations newLocations(TBrokerScanRangeParams params) {
+        Backend selectedBackend = backendPolicy.getNextBe();
 
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
@@ -284,7 +310,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return locations;
     }
 
-    private TBrokerRangeDesc createBrokerRangeDesc(FileSplit fileSplit, List<String> columnsFromPath, int numberOfColumnsFromFile) throws DdlException {
+    private TBrokerRangeDesc createBrokerRangeDesc(
+            FileSplit fileSplit,
+            List<String> columnsFromPath,
+            int numberOfColumnsFromFile) throws DdlException {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFileType(scanProvider.getTableFileType());
         rangeDesc.setFormatType(scanProvider.getTableFormatType());
@@ -301,102 +330,44 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return rangeDesc;
     }
 
-    protected void finalizeParams(Map<String, SlotDescriptor> slotDescByName,
-            Map<String, Expr> exprMap,
+    private void finalizeParams(
+            Map<String, SlotDescriptor> slotDescByName,
             TBrokerScanRangeParams params,
-            TupleDescriptor srcTupleDesc,
-            boolean strictMode,
-            boolean negative,
-            Analyzer analyzer) throws UserException {
+            TupleDescriptor srcTupleDesc) throws UserException {
         Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
         for (SlotDescriptor destSlotDesc : desc.getSlots()) {
-            if (!destSlotDesc.isMaterialized()) {
-                continue;
-            }
-            Expr expr = null;
-            if (exprMap != null) {
-                expr = exprMap.get(destSlotDesc.getColumn().getName());
-            }
-            if (expr == null) {
-                SlotDescriptor srcSlotDesc = slotDescByName.get(destSlotDesc.getColumn().getName());
-                if (srcSlotDesc != null) {
-                    destSidToSrcSidWithoutTrans.put(destSlotDesc.getId().asInt(), srcSlotDesc.getId().asInt());
-                    // If dest is allow null, we set source to nullable
-                    if (destSlotDesc.getColumn().isAllowNull()) {
-                        srcSlotDesc.setIsNullable(true);
-                    }
-                    expr = new SlotRef(srcSlotDesc);
+            Expr expr;
+            SlotDescriptor srcSlotDesc = slotDescByName.get(destSlotDesc.getColumn().getName());
+            if (srcSlotDesc != null) {
+                destSidToSrcSidWithoutTrans.put(destSlotDesc.getId().asInt(), srcSlotDesc.getId().asInt());
+                // If dest is allow null, we set source to nullable
+                if (destSlotDesc.getColumn().isAllowNull()) {
+                    srcSlotDesc.setIsNullable(true);
+                }
+                expr = new SlotRef(srcSlotDesc);
+            } else {
+                Column column = destSlotDesc.getColumn();
+                if (column.getDefaultValue() != null) {
+                    expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
                 } else {
-                    Column column = destSlotDesc.getColumn();
-                    if (column.getDefaultValue() != null) {
-                        expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
+                    if (column.isAllowNull()) {
+                        expr = NullLiteral.create(column.getType());
                     } else {
-                        if (column.isAllowNull()) {
-                            expr = NullLiteral.create(column.getType());
-                        } else {
-                            throw new AnalysisException("column has no source field, column=" + column.getName());
-                        }
+                        throw new AnalysisException("column has no source field, column=" + column.getName());
                     }
                 }
             }
 
-            // check hll_hash
-            if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
-                if (!(expr instanceof FunctionCallExpr)) {
-                    throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                            + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH + "(xxx)");
-                }
-                FunctionCallExpr fn = (FunctionCallExpr) expr;
-                if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)
-                        && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
-                    throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                            + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH
-                            + "(xxx) or " + destSlotDesc.getColumn().getName() + "=hll_empty()");
-                }
-                expr.setType(Type.HLL);
-            }
-
-            checkBitmapCompatibility(analyzer, destSlotDesc, expr);
-
-            checkQuantileStateCompatibility(analyzer, destSlotDesc, expr);
-
-            // check quantile_state
-
-            if (negative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
-                expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
-                expr.analyze(analyzer);
-            }
             expr = castToSlot(destSlotDesc, expr);
             params.putToExprOfDestSlot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
         params.setDestSidToSrcSidWithoutTrans(destSidToSrcSidWithoutTrans);
         params.setDestTupleId(desc.getId().asInt());
-        params.setStrictMode(strictMode);
+        params.setStrictMode(false);
         params.setSrcTupleId(srcTupleDesc.getId().asInt());
 
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeStatAndMemLayout();
-    }
-
-    protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
-        if (slotDesc.getColumn().getAggregationType() == AggregateType.BITMAP_UNION) {
-            expr.analyze(analyzer);
-            if (!expr.getType().isBitmapType()) {
-                String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
-                        slotDesc.getColumn().getName());
-                throw new AnalysisException(errorMsg);
-            }
-        }
-    }
-
-    protected void checkQuantileStateCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
-        if (slotDesc.getColumn().getAggregationType() == AggregateType.QUANTILE_UNION) {
-            expr.analyze(analyzer);
-            if (!expr.getType().isQuantileStateType()) {
-                String errorMsg = String.format("quantile_state column %s require the function return type is QUANTILE_STATE");
-                throw new AnalysisException(errorMsg);
-            }
-        }
     }
 
     @Override
@@ -427,6 +398,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        return prefix + "TABLE: " + catalogTable.getName() + "\n" + prefix + "TYPE: " + catalogTable.getType() + "\n";
+        return prefix + "TABLE: " + catalogTable.getName() + "\n"
+                + prefix + "PATH: " + scanProvider.getMetaStoreUrl() + "\n";
     }
 }

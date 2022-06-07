@@ -171,7 +171,9 @@ public class IcebergTable extends Table {
         return fileFormat;
     }
 
-    // get the iceberg table instance, if table is not loaded, load it.
+    /**
+     * get the iceberg table instance, if table is not loaded, load it.
+     */
     public org.apache.iceberg.Table getTable() throws UserException {
         if (isLoaded.get()) {
             Preconditions.checkNotNull(icebergTable);
