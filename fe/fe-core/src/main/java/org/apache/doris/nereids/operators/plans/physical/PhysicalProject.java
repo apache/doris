@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.statistics.StatisticsEstimate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -41,6 +45,14 @@ public class PhysicalProject<INPUT_TYPE extends Plan>
 
     public List<? extends NamedExpression> getProjects() {
         return projects;
+    }
+
+    @Override
+    public CostEstimate calculateCost(PlanContext ctx) {
+        StatisticsEstimate statistics = ctx.getStatistics();
+        Preconditions.checkNotNull(statistics);
+
+        return CostEstimate.ofCpu(0);
     }
 
     @Override

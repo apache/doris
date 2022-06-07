@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -62,6 +64,11 @@ public class PhysicalBroadcastHashJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT
 
     public Optional<Expression> getOnClause() {
         return onClause;
+    }
+
+    @Override
+    public CostEstimate calculateCost(PlanContext planCtx) {
+        return null;
     }
 
     @Override

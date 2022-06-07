@@ -19,9 +19,13 @@ package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.statistics.StatisticsEstimate;
 
 import com.clearspring.analytics.util.Lists;
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -60,6 +64,14 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
 
     public List<Long> getSelectedPartitionId() {
         return selectedPartitionId;
+    }
+
+    @Override
+    public CostEstimate calculateCost(PlanContext ctx) {
+        StatisticsEstimate statistics = ctx.getStatistics();
+        Preconditions.checkNotNull(statistics);
+
+        return CostEstimate.ofCpu(0);
     }
 
     @Override

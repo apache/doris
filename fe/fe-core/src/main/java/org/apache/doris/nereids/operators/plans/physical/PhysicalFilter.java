@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -38,6 +40,11 @@ public class PhysicalFilter<INPUT_TYPE extends Plan>
 
     public Expression getPredicates() {
         return predicates;
+    }
+
+    @Override
+    public CostEstimate calculateCost(PlanContext ctx) {
+        return null;
     }
 
     @Override

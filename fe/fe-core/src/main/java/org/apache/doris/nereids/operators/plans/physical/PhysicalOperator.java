@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -29,4 +31,6 @@ import java.util.List;
  */
 public interface PhysicalOperator<TYPE extends PhysicalOperator<TYPE>> extends PlanOperator<TYPE> {
     List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs);
+
+    public CostEstimate calculateCost(PlanContext ctx);
 }
