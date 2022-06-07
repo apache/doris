@@ -378,6 +378,18 @@ SIMDJSON_NAME=simdjson-1.0.2.tar.gz
 SIMDJSON_SOURCE=simdjson-1.0.2
 SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
 
+# nlohmann_json
+NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
+NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
+NLOHMANN_JSON_SOURCE=json-3.10.1
+NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# opentelemetry
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.2.0.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.2.0.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.2.0
+OPENTELEMETRY_MD5SUM="c084abc742c6b3cd4c9c3684e559d4e1"
+
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
@@ -438,4 +450,6 @@ PDQSORT
 BENCHMARK
 XSIMD
 SIMDJSON
+NLOHMANN_JSON
+OPENTELEMETRY
 LIBBACKTRACE"

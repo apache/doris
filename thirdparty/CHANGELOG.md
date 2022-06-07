@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220607
+
+- Added: opentelemetry-cpp 1.2.0, it was introduced for tracing.
+- Added: nlohmann/json 3.10.1, it is depended on by opentelemetry-cpp.
+
 ## v20220522
 
 - Added: libgsasl 1.8.0, this version of gsasl is only used for libhdfs3 with kerberos

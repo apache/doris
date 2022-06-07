@@ -1001,6 +1001,28 @@ build_simdjson() {
     cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
 }
 
+# nlohmann_json
+build_nlohmann_json() {
+    check_if_source_exist $NLOHMANN_JSON_SOURCE
+    cd $TP_SOURCE_DIR/$NLOHMANN_JSON_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+
+    $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR ..
+    $CMAKE_CMD --build .
+    $CMAKE_CMD --install . --prefix $TP_INSTALL_DIR
+}
+
+# opentelemetry
+build_opentelemetry() {
+    check_if_source_exist $OPENTELEMETRY_SOURCE
+    cd $TP_SOURCE_DIR/$OPENTELEMETRY_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+
+    $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_TESTING=OFF -DWITH_OTLP=ON -DWITH_ZIPKIN=ON -DWITH_EXAMPLES=OFF ..
+    $CMAKE_CMD --build . --target all
+    $CMAKE_CMD --install . --prefix $TP_INSTALL_DIR
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1050,6 +1072,8 @@ build_hdfs3
 build_hdfs3_with_kerberos
 build_benchmark
 build_simdjson
+build_nlohmann_json
+build_opentelemetry
 build_libbacktrace
 
 echo "Finished to build all thirdparties"
