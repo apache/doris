@@ -21,27 +21,6 @@ const BUILDING_BRANCH = process.env.BRANCH || "";
 const ALGOLIA_API_KEY = process.env.ALGOLIA_API_KEY || "";
 const ALGOLIA_INDEX_NAME = process.env.ALGOLIA_INDEX_NAME || "";
 
-let versions = {
-  en: [
-    {
-      text: "master",
-      link: "/en/docs/get-starting/get-starting.html",
-    },
-  ],
-  "zh-CN": [
-    {
-      text: "master",
-      link: "/zh-CN/docs/get-starting/get-starting.html",
-    },
-  ],
-};
-
-try {
-  versions = require("../versions.json");
-} catch (error) {
-  console.log(error);
-}
-
 function convertSidebar(list, path) {
   if (list.length > 0) {
     list.forEach((element, i) => {
@@ -64,30 +43,6 @@ function buildAlgoliaSearchConfig(lang) {
       facetFilters: ["lang:" + lang, "version:" + BUILDING_BRANCH],
     },
   };
-}
-
-function getVersionItems (lang) {
-  if (!versions) return [];
-  const versionLang = lang.indexOf('zh-CN') > -1 ? 'zh-CN' : 'en'
-  return versions[versionLang];
-}
-
-function buildSidebarVersion(lang) {
-  if (!versions) return [];
-  const versionItems = getVersionItems(lang);
-  if (!versionItems || !versionItems.length) return []
-  const sideBar = {};
-  const pathPrefix = lang.indexOf('zh-CN') > -1 ? '/zh-CN/' : lang.indexOf('en') > -1 ? '/en/' : '/'
-  versionItems.forEach((item) => {
-    const version = item.text;
-    const docName = version === "master" ? 'docs' : version
-    const path = `${pathPrefix}${docName}/`;
-    sideBar[path] = convertSidebar(
-      require(`./sidebar${pathPrefix}${docName}.js`),
-      path
-    );
-  });
-  return sideBar;
 }
 
 module.exports = {
@@ -155,7 +110,12 @@ module.exports = {
         versions: {
           text: "versions",
           icon: "doris doris-xiala",
-          items: getVersionItems("en"),
+          items: [
+            {
+              text: "master",
+              link: "/en/docs/get-starting/get-starting.html",
+            }
+          ]
         },
         // 导航栏
         nav: [
@@ -232,7 +192,10 @@ module.exports = {
             require("./sidebar/en/community.js"),
             "/en/community/"
           ),
-          ...buildSidebarVersion("/en/"),
+          "/en/docs/": convertSidebar(
+            require("./sidebar/en/docs.js"),
+            "/en/docs/"
+          ),
         },
       },
       "/zh-CN/": {
@@ -240,7 +203,12 @@ module.exports = {
         versions: {
           text: "versions",
           icon: "doris doris-xiala",
-          items: getVersionItems("zh-CN"),
+          items: [
+            {
+              text: "master",
+              link: "/zh-CN/docs/get-starting/get-starting.html",
+            }
+          ]
         },
         // 导航栏
         nav: [
@@ -317,7 +285,10 @@ module.exports = {
             require("./sidebar/zh-CN/developer.js"),
             "/zh-CN/developer/"
           ),
-          ...buildSidebarVersion("/zh-CN/"),
+          "/zh-CN/docs/": convertSidebar(
+            require("./sidebar/zh-CN/docs.js"),
+            "/zh-CN/docs/"
+          ),
         },
       },
     },

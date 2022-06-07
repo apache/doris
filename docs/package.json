@@ -4,7 +4,6 @@
   "main": "index.js",
   "license": "MIT",
   "dependencies": {
-    "vuepress": "^1.9.7",
     "@vue/composition-api": "1.0.0-beta.21",
     "@vuepress-reco/core": "^1.6.9",
     "@vuepress-reco/vuepress-plugin-back-to-top": "^1.6.0",
@@ -13,10 +12,12 @@
     "@vuepress-reco/vuepress-plugin-pagation": "^1.6.0",
     "@vuepress/plugin-blog": "1.9.2",
     "@vuepress/plugin-medium-zoom": "1.5.0",
+    "axios": "^0.27.2",
     "docsearch.js": "2.6.3",
     "md5": "2.2.1",
     "vue-click-outside": "1.1.0",
     "vue-demi": "^0.5.3",
+    "vuepress": "^1.9.7",
     "vuepress-plugin-smooth-scroll": "^0.0.9"
   },
   "scripts": {

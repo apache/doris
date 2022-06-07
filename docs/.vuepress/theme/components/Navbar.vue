@@ -34,7 +34,7 @@ under the License.
     </router-link>
 
     <div class="dropdown-box" v-show="showVersionNav()">
-      <Dropdown :item="versions" @update-value="updateVersion"/>
+      <Dropdown v-if="versions" :item="versions" @update-value="updateVersion"/>
     </div>
 
     <div
@@ -63,18 +63,31 @@ import Mode from '@theme/components/Mode'
 import { useInstance } from '@theme/helpers/composable'
 import Dropdown from '@theme/components/Dropdown'
 import NavLink from './NavLink.vue'
+import axios from "axios"
 
 export default defineComponent({
   components: { SidebarButton, NavLinks, SearchBox, AlgoliaSearchBox, Mode, Dropdown, NavLink },
   methods: {
     showVersionNav () {
-      const versionKeys = this.$themeLocaleConfig.versions.items.map(v => v.text === 'master' ? 'docs' : v.text)
+      const versions = this.$themeLocaleConfig.versions
+      if (!versions) return false
+      const versionKeys = versions.items.map(v => v.text === 'master' ? 'docs' : v.text)
       return versionKeys.some(v => this.$route.path.indexOf(v) > -1)
     }
   },
   setup (props, ctx) {
     const instance = useInstance()
     const linksWrapMaxWidth = ref(null)
+
+    const fetchData = async () => {
+      const res = await axios.get('/versions.json').then(rsp => rsp)
+      if (!res || !res.data) return
+      const locales = instance.$site.themeConfig.locales
+      Object.keys(locales).forEach(k => {
+        const versionItems = res.data[k.replace(/\//gi, "")] || []
+        instance.$site.themeConfig.locales[k].versions.items = versionItems
+      })
+    }
 
     const documentText = computed(() => {
       return instance.$lang === 'en' ? 'Document' : '文档'
@@ -103,6 +116,7 @@ export default defineComponent({
 
     function updateVersion (val) {
       const versionsValue = versions.value
+      if (!versionsValue) return
       const version = versionsValue.items.find(item => item.text === val.text)
       const documentNav = this.$themeLocaleConfig.nav.find(item => item.name === 'document')
       if (version && version.link) {
@@ -111,6 +125,8 @@ export default defineComponent({
     }
 
     onMounted(() => {
+      fetchData()
+
       const MOBILE_DESKTOP_BREAKPOINT = 719 // refer to config.styl
       const NAVBAR_VERTICAL_PADDING =
         parseInt(css(instance.$el, 'paddingLeft')) +

@@ -79,6 +79,7 @@ export default defineComponent({
       immediate: true,
       deep: true,
       handler (val) {
+        if (!val) return
         this.subItems = val.items.map(item => ({...item, active: false}))
         let currentVersion = 'master'
         if (!this.currentItem.text) {
