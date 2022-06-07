@@ -393,6 +393,7 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
+        // bitmap functions should never return nullable value
         return serialize(ctx, nullptr);
     }
 
