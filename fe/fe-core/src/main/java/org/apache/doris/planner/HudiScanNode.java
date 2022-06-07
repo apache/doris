@@ -300,9 +300,9 @@ public class HudiScanNode extends BrokerScanNode {
         Log.debug("Hudi path's host is " + fsName);
 
         TFileFormatType formatType = null;
-        if (this.inputFormatName.toUpperCase(Locale.ROOT).contains("parquet")) {
+        if (this.inputFormatName.toLowerCase(Locale.ROOT).contains("parquet")) {
             formatType = TFileFormatType.FORMAT_PARQUET;
-        } else if (this.inputFormatName.toUpperCase(Locale.ROOT).contains("orc")) {
+        } else if (this.inputFormatName.toLowerCase(Locale.ROOT).contains("orc")) {
             formatType = TFileFormatType.FORMAT_ORC;
         } else {
             throw new UserException("unsupported hudi table type [" + this.inputFormatName + "].");
