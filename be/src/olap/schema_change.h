@@ -54,8 +54,6 @@ public:
 
     Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
 
-    Status init_ref_block(vectorized::Block* ref_block) const;
-
 private:
     Status _check_cast_valid(vectorized::ColumnPtr ref_column,
                              vectorized::ColumnPtr new_column) const;

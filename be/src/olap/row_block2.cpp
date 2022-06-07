@@ -614,7 +614,7 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
 }
 
 Status RowBlockV2::convert_to_vec_block(vectorized::Block* block) {
-    DCHECK_LE(block->columns(), _schema.column_ids().size());
+    DCHECK(block->columns() <= _schema.column_ids().size());
     for (int i = 0; i < block->columns(); ++i) {
         auto cid = _schema.column_ids()[i];
         auto column = (*std::move(block->get_by_position(i).column)).assume_mutable();
@@ -642,7 +642,7 @@ std::string RowBlockRow::debug_string() const {
     ss << "]";
     return ss.str();
 }
-std::string RowBlockV2::debug_string() {
+std::string RowBlockV2::debug_string() const {
     std::stringstream ss;
     for (int i = 0; i < num_rows(); ++i) {
         ss << row(i).debug_string();

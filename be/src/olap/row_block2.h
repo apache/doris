@@ -106,7 +106,7 @@ public:
         }
         _delete_state = delete_state;
     }
-    std::string debug_string();
+    std::string debug_string() const;
 
 private:
     Status _copy_data_to_column(int cid, vectorized::MutableColumnPtr& mutable_column_ptr);

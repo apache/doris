@@ -902,20 +902,6 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     return Status::OK();
 }
 
-Status RowBlockChanger::init_ref_block(vectorized::Block* ref_block) const {
-    auto descs = _desc_tbl.get_tuple_descs();
-    if (descs.size() != 1) {
-        LOG(WARNING) << "alter table expect only 1 desc but " << descs.size();
-        return Status::Corruption("Alter table desc more than one.");
-    }
-
-    for (const auto slot : descs[0]->slots()) {
-        ref_block->insert(vectorized::ColumnWithTypeAndName(
-                slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()));
-    }
-    return Status::OK();
-}
-
 Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                                           vectorized::ColumnPtr new_column) const {
     // TODO: use simd to optimize those code
@@ -1326,7 +1312,6 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     auto ref_block =
             std::make_unique<vectorized::Block>(base_tablet->tablet_schema().create_block());
 
-    _changer.init_ref_block(ref_block.get());
     int origin_columns_size = ref_block->columns();
 
     rowset_reader->next_block(ref_block.get());
@@ -1558,7 +1543,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     auto ref_block =
             std::make_unique<vectorized::Block>(base_tablet->tablet_schema().create_block());
 
-    _changer.init_ref_block(ref_block.get());
     int origin_columns_size = ref_block->columns();
 
     auto create_rowset = [&]() -> Status {
@@ -1879,11 +1863,9 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // init one delete handler
-            int32_t end_version = -1;
+            int64_t end_version = -1;
             for (auto& version : versions_to_be_changed) {
-                if (version.second > end_version) {
-                    end_version = version.second;
-                }
+                end_version = std::max(end_version, version.second);
             }
 
             res = delete_handler.init(base_tablet->tablet_schema(),
