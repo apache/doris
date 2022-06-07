@@ -381,11 +381,11 @@ public:
 
     void set_global_dicts(const std::shared_ptr<TGlobalDict>& tglobal_dict);
 
-    vectorized::GlobalDictSPtr get_global_dict(int slot_id);
+    vectorized::GlobalDictSPtr get_global_dict(int slot_id) const;
 
-    vectorized::GlobalDictSPtr find_global_dict(int slot_id);
+    bool has_global_dict(int slot_id) const;
 
-    vectorized::GlobalDictSPtr get_global_dict_by_dict_id(int64_t dict_id);
+    vectorized::GlobalDictSPtr get_global_dict_by_dict_id(int64_t dict_id) const;
 
 private:
     // Use a custom block manager for the query for testing purposes.

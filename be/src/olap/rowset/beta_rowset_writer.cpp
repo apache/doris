@@ -318,7 +318,6 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     }
     _total_data_size += segment_size;
     _total_index_size += index_size;
-
     writer->reset();
     return Status::OK();
 }

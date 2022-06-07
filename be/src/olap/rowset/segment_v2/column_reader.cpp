@@ -385,20 +385,28 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
  * @return true if 
  * @return false 
  */
-bool ColumnReader::all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts, BlockCompressionCodec* codec) {
+bool ColumnReader::all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts,
+                                             BlockCompressionCodec* codec) {
     // go to the last page
-    RETURN_IF_ERROR(_ensure_index_loaded());
+    if (_ensure_index_loaded() != Status::OK()) {
+        return false;
+    }
     OrdinalPageIndexIterator last_iter(_ordinal_index.get(), _ordinal_index->num_data_pages() - 1);
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
     iter_opts.type = DATA_PAGE;
     ParsedPage parsed_page;
-    RETURN_IF_ERROR(read_page(iter_opts, last_iter.page(), &handle, &page_body, &footer, codec));
+    if (read_page(iter_opts, last_iter.page(), &handle, &page_body, &footer, codec) !=
+        Status::OK()) {
+        return false;
+    }
     // parse data page
-    RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                       encoding_info(), last_iter.page(), last_iter.page_index(),
-                                       &parsed_page));
+    if (ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(), encoding_info(),
+                           last_iter.page(), last_iter.page_index(),
+                           &parsed_page) != Status::OK()) {
+        return false;
+    }
 
     auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(parsed_page.data_decoder);
     bool all_dict = false;
@@ -429,10 +437,9 @@ Status ColumnReader::get_dict_data(std::set<string>& dict_words) {
             auto dict_decoder = std::make_unique<BinaryPlainPageDecoder>(dict_slice);
             RETURN_IF_ERROR(dict_decoder->init());
 
-            auto* pd_decoder = (BinaryPlainPageDecoder*)dict_decoder.get();
-            StringRef* dict_word_info = new StringRef[pd_decoder->_num_elems];
-            pd_decoder->get_dict_word_info(dict_word_info);
-            for (int i = 0; i < pd_decoder->_num_elems; i++) {
+            StringRef* dict_word_info = new StringRef[dict_decoder->_num_elems];
+            dict_decoder->get_dict_word_info(dict_word_info);
+            for (int i = 0; i < dict_decoder->_num_elems; i++) {
                 dict_words.insert(string(dict_word_info[i].data, dict_word_info[i].size));
             }
             delete[] dict_word_info;

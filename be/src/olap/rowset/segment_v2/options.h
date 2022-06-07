@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstddef>
-#include <parallel_hashmap/phmap.h>
 
 namespace doris {
 namespace segment_v2 {

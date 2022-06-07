@@ -103,7 +103,6 @@ private:
     Status _add_blocks(std::vector<Block*>& block);
     int _start_scanner_thread_task(RuntimeState* state, int block_per_scanner);
     Block* _alloc_block(bool& get_free_block);
-    Status _do_dict_encode(Block& block) const;
 
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator

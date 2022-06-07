@@ -93,7 +93,7 @@ vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
     auto data_type = get_data_type_ptr();
     if (data_type) {
         auto column_ptr = data_type->create_column();
-        if (is_global_dict_column()) {
+        if (has_global_dict()) {
             column_ptr->set_global_dict(get_global_dict());
         }
         return column_ptr;

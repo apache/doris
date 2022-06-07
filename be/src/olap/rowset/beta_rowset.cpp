@@ -233,7 +233,7 @@ Status BetaRowset::get_dict_data(std::set<std::string>& dict_words, int col_id) 
     RETURN_NOT_OK(load_segments(&segments));
     for (auto& seg_ptr : segments) {
         Status status = seg_ptr->get_dict_data(dict_words, col_id);
-        if (!status.ok()) return status;
+        RETURN_NOT_OK(status);
     }
     return Status::OK();
 }

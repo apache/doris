@@ -23,43 +23,51 @@
 #include <memory>
 #include <string>
 
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/data_types/data_type_dict_encoded_string.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-
+#include "vec/data_types/data_type_nullable.h"
 namespace doris::vectorized {
 
-TEST(GlobalDictTest, EncodeAndDecode) {
+TEST(GlobalDictTest, Decode) {
     std::vector<std::string> dict_values {"RAIL", "FOB", "MAIL", "SHIP", "TRUCK", "REG AIR", "AIR"};
     auto dict = std::make_shared<GlobalDict>(dict_values);
     size_t row_num = 1024;
-    auto column = ColumnString::create();
+    auto column = ColumnVector<Int16>::create();
     for (size_t i = 0; i < row_num; ++i) {
-        const std::string& val = dict_values[i % dict_values.size()];
-        column->insert_data(val.c_str(), val.size());
+        column->insert_value(i % dict_values.size());
     }
-    DataTypePtr data_type(std::make_shared<DataTypeString>());
-    ColumnWithTypeAndName col_type_and_name(column->get_ptr(), data_type, "test_string");
+    DataTypePtr data_type(std::make_shared<DataTypeInt16>());
+    ColumnWithTypeAndName col_type_and_name1(column->get_ptr(), data_type,
+                                             "test_dict_encoded_string");
 
-    EXPECT_TRUE(dict->encode(col_type_and_name));
-    auto encoded_column = col_type_and_name.column;
-    auto encoded_type = col_type_and_name.type;
-    EXPECT_TRUE(dict->decode(col_type_and_name));
+    EXPECT_TRUE(dict->decode(col_type_and_name1));
 
-    const ColumnString* old_column = assert_cast<const ColumnString*>(column.get());
-    const ColumnString* new_column =
-            assert_cast<const ColumnString*>(col_type_and_name.column.get());
-    EXPECT_EQ(old_column->get_chars(), new_column->get_chars());
-    EXPECT_EQ(old_column->get_offsets(), new_column->get_offsets());
+    auto column2 = ColumnVector<Int16>::create();
+    for (size_t i = 0; i < row_num; ++i) {
+        auto n = i % dict_values.size() + 1;
+        column2->insert_data((const char*)&n, sizeof(n));
+    }
+    ColumnWithTypeAndName col_type_and_name2(column2->get_ptr(), data_type,
+                                             "test_dict_encoded_string");
 
-    column->insert_data("a", 1);
-    col_type_and_name.column = column->assume_mutable();
-    EXPECT_FALSE(dict->encode(col_type_and_name));
-    uint32_t val = (uint32_t)dict_values.size();
-    encoded_column->assume_mutable()->insert_data((const char*)&val, sizeof(uint32_t));
-    col_type_and_name.column = encoded_column;
-    col_type_and_name.type = encoded_type;
-    EXPECT_FALSE(dict->decode(col_type_and_name));
+    EXPECT_FALSE(dict->decode(col_type_and_name2));
+
+    auto nullable_column =
+            ColumnNullable::create(column2->get_ptr(), ColumnUInt8::create(column2->size(), 0));
+    auto nullmap = nullable_column->get_null_map_data().data();
+    for (size_t i = 0; i < row_num; ++i) {
+        auto n = i % dict_values.size() + 1;
+        if (n == dict_values.size()) {
+            nullmap[i] = 1;
+        }
+    }
+
+    ColumnWithTypeAndName col_type_and_name3(nullable_column->get_ptr(), make_nullable(data_type),
+                                             "test_dict_encoded_string");
+
+    EXPECT_TRUE(dict->decode(col_type_and_name3));
 }
 
 } // namespace doris::vectorized

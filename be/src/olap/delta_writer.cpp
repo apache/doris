@@ -347,7 +347,8 @@ Status DeltaWriter::close_wait(std::vector<std::string>* invalid_dict_column_nam
             dict_words.clear();
             Status status = beta_rowset->get_dict_data(dict_words, column->unique_id());
             if (status != Status::OK()) {
-                return status;
+                invalid_dict_column_names->push_back(column->name());
+                continue;
             }
             for (const auto& word : dict_words) {
                 if (iter->second.find(word) == iter->second.end()) {

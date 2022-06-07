@@ -332,12 +332,11 @@ struct TExecPlanFragmentParams {
   16: optional bool is_simplified_param = false;
   17: optional TTxnParams txn_conf
   18: optional i64 backend_id
-  19: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
 
   // If it is true, after this fragment is prepared on the BE side,
   // it will wait for the FE to send the "start execution" command before it is actually executed.
   // Otherwise, the fragment will start executing directly on the BE side.
-  20: optional bool need_wait_execution_trigger = false;
+  19: optional bool need_wait_execution_trigger = false;
 }
 
 struct TExecPlanFragmentParamsList {

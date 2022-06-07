@@ -92,6 +92,7 @@ Status VOlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _rf_locks.push_back(std::make_unique<std::mutex>());
     }
 
+    RETURN_IF_ERROR(OlapScanNode::init(tnode, state));
     return Status::OK();
 }
 
@@ -235,12 +236,9 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
             return Status::InternalError(
                     "must enable_storage_vectorization before using global dict");
         }
-        for (const auto& item : _olap_scan_node.slot_to_dict) {
-            _dicts.emplace(item.first, state->get_global_dict_by_dict_id(item.second));
-        }
         for (auto slot : _tuple_desc->slots()) {
-            if (_dicts.find(slot->id()) != _dicts.end()) {
-                slot->set_global_dict(_dicts[slot->id()]);
+            if (state->has_global_dict(slot->id())) {
+                slot->set_global_dict(state->get_global_dict(slot->id()));
             }
         }
     }

@@ -26,9 +26,6 @@ class GlobalDict : public Dict<int16> {
 public:
     GlobalDict(const std::vector<std::string>& data);
 
-    //string column to int column, only used in unit test
-    bool encode(ColumnWithTypeAndName& col);
-
     //int column to string column
     bool decode(ColumnWithTypeAndName& col);
 

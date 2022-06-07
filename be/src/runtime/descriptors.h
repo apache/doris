@@ -113,9 +113,9 @@ public:
 
     doris::vectorized::DataTypePtr get_data_type_ptr() const;
     std::shared_ptr<vectorized::GlobalDict> get_global_dict() const { return _dict; }
-    bool is_global_dict_column() const { return _is_global_dict_column; }
+    bool has_global_dict() const { return _has_global_dict; }
     void set_global_dict(std::shared_ptr<vectorized::GlobalDict> dict) {
-        _is_global_dict_column = true;
+        _has_global_dict = true;
         _dict = dict;
     }
 
@@ -150,7 +150,7 @@ private:
     int _field_idx;
 
     const bool _is_materialized;
-    bool _is_global_dict_column = false;
+    bool _has_global_dict = false;
     std::shared_ptr<vectorized::GlobalDict> _dict;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
