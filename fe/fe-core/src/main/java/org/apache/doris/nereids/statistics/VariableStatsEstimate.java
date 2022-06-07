@@ -35,8 +35,8 @@ public class VariableStatsEstimate {
     public VariableStatsEstimate(double lowValue, double highValue, double nullsFraction, double averageRowSize,
             double distinctValuesCount) {
         Preconditions.checkArgument(lowValue <= highValue || (Double.isNaN(lowValue) && Double.isNaN(highValue)),
-                "low value must be less than or equal to high value or both values have to be NaN, got %s and %s respectively",
-                lowValue, highValue);
+                "low value must be less than or equal to high value or both values have to be NaN,"
+                        + " got %s and %s respectively", lowValue, highValue);
         Preconditions.checkArgument((0 <= nullsFraction && nullsFraction <= 1.) || Double.isNaN(nullsFraction),
                 "Nulls fraction should be within [0, 1] or NaN, got: %s", nullsFraction);
         Preconditions.checkArgument(averageRowSize >= 0 || Double.isNaN(averageRowSize),

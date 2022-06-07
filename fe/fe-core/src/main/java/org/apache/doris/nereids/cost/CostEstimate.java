@@ -21,6 +21,7 @@ import com.google.common.base.Preconditions;
 
 /**
  * Use for estimating the cost of plan.
+ * Inspired by Presto.
  */
 public final class CostEstimate {
     private static final CostEstimate INFINITE =

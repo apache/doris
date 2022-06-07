@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.statistics;
 
-import java.util.Map;
-
 /**
  * Statistics.
  */
