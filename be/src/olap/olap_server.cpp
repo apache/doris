@@ -73,7 +73,6 @@ Status StorageEngine::start_bg_threads() {
             .set_max_threads(max_thread_num)
             .build(&_compaction_thread_pool);
 
-
     int32_t convert_rowset_thread_num = config::convert_rowset_thread_num;
     if (convert_rowset_thread_num > 0) {
         ThreadPoolBuilder("ConvertRowsetTaskThreadPool")
