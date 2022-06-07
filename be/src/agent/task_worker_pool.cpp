@@ -735,7 +735,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                                       << ", publised:" << tablet->publised_count;
                         }
                     } else {
-                        LOG(WARNING) << "trigger samll compaction failed, tabletid:"
+                        LOG(WARNING) << "trigger small compaction failed, tabletid:"
                                      << succ_tablet_ids[i];
                     }
                 }

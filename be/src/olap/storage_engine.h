@@ -271,7 +271,7 @@ private:
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
 
-    Status _handle_samll_compaction(TabletSharedPtr);
+    Status _handle_small_compaction(TabletSharedPtr);
 
 private:
     struct CompactionCandidate {
@@ -381,7 +381,7 @@ private:
     HeartbeatFlags* _heartbeat_flags;
 
     std::unique_ptr<ThreadPool> _compaction_thread_pool;
-    std::unique_ptr<ThreadPool> _samll_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _small_compaction_thread_pool;
 
     scoped_refptr<Thread> _alpha_rowset_scan_thread;
     std::unique_ptr<ThreadPool> _convert_rowset_thread_pool;

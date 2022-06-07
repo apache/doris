@@ -100,7 +100,7 @@ Status DeltaWriter::init() {
             MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
-        //trigger samll compaction
+        //trigger small compaction
         StorageEngine::instance()->submit_small_compaction_task(_tablet);
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num

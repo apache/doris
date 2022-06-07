@@ -93,11 +93,11 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(max_thread_num)
             .set_max_threads(max_thread_num)
             .build(&_compaction_thread_pool);
-    
+
     ThreadPoolBuilder("SmallCompactionTaskThreadPool")
             .set_min_threads(config::small_compaction_max_threads)
             .set_max_threads(config::small_compaction_max_threads)
-            .build(&_samll_compaction_thread_pool);
+            .build(&_small_compaction_thread_pool);
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -672,15 +672,15 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
     return _submit_compaction_task(tablet, compaction_type);
 }
 
-Status StorageEngine::_handle_samll_compaction(TabletSharedPtr tablet) {
+Status StorageEngine::_handle_small_compaction(TabletSharedPtr tablet) {
     CumulativeCompaction compact(tablet);
-    compact.samll_rowsets_compact();
+    compact.small_rowsets_compact();
     return Status::OK();
 }
 
-Status StorageEngine::submit_samll_compaction_task(TabletSharedPtr tablet) {
-    _samll_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_samll_compaction, this, tablet));
+Status StorageEngine::submit_small_compaction_task(TabletSharedPtr tablet) {
+    _small_compaction_thread_pool->submit_func(
+            std::bind<void>(&StorageEngine::_handle_small_compaction, this, tablet));
     return Status::OK();
 }
 

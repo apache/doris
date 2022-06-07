@@ -882,7 +882,7 @@ Status Tablet::pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_row
     int max_series_num = 1000;
     int max_rows = config::small_compaction_max_rows;
     if (max_rows <= 0) return Status::OK();
-    std::vector<std::vector<RowsetSharedPtr>> samll_version_rowsets(max_series_num);
+    std::vector<std::vector<RowsetSharedPtr>> small_version_rowsets(max_series_num);
     int idx = 0;
     std::shared_lock rdlock(_meta_lock);
     std::vector<RowsetSharedPtr> sortedRowset;
@@ -896,7 +896,7 @@ Status Tablet::pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_row
             if (!is_delete && sortedRowset[i]->start_version() > 0 &&
                 sortedRowset[i]->start_version() > cumulative_layer_point()) {
                 if (sortedRowset[i]->num_rows() < max_rows) {
-                    samll_version_rowsets[idx].push_back(sortedRowset[i]);
+                    small_version_rowsets[idx].push_back(sortedRowset[i]);
                 } else {
                     idx++;
                     if (idx > max_series_num) {
@@ -905,11 +905,11 @@ Status Tablet::pick_small_verson_rowsets(std::vector<RowsetSharedPtr>* input_row
                 }
             }
         }
-        if (samll_version_rowsets.size() == 0) return Status::OK();
-        std::vector<RowsetSharedPtr> result = samll_version_rowsets[0];
-        for (int i = 0; i < samll_version_rowsets.size(); i++) {
-            if (samll_version_rowsets[i].size() > result.size()) {
-                result = samll_version_rowsets[i];
+        if (small_version_rowsets.size() == 0) return Status::OK();
+        std::vector<RowsetSharedPtr> result = small_version_rowsets[0];
+        for (int i = 0; i < small_version_rowsets.size(); i++) {
+            if (small_version_rowsets[i].size() > result.size()) {
+                result = small_version_rowsets[i];
             }
         }
         for (int i = 0; i < result.size(); i++) {
