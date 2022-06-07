@@ -17,6 +17,7 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include "common/consts.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_vector.h"
@@ -59,9 +60,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         if (config::enable_execution_decimalv3) {
-            if (column.precision() <= 9) {
+            if (column.precision() <= BeConsts::MAX_DECIMAL32_PRECISION) {
                 return std::make_unique<OlapColumnDataConvertorDecimal<Decimal32>>();
-            } else if (column.precision() <= 18) {
+            } else if (column.precision() <= BeConsts::MAX_DECIMAL64_PRECISION) {
                 return std::make_unique<OlapColumnDataConvertorDecimal<Decimal64>>();
             } else {
                 return std::make_unique<OlapColumnDataConvertorDecimal<Decimal128>>();

@@ -20,6 +20,7 @@
 #include <boost/algorithm/string.hpp>
 #include <sstream>
 
+#include "common/consts.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -211,10 +212,10 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
         column->set_precision(tcolumn.column_type.precision);
         column->set_frac(tcolumn.column_type.scale);
         if (config::enable_storage_decimalv3) {
-            if (tcolumn.column_type.precision <= 9) {
+            if (tcolumn.column_type.precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
                 length = sizeof(int32_t);
                 column->set_type("DECIMAL32");
-            } else if (tcolumn.column_type.precision <= 18) {
+            } else if (tcolumn.column_type.precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
                 length = sizeof(int64_t);
                 column->set_type("DECIMAL64");
             } else {

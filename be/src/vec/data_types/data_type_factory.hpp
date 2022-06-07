@@ -23,6 +23,7 @@
 #include <string>
 
 #include "arrow/type.h"
+#include "common/consts.h"
 #include "gen_cpp/data.pb.h"
 #include "olap/field.h"
 #include "olap/tablet_schema.h"
@@ -65,9 +66,12 @@ public:
                     {"DateTime", std::make_shared<DataTypeDateTime>()},
                     {"String", std::make_shared<DataTypeString>()},
                     {"Decimal", std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)},
-                    {"Decimal32", std::make_shared<DataTypeDecimal<Decimal32>>(9, 0)},
-                    {"Decimal64", std::make_shared<DataTypeDecimal<Decimal64>>(18, 0)},
-                    {"Decimal128", std::make_shared<DataTypeDecimal<Decimal128>>(38, 0)},
+                    {"Decimal32", std::make_shared<DataTypeDecimal<Decimal32>>(
+                                          BeConsts::MAX_DECIMAL32_PRECISION, 0)},
+                    {"Decimal64", std::make_shared<DataTypeDecimal<Decimal64>>(
+                                          BeConsts::MAX_DECIMAL64_PRECISION, 0)},
+                    {"Decimal128", std::make_shared<DataTypeDecimal<Decimal128>>(
+                                           BeConsts::MAX_DECIMAL128_PRECISION, 0)},
 
             };
             for (auto const& [key, val] : base_type_map) {
