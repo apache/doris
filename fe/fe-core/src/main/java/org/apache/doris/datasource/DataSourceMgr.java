@@ -64,6 +64,15 @@ public class DataSourceMgr implements Writable {
         return internalDataSource;
     }
 
+    /**
+     * get data source by id.
+     *
+     * @param id
+     * @param e
+     * @param <E>
+     * @return
+     * @throws E
+     */
     public <E extends MetaNotFoundException> DataSourceIf getDataSourceOrException(long id,
             java.util.function.Function<Long, E> e) throws E {
         DataSourceIf ds = idToDataSource.get(id);
@@ -73,6 +82,15 @@ public class DataSourceMgr implements Writable {
         return ds;
     }
 
+    /**
+     * get data source by name.
+     *
+     * @param name
+     * @param e
+     * @param <E>
+     * @return
+     * @throws E
+     */
     public <E extends MetaNotFoundException> DataSourceIf getDataSourceOrException(String name,
             java.util.function.Function<String, E> e) throws E {
         DataSourceIf ds = nameToDataSource.get(name);
@@ -108,6 +126,13 @@ public class DataSourceMgr implements Writable {
         dsMgrProperty.write(out);
     }
 
+    /**
+     * read from image.
+     *
+     * @param in
+     * @return
+     * @throws IOException
+     */
     public static DataSourceMgr read(DataInput in) throws IOException {
         if (Config.disable_cluster_feature) {
             return null;

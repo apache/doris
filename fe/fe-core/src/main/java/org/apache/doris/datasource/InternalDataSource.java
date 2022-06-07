@@ -198,9 +198,10 @@ import java.util.function.Function;
  * There is only one internal data source in a cluster. And its id is always 0.
  */
 public class InternalDataSource implements DataSourceIf {
-    private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
     public static final String INTERNAL_DS_NAME = "__internal";
     public static final long INTERNAL_DS_ID = 0L;
+
+    private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
 
     private QueryableReentrantLock lock = new QueryableReentrantLock(true);
     private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
@@ -213,7 +214,7 @@ public class InternalDataSource implements DataSourceIf {
     private EsRepository esRepository = new EsRepository();
     @Getter
     private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
-    
+
     @Override
     public long getId() {
         return 0;
@@ -366,6 +367,9 @@ public class InternalDataSource implements DataSourceIf {
         }
     }
 
+    /**
+     * create the tablet inverted index from metadata.
+     */
     public void recreateTabletInvertIndex() {
         if (Catalog.isCheckpointThread()) {
             return;
@@ -404,7 +408,12 @@ public class InternalDataSource implements DataSourceIf {
         } // end for dbs
     }
 
-    // The interface which DdlExecutor needs.
+    /**
+     * Entry of creating a database.
+     *
+     * @param stmt
+     * @throws DdlException
+     */
     public void createDb(CreateDbStmt stmt) throws DdlException {
         final String clusterName = stmt.getClusterName();
         String fullDbName = stmt.getFullDbName();
@@ -445,7 +454,11 @@ public class InternalDataSource implements DataSourceIf {
         }
     }
 
-    // For replay edit log, need't lock metadata
+    /**
+     * For replaying creating database.
+     *
+     * @param db
+     */
     public void unprotectCreateDb(Database db) {
         idToDb.put(db.getId(), db);
         fullNameToDb.put(db.getFullName(), db);
@@ -460,6 +473,11 @@ public class InternalDataSource implements DataSourceIf {
         idToCluster.put(cluster.getId(), cluster);
     }
 
+    /**
+     * replayCreateDb.
+     *
+     * @param db
+     */
     public void replayCreateDb(Database db) {
         tryLock(true);
         try {

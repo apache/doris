@@ -29,6 +29,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
+/**
+ * Save the properties of a data source.
+ */
 public class DataSourceMgrProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
