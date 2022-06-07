@@ -15,21 +15,24 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
     l_orderkey,
     sum(l_extendedprice * (1 - l_discount)) as revenue,
     o_orderdate,
     o_shippriority
 from
-    customer,
-    orders,
-    lineitem
-where
-    c_mktsegment = 'BUILDING'
-    and c_custkey = o_custkey
-    and l_orderkey = o_orderkey
-    and o_orderdate < date '1995-03-15'
-    and l_shipdate > date '1995-03-15'
+    customer c join
+    (
+        select l_orderkey, l_extendedprice, l_discount, o_orderdate, o_shippriority, o_custkey from
+        lineitem join orders
+        where l_orderkey = o_orderkey
+        and o_orderdate < date '1995-03-15'
+        and l_shipdate > date '1995-03-15'
+    ) t1
+    where c_mktsegment = 'BUILDING'
+    and c.c_custkey = t1.o_custkey
 group by
     l_orderkey,
     o_orderdate,
