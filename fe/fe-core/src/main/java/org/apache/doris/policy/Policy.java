@@ -85,6 +85,10 @@ public abstract class Policy implements Writable, GsonPostProcessable {
         UserIdentity userIdent = stmt.getUser();
         userIdent.analyze(ConnectContext.get().getClusterName());
         switch (stmt.getType()) {
+            case STORAGE:
+                StoragePolicy storagePolicy = new StoragePolicy(stmt.getType(), stmt.getPolicyName());
+                storagePolicy.init(stmt.getProperties());
+                return storagePolicy;
             case ROW:
             default:
                 Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());

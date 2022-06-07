@@ -1360,6 +1360,11 @@ create_stmt ::=
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
     :}
+    /* storage policy */
+    | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreateResourceStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
+    :}
     ;
 
 channel_desc_list ::=
@@ -2073,6 +2078,10 @@ drop_stmt ::=
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, user);
     :}
+    | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
+    :}
     ;
 
 // Recover statement
@@ -2568,6 +2577,10 @@ show_stmt ::=
     | KW_SHOW KW_ROW KW_POLICY
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null);
     :}
     ;
 

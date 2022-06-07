@@ -21,12 +21,15 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 
 import lombok.Getter;
+
+import java.util.Map;
 
 /**
  * Create policy statement.
@@ -45,17 +48,19 @@ public class CreatePolicyStmt extends DdlStmt {
     private final String policyName;
 
     @Getter
-    private final TableName tableName;
+    private TableName tableName = null;
 
     @Getter
-    private final FilterType filterType;
+    private FilterType filterType = null;
 
     @Getter
-    private final UserIdentity user;
+    private UserIdentity user = null;
 
     @Getter
     private Expr wherePredicate;
 
+    @Getter
+    private Map<String, String> properties;
     /**
      * Use for cup.
      **/
@@ -70,14 +75,28 @@ public class CreatePolicyStmt extends DdlStmt {
         this.wherePredicate = wherePredicate;
     }
 
+    public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName,
+                            Map<String, String> properties) {
+        this.type = type;
+        this.ifNotExists = ifNotExists;
+        this.policyName = policyName;
+        this.properties = properties;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        tableName.analyze(analyzer);
-        user.analyze(analyzer.getClusterName());
-        if (user.isRootUser() || user.isAdminUser()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                    user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+        switch (type) {
+            case STORAGE:
+                break;
+            case ROW:
+            default:
+                tableName.analyze(analyzer);
+                user.analyze(analyzer.getClusterName());
+                if (user.isRootUser() || user.isAdminUser()) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
+                        user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                }
         }
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -92,8 +111,16 @@ public class CreatePolicyStmt extends DdlStmt {
         if (ifNotExists) {
             sb.append("IF NOT EXISTS");
         }
-        sb.append(policyName).append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-                .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
+        sb.append(policyName);
+        switch (type) {
+            case STORAGE:
+                sb.append(" PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+                break;
+            case ROW:
+            default:
+                sb.append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
+                    .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
+        }
         return sb.toString();
     }
 }

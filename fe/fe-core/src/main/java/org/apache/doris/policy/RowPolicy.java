@@ -23,10 +23,13 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -46,6 +49,18 @@ import java.util.List;
 public class RowPolicy extends Policy {
 
     private static final Logger LOG = LogManager.getLogger(RowPolicy.class);
+
+    public static final ShowResultSetMetaData ROW_META_DATA =
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+            .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
+            .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
+            .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
+            .addColumn(new Column("User", ScalarType.createVarchar(20)))
+            .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
+            .build();
 
     /**
      * Policy bind user.
