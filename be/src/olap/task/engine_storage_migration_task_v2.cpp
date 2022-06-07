@@ -50,8 +50,8 @@ Status EngineStorageMigrationTaskV2::execute() {
     }
 
     LOG(INFO) << "success to create new storage migration v2. res=" << res
-              << " base_tablet_id=" << _storage_migration_req.base_tablet_id << ", base_schema_hash"
-              << _storage_migration_req.base_schema_hash
+              << " base_tablet_id=" << _storage_migration_req.base_tablet_id
+              << ", base_schema_hash=" << _storage_migration_req.base_schema_hash
               << ", new_tablet_id=" << _storage_migration_req.new_tablet_id
               << ", new_schema_hash=" << _storage_migration_req.new_schema_hash;
     return res;

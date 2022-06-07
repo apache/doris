@@ -37,7 +37,7 @@ public:
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
-    Status init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params, bool is_alter_table = false) override;
 
     Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                      bool* eof) override {
@@ -50,9 +50,6 @@ public:
     }
 
 private:
-    friend class VCollectIterator;
-    friend class DeleteHandler;
-
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);

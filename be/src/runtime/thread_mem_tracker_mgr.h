@@ -24,8 +24,7 @@
 
 namespace doris {
 
-typedef void (*ERRCALLBACK)();
-
+using ERRCALLBACK = void (*)();
 struct ConsumeErrCallBackInfo {
     std::string cancel_msg;
     bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit

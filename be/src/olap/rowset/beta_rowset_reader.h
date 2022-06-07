@@ -47,7 +47,8 @@ public:
 
     // Return the total number of filtered rows, will be used for validation of schema change
     int64_t filtered_rows() override {
-        return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
+        return _stats->rows_del_filtered + _stats->rows_conditions_filtered +
+               _stats->rows_vec_del_cond_filtered + _stats->rows_vec_cond_filtered;
     }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }

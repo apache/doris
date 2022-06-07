@@ -107,7 +107,7 @@ public:
     virtual ~TabletReader();
 
     // Initialize TabletReader with tablet, data version and fetch range.
-    virtual Status init(const ReaderParams& read_params);
+    virtual Status init(const ReaderParams& read_params, bool is_alter_table = false);
 
     // Read next row with aggregation.
     // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
@@ -130,7 +130,7 @@ public:
 
     uint64_t filtered_rows() const {
         return _stats.rows_del_filtered + _stats.rows_conditions_filtered +
-               _stats.rows_vec_del_cond_filtered;
+               _stats.rows_vec_del_cond_filtered + _stats.rows_vec_cond_filtered;
     }
 
     void set_batch_size(int batch_size) { _batch_size = batch_size; }
@@ -143,7 +143,7 @@ protected:
     friend class vectorized::VCollectIterator;
     friend class DeleteHandler;
 
-    Status _init_params(const ReaderParams& read_params);
+    Status _init_params(const ReaderParams& read_params, bool is_alter_table);
 
     Status _capture_rs_readers(const ReaderParams& read_params,
                                std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
@@ -172,7 +172,7 @@ protected:
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
 
-    Status _init_delete_condition(const ReaderParams& read_params);
+    Status _init_delete_condition(const ReaderParams& read_params, bool is_alter_table);
 
     Status _init_return_columns(const ReaderParams& read_params);
     void _init_seek_columns();

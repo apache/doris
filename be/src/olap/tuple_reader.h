@@ -49,7 +49,7 @@ class RowCursor;
 class TupleReader final : public TabletReader {
 public:
     // Initialize TupleReader with tablet, data version and fetch range.
-    Status init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params, bool is_alter_table = false) override;
 
     Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                      bool* eof) override {
