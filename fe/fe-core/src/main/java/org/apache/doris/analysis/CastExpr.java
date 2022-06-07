@@ -265,6 +265,12 @@ public class CastExpr extends Expr {
             noOp = true;
             return;
         }
+        // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
+        // it is necessary to check whether it is castable or not.
+        if (!Type.canCastTo(childType, type)) {
+            throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
+                    + " from " + childType + " to " + type);
+        }
 
         this.opcode = TExprOpcode.CAST;
         FunctionName fnName = new FunctionName(getFnName(type));
