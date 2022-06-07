@@ -1374,8 +1374,8 @@ public class Load {
                         innerIfExprs.add(funcExpr.getChild(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            if(column.getDefaultValueExprDef() != null) {
-                                innerIfExprs.add(column.getDefaultValueExpr()); 
+                            if (column.getDefaultValueExprDef() != null) {
+                                innerIfExprs.add(column.getDefaultValueExpr());
                             } else {
                                 innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
                             }

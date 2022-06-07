@@ -338,8 +338,14 @@ public class ColumnDef {
                 DateLiteral dateLiteral = new DateLiteral(defaultValue, type);
                 break;
             case DATETIME:
-                if (defaultValueExprDef == null || !defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
+                if (defaultValueExprDef == null) {
                     DateLiteral datetimeLiteral = new DateLiteral(defaultValue, type);
+                } else {
+                    if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
+                        break;
+                    } else {
+                        throw new AnalysisException("date literal [" + defaultValue + "] is invalid");
+                    }
                 }
                 break;
             case CHAR:

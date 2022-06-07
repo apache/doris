@@ -38,7 +38,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rewrite.FEFunctions;
 import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
@@ -160,7 +159,7 @@ public abstract class LoadScanNode extends ScanNode {
                 } else {
                     Column column = destSlotDesc.getColumn();
                     if (column.getDefaultValue() != null) {
-                        if(column.getDefaultValueExprDef() != null) {
+                        if (column.getDefaultValueExprDef() != null) {
                             expr = column.getDefaultValueExpr();
                         } else {
                             expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
