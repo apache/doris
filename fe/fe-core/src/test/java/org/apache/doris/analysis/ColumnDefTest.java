@@ -133,7 +133,7 @@ public class ColumnDefTest {
 
     @Test
     public void testArray() throws AnalysisException {
-        ctx.getSessionVariable().setEnableComplexType(true);
+        ctx.getSessionVariable().setEnableArrayType(true);
         TypeDef typeDef = new TypeDef(new ArrayType(Type.INT));
         ColumnDef columnDef = new ColumnDef("array", typeDef, false, null, true, DefaultValue.NOT_SET, "");
         Column column = columnDef.toColumn();

@@ -40,14 +40,14 @@ DATETIME, CHAR, VARCHAR, STRING
 ```
 ### notice
 
-please open `enable_complex_type` before use ARRAY
+please open `enable_array_type` before use ARRAY
 
 ### example
 
 Create table example:
 
 ```
-mysql> set enable_complex_type=true;
+mysql> set enable_array_type=true;
 
 mysql> CREATE TABLE `array_test` (
   `id` int(11) NULL COMMENT "",

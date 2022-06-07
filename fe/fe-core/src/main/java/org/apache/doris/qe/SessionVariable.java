@@ -182,7 +182,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
 
-    static final String ENABLE_COMPLEX_TYPE = "enable_complex_type";
+    static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -446,8 +446,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_COMPLEX_TYPE)
-    boolean enableComplexType = true;
+    @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
+    boolean enableArrayType = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -931,12 +931,12 @@ public class SessionVariable implements Serializable, Writable {
         this.disableJoinReorder = disableJoinReorder;
     }
 
-    public boolean isEnableComplexType() {
-        return enableComplexType;
+    public boolean isEnableArrayType() {
+        return enableArrayType;
     }
 
-    public void setEnableComplexType(boolean enableComplexType) {
-        this.enableComplexType = enableComplexType;
+    public void setEnableArrayType(boolean enableArrayType) {
+        this.enableArrayType = enableArrayType;
     }
 
     // Serialize to thrift object

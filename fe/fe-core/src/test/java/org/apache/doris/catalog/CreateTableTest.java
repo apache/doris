@@ -530,7 +530,7 @@ public class CreateTableTest {
 
     @Test
     public void testCreateTableWithArrayType() throws Exception {
-        ConnectContext.get().getSessionVariable().setEnableComplexType(true);
+        ConnectContext.get().getSessionVariable().setEnableArrayType(true);
         ExceptionChecker.expectThrowsNoException(() -> {
             createTable("create table test.table1(k1 INT, k2 Array<int>) duplicate key (k1) "
                     + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");

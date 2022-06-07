@@ -137,7 +137,7 @@ public class ArrayType extends Type {
 
     @Override
     public boolean isSupported() {
-        if (!ConnectContext.get().getSessionVariable().isEnableComplexType()) {
+        if (!ConnectContext.get().getSessionVariable().isEnableArrayType()) {
             return false;
         }
         return !itemType.isNull();

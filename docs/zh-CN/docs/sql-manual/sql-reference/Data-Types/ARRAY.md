@@ -41,14 +41,14 @@ DATETIME, CHAR, VARCHAR, STRING
 
 ### notice
 
-使用时需要先打开`enable_complex_type`开关
+使用时需要先打开`enable_array_type`开关
 
 ### example
 
 建表示例如下：
 
 ```
-mysql> set enable_complex_type=true;
+mysql> set enable_array_type=true;
 
 mysql> CREATE TABLE `array_test` (
   `id` int(11) NULL COMMENT "",

@@ -44,7 +44,7 @@ public class InsertArrayStmtTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(RUNNING_DIR);
         connectContext = UtFrameUtils.createDefaultCtx();
-        connectContext.getSessionVariable().setEnableComplexType(true);
+        connectContext.getSessionVariable().setEnableArrayType(true);
         createDatabase("create database test;");
     }
 
