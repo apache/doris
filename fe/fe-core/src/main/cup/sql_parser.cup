@@ -527,6 +527,7 @@ nonterminal OutFileClause opt_outfile;
 nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
 
 nonterminal Boolean opt_signed_unsigned;
+nonterminal Boolean opt_distinct;
 
 nonterminal StorageBackend storage_backend;
 
@@ -4783,6 +4784,10 @@ function_call_expr ::=
   {: RESULT = new FunctionCallExpr(fn_name, new ArrayList<Expr>()); :}
   | KW_ADD LPAREN function_params:params RPAREN
   {: RESULT = new FunctionCallExpr("add", params); :}
+  | KW_GROUP_CONCAT LPAREN opt_distinct:d ident:column order_by_clause:o COMMA STRING_LITERAL:separator RPAREN
+  {: RESULT = new GroupConcatExpr(d, column, o, separator); :}
+  | KW_GROUP_CONCAT LPAREN opt_distinct:d ident:column order_by_clause:o RPAREN
+  {: RESULT = new GroupConcatExpr(d, column, o, null); :}
   | function_name:fn_name LPAREN function_params:params RPAREN
   {:
     if ("grouping".equalsIgnoreCase(fn_name.getFunction())) {
@@ -4796,6 +4801,13 @@ function_call_expr ::=
       RESULT = new FunctionCallExpr(fn_name, params);
     }
   :}
+  ;
+
+opt_distinct ::=
+  KW_DISTINCT
+  {: RESULT = true; :}
+  | /* empty */
+  {: RESULT = false; :}
   ;
 
 array_literal ::=

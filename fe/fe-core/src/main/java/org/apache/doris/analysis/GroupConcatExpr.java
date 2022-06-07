@@ -29,19 +29,23 @@ import java.util.List;
 
 public class GroupConcatExpr extends Expr {
 
-    private boolean distinct;
+    private final boolean distinct;
 
-    private String column;
+    private final String column;
 
-    private List<OrderByElement> orderByElements;
+    private final List<OrderByElement> orderByElements;
 
-    private String separator;
+    private final String separator;
 
     public GroupConcatExpr(boolean distinct, String column, List<OrderByElement> orderByElements, String separator) {
         this.distinct = distinct;
         this.column = column;
         this.orderByElements = orderByElements == null ? new ArrayList<>() : orderByElements;
-        this.separator = separator;
+        if (StringUtils.isNotEmpty(separator)) {
+            this.separator = separator;
+        } else {
+            this.separator = ",";
+        }
     }
 
     protected GroupConcatExpr(GroupConcatExpr other) {
