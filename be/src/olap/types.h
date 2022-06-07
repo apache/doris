@@ -939,36 +939,12 @@ template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128>
         : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL128> {
     static Status from_string(void* buf, const std::string& scan_key) {
-        int128_t value = 0;
-        const char* value_string = scan_key.c_str();
-        char* end = nullptr;
-        value = strtol(value_string, &end, 10);
-        if (*end != 0) {
-            value = 0;
-        } else if (value > LONG_MIN && value < LONG_MAX) {
-            // use strtol result directly
-        } else {
-            bool is_negative = false;
-            if (*value_string == '-' || *value_string == '+') {
-                if (*(value_string++) == '-') {
-                    is_negative = true;
-                }
-            }
-            uint128_t current = 0;
-            uint128_t max_int128 = ~((int128_t)(1) << 127);
-            while (*value_string != 0) {
-                if (current > max_int128 / 10) {
-                    break;
-                }
-                current = current * 10 + (*(value_string++) - '0');
-            }
-            if (*value_string != 0 || (!is_negative && current > max_int128) ||
-                (is_negative && current > max_int128 + 1)) {
-                current = 0;
-            }
-            value = is_negative ? -current : current;
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        int128_t value =
+                StringParser::string_to_int<int128_t>(scan_key.c_str(), scan_key.size(), &result);
+        if (result == StringParser::PARSE_FAILURE) {
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
-
         *reinterpret_cast<PackedInt128*>(buf) = value;
         return Status::OK();
     }
