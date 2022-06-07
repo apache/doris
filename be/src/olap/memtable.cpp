@@ -91,17 +91,9 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
-        FieldAggregationMethod agg_method = _tablet_schema->column(cid).aggregation();
-        std::string agg_name = TabletColumn::get_string_by_aggregation_type(agg_method) +
-                               vectorized::AGG_LOAD_SUFFIX;
-        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-
-        // create aggregate function
-        vectorized::DataTypes argument_types {block->get_data_type(cid)};
         vectorized::AggregateFunctionPtr function =
-                vectorized::AggregateFunctionSimpleFactory::instance().get(
-                        agg_name, argument_types, {}, argument_types.back()->is_nullable());
+                _tablet_schema->column(cid).get_aggregate_function({block->get_data_type(cid)},
+                                                                   vectorized::AGG_LOAD_SUFFIX);
 
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
@@ -316,7 +308,7 @@ void MemTable::shrink_memtable_by_agg() {
     _collect_vskiplist_results<false>();
 }
 
-bool MemTable::is_flush() {
+bool MemTable::is_flush() const {
     return memory_usage() >= config::write_buffer_size;
 }
 

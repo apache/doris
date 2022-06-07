@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
+#pragma once
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/types.pb.h"
@@ -30,7 +29,6 @@ namespace doris {
 
 struct ContiguousRow;
 class MemTable;
-class RowCursor;
 
 class RowsetWriter {
 public:
@@ -74,7 +72,7 @@ public:
 
     virtual Version version() = 0;
 
-    virtual int64_t num_rows() = 0;
+    virtual int64_t num_rows() const = 0;
 
     virtual RowsetId rowset_id() = 0;
 
@@ -85,5 +83,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
