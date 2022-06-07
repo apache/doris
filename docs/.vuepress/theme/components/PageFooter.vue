@@ -17,7 +17,7 @@ under the License.
 -->
 <template>
   <div class="page-footer">
-    <ul class="apache-list">
+    <ul class="apache-list" v-if="asfList">
       <li class="apache-item" v-for="asfItem in asfList" :key="asfItem.link">
         <a :href="asfItem.link" target="_blank">{{ asfItem.text }}</a>
       </li>
@@ -38,6 +38,7 @@ export default defineComponent({
     const asfList = computed(() => {
       const { $themeLocaleConfig } = instance;
       const navs = $themeLocaleConfig.nav;
+      if (!navs) return
       const asf = navs.find((nav) => nav.text === "ASF");
       return asf.items;
     });
