@@ -23,6 +23,7 @@
 #include <charconv>
 #include <unordered_set>
 
+#include "common/status.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
@@ -106,14 +107,14 @@ TabletReader::~TabletReader() {
     }
 }
 
-Status TabletReader::init(const ReaderParams& read_params) {
+Status TabletReader::init(const ReaderParams& read_params, bool is_alter_table) {
 #ifndef NDEBUG
     _predicate_mem_pool.reset(new MemPool("TabletReader:" + read_params.tablet->full_name()));
 #else
     _predicate_mem_pool.reset(new MemPool());
 #endif
 
-    Status res = _init_params(read_params);
+    Status res = _init_params(read_params, is_alter_table);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
@@ -233,7 +234,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     return Status::OK();
 }
 
-Status TabletReader::_init_params(const ReaderParams& read_params) {
+Status TabletReader::_init_params(const ReaderParams& read_params, bool is_alter_table) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
@@ -245,7 +246,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _init_conditions_param(read_params);
     _init_load_bf_columns(read_params);
 
-    Status res = _init_delete_condition(read_params);
+    Status res = _init_delete_condition(read_params, is_alter_table);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init delete param. res = " << res;
         return res;
@@ -835,15 +836,9 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
     }
 }
 
-Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
+Status TabletReader::_init_delete_condition(const ReaderParams& read_params, bool is_alter_table) {
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         return Status::OK();
-    }
-    Status ret;
-    {
-        std::shared_lock rdlock(_tablet->get_header_lock());
-        ret = _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
-                                   read_params.version.second, this);
     }
     // Only BASE_COMPACTION need set filter_delete = true
     // other reader type:
@@ -852,7 +847,18 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_BASE_COMPACTION) {
         _filter_delete = true;
     }
-    return ret;
+
+    auto delete_init = [&]() -> Status {
+        return _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
+                                    read_params.version.second, this);
+    };
+
+    if (is_alter_table) {
+        return delete_init();
+    }
+
+    std::shared_lock rdlock(_tablet->get_header_lock());
+    return delete_init();
 }
 
 } // namespace doris

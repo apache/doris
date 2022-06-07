@@ -17,6 +17,7 @@
 
 #include "vec/olap/block_reader.h"
 
+#include "common/status.h"
 #include "olap/row_block.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/schema.h"
@@ -106,8 +107,11 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     }
 }
 
-Status BlockReader::init(const ReaderParams& read_params) {
-    TabletReader::init(read_params);
+Status BlockReader::init(const ReaderParams& read_params, bool is_alter_table) {
+    TabletReader::init(read_params, is_alter_table);
+    if (is_alter_table) {
+        return Status::OK();
+    }
 
     auto return_column_size =
             read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);

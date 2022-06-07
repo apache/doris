@@ -43,7 +43,7 @@ public:
 
     RowBlockChanger(const TabletSchema& tablet_schema, DescriptorTbl desc_tbl);
 
-    virtual ~RowBlockChanger();
+    ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
 
@@ -106,6 +106,7 @@ public:
         _merged_rows = 0;
 
         RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet));
+        _add_filtered_rows(rowset_reader->filtered_rows());
 
         // Check row num changes
         if (config::row_nums_check) {

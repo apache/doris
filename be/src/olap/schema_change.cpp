@@ -42,6 +42,7 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/olap/block_reader.h"
 
 using std::nothrow;
 
@@ -247,8 +248,7 @@ RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
 }
 
 RowBlockChanger::~RowBlockChanger() {
-    SchemaMapping::iterator it = _schema_mapping.begin();
-    for (; it != _schema_mapping.end(); ++it) {
+    for (auto it = _schema_mapping.begin(); it != _schema_mapping.end(); ++it) {
         SAFE_DELETE(it->default_value);
     }
     _schema_mapping.clear();
@@ -886,10 +886,12 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                         _check_cast_valid(ref_block->get_by_position(ref_idx).column,
                                           ref_block->get_by_position(result_column_id).column));
             }
-
             swap_idx_map[result_column_id] = idx;
+
+            ctx->close(state);
             continue;
         }
+
         // same type, just swap column
         swap_idx_map[ref_idx] = idx;
     }
@@ -1297,9 +1299,6 @@ Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
         return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
     }
 
-    // rows filtered by zone map against delete handler
-    _add_filtered_rows(rowset_reader->filtered_rows());
-
     return res;
 }
 
@@ -1327,8 +1326,6 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     if (!rowset_writer->flush()) {
         return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
     }
-
-    _add_filtered_rows(rowset_reader->filtered_rows());
 
     return Status::OK();
 }
@@ -1510,8 +1507,6 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
         LOG(WARNING) << "failed to sorting externally.";
         return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
     }
-
-    _add_filtered_rows(rowset_reader->filtered_rows());
 
     return res;
 }
@@ -1868,24 +1863,36 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 end_version = std::max(end_version, version.second);
             }
 
+            // acquire data sources correspond to history versions
+            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
+            if (rs_readers.empty()) {
+                LOG(WARNING) << "fail to acquire all data sources. "
+                             << "version_num=" << versions_to_be_changed.size()
+                             << ", data_source_num=" << rs_readers.size();
+                res = Status::OLAPInternalError(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS);
+                break;
+            }
+
+            vectorized::BlockReader reader;
+            TabletReader::ReaderParams reader_params;
+            reader_params.tablet = base_tablet;
+            reader_params.reader_type = READER_ALTER_TABLE;
+            reader_params.rs_readers = rs_readers;
+            const auto& schema = base_tablet->tablet_schema();
+            reader_params.return_columns.resize(schema.num_columns());
+            std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
+            reader_params.origin_return_columns = &reader_params.return_columns;
+            reader_params.version = {0, end_version};
+            RETURN_NOT_OK(reader.init(reader_params, true));
+
             res = delete_handler.init(base_tablet->tablet_schema(),
-                                      base_tablet->delete_predicates(), end_version);
+                                      base_tablet->delete_predicates(), end_version, &reader);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << base_tablet->full_name() << ", end_version=" << end_version;
 
                 // release delete handlers which have been inited successfully.
                 delete_handler.finalize();
-                break;
-            }
-
-            // acquire data sources correspond to history versions
-            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
-            if (rs_readers.size() < 1) {
-                LOG(WARNING) << "fail to acquire all data sources. "
-                             << "version_num=" << versions_to_be_changed.size()
-                             << ", data_source_num=" << rs_readers.size();
-                res = Status::OLAPInternalError(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS);
                 break;
             }
 
