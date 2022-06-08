@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.analysis.DistributionDesc;
-
 /**
  * Physical properties used in cascades.
  */
