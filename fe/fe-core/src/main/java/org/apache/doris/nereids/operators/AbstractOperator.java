@@ -25,7 +25,7 @@ import java.util.Objects;
 /**
  * Abstract class for all concrete operator.
  */
-public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> implements Operator<TYPE> {
+public abstract class AbstractOperator implements Operator {
     protected final OperatorType type;
     protected final long limited;
 

@@ -31,9 +31,8 @@ import java.util.List;
 /**
  * Abstract class for all physical operator that have no input.
  */
-public abstract class PhysicalLeafOperator<TYPE extends PhysicalLeafOperator<TYPE>>
-        extends AbstractOperator<TYPE>
-        implements PhysicalOperator<TYPE>, LeafPlanOperator<TYPE> {
+public abstract class PhysicalLeafOperator extends AbstractOperator
+        implements PhysicalOperator, LeafPlanOperator {
 
     public PhysicalLeafOperator(OperatorType type) {
         super(type);

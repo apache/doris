@@ -30,9 +30,8 @@ import java.util.List;
 /**
  * Abstract class for all logical operator that have no input.
  */
-public abstract class LogicalLeafOperator<TYPE extends LogicalLeafOperator<TYPE>>
-        extends AbstractOperator<TYPE>
-        implements LogicalOperator<TYPE>, LeafPlanOperator<TYPE> {
+public abstract class LogicalLeafOperator extends AbstractOperator
+        implements LogicalOperator, LeafPlanOperator {
 
     public LogicalLeafOperator(OperatorType type) {
         super(type);

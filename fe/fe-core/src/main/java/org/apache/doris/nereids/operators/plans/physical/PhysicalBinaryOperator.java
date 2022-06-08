@@ -32,12 +32,8 @@ import java.util.List;
 /**
  * Abstract class for all physical operator that have two inputs.
  */
-public abstract class PhysicalBinaryOperator<
-            TYPE extends PhysicalBinaryOperator<TYPE, LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
-            LEFT_INPUT_TYPE extends Plan,
-            RIGHT_INPUT_TYPE extends Plan>
-        extends AbstractOperator<TYPE>
-        implements PhysicalOperator<TYPE>, BinaryPlanOperator<TYPE, LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
+public abstract class PhysicalBinaryOperator extends AbstractOperator
+        implements PhysicalOperator, BinaryPlanOperator {
 
     public PhysicalBinaryOperator(OperatorType type) {
         super(type);
@@ -45,11 +41,10 @@ public abstract class PhysicalBinaryOperator<
 
     @Override
     public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
-        return doComputeOutput(logicalProperties, (LEFT_INPUT_TYPE) inputs[0], (RIGHT_INPUT_TYPE) inputs[1]);
+        return doComputeOutput(logicalProperties, inputs[0], inputs[1]);
     }
 
-    public List<Slot> doComputeOutput(LogicalProperties logicalProperties,
-            LEFT_INPUT_TYPE left, RIGHT_INPUT_TYPE right) {
+    public List<Slot> doComputeOutput(LogicalProperties logicalProperties, Plan left, Plan right) {
         return logicalProperties.getOutput();
     }
 

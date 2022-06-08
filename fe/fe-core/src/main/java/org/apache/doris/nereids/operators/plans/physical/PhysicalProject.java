@@ -31,8 +31,7 @@ import java.util.Objects;
 /**
  * Physical project plan operator.
  */
-public class PhysicalProject<INPUT_TYPE extends Plan>
-        extends PhysicalUnaryOperator<PhysicalProject<INPUT_TYPE>, INPUT_TYPE> {
+public class PhysicalProject extends PhysicalUnaryOperator {
 
     private final List<? extends NamedExpression> projects;
 

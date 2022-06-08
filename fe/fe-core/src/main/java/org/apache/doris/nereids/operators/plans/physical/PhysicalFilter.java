@@ -17,19 +17,15 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import java.util.Objects;
 
 /**
  * Physical filter plan operator.
  */
-public class PhysicalFilter<INPUT_TYPE extends Plan>
-        extends PhysicalUnaryOperator<PhysicalFilter<INPUT_TYPE>, INPUT_TYPE> {
+public class PhysicalFilter extends PhysicalUnaryOperator {
 
     private final Expression predicates;
 

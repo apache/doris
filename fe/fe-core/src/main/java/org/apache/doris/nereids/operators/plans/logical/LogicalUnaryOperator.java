@@ -32,11 +32,8 @@ import java.util.List;
 /**
  * Abstract class for all logical operator that have one input.
  */
-public abstract class LogicalUnaryOperator<
-            TYPE extends LogicalUnaryOperator<TYPE, INPUT_TYPE>,
-            INPUT_TYPE extends Plan>
-        extends AbstractOperator<TYPE>
-        implements LogicalOperator<TYPE>, UnaryPlanOperator<TYPE, INPUT_TYPE> {
+public abstract class LogicalUnaryOperator extends AbstractOperator
+        implements LogicalOperator, UnaryPlanOperator {
 
     public LogicalUnaryOperator(OperatorType type) {
         super(type);
@@ -44,10 +41,10 @@ public abstract class LogicalUnaryOperator<
 
     @Override
     public final List<Slot> computeOutput(Plan... inputs) {
-        return doComputeOutput((INPUT_TYPE) inputs[0]);
+        return doComputeOutput(inputs[0]);
     }
 
-    public abstract List<Slot> doComputeOutput(INPUT_TYPE input);
+    public abstract List<Slot> doComputeOutput(Plan input);
 
     @Override
     public LogicalUnary toTreeNode(GroupExpression groupExpression) {
