@@ -61,6 +61,7 @@ public class CreatePolicyStmt extends DdlStmt {
 
     @Getter
     private Map<String, String> properties;
+
     /**
      * Use for cup.
      **/
@@ -75,6 +76,9 @@ public class CreatePolicyStmt extends DdlStmt {
         this.wherePredicate = wherePredicate;
     }
 
+    /**
+     * Use for cup.
+     */
     public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName,
                             Map<String, String> properties) {
         this.type = type;
@@ -95,7 +99,7 @@ public class CreatePolicyStmt extends DdlStmt {
                 user.analyze(analyzer.getClusterName());
                 if (user.isRootUser() || user.isAdminUser()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                        user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                            user.getQualifiedUser(), user.getHost(), tableName.getTbl());
                 }
         }
         // check auth

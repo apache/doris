@@ -1363,7 +1363,7 @@ create_stmt ::=
     /* storage policy */
     | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
     {:
-        RESULT = new CreateResourceStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
     :}
     ;
 

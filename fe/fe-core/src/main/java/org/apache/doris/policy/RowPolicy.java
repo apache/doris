@@ -48,19 +48,19 @@ import java.util.List;
 @Data
 public class RowPolicy extends Policy {
 
-    private static final Logger LOG = LogManager.getLogger(RowPolicy.class);
-
     public static final ShowResultSetMetaData ROW_META_DATA =
-        ShowResultSetMetaData.builder()
-            .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
-            .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
-            .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
-            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-            .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
-            .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
-            .addColumn(new Column("User", ScalarType.createVarchar(20)))
-            .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
-            .build();
+            ShowResultSetMetaData.builder()
+                .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+                .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
+                .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
+                .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
+                .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
+                .addColumn(new Column("User", ScalarType.createVarchar(20)))
+                .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
+                .build();
+
+    private static final Logger LOG = LogManager.getLogger(RowPolicy.class);
 
     /**
      * Policy bind user.

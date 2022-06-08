@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -36,10 +35,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Save policy for storage migration
+ * Save policy for storage migration.
  **/
 @Data
 public class StoragePolicy extends Policy {
+
+    public static final ShowResultSetMetaData STORAGE_META_DATA =
+            ShowResultSetMetaData.builder()
+                .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+                .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                .addColumn(new Column("StorageResource", ScalarType.createVarchar(20)))
+                .addColumn(new Column("CooldownDatetime", ScalarType.createVarchar(20)))
+                .addColumn(new Column("CooldownTtl", ScalarType.createVarchar(20)))
+                .addColumn(new Column("properties", ScalarType.createVarchar(65535)))
+                .build();
 
     private static final Logger LOG = LogManager.getLogger(StoragePolicy.class);
     // required
@@ -47,16 +56,6 @@ public class StoragePolicy extends Policy {
     // optional
     private static final String COOLDOWN_DATETIME = "cooldown_datetime";
     private static final String COOLDOWN_TTL = "cooldown_ttl";
-
-    public static final ShowResultSetMetaData STORAGE_META_DATA =
-        ShowResultSetMetaData.builder()
-            .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
-            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-            .addColumn(new Column("StorageResource", ScalarType.createVarchar(20)))
-            .addColumn(new Column("CooldownDatetime", ScalarType.createVarchar(20)))
-            .addColumn(new Column("CooldownTtl", ScalarType.createVarchar(20)))
-            .addColumn(new Column("properties", ScalarType.createVarchar(65535)))
-            .build();
 
     @SerializedName(value = "storageResource")
     private String storageResource = null;
@@ -73,6 +72,7 @@ public class StoragePolicy extends Policy {
 
     /**
      * Policy for Storage Migration.
+     *
      * @param type PolicyType
      * @param policyName policy name
      * @param storageResource resource name for storage
@@ -86,8 +86,10 @@ public class StoragePolicy extends Policy {
         this.cooldownDatetime = cooldownDatetime;
         this.cooldownTtl = cooldownTtl;
     }
+
     /**
      * Policy for Storage Migration.
+     *
      * @param type PolicyType
      * @param policyName policy name
      */
@@ -96,10 +98,14 @@ public class StoragePolicy extends Policy {
     }
 
     /**
-     * Init props for storage policy
+     * Init props for storage policy.
+     *
      * @param props properties for storage policy
      */
     public void init(final Map<String, String> props) throws AnalysisException {
+        if (props == null) {
+            throw new AnalysisException("properties config is required");
+        }
         checkRequiredProperty(props, STORAGE_RESOURCE);
         this.storageResource = props.get(STORAGE_RESOURCE);
         boolean hasCooldownDatetime = false;
@@ -119,11 +125,15 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
     }
+
     /**
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        String props = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.policyName).toString();
+        String props = "";
+        if (Catalog.getCurrentCatalog().getResourceMgr().containsResource(this.storageResource)) {
+            props = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.storageResource).toString();
+        }
         return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
                                   this.cooldownDatetime, this.cooldownTtl, props);
     }
@@ -152,10 +162,11 @@ public class StoragePolicy extends Policy {
     }
 
     /**
+     * check required key in properties.
      *
      * @param props properties for storage policy
      * @param propertyKey key for property
-     * @throws DdlException
+     * @throws AnalysisException exception for properties error
      */
     private void checkRequiredProperty(final Map<String, String> props, String propertyKey) throws AnalysisException {
         String value = props.get(propertyKey);
@@ -167,6 +178,6 @@ public class StoragePolicy extends Policy {
 
     @Override
     public boolean isInvalid() {
-        return true;
+        return false;
     }
 }
