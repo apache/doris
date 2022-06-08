@@ -41,7 +41,6 @@ public class FakeEditLog extends MockUp<EditLog> {
     @Mock
     public void $init(String nodeName) { // CHECKSTYLE IGNORE THIS LINE
         // do nothing
-        System.out.println("abc");
     }
 
     @Mock
