@@ -34,7 +34,7 @@ under the License.
     </router-link>
 
     <div class="dropdown-box" v-show="showVersionNav()">
-      <Dropdown v-if="versions" :item="versions" @update-value="updateVersion"/>
+      <Dropdown />
     </div>
 
     <div
@@ -63,7 +63,6 @@ import Mode from '@theme/components/Mode'
 import { useInstance } from '@theme/helpers/composable'
 import Dropdown from '@theme/components/Dropdown'
 import NavLink from './NavLink.vue'
-import axios from "axios"
 
 export default defineComponent({
   components: { SidebarButton, NavLinks, SearchBox, AlgoliaSearchBox, Mode, Dropdown, NavLink },
@@ -79,32 +78,12 @@ export default defineComponent({
     const instance = useInstance()
     const linksWrapMaxWidth = ref(null)
 
-    const fetchData = async () => {
-      const res = await axios.get('/versions.json').then(rsp => rsp)
-      if (!res || !res.data) return
-      const locales = instance.$site.themeConfig.locales
-      Object.keys(locales).forEach(k => {
-        const versionItems = res.data[k.replace(/\//gi, "")] || []
-        instance.$site.themeConfig.locales[k].versions.items = versionItems
-      })
-    }
-
-    const documentText = computed(() => {
-      return instance.$lang === 'en' ? 'Document' : '文档'
-    })
-
-    const documentNav = reactive({text: documentText, link: ''})
-
     const algolia = computed(() => {
       return instance.$themeLocaleConfig.algolia || instance.$themeConfig.algolia || {}
     })
 
     const isAlgoliaSearch = computed(() => {
       return algolia.value && algolia.value.apiKey && algolia.value.indexName
-    })
-    
-    const versions = computed(() => {
-      return instance.$themeLocaleConfig.versions
     })
 
     function css (el, property) {
@@ -114,18 +93,7 @@ export default defineComponent({
       return win.getComputedStyle(el, null)[property]
     }
 
-    function updateVersion (val) {
-      const versionsValue = versions.value
-      if (!versionsValue) return
-      const version = versionsValue.items.find(item => item.text === val.text)
-      const documentNav = this.$themeLocaleConfig.nav.find(item => item.name === 'document')
-      if (version && version.link) {
-        documentNav.link = version.link
-      }
-    }
-
     onMounted(() => {
-      fetchData()
 
       const MOBILE_DESKTOP_BREAKPOINT = 719 // refer to config.styl
       const NAVBAR_VERTICAL_PADDING =
@@ -147,7 +115,7 @@ export default defineComponent({
       window.addEventListener('resize', handleLinksWrapWidth, false)
     })
 
-    return { linksWrapMaxWidth, algolia, isAlgoliaSearch, css, versions, updateVersion }
+    return { linksWrapMaxWidth, algolia, isAlgoliaSearch, css }
   }
 })
 </script>

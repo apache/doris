@@ -47,7 +47,6 @@ function buildAlgoliaSearchConfig(lang) {
 
 module.exports = {
   base: BUILDING_BRANCH.length > 0 ? "/" + BUILDING_BRANCH + "/" : "",
-  dest: "dist", // 打包文件夹名称
   locales: {
     "/en/": {
       lang: "en", // html lang属性

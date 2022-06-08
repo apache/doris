@@ -17,10 +17,10 @@ under the License.
 -->
 <template>
   <div class="dropdown-wrapper" :class="{ open }">
-    <a class="dropdown-title" @click="toggle">
+    <a class="dropdown-title" @click="toggle" v-if="versions">
       <span class="title">
         {{ currentItem.text }}
-        <reco-icon :icon="`${item.icon}`" />
+        <reco-icon :icon="`${versions.icon}`" />
       </span>
     </a>
 
@@ -56,15 +56,12 @@ import { RecoIcon } from '@vuepress-reco/core/lib/components'
 import NavLink from '@theme/components/NavLink'
 import DropdownTransition from '@theme/components/DropdownTransition'
 import { useInstance } from '@theme/helpers/composable'
+import axios from "axios"
+
 
 export default defineComponent({
   components: { NavLink, DropdownTransition, RecoIcon },
 
-  props: {
-    item: {
-      required: true
-    }
-  },
   data () {
     return {
       subItems: [],
@@ -72,43 +69,80 @@ export default defineComponent({
     }
   },
   computed: {
-    
+    versions() {
+      return this.$themeLocaleConfig.versions;
+    },
   },
   watch: {
-    item: {
+    versions: {
       immediate: true,
       deep: true,
-      handler (val) {
-        if (!val) return
-        this.subItems = val.items.map(item => ({...item, active: false}))
-        let currentVersion = 'master'
-        if (!this.currentItem.text) {
-          const versionKeys = this.$themeLocaleConfig.versions.items.map(v => v.text)
-          const matchVersion = versionKeys.find(v => this.$route.path.indexOf(v) > -1)
-          currentVersion = matchVersion || versionKeys[0]
-        } else {
-          currentVersion = this.currentItem.text
-        }
-        const index = this.subItems.findIndex(item => item.text === currentVersion)
-        if (index > -1) {
-          this.currentItem = this.subItems[index]
-          this.currentItem && (this.subItems[index].active = true)
-        }
-      }
+      handler(val) {
+        this.init(val)
+      },
     },
     currentItem: {
       immediate: true,
       handler (val) {
-        this.$emit('update-value', val)
+        this.updateVersion(val)
       }
     }
   },
   methods: {
+    init(val) {
+      if (!val) return
+      this.subItems = val.items.map((item) => ({ ...item, active: false }));
+      let currentVersion = "master";
+      if (!this.currentItem.text) {
+        const versionKeys = this.$themeLocaleConfig.versions.items.map(
+          (v) => v.text
+        );
+        const matchVersion = versionKeys.find(
+          (v) => this.$route.path.indexOf(v) > -1
+        );
+        currentVersion = matchVersion || versionKeys[0];
+      } else {
+        currentVersion = this.currentItem.text;
+      }
+      const index = this.subItems.findIndex(
+        (item) => item.text === currentVersion
+      );
+      if (index > -1) {
+        this.currentItem = this.subItems[index];
+        this.currentItem && (this.subItems[index].active = true);
+      }
+    },
     handleClick (item) {
       this.subItems.forEach(v => { v.active = item.text === v.text })
       this.currentItem = item
       this.$router.push(item.link)
     },
+    async fetchData () {
+      const res = await axios.get('/versions.json')
+      if (!res || !res.data) return
+      const locales = this.$site.themeConfig.locales
+      Object.keys(locales).forEach(k => {
+        const versionItems = res.data[k.replace(/\//gi, "")] || []
+        this.$site.themeConfig.locales[k].versions.items = versionItems
+      })
+      this.init(this.$themeLocaleConfig.versions)
+    },
+    updateVersion(val) {
+      const versionsValue = this.versions;
+      if (!versionsValue) return;
+      const version = versionsValue.items.find(
+        (item) => item.text === val.text
+      );
+      const documentNav = this.$themeLocaleConfig.nav.find(
+        (item) => item.name === "document"
+      );
+      if (version && version.link) {
+        documentNav.link = version.link;
+      }
+    },
+  },
+  mounted() {
+    this.fetchData();
   },
 
   setup (props, ctx) {
