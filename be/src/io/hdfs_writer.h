@@ -17,27 +17,18 @@
 
 #pragma once
 
+#include <hdfs/hdfs.h>
+
 #include <map>
 #include <string>
 
-#include "exec/file_writer.h"
-#include "util/s3_uri.h"
-
-namespace Aws {
-namespace Utils {
-class TempFile;
-}
-namespace S3 {
-class S3Client;
-}
-} // namespace Aws
+#include "file_writer.h"
 
 namespace doris {
-class S3Writer : public FileWriter {
+class HDFSWriter : public FileWriter {
 public:
-    S3Writer(const std::map<std::string, std::string>& properties, const std::string& path,
-             int64_t start_offset);
-    ~S3Writer();
+    HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path);
+    ~HDFSWriter();
     Status open() override;
 
     // Writes up to count bytes from the buffer pointed buf to the file.
@@ -47,13 +38,19 @@ public:
     Status close() override;
 
 private:
-    Status _sync();
+    Status _connect();
+    Status _parse_properties(std::map<std::string, std::string>& prop);
 
-    const std::map<std::string, std::string>& _properties;
-    std::string _path;
-    S3URI _uri;
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::shared_ptr<Aws::Utils::TempFile> _temp_file;
+    std::map<std::string, std::string> _properties;
+    std::string _user = "";
+    std::string _namenode = "";
+    std::string _path = "";
+    std::string _kerb_principal = "";
+    std::string _kerb_ticket_cache_path = "";
+    std::string _token = "";
+    hdfsFS _hdfs_fs = nullptr;
+    hdfsFile _hdfs_file = nullptr;
+    bool _closed = false;
 };
 
-} // end namespace doris
+} // namespace doris

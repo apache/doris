@@ -17,36 +17,24 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <hdfs/hdfs.h>
 
-#include <map>
-#include <string>
-
-#include "common/status.h"
-#include "exec/file_reader.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/Types_types.h"
+#include "file_reader.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-class ExecEnv;
-class TBrokerRangeDesc;
-class TNetworkAddress;
-class RuntimeState;
-
-// Reader of broker file
-class BrokerReader : public FileReader {
+class HdfsFileReader : public FileReader {
 public:
-    // If the reader need the file size, set it when construct BrokerReader.
-    // There is no other way to set the file size.
-    BrokerReader(ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
-                 const std::map<std::string, std::string>& properties, const std::string& path,
-                 int64_t start_offset, int64_t file_size = 0);
-    virtual ~BrokerReader();
+    HdfsFileReader(const THdfsParams& hdfs_params, const std::string& path, int64_t start_offset);
+    virtual ~HdfsFileReader();
 
     virtual Status open() override;
 
-    // Read
+    // Read content to 'buf', 'buf_len' is the max size of this buffer.
+    // Return ok when read success, and 'buf_len' is set to size of read content
+    // If reach to end of file, the eof is set to true. meanwhile 'buf_len'
+    // is set to zero.
     virtual Status read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) override;
     virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read,
                           void* out) override;
@@ -58,18 +46,16 @@ public:
     virtual bool closed() override;
 
 private:
-    ExecEnv* _env;
-    const std::vector<TNetworkAddress>& _addresses;
-    const std::map<std::string, std::string>& _properties;
-    const std::string& _path;
+    Status connect();
 
-    int64_t _cur_offset;
-
-    bool _is_fd_valid;
-    TBrokerFD _fd;
-
+private:
+    THdfsParams _hdfs_params;
+    std::string _namenode;
+    std::string _path;
+    int64_t _current_offset;
     int64_t _file_size;
-    int _addr_idx;
+    hdfsFS _hdfs_fs;
+    hdfsFile _hdfs_file;
 };
 
 } // namespace doris

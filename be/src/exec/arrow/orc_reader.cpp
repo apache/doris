@@ -21,7 +21,7 @@
 #include <time.h>
 
 #include "common/logging.h"
-#include "exec/file_reader.h"
+#include "io/file_reader.h"
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
 

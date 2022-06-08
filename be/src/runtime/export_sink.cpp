@@ -21,13 +21,10 @@
 
 #include <sstream>
 
-#include "exec/broker_writer.h"
-#include "exec/hdfs_reader_writer.h"
-#include "exec/local_file_writer.h"
-#include "exec/s3_writer.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
+#include "io/file_factory.h"
 #include "runtime/large_int_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -247,50 +244,14 @@ Status ExportSink::open_file_writer() {
     }
 
     std::string file_name = gen_file_name();
-
     // TODO(lingbin): gen file path
-    switch (_t_export_sink.file_type) {
-    case TFileType::FILE_LOCAL: {
-        LocalFileWriter* file_writer =
-                new LocalFileWriter(_t_export_sink.export_path + "/" + file_name, 0);
-        RETURN_IF_ERROR(file_writer->open());
-        _file_writer.reset(file_writer);
-        break;
-    }
-    case TFileType::FILE_BROKER: {
-        BrokerWriter* broker_writer = new BrokerWriter(
-                _state->exec_env(), _t_export_sink.broker_addresses, _t_export_sink.properties,
-                _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
-        RETURN_IF_ERROR(broker_writer->open());
-        _file_writer.reset(broker_writer);
-        break;
-    }
-    case TFileType::FILE_S3: {
-        S3Writer* s3_writer =
-                new S3Writer(_t_export_sink.properties,
-                             _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
-        RETURN_IF_ERROR(s3_writer->open());
-        _file_writer.reset(s3_writer);
-        break;
-    }
-    case TFileType::FILE_HDFS: {
-        FileWriter* hdfs_writer;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
-                const_cast<std::map<std::string, std::string>&>(_t_export_sink.properties),
-                _t_export_sink.export_path + "/" + file_name, &hdfs_writer));
-        RETURN_IF_ERROR(hdfs_writer->open());
-        _file_writer.reset(hdfs_writer);
-        break;
-    }
-    default: {
-        std::stringstream ss;
-        ss << "Unknown file type, type=" << _t_export_sink.file_type;
-        return Status::InternalError(ss.str());
-    }
-    }
-
+    RETURN_IF_ERROR(FileFactory::create_file_writer(
+            _t_export_sink.file_type, _state->exec_env(), _t_export_sink.broker_addresses,
+            _t_export_sink.properties, _t_export_sink.export_path + "/" + file_name, 0,
+            _file_writer));
     _state->add_export_output_file(_t_export_sink.export_path + "/" + file_name);
-    return Status::OK();
+
+    return _file_writer->open();
 }
 
 // TODO(lingbin): add some other info to file name, like partition

@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "exec/file_reader.h"
-#include "exec/file_writer.h"
+#include "file_reader.h"
+#include "file_writer.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
@@ -35,7 +35,7 @@ public:
                                 int64_t start_offset, FileReader** reader);
 
     static Status create_writer(std::map<std::string, std::string>& properties,
-                                const std::string& path, FileWriter** writer);
+                                const std::string& path, std::unique_ptr<FileWriter>& writer);
 };
 
 } // namespace doris

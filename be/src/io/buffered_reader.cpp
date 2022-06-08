@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/buffered_reader.h"
+#include "buffered_reader.h"
 
 #include <algorithm>
 #include <sstream>

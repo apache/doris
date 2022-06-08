@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to run TPC-H queries
+# This script is used to create TPC-H tables
 ##############################################################
 
 set -eo pipefail
@@ -43,7 +43,6 @@ Usage: $0
 OPTS=$(getopt \
     -n $0 \
     -o '' \
-    -o 'h' \
     -- "$@")
 
 eval set -- "$OPTS"
@@ -87,33 +86,32 @@ check_prerequest() {
 check_prerequest "mysql --version" "mysql"
 
 source $CURDIR/doris-cluster.conf
-export MYSQL_PWD=$PASSWORD
 
 echo "FE_HOST: $FE_HOST"
 echo "FE_QUERY_PORT: $FE_QUERY_PORT"
 echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
+echo "Time Unit: ms"
 
 pre_set() {
     echo $@
     mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
 }
 
-pre_set "set global enable_vectorized_engine=1;"
-pre_set "set global parallel_fragment_exec_instance_num=8;"
-pre_set "set global exec_mem_limit=48G;"
-pre_set "set global batch_size=4096;"
-# pre_set "show variables like 'batch_size';"
-
+sum=0
 for i in $(seq 1 22); do
     total=0
-    # Each query is executed three times and takes the average time
-    for j in $(seq 1 3); do
+    run=3
+    # Each query is executed ${run} times and takes the average time
+    for j in $(seq 1 ${run}); do
         start=$(date +%s%3N)
         mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB <$QUERIES_DIR/q$i.sql >/dev/null
         end=$(date +%s%3N)
         total=$((total + end - start))
     done
-    echo "q$i: $((total / 3))ms"
+    cost=$((total / ${run}))
+    echo "q$i: ${cost}"
+    sum=$((sum + $cost))
 done
+echo "Total cost: $sum"

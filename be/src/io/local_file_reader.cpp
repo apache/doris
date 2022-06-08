@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "exec/local_file_reader.h"
+#include "local_file_reader.h"
 
 #include <sys/stat.h>
 #include <unistd.h>

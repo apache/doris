@@ -15,31 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.statistics;
 
-#include <stdio.h>
+import com.google.common.base.Preconditions;
 
-#include "exec/file_writer.h"
+/**
+ * Derive SelectNode statistics.
+ */
+public class SelectStatsDerive extends BaseStatsDerive {
 
-namespace doris {
+    // Current SORT_NODE also uses this derivation method
+    @Override
+    public StatsDeriveResult deriveStats() {
+        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
+    }
 
-class RuntimeState;
-
-class LocalFileWriter : public FileWriter {
-public:
-    LocalFileWriter(const std::string& path, int64_t start_offset);
-    virtual ~LocalFileWriter();
-
-    Status open() override;
-
-    virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
-
-    virtual Status close() override;
-
-private:
-    std::string _path;
-    int64_t _start_offset;
-    FILE* _fp;
-};
-
-} // end namespace doris
+    @Override
+    protected long deriveRowCount() {
+        Preconditions.checkState(!childrenStatsResult.isEmpty());
+        rowCount = childrenStatsResult.get(0).getRowCount();
+        applyConjunctsSelectivity();
+        capRowCountAtLimit();
+        return rowCount;
+    }
+}
