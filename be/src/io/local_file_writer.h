@@ -17,48 +17,32 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <stdio.h>
 
-#include <map>
-#include <string>
-
-#include "common/status.h"
-#include "exec/file_writer.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/Types_types.h"
+#include "file_writer.h"
 
 namespace doris {
 
-class ExecEnv;
-class TBrokerRangeDesc;
-class TNetworkAddress;
+class RuntimeState;
 
-// Reader of broker file
-class BrokerWriter : public FileWriter {
+class LocalFileWriter : public FileWriter {
 public:
-    BrokerWriter(ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
-                 const std::map<std::string, std::string>& properties, const std::string& path,
-                 int64_t start_offset);
-    virtual ~BrokerWriter();
+    LocalFileWriter(const std::string& path, int64_t start_offset);
 
-    virtual Status open() override;
+    ~LocalFileWriter() override;
+
+    Status open() override;
 
     virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
 
     virtual Status close() override;
 
 private:
-    ExecEnv* _env;
-    const std::vector<TNetworkAddress>& _addresses;
-    const std::map<std::string, std::string>& _properties;
+    static Status _check_file_path(const std::string& file_path);
+
     std::string _path;
-    int64_t _cur_offset;
-
-    bool _is_closed;
-    TBrokerFD _fd;
-
-    // TODO: use for retry if one broker down
-    int _addr_idx;
+    int64_t _start_offset;
+    FILE* _fp;
 };
 
 } // end namespace doris

@@ -23,10 +23,10 @@
 
 #include "common/object_pool.h"
 #include "exec/broker_scanner.h"
-#include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/local_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
