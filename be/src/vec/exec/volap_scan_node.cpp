@@ -166,7 +166,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
     for (size_t i = 0; i < scanner_filter_apply_marks.size(); i++) {
-        if (!scanner_filter_apply_marks[i]) {
+        if (!scanner_filter_apply_marks[i] && !_runtime_filter_ctxs[i].apply_mark) {
             IRuntimeFilter* runtime_filter = nullptr;
             state->runtime_filter_mgr()->get_consume_filter(_runtime_filter_descs[i].filter_id,
                                                             &runtime_filter);
@@ -174,7 +174,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             bool ready = runtime_filter->is_ready();
             if (ready) {
                 runtime_filter->get_prepared_context(&contexts, row_desc(), _expr_mem_tracker);
-                _runtime_filter_ctxs[i].apply_mark = true;
                 scanner_filter_apply_marks[i] = true;
             }
         }
