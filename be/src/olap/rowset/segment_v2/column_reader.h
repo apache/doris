@@ -104,7 +104,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec);
+                     BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
@@ -427,9 +427,10 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
-private:
-    void insert_default_data(vectorized::MutableColumnPtr& dst, size_t n);
+    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
+                                    vectorized::MutableColumnPtr& dst, size_t n);
 
+private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;

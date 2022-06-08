@@ -29,9 +29,10 @@
 #include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/types.h"
 #include "olap/wrapper_field.h"
 #include "runtime/mem_tracker.h"
 #include "util/defer_op.h"
@@ -851,12 +852,9 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                 DCHECK(column->is_nullable());
                 column->insert_many_defaults(row_size);
             } else {
-                if (column->is_column_string()) {
-                    std::string str = value->to_string();
-                    column->insert_many_data(str.data(), str.length(), row_size);
-                } else {
-                    column->insert_many_data(value->ptr(), value->size(), row_size);
-                }
+                auto type_info = get_type_info(_schema_mapping[idx].new_column);
+                DefaultValueColumnIterator::insert_default_data(type_info.get(), value->size(),
+                                                                value->ptr(), column, row_size);
             }
             continue;
         }
@@ -2242,6 +2240,7 @@ Status SchemaChangeHandler::_parse_request(
         const TabletColumn& new_column = new_tablet->tablet_schema().column(i);
         const string& column_name = new_column.name();
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
+        column_mapping->new_column = &new_column;
 
         if (new_column.has_reference_column()) {
             int32_t column_index = base_tablet->field_index(new_column.referenced_column());
