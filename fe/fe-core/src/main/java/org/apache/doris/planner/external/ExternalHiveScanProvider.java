@@ -93,8 +93,10 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
             String metaStoreUris = getMetaStoreUrl();
             List<Partition> hivePartitions = HiveMetaStoreClientHelper.getHivePartitions(
                 metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate);
-            splitsPath = hivePartitions.stream().map(x -> x.getSd().getLocation())
-                .collect(Collectors.joining(","));
+            if (!hivePartitions.isEmpty()) {
+                splitsPath = hivePartitions.stream().map(x -> x.getSd().getLocation())
+                        .collect(Collectors.joining(","));
+            }
         }
 
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
