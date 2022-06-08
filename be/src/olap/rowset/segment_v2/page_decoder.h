@@ -102,6 +102,12 @@ public:
 
     bool has_remaining() const { return current_index() < count(); }
 
+    // Should be shallow copy
+    virtual Status clone_for_cache(std::unique_ptr<PageDecoder>& new_one) const {
+        LOG(FATAL) << "clone_for_cache not implemented";
+        __builtin_unreachable();
+    };
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageDecoder);
 };

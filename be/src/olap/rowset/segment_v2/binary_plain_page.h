@@ -291,6 +291,18 @@ public:
                 (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
     }
 
+    Status clone_for_cache(std::unique_ptr<PageDecoder>& new_one) const override {
+        auto new_one_ = std::make_unique<BinaryPlainPageDecoder>(_data);
+        if (!_parsed)
+            return Status::RuntimeError("Attempt to clone BinaryPlainPageDecoder not parsed");
+
+        new_one_->_parsed = _parsed;
+        new_one_->_num_elems = _num_elems;
+        new_one_->_offsets_pos = _offsets_pos;
+        new_one = std::move(new_one_);
+        return Status::OK();
+    }
+
 private:
     // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(size_t idx) const {

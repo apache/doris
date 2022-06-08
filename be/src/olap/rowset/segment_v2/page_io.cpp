@@ -115,7 +115,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     opts.stats->total_pages_num++;
 
     auto cache = StoragePageCache::instance();
-    PageCacheHandle cache_handle;
+    PageCacheHandle<Slice> cache_handle;
     StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath,
                                          opts.page_pointer.offset);
     if (opts.use_page_cache && cache->is_cache_available(opts.type) &&

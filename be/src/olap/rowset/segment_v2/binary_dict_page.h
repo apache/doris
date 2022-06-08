@@ -116,6 +116,8 @@ public:
 
     void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
 
+    Status clone_for_cache(std::unique_ptr<PageDecoder>& new_one) const override;
+
     ~BinaryDictPageDecoder();
 
 private:
@@ -123,7 +125,7 @@ private:
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
     BinaryPlainPageDecoder* _dict_decoder = nullptr;
-    BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
+    std::unique_ptr<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>> _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
     // use as data buf.

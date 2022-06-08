@@ -468,6 +468,9 @@ FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), _compress_codec));
+    auto encoding = _reader->encoding_info()->encoding();
+    _need_cache_parsed_page =
+            (encoding == BIT_SHUFFLE || encoding == DICT_ENCODING) && _opts.use_page_cache;
     return Status::OK();
 }
 
@@ -659,12 +662,25 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
-    RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer,
-                                       _compress_codec.get()));
-    // parse data page
-    RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                       _reader->encoding_info(), iter.page(), iter.page_index(),
-                                       &_page));
+    auto reading_data_opts = _opts;
+
+    if (_need_cache_parsed_page) {
+        reading_data_opts.use_page_cache = false;
+    }
+
+    StoragePageCache::CacheKey key(_opts.rblock->path_desc().filepath, iter.page().offset);
+    PageCacheHandle<ParsedPage> page_cache_handle;
+    if (_need_cache_parsed_page &&
+        StoragePageCache::instance()->lookup(key, &page_cache_handle, DATA_PAGE)) {
+        _page = std::move(page_cache_handle.data());
+    } else {
+        RETURN_IF_ERROR(_reader->read_page(reading_data_opts, iter.page(), &handle, &page_body,
+                                           &footer, _compress_codec.get()));
+        // parse data page
+        RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                           _reader->encoding_info(), iter.page(), iter.page_index(),
+                                           &_page));
+    }
 
     // dictionary page is read when the first data page that uses it is read,
     // this is to optimize the memory usage: when there is no query on one column, we could
@@ -672,7 +688,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     // note that concurrent iterators for the same column won't repeatedly read dictionary page
     // because of page cache.
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
-        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder);
+        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder.get());
         if (dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 // read dictionary page
@@ -694,6 +710,11 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
 
             dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
         }
+    }
+
+    if (_need_cache_parsed_page) {
+        ParsedPage* cache_page = new ParsedPage(_page);
+        StoragePageCache::instance()->insert(key, *cache_page, &page_cache_handle, DATA_PAGE);
     }
     return Status::OK();
 }

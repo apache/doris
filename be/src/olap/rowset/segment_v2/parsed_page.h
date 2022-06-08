@@ -40,7 +40,8 @@ struct ParsedPage {
                          uint32_t page_index, ParsedPage* result) {
         result->~ParsedPage();
         ParsedPage* page = new (result)(ParsedPage);
-        page->page_handle = std::move(handle);
+        page->page_handle = std::make_shared<PageHandle>();
+        *page->page_handle = std::move(handle);
 
         auto null_size = footer.nullmap_size();
         page->has_null = null_size > 0;
@@ -53,7 +54,9 @@ struct ParsedPage {
 
         Slice data_slice(body.data, body.size - null_size);
         PageDecoderOptions opts;
-        RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
+        PageDecoder* decoder;
+        RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &decoder));
+        page->data_decoder.reset(decoder);
         RETURN_IF_ERROR(page->data_decoder->init());
 
         page->first_ordinal = footer.first_ordinal();
@@ -67,17 +70,38 @@ struct ParsedPage {
         return Status::OK();
     }
 
-    ~ParsedPage() {
-        delete data_decoder;
-        data_decoder = nullptr;
+    ParsedPage() = default;
+
+    ParsedPage(const ParsedPage& other) {
+        page_handle = other.page_handle;
+        has_null = other.has_null;
+        null_decoder = other.null_decoder;
+        null_bitmap = other.null_bitmap;
+        other.data_decoder->clone_for_cache(data_decoder);
+        first_ordinal = other.first_ordinal;
+        num_rows = other.num_rows;
+        first_array_item_ordinal = other.first_array_item_ordinal;
+        page_pointer = other.page_pointer;
+        page_index = other.page_index;
+        offset_in_page = other.offset_in_page;
     }
 
-    PageHandle page_handle;
+    ParsedPage& operator=(ParsedPage&& other) {
+        this->~ParsedPage();
+        new (this) ParsedPage(other);
+        return *this;
+    }
+
+    ~ParsedPage() { data_decoder = nullptr; }
+
+    size_t size() const { return sizeof(ParsedPage) + page_handle->data().size; }
+
+    std::shared_ptr<PageHandle> page_handle;
 
     bool has_null;
     Slice null_bitmap;
     RleDecoder<bool> null_decoder;
-    PageDecoder* data_decoder = nullptr;
+    std::unique_ptr<PageDecoder> data_decoder = nullptr;
 
     // ordinal of the first value in this page
     ordinal_t first_ordinal = 0;

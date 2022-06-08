@@ -39,7 +39,7 @@ public:
 
     // This class will take the content of cache data, and will make input
     // cache_data to a invalid cache handle.
-    PageHandle(PageCacheHandle cache_data)
+    PageHandle(PageCacheHandle<Slice> cache_data)
             : _is_data_owner(false), _cache_data(std::move(cache_data)) {}
 
     // Move constructor
@@ -78,7 +78,7 @@ private:
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
     Slice _data;
-    PageCacheHandle _cache_data;
+    PageCacheHandle<Slice> _cache_data;
 
     // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(PageHandle);

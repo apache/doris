@@ -311,6 +311,8 @@ private:
     ordinal_t _current_ordinal = 0;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
+
+    bool _need_cache_parsed_page = false;
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {

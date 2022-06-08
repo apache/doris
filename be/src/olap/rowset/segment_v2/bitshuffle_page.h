@@ -252,8 +252,6 @@ public:
               _size_of_element(0),
               _cur_index(0) {}
 
-    ~BitShufflePageDecoder() { ChunkAllocator::instance()->free(_chunk); }
-
     Status init() override {
         CHECK(!_parsed);
         if (_data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
@@ -342,7 +340,7 @@ public:
         // - left == _num_elements when not found (all values < target)
         while (left < right) {
             size_t mid = left + (right - left) / 2;
-            mid_value = &_chunk.data[mid * SIZE_OF_TYPE];
+            mid_value = &_chunk->data[mid * SIZE_OF_TYPE];
             if (TypeTraits<Type>::cmp(mid_value, value) < 0) {
                 left = mid + 1;
             } else {
@@ -352,7 +350,7 @@ public:
         if (left >= _num_elements) {
             return Status::NotFound("all value small than the value");
         }
-        void* find_value = &_chunk.data[left * SIZE_OF_TYPE];
+        void* find_value = &_chunk->data[left * SIZE_OF_TYPE];
         if (TypeTraits<Type>::cmp(find_value, value) == 0) {
             *exact_match = true;
         } else {
@@ -392,7 +390,7 @@ public:
 
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
 
-        dst->insert_many_fix_len_data((char*)&_chunk.data[_cur_index * SIZE_OF_TYPE], max_fetch);
+        dst->insert_many_fix_len_data((char*)&_chunk->data[_cur_index * SIZE_OF_TYPE], max_fetch);
 
         *n = max_fetch;
         _cur_index += max_fetch;
@@ -404,24 +402,39 @@ public:
         return next_batch<false>(n, dst);
     }
 
+    Status clone_for_cache(std::unique_ptr<PageDecoder>& new_one) const override {
+        if (!_parsed)
+            return Status::RuntimeError("Attempt to clone BitShufflePageDecoder not parsed");
+        auto new_one_ = std::make_unique<BitShufflePageDecoder<Type>>(_data, _options);
+        new_one_->_parsed = _parsed;
+        new_one_->_num_elements = _num_elements;
+        new_one_->_compressed_size = _compressed_size;
+        new_one_->_num_element_after_padding = _num_element_after_padding;
+        new_one_->_size_of_element = _size_of_element;
+        new_one_->_chunk = _chunk;
+        new_one = std::move(new_one_);
+        return Status::OK();
+    }
+
     size_t count() const override { return _num_elements; }
 
     size_t current_index() const override { return _cur_index; }
 
 private:
     void _copy_next_values(size_t n, void* data) {
-        memcpy(data, &_chunk.data[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
+        memcpy(data, &_chunk->data[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
     }
 
     Status _decode() {
         if (_num_elements > 0) {
             int64_t bytes;
+            _chunk.reset(new Chunk(), ChunkDeleter {});
             if (!ChunkAllocator::instance()->allocate_align(
-                        _num_element_after_padding * _size_of_element, &_chunk)) {
+                        _num_element_after_padding * _size_of_element, _chunk.get())) {
                 return Status::RuntimeError("Decoded Memory Alloc failed");
             }
             char* in = const_cast<char*>(&_data[BITSHUFFLE_PAGE_HEADER_SIZE]);
-            bytes = bitshuffle::decompress_lz4(in, _chunk.data, _num_element_after_padding,
+            bytes = bitshuffle::decompress_lz4(in, _chunk->data, _num_element_after_padding,
                                                _size_of_element, 0);
             if (PREDICT_FALSE(bytes < 0)) {
                 // Ideally, this should not happen.
@@ -443,9 +456,16 @@ private:
     size_t _compressed_size;
     size_t _num_element_after_padding;
 
+    struct ChunkDeleter {
+        void operator()(Chunk const* ptr) {
+            ChunkAllocator::instance()->free(*ptr);
+            delete ptr;
+        }
+    };
+
     int _size_of_element;
     size_t _cur_index;
-    Chunk _chunk;
+    std::shared_ptr<Chunk> _chunk;
     friend class BinaryDictPageDecoder;
 };
 

@@ -28,6 +28,7 @@
 
 namespace doris {
 
+template <typename DataType>
 class PageCacheHandle;
 
 // Wrapper around Cache, and used for cache page of column data
@@ -75,15 +76,51 @@ public:
     // Cache type selection is determined by page_type argument
     //
     // Return true if entry is found, otherwise return false.
-    bool lookup(const CacheKey& key, PageCacheHandle* handle, segment_v2::PageTypePB page_type);
+    template <typename DataType>
+    bool lookup(const CacheKey& key, PageCacheHandle<DataType>* handle,
+                segment_v2::PageTypePB page_type) {
+        auto cache = _get_page_cache(page_type);
+        auto lru_handle = cache->lookup(key.encode());
+        if (lru_handle == nullptr) {
+            return false;
+        }
+        *handle = PageCacheHandle<DataType>(cache, lru_handle);
+        return true;
+    }
 
     // Insert a page with key into this cache.
     // Given handle will be set to valid reference.
     // This function is thread-safe, and when two clients insert two same key
     // concurrently, this function can assure that only one page is cached.
     // The in_memory page will have higher priority.
-    void insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
-                segment_v2::PageTypePB page_type, bool in_memory = false);
+    template <typename DataType>
+    void insert(const CacheKey& key, const DataType& data, PageCacheHandle<DataType>* handle,
+                segment_v2::PageTypePB page_type, bool in_memory = false) {
+        // auto deleter = [](const doris::CacheKey& key, void* value) { delete[] (uint8_t*)value; };
+        constexpr auto deleter = [] {
+            if constexpr (std::is_same_v<DataType, Slice>) {
+                return [](const doris::CacheKey& key, void* value) { delete[](uint8_t*) value; };
+            } else {
+                return [](const doris::CacheKey& key, void* value) { delete (DataType*)(value); };
+            }
+        }();
+
+        CachePriority priority = CachePriority::NORMAL;
+        if (in_memory) {
+            priority = CachePriority::DURABLE;
+        }
+
+        auto cache = _get_page_cache(page_type);
+
+        if constexpr (std::is_same_v<DataType, Slice>) {
+            auto lru_handle = cache->insert(key.encode(), data.data, data.size, deleter, priority);
+            *handle = PageCacheHandle<DataType>(cache, lru_handle);
+        } else {
+            auto lru_handle = cache->insert(key.encode(), const_cast<DataType*>(&data), data.size(),
+                                            deleter, priority);
+            *handle = PageCacheHandle<DataType>(cache, lru_handle);
+        }
+    }
 
     // Page cache available check.
     // When percentage is set to 0 or 100, the index or data cache will not be allocated.
@@ -117,6 +154,7 @@ private:
 // A handle for StoragePageCache entry. This class make it easy to handle
 // Cache entry. Users don't need to release the obtained cache entry. This
 // class will release the cache entry when it is destroyed.
+template <typename DataType>
 class PageCacheHandle {
 public:
     PageCacheHandle() {}
@@ -140,7 +178,13 @@ public:
     }
 
     Cache* cache() const { return _cache; }
-    Slice data() const { return _cache->value_slice(_handle); }
+
+    DataType data() const {
+        if constexpr (std::is_same_v<DataType, Slice>)
+            return _cache->value_slice(_handle);
+        else
+            return *(DataType*)(_cache->value(_handle));
+    }
 
 private:
     Cache* _cache = nullptr;

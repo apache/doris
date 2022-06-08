@@ -202,17 +202,18 @@ Status BinaryDictPageDecoder::init() {
         // And then copy the strings corresponding to the codewords to the destination buffer
         const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_INT>();
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
-        _data_page_decoder.reset(
-                _bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        _bit_shuffle_ptr =
+                std::make_unique<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>>(_data, _options);
+        RETURN_IF_ERROR(_bit_shuffle_ptr->init());
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
+        RETURN_IF_ERROR(_data_page_decoder->init());
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption(strings::Substitute("invalid encoding type:$0", _encoding_type));
     }
 
-    RETURN_IF_ERROR(_data_page_decoder->init());
     _parsed = true;
     return Status::OK();
 }
@@ -220,7 +221,13 @@ Status BinaryDictPageDecoder::init() {
 BinaryDictPageDecoder::~BinaryDictPageDecoder() {}
 
 Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
-    return _data_page_decoder->seek_to_position_in_page(pos);
+    if (_encoding_type == PLAIN_ENCODING) {
+        DCHECK(_data_page_decoder);
+        return _data_page_decoder->seek_to_position_in_page(pos);
+    } else {
+        DCHECK(_bit_shuffle_ptr);
+        return _bit_shuffle_ptr->seek_to_position_in_page(pos);
+    }
 }
 
 bool BinaryDictPageDecoder::is_dict_encoding() const {
@@ -230,7 +237,7 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
     _dict_word_info = dict_word_info;
-};
+}
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     if (_encoding_type == PLAIN_ENCODING) {
@@ -250,7 +257,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
                                                         _bit_shuffle_ptr->_cur_index));
     *n = max_fetch;
 
-    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
+    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk->data);
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
     dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
@@ -278,7 +285,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
 
     ColumnBlock column_block(_batch.get(), dst->column_block()->pool());
     ColumnBlockView tmp_block_view(&column_block);
-    RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
+    RETURN_IF_ERROR(_bit_shuffle_ptr->next_batch(n, &tmp_block_view));
     const auto len = *n;
 
     size_t mem_len[len];
@@ -310,6 +317,31 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         ++out;
     }
 
+    return Status::OK();
+}
+
+Status BinaryDictPageDecoder::clone_for_cache(std::unique_ptr<PageDecoder>& new_one) const {
+    auto new_one_ = std::make_unique<BinaryDictPageDecoder>(_data, _options);
+    new_one_->_parsed = true;
+    new_one_->_encoding_type = _encoding_type;
+    if (_encoding_type == DICT_ENCODING) {
+        DCHECK(_bit_shuffle_ptr != nullptr);
+        ColumnVectorBatch::create(0, false, get_scalar_type_info<OLAP_FIELD_TYPE_INT>(), nullptr,
+                                  &new_one_->_batch);
+        std::unique_ptr<PageDecoder> bit_shuffle_decoder;
+        RETURN_IF_ERROR(_bit_shuffle_ptr->clone_for_cache(bit_shuffle_decoder));
+        if (auto bit_shuffle_ptr = dynamic_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(
+                    bit_shuffle_decoder.get())) {
+            new_one_->_bit_shuffle_ptr.reset(bit_shuffle_ptr);
+            bit_shuffle_decoder.release();
+        } else {
+            return Status::RuntimeError("_bit_shuffle_ptr cloned another decoder");
+        }
+    } else {
+        RETURN_IF_ERROR(_data_page_decoder->clone_for_cache(new_one_->_data_page_decoder));
+    }
+
+    new_one = std::move(new_one_);
     return Status::OK();
 }
 
