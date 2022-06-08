@@ -26,6 +26,7 @@
 #include "vec/aggregate_functions/aggregate_function_product.h"
 #include "vec/aggregate_functions/aggregate_function_sum.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -130,7 +131,7 @@ struct AggregateFunction {
             const auto& nested_data_type =
                     static_cast<const DataTypeNullable&>(*data_type).get_nested_type();
             auto nested_function = create(nested_data_type);
-            function.reset(new AggregateFunctionNullUnary<false>(nested_function, data_types, {}));
+            function.reset(new AggregateFunctionNullUnary<true>(nested_function, data_types, {}));
         } else {
             if (is_decimal(data_type)) {
                 function.reset(
@@ -193,13 +194,14 @@ struct ArrayAggregateImpl {
             return false;
         }
 
-        typename ColVecResultType::MutablePtr res_column;
+        ColumnPtr res_column;
         if constexpr (IsDecimalNumber<Element>) {
-            res_column = ColVecResultType::create(offsets.size(), column->get_scale());
+            res_column =
+                    make_nullable(ColVecResultType::create(offsets.size(), column->get_scale()));
         } else {
-            res_column = ColVecResultType::create(offsets.size());
+            res_column = make_nullable(ColVecResultType::create(offsets.size()));
         }
-        res_column->get_data().clear();
+        static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).clear();
 
         auto function = Function::create(type);
         auto guard = AggregateFunctionGuard(function.get());
@@ -210,14 +212,17 @@ struct ArrayAggregateImpl {
             auto end = offsets[i];
             bool is_empty = (start == end);
             if (is_empty) {
-                // Default value
-                static_cast<ColVecResultType&>(*res_column).get_data().push_back(0);
+                res_column->assume_mutable()->insert_default();
                 continue;
             }
             function->reset(guard.data());
             function->add_batch_range(start, end - 1, guard.data(), columns, &arena,
                                       data->is_nullable());
-            function->insert_result_into(guard.data(), *res_column);
+            function->insert_result_into(
+                    guard.data(), !data->is_nullable() ? static_cast<ColumnNullable&>(
+                                                                 res_column->assume_mutable_ref())
+                                                                 .get_nested_column()
+                                                       : res_column->assume_mutable_ref());
         }
         res_ptr = std::move(res_column);
         return true;
@@ -233,7 +238,7 @@ struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
     static auto create(const DataTypePtr& data_type) -> AggregateFunctionPtr {
         if (data_type->is_nullable()) {
             AggregateFunctionPtr function;
-            function.reset(new AggregateFunctionNullUnary<false>(
+            function.reset(new AggregateFunctionNullUnary<true>(
                     create(static_cast<const DataTypeNullable&>(*data_type).get_nested_type()),
                     {data_type}, {}));
             return function;
@@ -251,7 +256,7 @@ struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
     static auto create(const DataTypePtr& data_type) -> AggregateFunctionPtr {
         if (data_type->is_nullable()) {
             AggregateFunctionPtr function;
-            function.reset(new AggregateFunctionNullUnary<false>(
+            function.reset(new AggregateFunctionNullUnary<true>(
                     create(static_cast<const DataTypeNullable&>(*data_type).get_nested_type()),
                     {data_type}, {}));
             return function;
