@@ -57,8 +57,6 @@ public class LoadAction extends RestBaseController {
 
     private ExecuteEnv execEnv = ExecuteEnv.getInstance();
 
-    private boolean isStreamLoad = false;
-
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
@@ -66,9 +64,8 @@ public class LoadAction extends RestBaseController {
             ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
             return entity;
         } else {
-            this.isStreamLoad = false;
             executeCheckPassword(request, response);
-            return executeWithoutPassword(request, response, db, table);
+            return executeWithoutPassword(request, response, db, table, false);
         }
     }
 
@@ -76,16 +73,14 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
                              HttpServletResponse response,
                              @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        this.isStreamLoad = true;
         executeCheckPassword(request, response);
-        return executeWithoutPassword(request, response, db, table);
+        return executeWithoutPassword(request, response, db, table, true);
     }
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC(HttpServletRequest request,
                                    HttpServletResponse response,
                                    @PathVariable(value = DB_KEY) String db) {
-        this.isStreamLoad = true;
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -93,7 +88,7 @@ public class LoadAction extends RestBaseController {
     // Same as Multi load, to be compatible with http v1's response body,
     // we return error by using RestBaseResult.
     private Object executeWithoutPassword(HttpServletRequest request,
-                                          HttpServletResponse response, String db, String table) {
+                                          HttpServletResponse response, String db, String table, boolean isStreamLoad) {
         try {
             String dbName = db;
             String tableName = table;
