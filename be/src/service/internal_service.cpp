@@ -49,6 +49,28 @@ static void thread_context_deleter(void* d) {
     delete static_cast<ThreadContext*>(d);
 }
 
+template <typename T>
+class NewHttpClosure : public ::google::protobuf::Closure {
+public:
+    NewHttpClosure(T* request, google::protobuf::Closure* done) : _request(request), _done(done) {}
+    ~NewHttpClosure() {}
+
+    void Run() {
+        if (_request != nullptr) {
+            delete _request;
+            _request = nullptr;
+        }
+        if (_done != nullptr) {
+            _done->Run();
+        }
+        delete this;
+    }
+
+private:
+    T* _request = nullptr;
+    google::protobuf::Closure* _done = nullptr;
+};
+
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env), _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {
     REGISTER_HOOK_METRIC(add_batch_task_queue_size,
@@ -79,15 +101,18 @@ void PInternalServiceImpl::transmit_data_by_http(google::protobuf::RpcController
                                                  google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();
     PTransmitDataParams* request_raw = new PTransmitDataParams();
+    google::protobuf::Closure* done_raw =
+            new NewHttpClosure<PTransmitDataParams>(request_raw, done);
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
     Status st = attachment_extract_request_contain_tuple<PTransmitDataParams>(request_raw, cntl);
-    _transmit_data(cntl_base, request_raw, response, done, st);
+    _transmit_data(cntl_base, request_raw, response, done_raw, st);
 }
 
 void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_base,
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
-                                          google::protobuf::Closure* done, Status extract_st) {
+                                          google::protobuf::Closure* done,
+                                          const Status& extract_st) {
     std::string query_id;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
@@ -186,11 +211,13 @@ void PInternalServiceImpl::tablet_writer_add_block_by_http(
         google::protobuf::RpcController* cntl_base, const ::doris::PEchoRequest* request,
         PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
     PTabletWriterAddBlockRequest* request_raw = new PTabletWriterAddBlockRequest();
+    google::protobuf::Closure* done_raw =
+            new NewHttpClosure<PTabletWriterAddBlockRequest>(request_raw, done);
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
     Status st = attachment_extract_request_contain_block<PTabletWriterAddBlockRequest>(request_raw,
                                                                                        cntl);
     if (st.ok()) {
-        _tablet_writer_add_block(cntl_base, request_raw, response, done);
+        _tablet_writer_add_block(cntl_base, request_raw, response, done_raw);
     } else {
         st.to_protobuf(response->mutable_status());
     }
@@ -238,9 +265,16 @@ void PInternalServiceImpl::tablet_writer_add_batch_by_http(
         google::protobuf::RpcController* cntl_base, const ::doris::PEchoRequest* request,
         PTabletWriterAddBatchResult* response, google::protobuf::Closure* done) {
     PTabletWriterAddBatchRequest* request_raw = new PTabletWriterAddBatchRequest();
+    google::protobuf::Closure* done_raw =
+            new NewHttpClosure<PTabletWriterAddBatchRequest>(request_raw, done);
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    attachment_extract_request_contain_tuple<PTabletWriterAddBatchRequest>(request_raw, cntl);
-    _tablet_writer_add_batch(cntl_base, request_raw, response, done);
+    Status st = attachment_extract_request_contain_tuple<PTabletWriterAddBatchRequest>(request_raw,
+                                                                                       cntl);
+    if (st.ok()) {
+        _tablet_writer_add_batch(cntl_base, request_raw, response, done_raw);
+    } else {
+        st.to_protobuf(response->mutable_status());
+    }
 }
 
 void PInternalServiceImpl::_tablet_writer_add_batch(google::protobuf::RpcController* cntl_base,
@@ -577,7 +611,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* cntl_
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
     attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
 
-    _transmit_block(cntl_base, request, response, done);
+    _transmit_block(cntl_base, request, response, done, Status::OK());
 }
 
 void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* cntl_base,
@@ -586,15 +620,18 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
                                                   google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();
     PTransmitDataParams* request_raw = new PTransmitDataParams();
+    google::protobuf::Closure* done_raw =
+            new NewHttpClosure<PTransmitDataParams>(request_raw, done);
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    attachment_extract_request_contain_block<PTransmitDataParams>(request_raw, cntl);
-    _transmit_block(cntl_base, request_raw, response, done);
+    Status st = attachment_extract_request_contain_block<PTransmitDataParams>(request_raw, cntl);
+    _transmit_block(cntl_base, request_raw, response, done_raw, st);
 }
 
 void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl_base,
                                            const PTransmitDataParams* request,
                                            PTransmitDataResult* response,
-                                           google::protobuf::Closure* done) {
+                                           google::protobuf::Closure* done,
+                                           const Status& extract_st) {
     std::string query_id;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
@@ -611,11 +648,15 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
     st.to_protobuf(response->mutable_status());
-    st = _exec_env->vstream_mgr()->transmit_block(request, &done);
-    if (!st.ok()) {
-        LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
-                     << ", fragment_instance_id=" << print_id(request->finst_id())
-                     << ", node=" << request->node_id();
+    if (extract_st.ok()) {
+        st = _exec_env->vstream_mgr()->transmit_block(request, &done);
+        if (!st.ok()) {
+            LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
+                         << ", fragment_instance_id=" << print_id(request->finst_id())
+                         << ", node=" << request->node_id();
+        }
+    } else {
+        st = extract_st;
     }
     if (done != nullptr) {
         st.to_protobuf(response->mutable_status());

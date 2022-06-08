@@ -522,6 +522,9 @@ protected:
     // Save the status of close() method
     Status _close_status;
 
+    // User can change this config at runtime, avoid it being modified during query or loading process.
+    bool _transfer_large_data_by_brpc = false;
+
     // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
     // should compute tablet index for every row
     // FIND_TABLET_EVERY_BATCH is only used for random distribution info, which indicates that we should

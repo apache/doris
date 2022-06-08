@@ -353,7 +353,8 @@ public:
     // This function does not reset().
     // Returns the uncompressed serialized size (this will be the true size of output_batch
     // if tuple_data is actually uncompressed).
-    Status serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size);
+    Status serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
+                     bool allow_transfer_large_data = false);
 
     // Utility function: returns total size of batch.
     static size_t get_batch_size(const PRowBatch& batch);

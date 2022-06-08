@@ -665,8 +665,8 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     return Status::OK();
 }
 
-Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
-                        size_t* compressed_bytes) const {
+Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
+                        bool allow_transfer_large_data) const {
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
@@ -731,8 +731,7 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     }
-    if (config::transfer_large_data_by_brpc == false &&
-        *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
+    if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError(fmt::format(
                 "The block is large than 2GB({}), can not send by Protobuf.", *compressed_bytes));
     }

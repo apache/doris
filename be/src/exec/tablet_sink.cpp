@@ -469,7 +469,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
-                                         &compressed_bytes);
+                                         &compressed_bytes, _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             _add_batch_closure->clear_in_flight();
@@ -513,7 +513,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
     }
 
-    if (config::transfer_large_data_by_brpc && request.has_row_batch() &&
+    if (_parent->_transfer_large_data_by_brpc && request.has_row_batch() &&
         request.row_batch().has_tuple_data() && request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
         Status st = request_embed_attachment_contain_tuple<
                 PTabletWriterAddBatchRequest, ReusableClosure<PTabletWriterAddBatchResult>>(
@@ -663,6 +663,7 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
     } else {
         *status = Status::OK();
     }
+    _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
 OlapTableSink::~OlapTableSink() {

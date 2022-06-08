@@ -232,8 +232,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st =
-                block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes);
+        Status st = block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes,
+                                    _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             _add_block_closure->clear_in_flight();
@@ -274,7 +274,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
     }
 
-    if (config::transfer_large_data_by_brpc && request.has_block() &&
+    if (_parent->_transfer_large_data_by_brpc && request.has_block() &&
         request.block().has_column_values() && request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
         Status st = request_embed_attachment_contain_block<
                 PTabletWriterAddBlockRequest, ReusableClosure<PTabletWriterAddBlockResult>>(

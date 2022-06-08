@@ -143,6 +143,9 @@ protected:
     RuntimeProfile::Counter* _local_bytes_send_counter;
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
+
+    // User can change this config at runtime, avoid it being modified during query or loading process.
+    bool _transfer_large_data_by_brpc = false;
 };
 
 // TODO: support local exechange
