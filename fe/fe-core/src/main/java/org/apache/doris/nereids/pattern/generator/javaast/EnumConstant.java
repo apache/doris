@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.pattern.generator.javaast;
 
+
+/** java enum instance. */
 public class EnumConstant implements JavaAstNode {
     public final String identifier;
 

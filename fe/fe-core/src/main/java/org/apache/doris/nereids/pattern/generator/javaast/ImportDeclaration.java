@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.pattern.generator.javaast;
 
+
+/** java import declaration. */
 public class ImportDeclaration implements JavaAstNode {
     public final boolean isStatic;
     public final QualifiedName name;
     public final boolean importAll;
 
+    /** import declaration constructor. */
     public ImportDeclaration(boolean isStatic, QualifiedName name, boolean importAll) {
         this.isStatic = isStatic;
         this.name = name;

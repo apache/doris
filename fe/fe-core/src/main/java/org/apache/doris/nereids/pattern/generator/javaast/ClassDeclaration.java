@@ -23,6 +23,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
+
+/** java's class declaration. */
 public class ClassDeclaration extends TypeDeclaration {
     public final Optional<TypeType> extendsType;
     public final Optional<TypeParameters> typeParameters;

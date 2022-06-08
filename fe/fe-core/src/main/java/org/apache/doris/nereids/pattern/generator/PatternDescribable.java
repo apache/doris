@@ -22,6 +22,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+/** used to trigger PatternDescribableProcessor. */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.SOURCE)
 public @interface PatternDescribable {

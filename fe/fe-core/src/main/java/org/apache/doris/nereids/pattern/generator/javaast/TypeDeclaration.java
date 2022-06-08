@@ -23,6 +23,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
+
+/** java's type declaration. */
 public abstract class TypeDeclaration implements JavaAstNode {
     public final Optional<QualifiedName> packageName;
     public final List<ImportDeclaration> imports;
@@ -30,6 +32,7 @@ public abstract class TypeDeclaration implements JavaAstNode {
     public final String name;
     public final List<TypeDeclaration> children;
 
+    /** type declaration's constructor. */
     public TypeDeclaration(QualifiedName packageName, List<ImportDeclaration> imports,
             ClassOrInterfaceModifier modifiers, String name, List<TypeDeclaration> children) {
         this.packageName = Optional.ofNullable(packageName);
@@ -43,6 +46,7 @@ public abstract class TypeDeclaration implements JavaAstNode {
         return getFullQualifiedName(packageName, name);
     }
 
+    /** function to concat package name and type name. */
     public static String getFullQualifiedName(Optional<QualifiedName> packageName, String name) {
         if (packageName.isPresent()) {
             return Joiner.on(".").join(packageName.get().identifiers) + "." + name;

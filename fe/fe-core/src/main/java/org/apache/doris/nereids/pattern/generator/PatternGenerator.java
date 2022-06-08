@@ -43,6 +43,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/** used to generate pattern by operator. */
 public abstract class PatternGenerator {
     protected final PatternGeneratorAnalyzer analyzer;
     protected final ClassDeclaration opType;
@@ -50,6 +51,7 @@ public abstract class PatternGenerator {
     protected final List<EnumFieldPatternInfo> enumFieldPatternInfos;
     protected final List<String> generatePatterns = new ArrayList<>();
 
+    /** constructor. */
     public PatternGenerator(PatternGeneratorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
         this.analyzer = analyzer;
         this.opType = opType;
@@ -71,6 +73,7 @@ public abstract class PatternGenerator {
         return opType.name.substring(0, 1).toLowerCase(Locale.ENGLISH) + opType.name.substring(1);
     }
 
+    /** generate code by generators and analyzer. */
     public static String generateCode(List<PatternGenerator> generators, PatternGeneratorAnalyzer analyzer) {
         String generateCode
                 = "// Licensed to the Apache Software Foundation (ASF) under one\n"
@@ -126,8 +129,8 @@ public abstract class PatternGenerator {
                         String enumInstance = constant.identifier;
                         String enumPatternName = getEnumPatternName(enumInstance, enumClassNameParts) + opType.name;
 
-                        enumFieldInfos.add(new EnumFieldPatternInfo(
-                                enumPatternName, enumDecl.getFullQualifiedName(), enumDecl.name, enumInstance, getter.get()));
+                        enumFieldInfos.add(new EnumFieldPatternInfo(enumPatternName,
+                                enumDecl.getFullQualifiedName(), enumDecl.name, enumInstance, getter.get()));
                     }
                 }
             }
@@ -196,7 +199,9 @@ public abstract class PatternGenerator {
         return parts;
     }
 
-    public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
+    /** create generator by operator's type. */
+    public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer,
+            ClassDeclaration opType, Set<String> parentClass) {
         if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator")) {
             return Optional.of(new LogicalLeafPatternGenerator(analyzer, opType, parentClass));
         } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator")) {
@@ -227,6 +232,7 @@ public abstract class PatternGenerator {
                 .collect(Collectors.joining(""));
     }
 
+    /** generate some pattern method code. */
     public String generate() {
         String opClassName = opType.name;
         String methodName = getPatternMethodName();
@@ -247,6 +253,7 @@ public abstract class PatternGenerator {
         return generatePatterns();
     }
 
+    /** generate a pattern method code. */
     public String generateTypePattern(String patterName, String className,
             String genericParam, String predicate, boolean specifyChildren) {
 

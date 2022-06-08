@@ -22,6 +22,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+
+/** java's type bound. */
 public class TypeBound implements JavaAstNode {
     public final List<TypeType> types;
 

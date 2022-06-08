@@ -19,6 +19,8 @@ package org.apache.doris.nereids.pattern.generator.javaast;
 
 import org.apache.commons.lang3.StringUtils;
 
+
+/** java's variable. */
 public class VariableDeclaratorId implements JavaAstNode {
     public final String identifier;
     public final int arrayDimension;

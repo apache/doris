@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.pattern.generator.javaast;
 
+/** java's method declaration. */
 public class MethodDeclaration extends MemberDeclaration {
     public final TypeTypeOrVoid typeTypeOrVoid;
     public final String identifier;

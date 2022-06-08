@@ -19,6 +19,7 @@ package org.apache.doris.nereids.pattern.generator.javaast;
 
 import java.util.Optional;
 
+/** java's type. */
 public class TypeType implements JavaAstNode {
     public final Optional<ClassOrInterfaceType> classOrInterfaceType;
     public final Optional<String> primitiveType;

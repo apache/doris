@@ -22,6 +22,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+
+/** java's types. */
 public class TypeParameters implements JavaAstNode {
     public final List<TypeParameter> typeParameters;
 

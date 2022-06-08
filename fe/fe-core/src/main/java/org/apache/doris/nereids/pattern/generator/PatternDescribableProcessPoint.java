@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.pattern.generator;
 
-/* just for process entry point */
+/** just for process entry point. */
 @PatternDescribable
 public class PatternDescribableProcessPoint {
 }

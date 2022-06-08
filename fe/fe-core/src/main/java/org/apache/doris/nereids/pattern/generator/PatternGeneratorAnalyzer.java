@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.pattern.generator;
 
 import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
+import org.apache.doris.nereids.pattern.generator.javaast.ClassOrInterfaceType;
 import org.apache.doris.nereids.pattern.generator.javaast.EnumDeclaration;
 import org.apache.doris.nereids.pattern.generator.javaast.IdentifyTypeArgumentsPair;
 import org.apache.doris.nereids.pattern.generator.javaast.ImportDeclaration;
@@ -39,18 +40,23 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * used to analyze operator class extends hierarchy and then generated pattern builder methods.
+ */
 public class PatternGeneratorAnalyzer {
     private final Map<String, TypeDeclaration> name2Ast = new LinkedHashMap<>();
     private final IdentityHashMap<TypeDeclaration, String> ast2Name = new IdentityHashMap<>();
     private final IdentityHashMap<TypeDeclaration, Map<String, String>> ast2Import = new IdentityHashMap<>();
     private final IdentityHashMap<TypeDeclaration, Set<String>> parentClassMap = new IdentityHashMap<>();
 
+    /** add java AST. */
     public void addAsts(List<TypeDeclaration> typeDeclarations) {
         for (TypeDeclaration typeDeclaration : typeDeclarations) {
             addAst(Optional.empty(), typeDeclaration);
         }
     }
 
+    /** generate pattern methods. */
     public String generatePatterns() {
         analyzeImport();
         analyzeParentClass();
@@ -70,7 +76,8 @@ public class PatternGeneratorAnalyzer {
     private String doGenerate() {
         Map<ClassDeclaration, Set<String>> planOpClassMap = parentClassMap.entrySet().stream()
                 .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.operators.plans.PlanOperator"))
-                .filter(kv -> !Modifier.isAbstract(kv.getKey().modifiers.mod) && kv.getKey() instanceof ClassDeclaration)
+                .filter(kv -> !Modifier.isAbstract(kv.getKey().modifiers.mod)
+                        && kv.getKey() instanceof ClassDeclaration)
                 .collect(Collectors.toMap(kv -> (ClassDeclaration) kv.getKey(), kv -> kv.getValue()));
 
         List<PatternGenerator> generators = planOpClassMap.entrySet()
@@ -144,7 +151,8 @@ public class PatternGeneratorAnalyzer {
     String analyzeClass(Set<String> parentClasses, TypeDeclaration typeDeclaration, TypeType type) {
         if (type.classOrInterfaceType.isPresent()) {
             List<String> identifiers = new ArrayList<>();
-            for (IdentifyTypeArgumentsPair identifyTypeArgument : type.classOrInterfaceType.get().identifyTypeArguments) {
+            ClassOrInterfaceType classOrInterfaceType = type.classOrInterfaceType.get();
+            for (IdentifyTypeArgumentsPair identifyTypeArgument : classOrInterfaceType.identifyTypeArguments) {
                 identifiers.add(identifyTypeArgument.identifier);
             }
             String className = Joiner.on(".").join(identifiers);

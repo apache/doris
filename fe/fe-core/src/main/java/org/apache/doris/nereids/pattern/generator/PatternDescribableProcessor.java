@@ -54,6 +54,9 @@ import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic.Kind;
 import javax.tools.StandardLocation;
 
+/**
+ * annotation processor for generate GeneratedPattern.java.
+ */
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 @SupportedAnnotationTypes("org.apache.doris.nereids.pattern.generator.PatternDescribable")
 public class PatternDescribableProcessor extends AbstractProcessor {
@@ -100,7 +103,8 @@ public class PatternDescribableProcessor extends AbstractProcessor {
             }
         } catch (Throwable t) {
             String exceptionMsg = Throwables.getStackTraceAsString(t);
-            processingEnv.getMessager().printMessage(Kind.ERROR, "Analyze and generate patterns failed:\n" + exceptionMsg);
+            processingEnv.getMessager().printMessage(Kind.ERROR,
+                    "Analyze and generate patterns failed:\n" + exceptionMsg);
         }
         return false;
     }

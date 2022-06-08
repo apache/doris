@@ -22,6 +22,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+
+/** java's variable declarators. */
 public class VariableDeclarators implements JavaAstNode {
     public final List<VariableDeclarator> variableDeclarators;
 

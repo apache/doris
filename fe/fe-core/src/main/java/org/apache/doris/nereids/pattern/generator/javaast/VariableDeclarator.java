@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.pattern.generator.javaast;
 
+
+/** java variable's declarator. */
 public class VariableDeclarator implements JavaAstNode {
     public final VariableDeclaratorId variableDeclaratorId;
 

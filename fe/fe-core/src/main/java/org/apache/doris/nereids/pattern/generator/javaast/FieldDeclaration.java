@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.pattern.generator.javaast;
 
+/** java class field declaration. */
 public class FieldDeclaration extends MemberDeclaration {
     public final TypeType type;
     public final VariableDeclarators variableDeclarators;

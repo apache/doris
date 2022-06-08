@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+/** java's enum declaration. */
 public class EnumDeclaration extends TypeDeclaration {
     public final List<TypeType> implementTypes;
     public final List<EnumConstant> constants;

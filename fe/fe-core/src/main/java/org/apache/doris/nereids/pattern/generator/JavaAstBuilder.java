@@ -80,6 +80,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Stack;
 
+/**
+ * Used to build a copy from antlr ast.
+ */
 public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
     Optional<QualifiedName> packageName = Optional.empty();
     List<ImportDeclaration> importDeclarations = new ArrayList<>();
@@ -119,8 +122,8 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         }
     }
 
+    /** create enum declaration. */
     public EnumDeclaration visitEnumDeclaration(EnumDeclarationContext ctx, ClassOrInterfaceModifier modifier) {
-        String enumName = getText(ctx.identifier());
         List<TypeType> implementTypes = new ArrayList<>();
         if (ctx.IMPLEMENTS() != null) {
             implementTypes = getTypes(ctx.typeList());
@@ -137,6 +140,7 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
             ctx.enumBodyDeclarations().accept(this);
         }
 
+        String enumName = getText(ctx.identifier());
         EnumDeclaration enumDeclaration = new EnumDeclaration(packageName.orElse(null),
                 importDeclarations, modifier, enumName, implementTypes, enumConstants, childrenStack.pop());
         addTypeDeclaration(enumDeclaration);
@@ -149,8 +153,10 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return new EnumConstant(getText(ctx.identifier()));
     }
 
-    public InterfaceDeclaration visitInterfaceDeclaration(InterfaceDeclarationContext ctx, ClassOrInterfaceModifier modifier) {
-        String interfaceName = getText(ctx.identifier());
+
+    /** create interface declaration. */
+    public InterfaceDeclaration visitInterfaceDeclaration(
+            InterfaceDeclarationContext ctx, ClassOrInterfaceModifier modifier) {
         TypeParameters typeParameters = null;
         if (ctx.typeParameters() != null) {
             typeParameters = visitTypeParameters(ctx.typeParameters());
@@ -164,6 +170,7 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         // find inner class
         ctx.interfaceBody().accept(this);
 
+        String interfaceName = getText(ctx.identifier());
         InterfaceDeclaration interfaceDeclaration = new InterfaceDeclaration(packageName.orElse(null),
                 importDeclarations, modifier, interfaceName, typeParameters, extendsTypes, childrenStack.pop());
         addTypeDeclaration(interfaceDeclaration);
@@ -171,8 +178,9 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return interfaceDeclaration;
     }
 
+
+    /** create class declaration. */
     public ClassDeclaration visitClassDeclaration(ClassDeclarationContext ctx, ClassOrInterfaceModifier modifier) {
-        String className = getText(ctx.identifier());
         TypeParameters typeParameters = null;
         if (ctx.typeParameters() != null) {
             typeParameters = visitTypeParameters(ctx.typeParameters());
@@ -203,6 +211,7 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
             memberCtx.accept(this);
         }
 
+        String className = getText(ctx.identifier());
         ClassDeclaration classDeclaration = new ClassDeclaration(
                 packageName.orElse(null), importDeclarations,
                 modifier, className, typeParameters, extendsType, implementTypes,
@@ -367,6 +376,8 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return new QualifiedName(identifiers);
     }
 
+
+    /** merge modifiers, e.g public + static + final. */
     public ClassOrInterfaceModifier mergeModifiers(List<ClassOrInterfaceModifierContext> contexts) {
         int mod = 0;
         for (ClassOrInterfaceModifierContext context : contexts) {
@@ -376,6 +387,8 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return new ClassOrInterfaceModifier(mod);
     }
 
+
+    /** create a type list. */
     public List<TypeType> getTypes(TypeListContext typeListContext) {
         List<TypeType> types = new ArrayList<>();
         for (TypeTypeContext typeTypeContext : typeListContext.typeType()) {
@@ -384,6 +397,8 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return types;
     }
 
+
+    /** create a List by class and contexts. */
     public <T extends JavaAstNode, C extends ParserRuleContext> List<T> visit(Class<T> clazz, List<C> contexts) {
         List<T> list = new ArrayList<>();
         for (C ctx : contexts) {
@@ -408,6 +423,8 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         }
     }
 
+
+    /** get full qualified name, e.g. OuterClassName.InnerClassName. */
     public static String getFullQualifiedName(Stack<String> outerClassStack,
             Optional<QualifiedName> packageName, String name) {
         if (!outerClassStack.isEmpty()) {
