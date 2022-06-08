@@ -17,7 +17,7 @@
 suite("test_materialized_view", "rollup") {
     def tbName1 = "test_materialized_view1"
     def tbName2 = "test_materialized_view2"
-    def jobState = ["PENDING", "WAITING_TXN", "RUNNING"]
+
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
         return jobStateResult[0][8]
@@ -80,7 +80,7 @@ suite("test_materialized_view", "rollup") {
     sql "insert into ${tbName1} values(2, 1, 1, '2020-05-30',100);"
     sql "insert into ${tbName2} values(1, 1, 1, '2020-05-30',100);"
     sql "insert into ${tbName2} values(2, 1, 1, '2020-05-30',100);"
-    Thread.sleep(5000)
+    Thread.sleep(1000)
     explain{
         sql("SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id")
         contains("rollup: amt_sum")

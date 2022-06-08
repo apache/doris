@@ -17,7 +17,6 @@
 
 suite("test_alter_table_column", "schema_change") {
     def tbName1 = "alter_table_column_dup"
-    def jobState = ["PENDING", "WAITING_TXN", "RUNNING"]
 
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
@@ -32,7 +31,13 @@ suite("test_alter_table_column", "schema_change") {
             DUPLICATE KEY (k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "ALTER TABLE ${tbName1} ADD COLUMN k2 INT KEY AFTER k1"
+    sql """
+            ALTER TABLE ${tbName1} 
+            ADD COLUMN k2 INT KEY AFTER k1,
+            ADD COLUMN value2 VARCHAR(255) AFTER value1,
+            ADD COLUMN value3 VARCHAR(255) AFTER value2,
+            MODIFY COLUMN value2 INT AFTER value3;
+        """
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -46,7 +51,11 @@ suite("test_alter_table_column", "schema_change") {
             }
         }
     }
-    sql "ALTER TABLE ${tbName1} ADD COLUMN value2 VARCHAR(255) AFTER value1"
+    sql """
+            ALTER TABLE ${tbName1}   
+            ORDER BY(k1,k2,value1,value2,value3),
+            DROP COLUMN value3;
+        """
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -60,63 +69,8 @@ suite("test_alter_table_column", "schema_change") {
             }
         }
     }
-    sql "ALTER TABLE ${tbName1} ADD COLUMN value3 VARCHAR(255) AFTER value2"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    sql "ALTER TABLE ${tbName1} MODIFY COLUMN value2 INT AFTER value3;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    sql "ALTER TABLE ${tbName1} ORDER BY(k1,k2,value1,value2,value3);"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    sql "ALTER TABLE ${tbName1} DROP COLUMN value3;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    sql "SHOW ALTER TABLE COLUMN"
+
+    sql "SHOW ALTER TABLE COLUMN;"
     sql "insert into ${tbName1} values(1,1,10,20);"
     sql "insert into ${tbName1} values(1,1,30,40);"
     qt_sql "desc ${tbName1}"
@@ -133,7 +87,11 @@ suite("test_alter_table_column", "schema_change") {
             AGGREGATE KEY (k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "ALTER TABLE ${tbName2} ADD COLUMN k2 INT KEY AFTER k1"
+    sql """
+            ALTER TABLE ${tbName2} 
+            ADD COLUMN k2 INT KEY AFTER k1,
+            ADD COLUMN value2 INT SUM AFTER value1;
+        """
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
@@ -147,20 +105,7 @@ suite("test_alter_table_column", "schema_change") {
             }
         }
     }
-    sql "ALTER TABLE ${tbName2} ADD COLUMN value2 INT SUM AFTER value1"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName2)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+
     sql "SHOW ALTER TABLE COLUMN"
     sql "insert into ${tbName2} values(1,1,10,20);"
     sql "insert into ${tbName2} values(1,1,30,40);"

@@ -16,7 +16,6 @@
 // under the License.
 suite("test_rollup_agg", "rollup") {
     def tbName = "test_rollup_agg"
-    def jobState = ["PENDING", "WAITING_TXN", "RUNNING"]
 
     def getJobRollupState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -38,7 +37,7 @@ suite("test_rollup_agg", "rollup") {
             AGGREGATE KEY (siteid,citycode,username)
             DISTRIBUTED BY HASH(siteid) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"
+    sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"""
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobRollupState(tbName)
