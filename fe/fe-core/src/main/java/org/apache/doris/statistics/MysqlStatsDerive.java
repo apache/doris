@@ -14,15 +14,26 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Ifnull.cpp
-// and modified by Doris
 
-#include "function_ifnull.h"
+package org.apache.doris.statistics;
 
-namespace doris::vectorized {
-void register_function_ifnull(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionIfNull>();
-    factory.register_alias(FunctionIfNull::name, "nvl");
+/**
+ * Derive MysqlScanNode statistics.
+ */
+public class MysqlStatsDerive extends BaseStatsDerive {
+
+    // Current ODBC_SCAN_NODE also uses this derivation method
+    @Override
+    public StatsDeriveResult deriveStats() {
+        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
+    }
+
+    @Override
+    protected long deriveRowCount() {
+        // this is just to avoid mysql scan node's rowCount being -1. So that we can calculate the join cost
+        // normally.
+        // We assume that the data volume of all mysql tables is very small, so set rowCount directly to 1.
+        rowCount = rowCount == -1 ? 1 : rowCount;
+        return rowCount;
+    }
 }
-} // namespace doris::vectorized

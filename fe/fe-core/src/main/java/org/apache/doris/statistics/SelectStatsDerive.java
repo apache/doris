@@ -14,15 +14,28 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Ifnull.cpp
-// and modified by Doris
 
-#include "function_ifnull.h"
+package org.apache.doris.statistics;
 
-namespace doris::vectorized {
-void register_function_ifnull(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionIfNull>();
-    factory.register_alias(FunctionIfNull::name, "nvl");
+import com.google.common.base.Preconditions;
+
+/**
+ * Derive SelectNode statistics.
+ */
+public class SelectStatsDerive extends BaseStatsDerive {
+
+    // Current SORT_NODE also uses this derivation method
+    @Override
+    public StatsDeriveResult deriveStats() {
+        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
+    }
+
+    @Override
+    protected long deriveRowCount() {
+        Preconditions.checkState(!childrenStatsResult.isEmpty());
+        rowCount = childrenStatsResult.get(0).getRowCount();
+        applyConjunctsSelectivity();
+        capRowCountAtLimit();
+        return rowCount;
+    }
 }
-} // namespace doris::vectorized

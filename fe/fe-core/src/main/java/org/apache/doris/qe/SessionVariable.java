@@ -918,6 +918,14 @@ public class SessionVariable implements Serializable, Writable {
         this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
     }
 
+    public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
+        this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
+    }
+
+    public void setDisableJoinReorder(boolean disableJoinReorder) {
+        this.disableJoinReorder = disableJoinReorder;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {

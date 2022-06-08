@@ -140,7 +140,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     protected NodeType nodeType = NodeType.DEFAULT;
     protected StatsDeriveResult statsDeriveResult;
 
-    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
+    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName, NodeType nodeType) {
         this.id = id;
         this.limit = -1;
         // make a copy, just to be on the safe side
@@ -149,9 +149,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
+        this.nodeType = nodeType;
     }
 
-    protected PlanNode(PlanNodeId id, String planNodeName) {
+    protected PlanNode(PlanNodeId id, String planNodeName, NodeType nodeType) {
         this.id = id;
         this.limit = -1;
         this.tupleIds = Lists.newArrayList();
@@ -159,12 +160,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
+        this.nodeType = nodeType;
     }
 
     /**
      * Copy ctor. Also passes in new id.
      */
-    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName) {
+    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, NodeType nodeType) {
         this.id = id;
         this.limit = node.limit;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
@@ -181,17 +183,30 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public enum NodeType {
         DEFAULT,
         AGG_NODE,
+        ANALYTIC_EVAL_NODE,
+        ASSERT_NUM_ROWS_NODE,
         BROKER_SCAN_NODE,
+        CROSS_JOIN_NODE,
+        EMPTY_SET_NODE,
+        ES_SCAN_NODE,
+        EXCEPT_NODE,
+        EXCHANGE_NODE,
         HASH_JOIN_NODE,
         HIVE_SCAN_NODE,
-        MERGE_NODE,
-        ES_SCAN_NODE,
-        ICEBREG_SCAN_NODE,
+        ICEBERG_SCAN_NODE,
+        INTERSECT_NODE,
         LOAD_SCAN_NODE,
         MYSQL_SCAN_NODE,
         ODBC_SCAN_NODE,
         OLAP_SCAN_NODE,
+        REPEAT_NODE,
+        SELECT_NODE,
+        SET_OPERATION_NODE,
         SCHEMA_SCAN_NODE,
+        SORT_NODE,
+        STREAM_LOAD_SCAN_NODE,
+        TABLE_FUNCTION_NODE,
+        UNION_NODE,
     }
 
     public String getPlanNodeName() {
@@ -579,7 +594,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * from finalize() (to facilitate inserting additional nodes during plan
      * partitioning w/o the need to call finalize() recursively on the whole tree again).
      */
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         avgRowSize = 0.0F;
         for (TupleId tid : tupleIds) {
             TupleDescriptor desc = analyzer.getTupleDesc(tid);

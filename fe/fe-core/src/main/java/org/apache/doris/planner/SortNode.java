@@ -29,6 +29,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -79,7 +80,7 @@ public class SortNode extends PlanNode {
 
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
                     boolean isDefaultLimit, long offset) {
-        super(id, useTopN ? "TOP-N" : "SORT");
+        super(id, useTopN ? "TOP-N" : "SORT", NodeType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
         this.isDefaultLimit = isDefaultLimit;
@@ -95,7 +96,7 @@ public class SortNode extends PlanNode {
      * Clone 'inputSortNode' for distributed Top-N
      */
     public SortNode(PlanNodeId id, SortNode inputSortNode, PlanNode child) {
-        super(id, inputSortNode, inputSortNode.useTopN ? "TOP-N" : "SORT");
+        super(id, inputSortNode, inputSortNode.useTopN ? "TOP-N" : "SORT", NodeType.SORT_NODE);
         this.info = inputSortNode.info;
         this.useTopN = inputSortNode.useTopN;
         this.isDefaultLimit = inputSortNode.isDefaultLimit;
@@ -127,14 +128,15 @@ public class SortNode extends PlanNode {
     }
 
     @Override
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        cardinality = getChild(0).cardinality;
-        applyConjunctsSelectivity();
-        capCardinalityAtLimit();
+
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Sort: cardinality=" + cardinality);
         }
