@@ -23,7 +23,6 @@
 
 #include "function_test_util.h"
 #include "vec/core/field.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris {
@@ -36,10 +35,10 @@ struct AnyValue {
 
     AnyValue(T v) : value(std::move(v)) {}
 
-    AnyValue(nullptr_t) : is_null(true) {}
+    AnyValue(std::nullptr_t) : is_null(true) {}
 };
 
-using IntDataSet = std::vector<std::pair<std::vector<AnyValue<int>>, int>>;
+using IntDataSet = std::vector<std::pair<std::vector<AnyValue<int>>, AnyValue<int>>>;
 
 template <typename T, typename ReturnType = T>
 void check_function(const std::string& func_name, const IntDataSet data_set,
@@ -60,16 +59,20 @@ void check_function(const std::string& func_name, const IntDataSet data_set,
                 array.push_back(ut_type::convert_to<T>(any_value.value));
             }
         }
-        converted_data_set.emplace_back(std::make_pair<CellSet, Expect>(
-                {array}, ut_type::convert_to<ReturnType>(row.second)));
+        if (!row.second.is_null) {
+            converted_data_set.emplace_back(std::make_pair<CellSet, Expect>(
+                    {array}, ut_type::convert_to<ReturnType>(row.second.value)));
+        } else {
+            converted_data_set.emplace_back(std::make_pair<CellSet, Expect>({array}, Null()));
+        }
     }
-    check_function<ReturnType>(func_name, input_types, converted_data_set);
+    check_function<ReturnType, true>(func_name, input_types, converted_data_set);
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMin) {
     const std::string func_name = "array_min";
     IntDataSet data_set = {
-            {{}, 0},
+            {{}, nullptr},
             {{1, 2, 3}, 1},
     };
     check_function<DataTypeInt8>(func_name, data_set);
@@ -84,8 +87,8 @@ TEST(VFunctionArrayAggregationTest, TestArrayMin) {
 TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
     const std::string func_name = "array_min";
     IntDataSet data_set = {
-            {{}, 0},
-            {{nullptr}, 0},
+            {{}, nullptr},
+            {{nullptr}, nullptr},
             {{1, nullptr, 3}, 1},
     };
     check_function<DataTypeInt8>(func_name, data_set, true);
@@ -100,7 +103,7 @@ TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
 TEST(VFunctionArrayAggregationTest, TestArrayMax) {
     const std::string func_name = "array_max";
     IntDataSet data_set = {
-            {{}, 0},
+            {{}, nullptr},
             {{1, 2, 3}, 3},
     };
     check_function<DataTypeInt8>(func_name, data_set);
@@ -115,8 +118,8 @@ TEST(VFunctionArrayAggregationTest, TestArrayMax) {
 TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
     const std::string func_name = "array_max";
     IntDataSet data_set = {
-            {{}, 0},
-            {{nullptr}, 0},
+            {{}, nullptr},
+            {{nullptr}, nullptr},
             {{1, nullptr, 3}, 3},
     };
     check_function<DataTypeInt8>(func_name, data_set, true);
@@ -131,7 +134,7 @@ TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
 TEST(VFunctionArrayAggregationTest, TestArraySum) {
     const std::string func_name = "array_sum";
     IntDataSet data_set = {
-            {{}, 0},
+            {{}, nullptr},
             {{1, 2, 3}, 6},
     };
     check_function<DataTypeInt8, DataTypeInt64>(func_name, data_set);
@@ -146,8 +149,8 @@ TEST(VFunctionArrayAggregationTest, TestArraySum) {
 TEST(VFunctionArrayAggregationTest, TestArraySumNullable) {
     const std::string func_name = "array_sum";
     IntDataSet data_set = {
-            {{}, 0},
-            {{nullptr}, 0},
+            {{}, nullptr},
+            {{nullptr}, nullptr},
             {{1, nullptr, 3}, 4},
     };
     check_function<DataTypeInt8, DataTypeInt64>(func_name, data_set, true);
@@ -162,7 +165,7 @@ TEST(VFunctionArrayAggregationTest, TestArraySumNullable) {
 TEST(VFunctionArrayAggregationTest, TestArrayAverage) {
     const std::string func_name = "array_avg";
     IntDataSet data_set = {
-            {{}, 0},
+            {{}, nullptr},
             {{1, 2, 3}, 2},
     };
     check_function<DataTypeInt8, DataTypeFloat64>(func_name, data_set);
@@ -177,8 +180,8 @@ TEST(VFunctionArrayAggregationTest, TestArrayAverage) {
 TEST(VFunctionArrayAggregationTest, TestArrayAverageNullable) {
     const std::string func_name = "array_avg";
     IntDataSet data_set = {
-            {{}, 0},
-            {{nullptr}, 0},
+            {{}, nullptr},
+            {{nullptr}, nullptr},
             {{1, nullptr, 3}, 2},
     };
     check_function<DataTypeInt8, DataTypeFloat64>(func_name, data_set, true);
@@ -193,7 +196,7 @@ TEST(VFunctionArrayAggregationTest, TestArrayAverageNullable) {
 TEST(VFunctionArrayAggregationTest, TestArrayProduct) {
     const std::string func_name = "array_product";
     IntDataSet data_set = {
-            {{}, 0},
+            {{}, nullptr},
             {{1, 2, 3}, 6},
     };
     check_function<DataTypeInt8, DataTypeFloat64>(func_name, data_set);
@@ -208,8 +211,8 @@ TEST(VFunctionArrayAggregationTest, TestArrayProduct) {
 TEST(VFunctionArrayAggregationTest, TestArrayProductNullable) {
     const std::string func_name = "array_product";
     IntDataSet data_set = {
-            {{}, 0},
-            {{nullptr}, 0},
+            {{}, nullptr},
+            {{nullptr}, nullptr},
             {{1, nullptr, 3}, 3},
     };
     check_function<DataTypeInt8, DataTypeFloat64>(func_name, data_set, true);

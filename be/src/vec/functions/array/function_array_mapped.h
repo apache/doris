@@ -65,7 +65,6 @@ public:
         return Impl::execute(block, result, data_type_array, *column_array);
     }
     size_t get_number_of_arguments() const override { return 1; }
-    bool use_default_implementation_for_nulls() const override { return false; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
