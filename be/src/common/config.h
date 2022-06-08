@@ -245,7 +245,7 @@ CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change
-CONF_Bool(enable_vectorized_alter_table, "true");
+CONF_Bool(enable_vectorized_alter_table, "false");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");

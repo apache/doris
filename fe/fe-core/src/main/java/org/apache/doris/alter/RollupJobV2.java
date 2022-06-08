@@ -372,11 +372,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
-                        if (column.isAllowNull()) {
-                            destSlotDesc.setIsNullable(true);
-                        } else {
-                            destSlotDesc.setIsNullable(false);
-                        }
+                        destSlotDesc.setIsNullable(column.isAllowNull());
                     }
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();

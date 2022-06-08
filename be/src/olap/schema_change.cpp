@@ -822,7 +822,6 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
             _heap.pop();
             SAFE_DELETE(element.row_cursor);
         }
-
         return false;
     };
 

@@ -800,11 +800,8 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        if (col.isAllowNull() || isOuterJoined(d.getId())) {
-            result.setIsNullable(true);
-        } else {
-            result.setIsNullable(false);
-        }
+        result.setIsNullable(col.isAllowNull() || isOuterJoined(d.getId()));
+
         slotRefMap.put(key, result);
         return result;
     }
