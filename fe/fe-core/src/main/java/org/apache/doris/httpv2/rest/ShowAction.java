@@ -50,7 +50,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -168,19 +167,19 @@ public class ShowAction extends RestBaseController {
         Map<String, Long> oneEntry = Maps.newHashMap();
 
         String dbName = request.getParameter(DB_KEY);
-        ConcurrentHashMap<String, Database> fullNameToDb = Catalog.getCurrentCatalog().getFullNameToDb();
         long totalSize = 0;
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
-            Database db = fullNameToDb.get(fullDbName);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(fullDbName);
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
             }
             totalSize = getDataSizeOfDatabase(db);
             oneEntry.put(fullDbName, totalSize);
         } else {
-            for (Database db : fullNameToDb.values()) {
-                if (db.isInfoSchemaDb()) {
+            for (long dbId : Catalog.getCurrentCatalog().getDbIds()) {
+                Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+                if (db == null && db.isInfoSchemaDb()) {
                     continue;
                 }
                 totalSize += getDataSizeOfDatabase(db);

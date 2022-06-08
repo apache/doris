@@ -18,54 +18,39 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.external.ExternalScanRange;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
 /**
  * The abstract class for all types of external data sources.
  */
-public abstract class ExternalDataSource implements DataSourceIf {
-
+public abstract class ExternalDataSource implements DataSourceIf, Writable {
     // Unique id of this data source, will be assigned after data source is loaded.
+    @SerializedName(value = "id")
     private long id;
-
+    @SerializedName(value = "name")
+    private String name;
+    @SerializedName(value = "type")
+    private String type;
     // save properties of this data source, such as hive meta store url.
-    private Map<String, String> properties = Maps.newHashMap();
-
-    private Map<Long, ExternalDatabase> idToDbs = Maps.newConcurrentMap();
-    private Map<String, ExternalDatabase> nameToDbs = Maps.newConcurrentMap();
-
-    public void setId(long id) {
-        this.id = id;
-    }
-
-    public long getId() {
-        return id;
-    }
-
-    public String getProperty(String key) {
-        return properties.get(key);
-    }
-
-    public String getPropertyOrException(String key) throws DataSourceException {
-        if (properties.containsKey(key)) {
-            return properties.get(key);
-        }
-        throw new DataSourceException("Not found property " + key + " in data source " + getName());
-    }
-
+    @SerializedName(value = "dsProperty")
+    private DataSourceProperty dsProperty = new DataSourceProperty();
 
     /**
      * @return names of database in this data source.
@@ -101,75 +86,96 @@ public abstract class ExternalDataSource implements DataSourceIf {
      */
     public abstract List<ExternalScanRange> getExternalScanRanges(SessionContext ctx);
 
+
     @Override
-    public String getType() {
-        return null;
+    public long getId() {
+        return id;
     }
 
     @Override
     public String getName() {
+        return name;
+    }
+
+    @Override
+    public String getType() {
+        return type;
+    }
+
+    @Override
+    public List<String> getDbNames() {
         return null;
     }
 
     @Nullable
     @Override
-    public Database getDbNullable(String dbName) {
+    public DatabaseIf getDbNullable(String dbName) {
         return null;
     }
 
     @Nullable
     @Override
-    public Database getDbNullable(long dbId) {
+    public DatabaseIf getDbNullable(long dbId) {
         return null;
     }
 
     @Override
-    public Optional<Database> getDb(String dbName) {
+    public Optional<DatabaseIf> getDb(String dbName) {
         return Optional.empty();
     }
 
     @Override
-    public Optional<Database> getDb(long dbId) {
+    public Optional<DatabaseIf> getDb(long dbId) {
         return Optional.empty();
     }
 
     @Override
-    public <E extends Exception> Database getDbOrException(String dbName, Function<String, E> e) throws E {
+    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
         return null;
     }
 
     @Override
-    public <E extends Exception> Database getDbOrException(long dbId, Function<Long, E> e) throws E {
+    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
         return null;
     }
 
     @Override
-    public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
+    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
+    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public Database getDbOrDdlException(String dbName) throws DdlException {
+    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
         return null;
     }
 
     @Override
-    public Database getDbOrDdlException(long dbId) throws DdlException {
+    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
         return null;
     }
 
     @Override
-    public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
+    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
         return null;
     }
 
     @Override
-    public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
+    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
         return null;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static ExternalDataSource read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ExternalDataSource.class);
     }
 }

@@ -17,38 +17,29 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.external.ExternalScanRange;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import java.util.List;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
-/**
- * External data source for elasticsearch
- */
-public class EsExternalDataSource extends ExternalDataSource {
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Map;
+
+public class DataSourceProperty implements Writable {
+    @SerializedName(value = "properties")
+    private Map<String, String> properties = Maps.newHashMap();
 
     @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        return null;
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        return null;
-    }
-
-    @Override
-    public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return false;
-    }
-
-    @Override
-    public List<Column> getSchema(SessionContext ctx, String dbName, String tblName) {
-        return null;
-    }
-
-    @Override
-    public List<ExternalScanRange> getExternalScanRanges(SessionContext ctx) {
-        return null;
+    public static DataSourceProperty read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DataSourceProperty.class);
     }
 }
