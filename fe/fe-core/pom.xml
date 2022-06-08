@@ -816,8 +816,8 @@ under the License.
                         <configuration>
                             <proc>none</proc>
                             <includes>
-                                <include>org/apache/doris/nereids/pattern/Describable.java</include>
-                                <include>org/apache/doris/nereids/pattern/DescribableProcessor.java</include>
+                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribable.java</include>
+                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessor.java</include>
                             </includes>
                         </configuration>
                     </execution>
@@ -835,10 +835,10 @@ under the License.
                                 <arg>-AoperatorPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
                             </compilerArgs>
                             <includes>
-                                <include>org/apache/doris/nereids/pattern/PatternGenerator.java</include>
+                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessPoint.java</include>
                             </includes>
                             <annotationProcessors>
-                                <annotationProcessor>org.apache.doris.nereids.pattern.DescribableProcessor</annotationProcessor>
+                                <annotationProcessor>org.apache.doris.nereids.pattern.generator.PatternDescribableProcessor</annotationProcessor>
                             </annotationProcessors>
                         </configuration>
                     </execution>
@@ -852,9 +852,6 @@ under the License.
                         </goals>
                         <configuration>
                             <excludes>
-                                <exclude>org/apache/doris/nereids/pattern/Describable.java</exclude>
-                                <exclude>org/apache/doris/nereids/pattern/DescribableProcessor.java</exclude>
-                                <exclude>org/apache/doris/nereids/pattern/PatternGenerator.java</exclude>
                                 <exclude>org/apache/doris/nereids/pattern/generator/**</exclude>
                             </excludes>
                         </configuration>
