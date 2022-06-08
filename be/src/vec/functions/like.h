@@ -137,6 +137,9 @@ protected:
 
     static Status regexp_fn(LikeSearchState* state, const StringValue& val,
                             const StringValue& pattern, unsigned char* result);
+
+    static Status hs_prepare(FunctionContext* context, const char* expression,
+                             hs_database_t **database, hs_scratch_t **scratch);
 };
 
 class FunctionLike : public FunctionLikeBase {

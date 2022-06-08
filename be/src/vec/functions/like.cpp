@@ -97,19 +97,9 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& va
                                  const StringValue& pattern, unsigned char* result) {
     std::string re_pattern(pattern.ptr, pattern.len);
 
-    hs_database_t *database;
-    hs_compile_error_t *compile_err;
-    if (hs_compile(re_pattern.c_str(), HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, &database,
-                &compile_err) != HS_SUCCESS) {
-        hs_free_compile_error(compile_err);
-        return Status::RuntimeError("hs_compile regex pattern error");
-    }
-
-    hs_scratch_t *scratch = NULL;
-    if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
-        hs_free_database(database);
-        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
-    }
+    hs_database_t *database = nullptr;
+    hs_scratch_t *scratch = nullptr;
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
 
     auto ret = hs_scan(database, val.ptr, val.len, 0,
                        scratch, state->hs_match_handler, (void*)result);
@@ -119,6 +109,30 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& va
 
     hs_free_scratch(scratch);
     hs_free_database(database);
+
+    return Status::OK();
+}
+
+// hyperscan compile expression to database and allocate scratch space
+Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
+                                    hs_database_t **database, hs_scratch_t **scratch) {
+    hs_compile_error_t *compile_err;
+    if (hs_compile(expression, HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, database,
+                &compile_err) != HS_SUCCESS) {
+        hs_free_compile_error(compile_err);
+        *database = nullptr;
+        if (context) context->set_error("hs_compile regex pattern error");
+        return Status::RuntimeError("hs_compile regex pattern error");
+    }
+    hs_free_compile_error(compile_err);
+
+    if (hs_alloc_scratch(*database, scratch) != HS_SUCCESS) {
+        hs_free_database(*database);
+        *database = nullptr;
+        *scratch = nullptr;
+        if (context) context->set_error("hs_alloc_scratch allocate scratch space error");
+        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
+    }
 
     return Status::OK();
 }
@@ -318,20 +332,10 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
             std::string re_pattern;
             convert_like_pattern(&state->search_state, pattern_str, &re_pattern);
 
-            // hyperscan compile and scratch space allocation
-            hs_database_t *database;
-            hs_compile_error_t *compile_err;
-            if (hs_compile(re_pattern.c_str(), HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, &database,
-                        &compile_err) != HS_SUCCESS) {
-                hs_free_compile_error(compile_err);
-                context->set_error("hs_compile regex pattern error");
-            }
+            hs_database_t *database = nullptr;
+            hs_scratch_t *scratch = nullptr;
+            RETURN_IF_ERROR(hs_prepare(context, re_pattern.c_str(), &database, &scratch));
 
-            hs_scratch_t *scratch = NULL;
-            if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
-                hs_free_database(database);
-                context->set_error("hs_alloc_scratch allocate scratch space error");
-            }
             state->search_state.hs_database.reset(database);
             state->search_state.hs_scratch.reset(scratch);
 
@@ -368,20 +372,10 @@ Status FunctionRegexp::prepare(FunctionContext* context,
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
         } else {
-            // hyperscan compile and scratch space allocation
-            hs_database_t *database;
-            hs_compile_error_t *compile_err;
-            if (hs_compile(pattern_str.c_str(), HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, &database,
-                        &compile_err) != HS_SUCCESS) {
-                hs_free_compile_error(compile_err);
-                context->set_error("hs_compile regex pattern error");
-            }
+            hs_database_t *database = nullptr;
+            hs_scratch_t *scratch = nullptr;
+            RETURN_IF_ERROR(hs_prepare(context, pattern_str.c_str(), &database, &scratch));
 
-            hs_scratch_t *scratch = NULL;
-            if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
-                hs_free_database(database);
-                context->set_error("hs_alloc_scratch allocate scratch space error");
-            }
             state->search_state.hs_database.reset(database);
             state->search_state.hs_scratch.reset(scratch);
 
