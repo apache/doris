@@ -302,6 +302,7 @@ public class ColumnDef {
         }
     }
 
+    @SuppressWarnings("checkstyle:Indentation")
     public static void validateDefaultValue(Type type, String defaultValue, DefaultValueExprDef defaultValueExprDef)
             throws AnalysisException {
         Preconditions.checkNotNull(defaultValue);
@@ -335,11 +336,11 @@ public class ColumnDef {
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
-                DateLiteral dateLiteral = new DateLiteral(defaultValue, type);
+                new DateLiteral(defaultValue, type);
                 break;
             case DATETIME:
                 if (defaultValueExprDef == null) {
-                    DateLiteral datetimeLiteral = new DateLiteral(defaultValue, type);
+                    new DateLiteral(defaultValue, type);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         break;
