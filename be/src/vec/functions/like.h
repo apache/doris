@@ -20,6 +20,8 @@
 #include <functional>
 #include <memory>
 
+#include <hs/hs.h>
+
 #include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
 #include "vec/columns/column_const.h"
@@ -55,6 +57,30 @@ struct LikeSearchState {
 
     /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
     std::unique_ptr<re2::RE2> regex;
+
+    template <typename Deleter, Deleter deleter>
+    struct HyperscanDeleter
+    {
+        template <typename T>
+        void operator()(T * ptr) const
+        {
+            deleter(ptr);
+        }
+    };
+
+    std::unique_ptr<hs_database_t, HyperscanDeleter<decltype(&hs_free_database), &hs_free_database>> hs_database;
+    std::unique_ptr<hs_scratch_t, HyperscanDeleter<decltype(&hs_free_scratch), &hs_free_scratch>> hs_scratch;
+
+    static int hs_match_handler(unsigned int /* from */, // NOLINT
+                                unsigned long long /* from */, // NOLINT
+                                unsigned long long /* to */, // NOLINT
+                                unsigned int /* flags */,
+                                void * ctx)
+    {
+        *((unsigned char*)ctx) = 1;
+        /// return non-zero to indicate hyperscan stop after first matched
+        return 1;
+    }
 
     LikeSearchState() : escape_char('\\') {}
 

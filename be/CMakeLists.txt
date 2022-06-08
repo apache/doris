@@ -144,6 +144,9 @@ set_target_properties(backtrace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/l
 add_library(re2 STATIC IMPORTED)
 set_target_properties(re2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libre2.a)
 
+add_library(hyperscan STATIC IMPORTED)
+set_target_properties(hyperscan PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhs.a)
+
 add_library(odbc STATIC IMPORTED)
 set_target_properties(odbc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libodbc.a)
 
@@ -638,6 +641,7 @@ set(COMMON_THIRDPARTY
     thriftnb
     glog
     re2
+    hyperscan
     pprof
     lz4
     libevent
