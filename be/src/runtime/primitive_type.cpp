@@ -158,49 +158,6 @@ int get_byte_size(PrimitiveType type) {
     return 0;
 }
 
-int get_real_byte_size(PrimitiveType type) {
-    switch (type) {
-    case TYPE_OBJECT:
-    case TYPE_QUANTILE_STATE:
-    case TYPE_HLL:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-    case TYPE_ARRAY:
-        return 0;
-
-    case TYPE_NULL:
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-        return 1;
-
-    case TYPE_SMALLINT:
-        return 2;
-
-    case TYPE_INT:
-    case TYPE_FLOAT:
-        return 4;
-
-    case TYPE_BIGINT:
-    case TYPE_TIME:
-    case TYPE_DOUBLE:
-        return 8;
-
-    case TYPE_DATETIME:
-    case TYPE_DATE:
-    case TYPE_DECIMALV2:
-        return 16;
-
-    case TYPE_LARGEINT:
-        return 16;
-
-    case INVALID_TYPE:
-    default:
-        DCHECK(false);
-    }
-
-    return 0;
-}
-
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     if (lhs == TYPE_VARCHAR) {
         return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT ||

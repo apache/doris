@@ -486,7 +486,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
             total_len += string_len;
         }
 
-        total_len += get_real_byte_size(input_expr_ctxs()[i]->root()->type().type);
+        total_len += get_byte_size(input_expr_ctxs()[i]->root()->type().type);
     }
 
     int32_t vec_size = vec_string_len.size();
