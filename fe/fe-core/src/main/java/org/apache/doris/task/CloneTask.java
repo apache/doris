@@ -43,9 +43,9 @@ public class CloneTask extends AgentTask {
 
     private int taskVersion = VERSION_1;
 
-    public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
-                     long tabletId, long replicaId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
-                     long visibleVersion, int timeoutS) {
+    public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
+            long replicaId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
+            long visibleVersion, int timeoutS) {
         super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.replicaId = replicaId;
         this.schemaHash = schemaHash;
@@ -95,10 +95,12 @@ public class CloneTask extends AgentTask {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("tablet id: ").append(tabletId).append(", replica id: ").append(replicaId).append(", schema hash: ").append(schemaHash);
+        sb.append("tablet id: ").append(tabletId).append(", replica id: ").append(replicaId).append(", schema hash: ")
+                .append(schemaHash);
         sb.append(", storageMedium: ").append(storageMedium.name());
         sb.append(", visible version(hash): ").append(visibleVersion);
-        sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path hash: ").append(srcPathHash);
+        sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path hash: ")
+                .append(srcPathHash);
         sb.append(", dest backend: ").append(backendId).append(", dest path hash: ").append(destPathHash);
         return sb.toString();
     }
