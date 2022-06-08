@@ -15,27 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPlanNodeType;
+import com.google.common.base.Preconditions;
 
-import java.util.List;
+/**
+ * Derive SelectNode statistics.
+ */
+public class SelectStatsDerive extends BaseStatsDerive {
 
-public class ExceptNode extends SetOperationNode {
-    protected ExceptNode(PlanNodeId id, TupleId tupleId) {
-        super(id, tupleId, "EXCEPT");
-    }
-
-    protected ExceptNode(PlanNodeId id, TupleId tupleId,
-                         List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "EXCEPT", setOpResultExprs, isInSubplan, NodeType.EXCEPT_NODE);
+    // Current SORT_NODE also uses this derivation method
+    @Override
+    public StatsDeriveResult deriveStats() {
+        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
     }
 
     @Override
-    protected void toThrift(TPlanNode msg) {
-        toThrift(msg, TPlanNodeType.EXCEPT_NODE);
+    protected long deriveRowCount() {
+        Preconditions.checkState(!childrenStatsResult.isEmpty());
+        rowCount = childrenStatsResult.get(0).getRowCount();
+        applyConjunctsSelectivity();
+        capRowCountAtLimit();
+        return rowCount;
     }
 }

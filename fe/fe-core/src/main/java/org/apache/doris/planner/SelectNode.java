@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -39,12 +40,12 @@ public class SelectNode extends PlanNode {
     private final static Logger LOG = LogManager.getLogger(SelectNode.class);
 
     protected SelectNode(PlanNodeId id, PlanNode child) {
-        super(id, child.getTupleIds(), "SELECT");
+        super(id, child.getTupleIds(), "SELECT", NodeType.SELECT_NODE);
         addChild(child);
         this.nullableTupleIds = child.nullableTupleIds;
     }
     protected SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
-        super(id, child.getTupleIds(), "SELECT");
+        super(id, child.getTupleIds(), "SELECT", NodeType.SELECT_NODE);
         addChild(child);
         this.tblRefIds = child.tblRefIds;
         this.nullableTupleIds = child.nullableTupleIds;
@@ -64,14 +65,14 @@ public class SelectNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        cardinality = getChild(0).cardinality;
-        applyConjunctsSelectivity();
-        capCardinalityAtLimit();
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Select: cardinality={}", this.cardinality);
         }

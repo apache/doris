@@ -15,27 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPlanNodeType;
+/**
+ * Derive MysqlScanNode statistics.
+ */
+public class MysqlStatsDerive extends BaseStatsDerive {
 
-import java.util.List;
-
-public class ExceptNode extends SetOperationNode {
-    protected ExceptNode(PlanNodeId id, TupleId tupleId) {
-        super(id, tupleId, "EXCEPT");
-    }
-
-    protected ExceptNode(PlanNodeId id, TupleId tupleId,
-                         List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "EXCEPT", setOpResultExprs, isInSubplan, NodeType.EXCEPT_NODE);
+    // Current ODBC_SCAN_NODE also uses this derivation method
+    @Override
+    public StatsDeriveResult deriveStats() {
+        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
     }
 
     @Override
-    protected void toThrift(TPlanNode msg) {
-        toThrift(msg, TPlanNodeType.EXCEPT_NODE);
+    protected long deriveRowCount() {
+        // this is just to avoid mysql scan node's rowCount being -1. So that we can calculate the join cost
+        // normally.
+        // We assume that the data volume of all mysql tables is very small, so set rowCount directly to 1.
+        rowCount = rowCount == -1 ? 1 : rowCount;
+        return rowCount;
     }
 }
