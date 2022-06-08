@@ -26,14 +26,75 @@
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/types.h"
+#include "vec/exec/vbroker_scanner.h"
+#include "vec/exec/vjson_scanner.h"
+#include "vec/exec/vorc_scanner.h"
+#include "vec/exec/vparquet_scanner.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
 VBrokerScanNode::VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
-        : BrokerScanNode(pool, tnode, descs) {
-    _vectorized = true;
+        : ScanNode(pool, tnode, descs),
+          _tuple_id(tnode.broker_scan_node.tuple_id),
+          _runtime_state(nullptr),
+          _tuple_desc(nullptr),
+          _num_running_scanners(0),
+          _scan_finished(false),
+          _max_buffered_batches(32),
+          _wait_scanner_timer(nullptr) {}
+
+Status VBrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ScanNode::init(tnode, state));
+    auto& broker_scan_node = tnode.broker_scan_node;
+
+    if (broker_scan_node.__isset.pre_filter_exprs) {
+        _pre_filter_texprs = broker_scan_node.pre_filter_exprs;
+    }
+
+    return Status::OK();
+}
+
+Status VBrokerScanNode::prepare(RuntimeState* state) {
+    VLOG_QUERY << "VBrokerScanNode prepare";
+    RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    // get tuple desc
+    _runtime_state = state;
+    _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+    if (_tuple_desc == nullptr) {
+        std::stringstream ss;
+        ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
+        return Status::InternalError(ss.str());
+    }
+
+    // Initialize slots map
+    for (auto slot : _tuple_desc->slots()) {
+        auto pair = _slots_map.emplace(slot->col_name(), slot);
+        if (!pair.second) {
+            std::stringstream ss;
+            ss << "Failed to insert slot, col_name=" << slot->col_name();
+            return Status::InternalError(ss.str());
+        }
+    }
+
+    // Profile
+    _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
+
+    return Status::OK();
+}
+
+Status VBrokerScanNode::open(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    RETURN_IF_ERROR(ExecNode::open(state));
+    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
+    RETURN_IF_CANCELLED(state);
+
+    RETURN_IF_ERROR(start_scanners());
+
+    return Status::OK();
 }
 
 Status VBrokerScanNode::start_scanners() {
@@ -136,9 +197,21 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
 }
 
 Status VBrokerScanNode::close(RuntimeState* state) {
-    auto status = BrokerScanNode::close(state);
-    _block_queue.clear();
-    return status;
+    if (is_closed()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    _scan_finished.store(true);
+    _queue_writer_cond.notify_all();
+    _queue_reader_cond.notify_all();
+    for (int i = 0; i < _scanner_threads.size(); ++i) {
+        _scanner_threads[i].join();
+    }
+
+    // Close
+    _batch_queue.clear();
+    return ExecNode::close(state);
 }
 
 Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, ScannerCounter* counter) {
@@ -228,6 +301,44 @@ void VBrokerScanNode::scanner_worker(int start_idx, int length) {
     if (!status.ok()) {
         _queue_writer_cond.notify_all();
     }
+}
+
+std::unique_ptr<BaseScanner> VBrokerScanNode::create_scanner(const TBrokerScanRange& scan_range,
+                                                             ScannerCounter* counter) {
+    BaseScanner* scan = nullptr;
+    switch (scan_range.ranges[0].format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+        scan = new vectorized::VParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                               scan_range.ranges, scan_range.broker_addresses,
+                                               _pre_filter_texprs, counter);
+        break;
+    case TFileFormatType::FORMAT_ORC:
+        scan = new vectorized::VORCScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                           scan_range.ranges, scan_range.broker_addresses,
+                                           _pre_filter_texprs, counter);
+        break;
+    case TFileFormatType::FORMAT_JSON:
+        scan = new vectorized::VJsonScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                            scan_range.ranges, scan_range.broker_addresses,
+                                            _pre_filter_texprs, counter);
+        break;
+    default:
+        scan = new vectorized::VBrokerScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                              scan_range.ranges, scan_range.broker_addresses,
+                                              _pre_filter_texprs, counter);
+    }
+    std::unique_ptr<BaseScanner> scanner(scan);
+    return scanner;
+}
+
+// This function is called after plan node has been prepared.
+Status VBrokerScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+    _scan_ranges = scan_ranges;
+    return Status::OK();
+}
+
+void VBrokerScanNode::debug_string(int ident_level, std::stringstream* out) const {
+    (*out) << "VBrokerScanNode";
 }
 
 } // namespace doris::vectorized

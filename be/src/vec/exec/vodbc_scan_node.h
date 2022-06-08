@@ -17,18 +17,78 @@
 
 #pragma once
 
-#include "exec/odbc_scan_node.h"
+#include "exec/odbc_connector.h"
+#include "exec/scan_node.h"
+#include "exec/text_converter.hpp"
 
 namespace doris {
 namespace vectorized {
 
-class VOdbcScanNode : public OdbcScanNode {
+class VOdbcScanNode : public ScanNode {
 public:
-    VOdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~VOdbcScanNode();
+    VOdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
+                  std::string scan_node_type = "VOdbcScanNode");
+    ~VOdbcScanNode() = default;
 
-    using OdbcScanNode::get_next;
-    Status get_next(RuntimeState* state, Block* block, bool* eos);
+    // initialize odbc_scanner, and create text_converter.
+    virtual Status prepare(RuntimeState* state) override;
+
+    // Start ODBC scan using odbc_scanner.
+    virtual Status open(RuntimeState* state) override;
+
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
+        return Status::NotSupported("Not Implemented VOdbcScanNode Node::get_next scalar");
+    }
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+
+    // Close the odbc_scanner, and report errors.
+    virtual Status close(RuntimeState* state) override;
+    // No use
+    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
+    const TupleDescriptor* get_tuple_desc() { return _tuple_desc; }
+    TextConverter* get_text_converter() { return _text_converter.get(); }
+    ODBCConnector* get_odbc_scanner() { return _odbc_scanner.get(); }
+    const std::string& get_scan_node_type() { return _scan_node_type; }
+
+    bool is_init() { return _is_init; }
+
+protected:
+    // Write debug string of this into out.
+    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
+
+private:
+    // Writes a slot in tuple from an MySQL value containing text data.
+    // The Odbc value is converted into the appropriate target type.
+    Status write_text_slot(char* value, int value_length, SlotDescriptor* slot,
+                           RuntimeState* state);
+
+    bool _is_init;
+
+    std::string _scan_node_type;
+
+    // Name of Odbc table
+    std::string _table_name;
+
+    std::string _connect_string;
+
+    std::string _query_string;
+    // Tuple id resolved in prepare() to set _tuple_desc;
+    TupleId _tuple_id;
+
+    // Descriptor of tuples read from ODBC table.
+    const TupleDescriptor* _tuple_desc;
+    // Tuple index in tuple row.
+    int _slot_num;
+    // Pool for allocating tuple data, including all varying-length slots.
+    std::unique_ptr<MemPool> _tuple_pool;
+
+    // Scanner of ODBC.
+    std::unique_ptr<ODBCConnector> _odbc_scanner;
+    ODBCConnectorParam _odbc_param;
+    // Helper class for converting text to other types;
+    std::unique_ptr<TextConverter> _text_converter;
+    // Current tuple.
+    doris::Tuple* _tuple = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

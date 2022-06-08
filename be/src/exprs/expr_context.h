@@ -36,6 +36,10 @@ USING_DORIS_UDF;
 
 namespace doris {
 
+namespace vectorized {
+class VOlapScanNode;
+}
+
 class Expr;
 class MemPool;
 class MemTracker;
@@ -161,6 +165,7 @@ private:
     friend class BloomFilterPredicate;
     friend class OlapScanNode;
     friend class EsPredicate;
+    friend class vectorized::VOlapScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this ExprContext.
