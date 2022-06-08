@@ -38,7 +38,7 @@ suite("test_current_timestamp", "correctness") {
     sql " insert into ${tableName} (id,name,dt_0) values (3,'cc',current_timestamp()); "
     sql " insert into ${tableName} (id,name,dt_0) values (4,'dd',current_timestamp()); "
 
-    qt_insert_into """ select count(*) from ${tableName} where dt_0 = dt_1; """
+    qt_insert_into """ select count(*) from ${tableName} where to_date(dt_0) = to_date(dt_1); """
 
     // test stream load.
     streamLoad {
@@ -51,5 +51,5 @@ suite("test_current_timestamp", "correctness") {
 
         time 10000 // limit inflight 10s
     }
-    qt_stream_load """ select count(*) from ${tableName} where id > 4 and dt_0 = dt_1; """
+    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_0) = to_date(dt_1); """
  }
