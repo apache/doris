@@ -64,7 +64,7 @@
 #include "util/uid_util.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER)
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include "runtime/tcmalloc_hook.h"
 #endif
 
@@ -321,7 +321,7 @@ int main(int argc, char** argv) {
     }
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER)
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
     // not backed by physical pages and do not contribute towards memory consumption.
     MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
@@ -332,7 +332,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(USE_JEMALLOC)
     if (doris::config::track_new_delete) {
         init_hook();
     }
@@ -474,7 +474,8 @@ int main(int argc, char** argv) {
         __lsan_do_leak_check();
 #endif
 
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
+        !defined(USE_JEMALLOC)
         doris::MemInfo::refresh_current_mem();
 #endif
         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
