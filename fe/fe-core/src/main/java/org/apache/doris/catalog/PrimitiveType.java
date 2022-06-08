@@ -102,7 +102,6 @@ public enum PrimitiveType {
         builder.put(BOOLEAN, DATE);
         builder.put(BOOLEAN, DATETIME);
         builder.put(BOOLEAN, DECIMALV2);
-        builder.put(BOOLEAN, CHAR);
         builder.put(BOOLEAN, VARCHAR);
         builder.put(BOOLEAN, STRING);
         // Tinyint
@@ -117,7 +116,6 @@ public enum PrimitiveType {
         builder.put(TINYINT, DATE);
         builder.put(TINYINT, DATETIME);
         builder.put(TINYINT, DECIMALV2);
-        builder.put(TINYINT, CHAR);
         builder.put(TINYINT, VARCHAR);
         builder.put(TINYINT, STRING);
         // Smallint
@@ -132,7 +130,6 @@ public enum PrimitiveType {
         builder.put(SMALLINT, DATE);
         builder.put(SMALLINT, DATETIME);
         builder.put(SMALLINT, DECIMALV2);
-        builder.put(SMALLINT, CHAR);
         builder.put(SMALLINT, VARCHAR);
         builder.put(SMALLINT, STRING);
         // Int
@@ -147,7 +144,6 @@ public enum PrimitiveType {
         builder.put(INT, DATE);
         builder.put(INT, DATETIME);
         builder.put(INT, DECIMALV2);
-        builder.put(INT, CHAR);
         builder.put(INT, VARCHAR);
         builder.put(INT, STRING);
         // Bigint
@@ -162,7 +158,6 @@ public enum PrimitiveType {
         builder.put(BIGINT, DATE);
         builder.put(BIGINT, DATETIME);
         builder.put(BIGINT, DECIMALV2);
-        builder.put(BIGINT, CHAR);
         builder.put(BIGINT, VARCHAR);
         builder.put(BIGINT, STRING);
         // Largeint
@@ -177,7 +172,6 @@ public enum PrimitiveType {
         builder.put(LARGEINT, DATE);
         builder.put(LARGEINT, DATETIME);
         builder.put(LARGEINT, DECIMALV2);
-        builder.put(LARGEINT, CHAR);
         builder.put(LARGEINT, VARCHAR);
         builder.put(LARGEINT, STRING);
         // Float
@@ -192,7 +186,6 @@ public enum PrimitiveType {
         builder.put(FLOAT, DATE);
         builder.put(FLOAT, DATETIME);
         builder.put(FLOAT, DECIMALV2);
-        builder.put(FLOAT, CHAR);
         builder.put(FLOAT, VARCHAR);
         builder.put(FLOAT, STRING);
         // Double
@@ -207,7 +200,6 @@ public enum PrimitiveType {
         builder.put(DOUBLE, DATE);
         builder.put(DOUBLE, DATETIME);
         builder.put(DOUBLE, DECIMALV2);
-        builder.put(DOUBLE, CHAR);
         builder.put(DOUBLE, VARCHAR);
         builder.put(DOUBLE, STRING);
         // Date
@@ -222,7 +214,6 @@ public enum PrimitiveType {
         builder.put(DATE, DATE);
         builder.put(DATE, DATETIME);
         builder.put(DATE, DECIMALV2);
-        builder.put(DATE, CHAR);
         builder.put(DATE, VARCHAR);
         builder.put(DATE, STRING);
         // Datetime
@@ -237,7 +228,6 @@ public enum PrimitiveType {
         builder.put(DATETIME, DATE);
         builder.put(DATETIME, DATETIME);
         builder.put(DATETIME, DECIMALV2);
-        builder.put(DATETIME, CHAR);
         builder.put(DATETIME, VARCHAR);
         builder.put(DATETIME, STRING);
         // Char
@@ -253,7 +243,6 @@ public enum PrimitiveType {
         builder.put(CHAR, DATE);
         builder.put(CHAR, DATETIME);
         builder.put(CHAR, DECIMALV2);
-        builder.put(CHAR, CHAR);
         builder.put(CHAR, VARCHAR);
         builder.put(CHAR, STRING);
         // Varchar
@@ -268,11 +257,10 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DATE);
         builder.put(VARCHAR, DATETIME);
         builder.put(VARCHAR, DECIMALV2);
-        builder.put(VARCHAR, CHAR);
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, STRING);
 
-        // String
+        // Varchar
         builder.put(STRING, BOOLEAN);
         builder.put(STRING, TINYINT);
         builder.put(STRING, SMALLINT);
@@ -284,7 +272,6 @@ public enum PrimitiveType {
         builder.put(STRING, DATE);
         builder.put(STRING, DATETIME);
         builder.put(STRING, DECIMALV2);
-        builder.put(STRING, CHAR);
         builder.put(STRING, VARCHAR);
         builder.put(STRING, STRING);
 
@@ -298,7 +285,6 @@ public enum PrimitiveType {
         builder.put(DECIMALV2, FLOAT);
         builder.put(DECIMALV2, DOUBLE);
         builder.put(DECIMALV2, DECIMALV2);
-        builder.put(DECIMALV2, CHAR);
         builder.put(DECIMALV2, VARCHAR);
         builder.put(DECIMALV2, STRING);
 
