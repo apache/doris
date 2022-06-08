@@ -29,9 +29,9 @@ class QueryStatisticsRecvr;
 
 class NodeStatistics {
 public:
-    NodeStatistics() : peak_memory_bytes(0) {};
+    NodeStatistics() : _peak_memory_bytes(0) {};
 
-    void add_peak_memory(int64_t peak_memory) { this->peak_memory_bytes += peak_memory; }
+    void add_peak_memory(int64_t peak_memory) { _peak_memory_bytes += peak_memory; }
 
     void merge(const NodeStatistics& other);
 
@@ -41,7 +41,7 @@ public:
 
 private:
     friend class QueryStatistics;
-    int64_t peak_memory_bytes;
+    int64_t _peak_memory_bytes;
 };
 
 // This is responsible for collecting query statistics, usually it consists of
@@ -50,16 +50,20 @@ private:
 class QueryStatistics {
 public:
     QueryStatistics()
-            : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
+            : _scan_rows(0),
+              _scan_bytes(0),
+              _cpu_ms(0),
+              _returned_rows(0),
+              _max_peak_memory_bytes(0) {}
     ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
 
-    void add_scan_rows(int64_t scan_rows) { this->scan_rows += scan_rows; }
+    void add_scan_rows(int64_t scan_rows) { _scan_rows += scan_rows; }
 
-    void add_scan_bytes(int64_t scan_bytes) { this->scan_bytes += scan_bytes; }
+    void add_scan_bytes(int64_t scan_bytes) { _scan_bytes += scan_bytes; }
 
-    void add_cpu_ms(int64_t cpu_ms) { this->cpu_ms += cpu_ms; }
+    void add_cpu_ms(int64_t cpu_ms) { _cpu_ms += cpu_ms; }
 
     NodeStatistics* add_nodes_statistics(int64_t node_id) {
         NodeStatistics* nodeStatistics = nullptr;
@@ -73,10 +77,10 @@ public:
         return nodeStatistics;
     }
 
-    void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
+    void set_returned_rows(int64_t num_rows) { _returned_rows = num_rows; }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
-        this->max_peak_memory_bytes = max_peak_memory_bytes;
+        _max_peak_memory_bytes = max_peak_memory_bytes;
     }
 
     void merge(QueryStatisticsRecvr* recvr);
@@ -87,11 +91,11 @@ public:
     void clearNodeStatistics();
 
     void clear() {
-        scan_rows = 0;
-        scan_bytes = 0;
-        cpu_ms = 0;
-        returned_rows = 0;
-        max_peak_memory_bytes = 0;
+        _scan_rows = 0;
+        _scan_bytes = 0;
+        _cpu_ms = 0;
+        _returned_rows = 0;
+        _max_peak_memory_bytes = 0;
         clearNodeStatistics();
     }
 
@@ -100,15 +104,15 @@ public:
     void from_pb(const PQueryStatistics& statistics);
 
 private:
-    int64_t scan_rows;
-    int64_t scan_bytes;
-    int64_t cpu_ms;
+    int64_t _scan_rows;
+    int64_t _scan_bytes;
+    int64_t _cpu_ms;
     // number rows returned by query.
     // only set once by result sink when closing.
-    int64_t returned_rows;
+    int64_t _returned_rows;
     // Maximum memory peak for all backends.
     // only set once by result sink when closing.
-    int64_t max_peak_memory_bytes;
+    int64_t _max_peak_memory_bytes;
     // The statistics of the query on each backend.
     typedef std::unordered_map<int64_t, NodeStatistics*> NodeStatisticsMap;
     NodeStatisticsMap _nodes_statistics_map;
