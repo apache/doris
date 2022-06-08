@@ -36,6 +36,7 @@ public class QualifiedName implements JavaAstNode {
         return !identifiers.isEmpty() && identifiers.get(identifiers.size() - 1).equals(name);
     }
 
+    /** get suffix name. */
     public Optional<String> suffix() {
         if (identifiers.isEmpty()) {
             return Optional.empty();

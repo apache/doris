@@ -23,6 +23,7 @@ public class MethodDeclaration extends MemberDeclaration {
     public final String identifier;
     public final int paramNum;
 
+    /** constructor. */
     public MethodDeclaration(TypeTypeOrVoid typeTypeOrVoid, String identifier, int paramNum) {
         this.typeTypeOrVoid = typeTypeOrVoid;
         this.identifier = identifier;

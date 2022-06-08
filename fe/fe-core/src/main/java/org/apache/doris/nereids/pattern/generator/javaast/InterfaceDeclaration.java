@@ -28,6 +28,7 @@ public class InterfaceDeclaration extends TypeDeclaration {
     public final Optional<TypeParameters> typeParameters;
     public final List<TypeType> extendsTypes;
 
+    /** constructor. */
     public InterfaceDeclaration(QualifiedName packageName, List<ImportDeclaration> imports,
             ClassOrInterfaceModifier modifier, String name, TypeParameters typeParameters,
             List<TypeType> extendsTypes, List<TypeDeclaration> children) {

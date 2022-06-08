@@ -27,6 +27,7 @@ public class EnumDeclaration extends TypeDeclaration {
     public final List<TypeType> implementTypes;
     public final List<EnumConstant> constants;
 
+    /** constructor. */
     public EnumDeclaration(QualifiedName packageName, List<ImportDeclaration> imports,
             ClassOrInterfaceModifier modifier, String name, List<TypeType> implementTypes,
             List<EnumConstant> constants, List<TypeDeclaration> children) {

@@ -32,6 +32,7 @@ public class ClassDeclaration extends TypeDeclaration {
     public final List<FieldDeclaration> fieldDeclarations;
     public final List<MethodDeclaration> methodDeclarations;
 
+    /** constructor. */
     public ClassDeclaration(QualifiedName packageName, List<ImportDeclaration> imports,
             ClassOrInterfaceModifier modifier, String name, TypeParameters typeParameters,
             TypeType extendsType, List<TypeType> implementTypes,
