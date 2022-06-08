@@ -1,5 +1,4 @@
-<!-- 
-Licensed to the Apache Software Foundation (ASF) under one
+<!-- Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
 regarding copyright ownership.  The ASF licenses this file
@@ -16,75 +15,98 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
 <template>
   <div class="footer-wrapper">
-    <p class="apache-info">
-      <a href="https://www.apache.org/">Foundation</a> |
-      <a href="https://www.apache.org/licenses/">License</a> | 
-      <a href="https://www.apache.org/events/current-event">Events</a> | 
-      <a href="https://www.apache.org/security/">Security</a> | 
-       <a href="https://www.apache.org/foundation/sponsorship.html">Sponsorship</a> |
-      <a href="https://www.apache.org/foundation/policies/privacy.html">Privacy</a> |
-      <a href="https://www.apache.org/foundation/thanks.html">Thanks</a>
+    <span>
+      <reco-icon icon="reco-theme" />
+      <a target="blank" href="https://vuepress-theme-reco.recoluan.com">{{`vuepress-theme-reco@${version}`}}</a>
+    </span>
+    <span v-if="$themeConfig.record">
+      <reco-icon icon="reco-beian" />
+      <a :href="$themeConfig.recordLink || '#'">{{ $themeConfig.record }}</a>
+    </span>
+    <span>
+      <reco-icon icon="reco-copyright" />
+      <a>
+        <span v-if="$themeConfig.author">{{ $themeConfig.author }}</span>
+        &nbsp;&nbsp;
+        <span v-if="$themeConfig.startYear && $themeConfig.startYear != (new Date().getFullYear())">{{ $themeConfig.startYear }} - </span>
+        {{ new Date().getFullYear() }}
+      </a>
+    </span>
+    <span v-show="showAccessNumber">
+      <reco-icon icon="reco-eye" />
+      <AccessNumber idVal="/" />
+    </span>
+    <p class="cyber-security" v-if="$themeConfig.cyberSecurityRecord">
+      <img src="https://img.alicdn.com/tfs/TB1..50QpXXXXX7XpXXXXXXXXXX-40-40.png" alt="">
+      <a :href="$themeConfig.cyberSecurityLink || '#'">{{ $themeConfig.cyberSecurityRecord }}</a>
     </p>
-    <p>
-      <br />
-      <span class="footer-text">
-        Copyright © {{ thisYear }} The Apache Software Foundation. Licensed under the Apache License, Version 2.0.
-        Apache Doris(Incubating), Apache Incubator, Apache, the Apache feather logo, the Apache Doris(Incubating) logo
-        and the Apache Incubator project logo are trademarks of The Apache Software Foundation.
-      </span>
-      <br />
-      <span class="footer-text">
-        Apache Doris(incubating) is an effort undergoing incubation at The Apache Software Foundation (ASF), sponsored
-        by the Apache Incubator. Incubation is required of all newly accepted projects until a further review indicates
-        that the infrastructure, communications, and decision making process have stabilized in a manner consistent with
-        other successful ASF projects. While incubation status is not necessarily a reflection of the completeness or
-        stability of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
-      </span>
-    </p>
+    <Comments :isShowComments="false"/>
   </div>
 </template>
+
 <script>
-export default {
-  computed: {
-    thisYear: () => new Date().getFullYear()
+import { defineComponent, computed } from 'vue-demi'
+import { RecoIcon } from '@vuepress-reco/core/lib/components'
+import { version } from '../package.json'
+import { useInstance } from '@theme/helpers/composable'
+
+export default defineComponent({
+  components: { RecoIcon },
+  setup (props, ctx) {
+    const instance = useInstance()
+    const showAccessNumber = computed(() => {
+      const {
+        $themeConfig: { valineConfig },
+        $themeLocaleConfig: { valineConfig: valineLocalConfig }
+      } = instance
+
+      const vc = valineLocalConfig || valineConfig
+
+      return vc && vc.visitor != false
+    })
+    return { version, showAccessNumber }
+  }
+})
+</script>
+
+<style lang="stylus" scoped>
+  .footer-wrapper {
+    padding: 1.5rem 2.5rem;
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+    color: lighten($textColor, 25%);
+    a {
+      font-size 14px
+    }
+    > span {
+      margin-left 1rem
+      > i {
+        margin-right .5rem
+      }
+    }
+    .cyber-security {
+      img {
+        margin-right .5rem
+        width 20px
+        height 20px
+        vertical-align middle
+      }
+      a {
+        vertical-align middle
+      }
+    }
+  }
+
+@media (max-width: $MQMobile) {
+  .footer {
+    text-align: left!important;
+    > span {
+      display block
+      margin-left 0
+      line-height 2rem
+    }
   }
 }
-</script>
-<style lang="stylus">
-.footer-wrapper
-  font-family -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif
-  max-width $contentWidth
-  text-align center
-  margin 0 auto
-  color rgb(93, 93, 93)
-  font-weight: 240
-  a
-    color #3E8EFF
-  .apache-info
-    display flex
-    flex-direction row
-    justify-content space-between
-    align-items center
-    margin-bottom 1rem
-    width 100%
-    font-size .75em
-    border-collapse collapse
-    overflow-x auto
-  .footer-text
-    display inline-block
-    line-height 1.2em
-
-@media (min-width: $MQMobile)
-  .footer-wrapper 
-    padding 1rem 0rem
-    .footer-text
-      font-size .9rem
-@media (max-width: $MQMobile)
-  .footer-wrapper 
-    padding 1.5rem
-    .footer-text
-      font-size 12px
 </style>
