@@ -134,6 +134,9 @@ protected:
 
     static Status constant_regex_fn(LikeSearchState* state, const StringValue& val,
                                          const StringValue& pattern, unsigned char* result);
+
+    static Status regexp_fn(LikeSearchState* state, const StringValue& val,
+                            const StringValue& pattern, unsigned char* result);
 };
 
 class FunctionLike : public FunctionLikeBase {
@@ -165,13 +168,6 @@ public:
     String get_name() const override { return name; }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
-
-private:
-    static Status regexp_fn(LikeSearchState* state, const StringValue& val,
-                            const StringValue& pattern, unsigned char* result);
-
-    static Status constant_regex_partial_fn(LikeSearchState* state, const StringValue& val,
-                                            const StringValue& pattern, unsigned char* result);
 };
 
 void register_function_like(SimpleFunctionFactory& factory) {

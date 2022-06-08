@@ -93,6 +93,36 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const StringV
     return Status::OK();
 }
 
+Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& val,
+                                 const StringValue& pattern, unsigned char* result) {
+    std::string re_pattern(pattern.ptr, pattern.len);
+
+    hs_database_t *database;
+    hs_compile_error_t *compile_err;
+    if (hs_compile(re_pattern.c_str(), HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, &database,
+                &compile_err) != HS_SUCCESS) {
+        hs_free_compile_error(compile_err);
+        return Status::RuntimeError("hs_compile regex pattern error");
+    }
+
+    hs_scratch_t *scratch = NULL;
+    if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
+        hs_free_database(database);
+        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
+    }
+
+    auto ret = hs_scan(database, val.ptr, val.len, 0,
+                       scratch, state->hs_match_handler, (void*)result);
+    if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
+        return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
+    }
+
+    hs_free_scratch(scratch);
+    hs_free_database(database);
+
+    return Status::OK();
+}
+
 Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
                                       size_t /*input_rows_count*/) {
@@ -196,35 +226,14 @@ Status FunctionLike::like_fn(LikeSearchState* state, const StringValue& val,
     std::string re_pattern;
     convert_like_pattern(state, std::string(pattern.ptr, pattern.len), &re_pattern);
 
-    hs_database_t *database;
-    hs_compile_error_t *compile_err;
-    if (hs_compile(re_pattern.c_str(), HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, &database,
-                &compile_err) != HS_SUCCESS) {
-        hs_free_compile_error(compile_err);
-        return Status::RuntimeError("hs_compile regex pattern error");
-    }
-
-    hs_scratch_t *scratch = NULL;
-    if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
-        hs_free_database(database);
-        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
-    }
-
-    auto ret = hs_scan(database, val.ptr, val.len, 0,
-                       scratch, state->hs_match_handler, (void*)result);
-    if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
-        return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
-    }
-
-    hs_free_scratch(scratch);
-    hs_free_database(database);
-
-    return Status::OK();
+    return regexp_fn(state, val, {re_pattern.c_str(), (int)re_pattern.size()}, result);
 }
 
 void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::string& pattern,
                                         std::string* re_pattern) {
     re_pattern->clear();
+
+    // add ^ to pattern head to match line head
     if (pattern.size() > 0 && pattern[0] != '%') {
         re_pattern->append("^");
     }
@@ -254,6 +263,7 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
         }
     }
 
+    // add $ to pattern tail to match line tail
     if (pattern.size() > 0 && pattern[pattern.size()-1] != '%') {
         re_pattern->append("$");
     }
@@ -381,33 +391,5 @@ Status FunctionRegexp::prepare(FunctionContext* context,
     return Status::OK();
 }
 
-Status FunctionRegexp::regexp_fn(LikeSearchState* state, const StringValue& val,
-                                 const StringValue& pattern, unsigned char* result) {
-    std::string re_pattern(pattern.ptr, pattern.len);
-    hs_database_t *database;
-    hs_compile_error_t *compile_err;
-    if (hs_compile(re_pattern.c_str(), HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, &database,
-                &compile_err) != HS_SUCCESS) {
-        hs_free_compile_error(compile_err);
-        return Status::RuntimeError("hs_compile regex pattern error");
-    }
-
-    hs_scratch_t *scratch = NULL;
-    if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
-        hs_free_database(database);
-        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
-    }
-
-    auto ret = hs_scan(database, val.ptr, val.len, 0,
-                       scratch, state->hs_match_handler, (void*)result);
-    if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
-        return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
-    }
-
-    hs_free_scratch(scratch);
-    hs_free_database(database);
-
-    return Status::OK();
-}
 
 } // namespace doris::vectorized
