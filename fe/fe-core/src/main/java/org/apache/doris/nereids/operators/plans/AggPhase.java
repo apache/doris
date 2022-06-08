@@ -15,33 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.operators.plans;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.analysis.AggregateInfo;
 
-/**
- * Abstract class for all slot in expression.
- */
-public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>> extends NamedExpression<EXPR_TYPE>
-        implements LeafExpression<EXPR_TYPE> {
+public enum AggPhase {
+    FIRST("FIRST", AggregateInfo.AggPhase.FIRST),
+    FIRST_MERGE("FIRST_MERGE", AggregateInfo.AggPhase.FIRST_MERGE),
+    SECOND("SECOND", AggregateInfo.AggPhase.SECOND),
+    SECOND_MERGE("SECOND_MERGE", AggregateInfo.AggPhase.SECOND_MERGE);
 
-    private int id;
+    private final String name;
 
-    public Slot(NodeType type, int id, Expression... children) {
-        super(type, children);
-        this.id = id;
+    private final AggregateInfo.AggPhase execAggPhase;
+
+    AggPhase(String name, AggregateInfo.AggPhase execAggPhase) {
+        this.name = name;
+        this.execAggPhase = execAggPhase;
     }
 
-    public Slot(NodeType type) {
-        super(type);
+    public boolean isMerge() {
+        return this == FIRST_MERGE || this == SECOND_MERGE;
+    }
+
+    public AggregateInfo.AggPhase toExec() {
+        return this.execAggPhase;
     }
 
     @Override
-    public Slot toSlot() {
-        return this;
-    }
-
-    public int getId() {
-        return id;
+    public String toString() {
+        return name;
     }
 }

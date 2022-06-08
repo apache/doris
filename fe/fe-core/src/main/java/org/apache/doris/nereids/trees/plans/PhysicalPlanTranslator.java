@@ -29,6 +29,7 @@ import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
@@ -83,7 +84,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<Slot> slotList = physicalPlan.getOutput();
         TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
         PhysicalAggregation physicalAggregation = (PhysicalAggregation) physicalPlan.getOperator();
-        AggregateInfo.AggPhase phase = physicalAggregation.getAggPhase();
+        AggregateInfo.AggPhase phase = physicalAggregation.getAggPhase().toExec();
 
         List<Expression> groupByExpressionList = physicalAggregation.getGroupByExprList();
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
@@ -103,7 +104,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         switch (phase) {
             case FIRST:
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
-                        outputTupleDesc, AggregateInfo.AggPhase.FIRST, context.getAnalyzer());
+                        outputTupleDesc, AggregateInfo.AggPhase.FIRST);
                 aggregationNode = new AggregationNode(context.nextNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
                 aggregationNode.unsetNeedsFinalize();
                 aggregationNode.setUseStreamingPreagg(physicalAggregation.isUsingStream());
@@ -114,7 +115,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 break;
             case FIRST_MERGE:
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
-                        outputTupleDesc, AggregateInfo.AggPhase.FIRST_MERGE, context.getAnalyzer());
+                        outputTupleDesc, AggregateInfo.AggPhase.FIRST_MERGE);
                 aggregationNode = new AggregationNode(context.nextNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
                 break;
             default:
@@ -172,9 +173,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
         ExchangeNode exchNode = (ExchangeNode) mergeFragment.getPlanRoot();
-        exec(() -> {
-            exchNode.init(context.getAnalyzer());
-        });
         exchNode.unsetLimit();
         if (physicalSort.hasLimit()) {
             exchNode.setLimit(limit);
@@ -221,9 +219,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             crossJoinNode.addConjuncts(conjuncts);
             ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), rightFragment.getPlanRoot(), false);
             exchangeNode.setNumInstances(rightFragmentPlanRoot.getNumInstances());
-            exec(() -> {
-                exchangeNode.init(context.getAnalyzer());
-            });
             exchangeNode.setFragment(leftFragment);
             leftFragmentPlanRoot.setChild(1, exchangeNode);
             rightFragment.setDestination(exchangeNode);
@@ -246,10 +241,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         leftExch.setNumInstances(leftFragmentPlanRoot.getNumInstances());
         ExchangeNode rightExch = new ExchangeNode(context.nextNodeId(), leftFragmentPlanRoot, false);
         rightExch.setNumInstances(rightFragmentPlanRoot.getNumInstances());
-        exec(() -> {
-            leftExch.init(context.getAnalyzer());
-            rightExch.init(context.getAnalyzer());
-        });
         hashJoinNode.setChild(0, leftFragmentPlanRoot);
         hashJoinNode.setChild(1, leftFragmentPlanRoot);
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
@@ -268,7 +259,14 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visitPhysicalFilter(
             PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan, PlanContext context) {
-        return visit((PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) physicalPlan.child(0), context);
+        PlanFragment inputFragment = visit(
+                (PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) physicalPlan.child(0), context);
+        PlanNode planNode = inputFragment.getPlanRoot();
+        PhysicalFilter filter = (PhysicalFilter) physicalPlan.getOperator();
+        Expression expression = filter.getPredicates();
+        List<Expression> expressionList = Utils.extractConjuncts(expression);
+        expressionList.stream().map(ExpressionConverter.converter::convert).forEach(planNode::addConjunct);
+        return inputFragment;
     }
 
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, PlanContext context, Table table) {
@@ -276,9 +274,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
             SlotReference slotReference = (SlotReference) slot;
-            SlotDescriptor slotDescriptor = context.addSlotDesc(tupleDescriptor);
+            SlotDescriptor slotDescriptor = context.addSlotDesc(tupleDescriptor, slot.getId());
             slotDescriptor.setColumn(slotReference.getColumn());
             slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
+            slotDescriptor.setIsMaterialized(true);
         }
         return tupleDescriptor;
     }
@@ -287,9 +286,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             PlanContext ctx) {
         ExchangeNode exchangeNode = new ExchangeNode(ctx.nextNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
-        exec(() -> {
-            exchangeNode.init(ctx.getAnalyzer());
-        });
         PlanFragment parentFragment = new PlanFragment(ctx.nextFragmentId(), exchangeNode, parentPartition);
         childFragment.setDestination(exchangeNode);
         childFragment.setOutputPartition(parentPartition);

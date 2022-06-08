@@ -73,6 +73,13 @@ public class DescriptorTable {
         return result;
     }
 
+    public SlotDescriptor addSlotDescriptor(TupleDescriptor d, int id) {
+        SlotDescriptor result = new SlotDescriptor(new SlotId(id), d);
+        d.addSlot(result);
+        slotDescs.put(result.getId(), result);
+        return result;
+    }
+
     /**
      * Create copy of src with new id. The returned descriptor has its mem layout
      * computed.

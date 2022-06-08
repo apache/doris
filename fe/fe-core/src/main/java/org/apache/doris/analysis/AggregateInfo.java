@@ -827,11 +827,10 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     public static AggregateInfo create(ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
-            TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase, Analyzer analyzer) {
+            TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, phase);
         result.outputTupleDesc = tupleDesc;
         result.intermediateTupleDesc = intermediateTupleDesc;
-        result.materializeRequiredSlots(analyzer, null);
         return result;
     }
 

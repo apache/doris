@@ -1,6 +1,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.IdGenerator;
@@ -8,12 +9,15 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 
+import com.clearspring.analytics.util.Lists;
+
 import java.util.List;
 
 public class PlanContext {
-    private List<PlanFragment> planFragmentList;
+    private List<PlanFragment> planFragmentList = Lists.newArrayList();
 
-    private Analyzer analyzer;
+    private DescriptorTable descTable = new DescriptorTable();
+
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
@@ -24,7 +28,7 @@ public class PlanContext {
     }
 
     public TupleDescriptor generateTupleDesc() {
-        return analyzer.getDescTbl().createTupleDescriptor();
+        return descTable.createTupleDescriptor();
     }
 
     public PlanNodeId nextNodeId() {
@@ -32,7 +36,11 @@ public class PlanContext {
     }
 
     public SlotDescriptor addSlotDesc(TupleDescriptor t) {
-        return analyzer.getDescTbl().addSlotDescriptor(t);
+        return descTable.addSlotDescriptor(t);
+    }
+
+    public SlotDescriptor addSlotDesc(TupleDescriptor t, int id) {
+        return descTable.addSlotDescriptor(t, id);
     }
 
     public PlanFragmentId nextFragmentId() {
@@ -43,7 +51,4 @@ public class PlanContext {
         this.planFragmentList.add(planFragment);
     }
 
-    public Analyzer getAnalyzer() {
-        return analyzer;
-    }
 }
