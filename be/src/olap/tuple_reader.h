@@ -20,26 +20,11 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <list>
-#include <memory>
-#include <queue>
-#include <sstream>
-#include <stack>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "exprs/bloomfilter_predicate.h"
 #include "olap/collect_iterator.h"
-#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
-#include "olap/olap_cond.h"
-#include "olap/olap_define.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/tablet.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -49,7 +34,7 @@ class RowCursor;
 class TupleReader final : public TabletReader {
 public:
     // Initialize TupleReader with tablet, data version and fetch range.
-    Status init(const ReaderParams& read_params, bool is_alter_table = false) override;
+    Status init(const ReaderParams& read_params) override;
 
     Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                      bool* eof) override {

@@ -23,14 +23,10 @@
 #include <unordered_set>
 
 #include "olap/collect_iterator.h"
+#include "olap/olap_common.h"
 #include "olap/row.h"
-#include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/schema.h"
-#include "olap/storage_engine.h"
 #include "runtime/mem_pool.h"
-#include "util/date_func.h"
 
 using std::nothrow;
 using std::set;
@@ -69,9 +65,9 @@ Status TupleReader::_init_collect_iter(const ReaderParams& read_params,
     return Status::OK();
 }
 
-Status TupleReader::init(const ReaderParams& read_params, bool is_alter_table) {
-    TabletReader::init(read_params, is_alter_table);
-    if (is_alter_table) {
+Status TupleReader::init(const ReaderParams& read_params) {
+    TabletReader::init(read_params);
+    if (read_params.reader_type == READER_ALTER_TABLE) {
         return Status::OK();
     }
 

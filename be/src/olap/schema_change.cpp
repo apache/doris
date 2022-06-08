@@ -817,7 +817,7 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
 
     auto merge_error = [&]() -> bool {
-        while (_heap.size() > 0) {
+        while (!_heap.empty()) {
             MergeElement element = _heap.top();
             _heap.pop();
             SAFE_DELETE(element.row_cursor);
@@ -915,7 +915,6 @@ void RowBlockMerger::_pop_heap() {
     element.row_block->get_row(element.row_block_index, element.row_cursor);
 
     _heap.push(element);
-    return;
 }
 
 Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
@@ -1467,7 +1466,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
             reader_params.origin_return_columns = &reader_params.return_columns;
             reader_params.version = {0, end_version};
-            RETURN_NOT_OK(reader.init(reader_params, true));
+            RETURN_NOT_OK(reader.init(reader_params));
 
             res = delete_handler.init(base_tablet->tablet_schema(),
                                       base_tablet->delete_predicates(), end_version, &reader);

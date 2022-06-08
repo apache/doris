@@ -30,18 +30,12 @@
 #include "olap/null_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row.h"
-#include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/rowset/column_data.h"
 #include "olap/schema.h"
-#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.hpp"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
-#include "vec/olap/vcollect_iterator.h"
 
 using std::nothrow;
 using std::set;
@@ -106,14 +100,14 @@ TabletReader::~TabletReader() {
     }
 }
 
-Status TabletReader::init(const ReaderParams& read_params, bool is_alter_table) {
+Status TabletReader::init(const ReaderParams& read_params) {
 #ifndef NDEBUG
     _predicate_mem_pool.reset(new MemPool("TabletReader:" + read_params.tablet->full_name()));
 #else
     _predicate_mem_pool.reset(new MemPool());
 #endif
 
-    Status res = _init_params(read_params, is_alter_table);
+    Status res = _init_params(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
@@ -233,7 +227,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     return Status::OK();
 }
 
-Status TabletReader::_init_params(const ReaderParams& read_params, bool is_alter_table) {
+Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
@@ -245,7 +239,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params, bool is_alter
     _init_conditions_param(read_params);
     _init_load_bf_columns(read_params);
 
-    Status res = _init_delete_condition(read_params, is_alter_table);
+    Status res = _init_delete_condition(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init delete param. res = " << res;
         return res;
@@ -833,7 +827,7 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
     }
 }
 
-Status TabletReader::_init_delete_condition(const ReaderParams& read_params, bool is_alter_table) {
+Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         return Status::OK();
     }
@@ -850,7 +844,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params, boo
                                     read_params.version.second, this);
     };
 
-    if (is_alter_table) {
+    if (read_params.reader_type == READER_ALTER_TABLE) {
         return delete_init();
     }
 

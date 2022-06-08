@@ -104,10 +104,8 @@ public:
         _add_filtered_rows(rowset_reader->filtered_rows());
 
         // Check row num changes
-        if (config::row_nums_check) {
-            if (!_check_row_nums(rowset_reader, *rowset_writer)) {
-                return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
-            }
+        if (config::row_nums_check && !_check_row_nums(rowset_reader, *rowset_writer)) {
+            return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
         }
 
         LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()

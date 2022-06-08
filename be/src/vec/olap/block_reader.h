@@ -19,13 +19,9 @@
 
 #include <parallel_hashmap/phmap.h>
 
-#include "olap/collect_iterator.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/tablet.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris {
@@ -37,7 +33,7 @@ public:
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
-    Status init(const ReaderParams& read_params, bool is_alter_table = false) override;
+    Status init(const ReaderParams& read_params) override;
 
     Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                      bool* eof) override {
