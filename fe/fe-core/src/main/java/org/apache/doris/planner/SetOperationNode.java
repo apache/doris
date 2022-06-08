@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -268,8 +269,14 @@ public abstract class SetOperationNode extends PlanNode {
             if (childSlotRef == null) {
                 return false;
             }
-            if (!childSlotRef.getDesc().LayoutEquals(setOpSlotRef.getDesc())) {
-                return false;
+            if (VectorizedUtil.isVectorized()) {
+                if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                    return false;
+                }
+            } else {
+                if (!childSlotRef.getDesc().LayoutEquals(setOpSlotRef.getDesc())) {
+                    return false;
+                }
             }
         }
         return true;
