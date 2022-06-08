@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/local_file_writer.h"
+#include "local_file_writer.h"
 
+#include "service/backend_options.h"
 #include "util/error_util.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
@@ -29,6 +31,8 @@ LocalFileWriter::~LocalFileWriter() {
 }
 
 Status LocalFileWriter::open() {
+    RETURN_IF_ERROR(_check_file_path(_path));
+
     _fp = fopen(_path.c_str(), "w+");
     if (_fp == nullptr) {
         std::stringstream ss;
@@ -69,6 +73,20 @@ Status LocalFileWriter::close() {
         fclose(_fp);
         _fp = nullptr;
     }
+    return Status::OK();
+}
+
+Status LocalFileWriter::_check_file_path(const std::string& file_path) {
+    // For local file writer, the file_path is a local dir.
+    // Here we do a simple security verification by checking whether the file exists.
+    // Because the file path is currently arbitrarily specified by the user,
+    // Doris is not responsible for ensuring the correctness of the path.
+    // This is just to prevent overwriting the existing file.
+    if (FileUtils::check_exist(file_path)) {
+        return Status::InternalError("File already exists: " + file_path +
+                                     ". Host: " + BackendOptions::get_localhost());
+    }
+
     return Status::OK();
 }
 

@@ -18,8 +18,8 @@
 #include <gtest/gtest.h>
 
 #include "exec/decompressor.h"
-#include "exec/local_file_reader.h"
 #include "exec/plain_text_line_reader.h"
+#include "io/local_file_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

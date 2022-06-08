@@ -105,7 +105,7 @@ Status VJsonScanner::open_vjson_reader() {
     } else {
         _cur_vjson_reader.reset(new VJsonReader(_state, _counter, _profile, strip_outer_array,
                                                 num_as_string, fuzzy_parse, &_scanner_eof,
-                                                _cur_file_reader));
+                                                _cur_file_reader.get()));
     }
 
     RETURN_IF_ERROR(_cur_vjson_reader->init(jsonpath, json_root));

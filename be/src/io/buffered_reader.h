@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "exec/file_reader.h"
+#include "file_reader.h"
 #include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 
