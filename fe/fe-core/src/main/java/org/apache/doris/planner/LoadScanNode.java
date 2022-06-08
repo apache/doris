@@ -144,7 +144,11 @@ public abstract class LoadScanNode extends ScanNode {
                 } else {
                     Column column = destSlotDesc.getColumn();
                     if (column.getDefaultValue() != null) {
-                        expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
+                        if (column.getDefaultValueExprDef() != null) {
+                            expr = column.getDefaultValueExpr();
+                        } else {
+                            expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
+                        }
                     } else {
                         if (column.isAllowNull()) {
                             expr = NullLiteral.create(column.getType());

@@ -423,6 +423,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("||", new Integer(SqlParserSymbols.KW_PIPE));
         keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
         keywordMap.put("tablets", new Integer(SqlParserSymbols.KW_TABLETS));
+        keywordMap.put("current_timestamp", new Integer(SqlParserSymbols.KW_CURRENT_TIMESTAMP));
    }
     
   // map from token id to token description

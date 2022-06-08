@@ -1242,7 +1242,11 @@ public class Load {
                         exprs.add(funcExpr.getChild(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            exprs.add(new StringLiteral(column.getDefaultValue()));
+                            if (column.getDefaultValueExprDef() != null) {
+                                exprs.add(column.getDefaultValueExpr());
+                            } else {
+                                exprs.add(new StringLiteral(column.getDefaultValue()));
+                            }
                         } else {
                             if (column.isAllowNull()) {
                                 exprs.add(NullLiteral.create(Type.VARCHAR));
@@ -1261,7 +1265,11 @@ public class Load {
                         innerIfExprs.add(funcExpr.getChild(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
+                            if (column.getDefaultValueExprDef() != null) {
+                                innerIfExprs.add(column.getDefaultValueExpr());
+                            } else {
+                                innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
+                            }
                         } else {
                             if (column.isAllowNull()) {
                                 innerIfExprs.add(NullLiteral.create(Type.VARCHAR));

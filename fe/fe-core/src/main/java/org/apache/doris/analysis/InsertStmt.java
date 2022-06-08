@@ -690,10 +690,14 @@ public class InsertStmt extends DdlStmt {
                      */
                     Preconditions.checkState(col.isAllowNull());
                     resultExprs.add(NullLiteral.create(col.getType()));
-                }
-                else {
-                    StringLiteral defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                    resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                } else {
+                    if (col.getDefaultValueExprDef() != null) {
+                        resultExprs.add(col.getDefaultValueExpr());
+                    } else {
+                        StringLiteral defaultValueExpr;
+                        defaultValueExpr = new StringLiteral(col.getDefaultValue());
+                        resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                    }
                 }
             }
         }
