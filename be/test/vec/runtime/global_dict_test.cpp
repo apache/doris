@@ -25,9 +25,9 @@
 
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_nullable.h"
 namespace doris::vectorized {
 
 TEST(GlobalDictTest, Decode) {
@@ -41,8 +41,8 @@ TEST(GlobalDictTest, Decode) {
     DataTypePtr data_type(std::make_shared<DataTypeInt16>());
     ColumnWithTypeAndName col_type_and_name1(column->get_ptr(), data_type,
                                              "test_dict_encoded_string");
-
-    EXPECT_TRUE(dict->decode(col_type_and_name1));
+    ColumnWithTypeAndName col_type_and_name1_decoded;
+    EXPECT_TRUE(dict->decode(col_type_and_name1, col_type_and_name1_decoded));
 
     auto column2 = ColumnVector<Int16>::create();
     for (size_t i = 0; i < row_num; ++i) {
@@ -51,8 +51,8 @@ TEST(GlobalDictTest, Decode) {
     }
     ColumnWithTypeAndName col_type_and_name2(column2->get_ptr(), data_type,
                                              "test_dict_encoded_string");
-
-    EXPECT_FALSE(dict->decode(col_type_and_name2));
+    ColumnWithTypeAndName col_type_and_name2_decoded;
+    EXPECT_FALSE(dict->decode(col_type_and_name2, col_type_and_name2_decoded));
 
     auto nullable_column =
             ColumnNullable::create(column2->get_ptr(), ColumnUInt8::create(column2->size(), 0));
@@ -66,8 +66,8 @@ TEST(GlobalDictTest, Decode) {
 
     ColumnWithTypeAndName col_type_and_name3(nullable_column->get_ptr(), make_nullable(data_type),
                                              "test_dict_encoded_string");
-
-    EXPECT_TRUE(dict->decode(col_type_and_name3));
+    ColumnWithTypeAndName col_type_and_name3_decoded;
+    EXPECT_TRUE(dict->decode(col_type_and_name3, col_type_and_name3_decoded));
 }
 
 } // namespace doris::vectorized

@@ -43,7 +43,7 @@ public class DecodeNode extends PlanNode {
     private static final String NAME = "Decode Node";
 
     public DecodeNode(PlanNodeId id, PlanNode child, Map<Integer, Long> slotIdToDictId, ArrayList<TupleId> tupleIdList) {
-        super(id, tupleIdList, NAME);
+        super(id, tupleIdList, NAME, NodeType.DECODE_NODE);
         this.addChild(child);
         this.tblRefIds = child.tblRefIds;
         this.slotIdToDictId = slotIdToDictId;

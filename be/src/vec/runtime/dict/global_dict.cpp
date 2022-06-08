@@ -32,27 +32,27 @@ GlobalDict::GlobalDict(const std::vector<std::string>& data) : Dict(data) {
     }
 }
 
-bool GlobalDict::decode(ColumnWithTypeAndName& col) {
-    assert(col.column && col.type);
+bool GlobalDict::decode(const ColumnWithTypeAndName& src, ColumnWithTypeAndName& dst) {
+    assert(src.column && src.type);
 
     const char* encoded_column_data = nullptr;
-    if (col.type->is_nullable()) {
-        auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(col.column.get());
+    if (src.type->is_nullable()) {
+        auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(src.column.get());
         encoded_column_data = nullable_column->get_nested_column_ptr()->get_raw_data().data;
     } else {
-        encoded_column_data = col.column->get_raw_data().data;
+        encoded_column_data = src.column->get_raw_data().data;
     }
 
-    size_t row_num = col.column->size();
+    size_t row_num = src.column->size();
     size_t value_num = dict_value_num();
     auto decoded_column = ColumnString::create();
     DataTypePtr type(std::make_shared<DataTypeString>());
-    assert((col.type->is_nullable() &&
-            col.type->equals(DataTypeNullable(std::make_shared<DataTypeInt16>()))) ||
-           (!col.type->is_nullable() && col.type->equals(DataTypeInt16())));
+    assert((src.type->is_nullable() &&
+            src.type->equals(DataTypeNullable(std::make_shared<DataTypeInt16>()))) ||
+           (!src.type->is_nullable() && src.type->equals(DataTypeInt16())));
     Int16* p = (Int16*)encoded_column_data;
-    if (col.type->is_nullable()) {
-        auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(col.column.get());
+    if (src.type->is_nullable()) {
+        auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(src.column.get());
         auto _nullmap = nullable_column->get_null_map_data().data();
         for (size_t i = 0; i < row_num; ++i) {
             //in nullable column, if the item is null, *p can be any value
@@ -81,15 +81,16 @@ bool GlobalDict::decode(ColumnWithTypeAndName& col) {
         }
     }
 
-    if (col.type->is_nullable()) {
-        auto nullable_column = assert_cast<const ColumnNullable*>(col.column.get());
-        col.column = ColumnNullable::create(std::move(decoded_column),
+    if (src.type->is_nullable()) {
+        auto nullable_column = assert_cast<const ColumnNullable*>(src.column.get());
+        dst.column = ColumnNullable::create(std::move(decoded_column),
                                             nullable_column->get_null_map_column().get_ptr());
-        col.type = std::make_shared<DataTypeNullable>(type);
+        dst.type = std::make_shared<DataTypeNullable>(type);
     } else {
-        col.column = std::move(decoded_column);
-        col.type = type;
+        dst.column = std::move(decoded_column);
+        dst.type = type;
     }
+    dst.name = src.name;
 
     return true;
 }

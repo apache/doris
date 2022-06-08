@@ -79,7 +79,12 @@ Status DecodeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             const auto it = _dicts.find(slot.first);
             assert(it != _dicts.end());
             assert(slot.second < input_block.columns());
-            if (!it->second->decode(input_block.get_by_position(slot.second))) {
+            auto pos = slot.second;
+            ColumnWithTypeAndName decoded_column;
+            if (it->second->decode(input_block.get_by_position(pos), decoded_column)) {
+                input_block.erase(pos);
+                input_block.insert(pos, decoded_column);
+            } else {
                 return Status::Aborted("Decode dict encoded column failed");
             }
         }

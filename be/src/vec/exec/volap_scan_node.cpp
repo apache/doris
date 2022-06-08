@@ -236,9 +236,13 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
             return Status::InternalError(
                     "must enable_storage_vectorization before using global dict");
         }
+        std::map<int, GlobalDictSPtr> dicts;
+        for (const auto& item : _olap_scan_node.slot_to_dict) {
+            dicts.emplace(item.first, state->get_global_dict_by_dict_id(item.second));
+        }
         for (auto slot : _tuple_desc->slots()) {
-            if (state->has_global_dict(slot->id())) {
-                slot->set_global_dict(state->get_global_dict(slot->id()));
+            if (dicts.find(slot->id()) != dicts.end()) {
+                slot->set_global_dict(dicts[slot->id()]);
             }
         }
     }

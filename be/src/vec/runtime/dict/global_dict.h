@@ -27,7 +27,7 @@ public:
     GlobalDict(const std::vector<std::string>& data);
 
     //int column to string column
-    bool decode(ColumnWithTypeAndName& col);
+    bool decode(const ColumnWithTypeAndName& src, ColumnWithTypeAndName& dst);
 
     int id() { return _id; };
 

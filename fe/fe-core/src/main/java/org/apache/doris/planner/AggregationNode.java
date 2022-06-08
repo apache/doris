@@ -67,7 +67,7 @@ import java.util.stream.Collectors;
  */
 public class AggregationNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(AggregationNode.class);
-    private final AggregateInfo aggInfo;
+    private AggregateInfo aggInfo;
 
     // Set to true if this aggregation node needs to run the Finalize step. This
     // node is the root node of a distributed aggregation.
