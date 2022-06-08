@@ -17,32 +17,22 @@
 
 #include "hdfs_reader_writer.h"
 
-#if defined(__x86_64__)
 #include "hdfs_file_reader.h"
 #include "hdfs_writer.h"
-#endif
 
 namespace doris {
 
 Status HdfsReaderWriter::create_reader(const THdfsParams& hdfs_params, const std::string& path,
                                        int64_t start_offset, FileReader** reader) {
-#if defined(__x86_64__)
     *reader = new HdfsFileReader(hdfs_params, path, start_offset);
     return Status::OK();
-#else
-    return Status::InternalError("HdfsFileReader do not support on non x86 platform");
-#endif
 }
 
 Status HdfsReaderWriter::create_writer(std::map<std::string, std::string>& properties,
                                        const std::string& path,
                                        std::unique_ptr<FileWriter>& writer) {
-#if defined(__x86_64__)
     writer.reset(new HDFSWriter(properties, path));
     return Status::OK();
-#else
-    return Status::InternalError("HdfsWriter do not support on non x86 platform");
-#endif
 }
 
 } // namespace doris

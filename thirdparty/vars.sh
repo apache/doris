@@ -324,16 +324,10 @@ IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
-GSASL_NAME="libgsasl-1.10.0.tar.gz"
-GSASL_SOURCE="libgsasl-1.10.0"
-GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
-
-# gsasl 1.8.0 is only used for libhdfs3 with kerberos
-GSASL2_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
-GSASL2_NAME="libgsasl-1.8.0.tar.gz"
-GSASL2_SOURCE="libgsasl-1.8.0"
-GSASL2_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
+GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_NAME="libgsasl-1.8.0.tar.gz"
+GSASL_SOURCE="libgsasl-1.8.0"
+GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
 
 # krb5
 KRB5_DOWNLOAD="https://kerberos.org/dist/krb5/1.19/krb5-1.19.tar.gz"
@@ -342,10 +336,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libhdfs3-master.zip"
-HDFS3_NAME="libhdfs3-master.zip"
-HDFS3_SOURCE="libhdfs3-master"
-HDFS3_MD5SUM="8c071fd2e7b0b1ccc1ec9c0d073d4146"
+HDFS3_DOWNLOAD="https://github.com/yangzhg/libhdfs3/archive/refs/tags/v2.3.0.tar.gz"
+HDFS3_NAME="libhdfs3-2.3.0.tar.gz"
+HDFS3_SOURCE="libhdfs3-2.3.0"
+HDFS3_MD5SUM="f647975fb7ad03bf25a14f530b1a5c06"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -430,7 +424,6 @@ LZMA
 XML2
 IDN
 GSASL
-GSASL2
 KRB5
 HDFS3
 LIBDIVIDE

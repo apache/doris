@@ -666,6 +666,7 @@ build_arrow() {
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF \
+    -DBoost_USE_STATIC_RUNTIME=ON \
     -DARROW_GFLAGS_USE_SHARED=OFF \
     -Dgflags_ROOT=$TP_INSTALL_DIR \
     -DGLOG_ROOT=$TP_INSTALL_DIR \
@@ -924,16 +925,7 @@ build_gsasl() {
     check_if_source_exist $GSASL_SOURCE
     cd $TP_SOURCE_DIR/$GSASL_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
-    make -j $PARALLEL && make install
-}
-
-# build_gsasl2 just for libgsasl1.8.0
-build_gsasl2() {
-    check_if_source_exist $GSASL2_SOURCE
-    cd $TP_SOURCE_DIR/$GSASL2_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
+    ../configure --prefix=$TP_INSTALL_DIR --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
     make -j $PARALLEL && make install
 }
 
@@ -942,8 +934,8 @@ build_krb5() {
     check_if_source_exist $KRB5_SOURCE
     cd $TP_SOURCE_DIR/$KRB5_SOURCE/src
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    CFLAGS="-fcommon" \
-    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --disable-shared --enable-static
+    CFLAGS="-fcommon -fPIC" \
+    ../configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static
     make -j $PARALLEL && make install
 }
 
@@ -952,19 +944,10 @@ build_hdfs3() {
     check_if_source_exist $HDFS3_SOURCE
     cd $TP_SOURCE_DIR/$HDFS3_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
-    # build libhdfs3 without kerberos
-    ../bootstrap --dependency="$TP_INSTALL_DIR" --prefix=$TP_INSTALL_DIR
-    make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
-    make install
-}
-
-# hdfs3_with_kerberos
-build_hdfs3_with_kerberos() {
-    check_if_source_exist $HDFS3_SOURCE
-    cd $TP_SOURCE_DIR/$HDFS3_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
     # build libhdfs3 with kerberos support
-    ../bootstrap --dependency="$HDFS3_KRB5_INSTALL_DIR:$TP_INSTALL_DIR -DWITH_KERBEROS=true" --prefix=$HDFS3_KRB5_INSTALL_DIR
+    CPPLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    ../bootstrap --dependency="$TP_INSTALL_DIR" --prefix=$TP_INSTALL_DIR --disable-shared --enable-static
     make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
     make install
 }
@@ -1044,10 +1027,8 @@ build_lzma
 build_xml2
 build_idn
 build_gsasl
-build_gsasl2
 build_krb5
 build_hdfs3
-build_hdfs3_with_kerberos
 build_benchmark
 build_simdjson
 build_libbacktrace
