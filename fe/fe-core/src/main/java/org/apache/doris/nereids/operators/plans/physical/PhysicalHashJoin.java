@@ -5,9 +5,6 @@ import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.Utils;
-
-import java.util.List;
 
 public class PhysicalHashJoin
     extends PhysicalBinaryOperator

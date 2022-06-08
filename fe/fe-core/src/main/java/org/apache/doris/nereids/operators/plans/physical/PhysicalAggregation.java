@@ -7,7 +7,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import java.util.List;
 
-public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregation, PhysicalPlan>{
+public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregation, PhysicalPlan> {
 
     private List<Expression> groupByExprList;
 
@@ -25,7 +25,8 @@ public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregati
         super(OperatorType.PHYSICAL_AGGREGATION);
     }
 
-    public PhysicalAggregation(OperatorType type, List<Expression> groupByExprList, List<Expression> aggExprList, AggregateInfo.AggPhase aggPhase) {
+    public PhysicalAggregation(OperatorType type, List<Expression> groupByExprList, List<Expression> aggExprList,
+            AggregateInfo.AggPhase aggPhase) {
         super(type);
         this.groupByExprList = groupByExprList;
         this.aggExprList = aggExprList;

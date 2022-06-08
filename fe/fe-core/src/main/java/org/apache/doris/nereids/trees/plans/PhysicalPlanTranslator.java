@@ -193,6 +193,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         return mergeFragment;
     }
 
+    // TODO: support broadcast join / co-locate / bucket shuffle join later
     @Override
     public PlanFragment visitPhysicalHashJoinPlan(
             PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan, PlanContext context) {

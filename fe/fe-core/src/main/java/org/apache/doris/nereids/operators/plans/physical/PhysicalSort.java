@@ -31,17 +31,13 @@ public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPl
 
     private List<OrderKey> orderList;
 
-    // if true, the output of this node feeds an AnalyticNode
-    private boolean isAnalyticSort;
-
     private boolean useTopN;
 
-    public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean isAnalyticSort, boolean useTopN) {
+    public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean useTopN) {
         super(OperatorType.PHYSICAL_SORT);
         this.offset = offset;
         this.limit = limit;
         this.orderList = orderList;
-        this.isAnalyticSort = isAnalyticSort;
         this.useTopN = useTopN;
     }
 
@@ -59,10 +55,6 @@ public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPl
 
     public List<OrderKey> getOrderList() {
         return orderList;
-    }
-
-    public boolean isAnalyticSort() {
-        return isAnalyticSort;
     }
 
     public boolean isUseTopN() {

@@ -64,8 +64,6 @@ public class ExchangeNode extends PlanNode {
     // only if mergeInfo_ is non-null, i.e. this is a merging exchange node.
     private long offset;
 
-    private DataPartition dataPartition;
-
     /**
      * Create ExchangeNode that consumes output of inputNode.
      * An ExchangeNode doesn't have an input node as a child, which is why we
@@ -160,11 +158,4 @@ public class ExchangeNode extends PlanNode {
         return numInstances;
     }
 
-    public DataPartition getDataPartition() {
-        return dataPartition;
-    }
-
-    public void setDataPartition(DataPartition dataPartition) {
-        this.dataPartition = dataPartition;
-    }
 }

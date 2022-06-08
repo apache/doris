@@ -28,7 +28,7 @@ import java.util.List;
  * interface for all concrete physical operator.
  */
 public interface PhysicalOperator<TYPE extends PhysicalOperator<TYPE>> extends PlanOperator<TYPE> {
-    List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs);
 
+    List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs);
 
 }
