@@ -18,7 +18,6 @@
 suite("test_schema_change", "schema_change") {
      // todo: test alter table schema change, such as add/drop/modify/order column
      def tbName = "alter_table_column_type"
-     def jobState = ["PENDING", "WAITING_TXN", "RUNNING", "WAITING_TXN"]
 
      def getJobState = { tableName ->
           def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
@@ -47,14 +46,19 @@ suite("test_schema_change", "schema_change") {
      sql """ insert into ${tbName} values('2021-11-01',1,1,'用户A',1),('2021-11-01',1,1,'用户B',1),('2021-11-01',1,1,'用户A',3),('2021-11-02',1,1,'用户A',1),('2021-11-02',1,1,'用户B',1),('2021-11-02',101,112332121,'用户B',112312),('2021-11-02',103,112332211,'用户B',112312); """
      sql """ alter  table ${tbName} modify column citycode string """
 
-     String result = null;
-     result = getJobState(tbName)
-     while (jobState.contains(result)) {
-          result = getJobState(tbName)
-          sleep(2000)
+     int max_try_time = 100
+     while(max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               qt_desc_uniq_table """ desc ${tbName} """
+               qt_sql """ SELECT * FROM ${tbName} order by event_day,citycode  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(1000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
      }
-
-     qt_desc_uniq_table """ desc ${tbName} """
-     qt_sql """ SELECT * FROM ${tbName}  """
-     sql """ DROP TABLE  ${tbName} """
 }
