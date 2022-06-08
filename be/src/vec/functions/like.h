@@ -131,6 +131,9 @@ protected:
 
     static Status constant_substring_fn(LikeSearchState* state, const StringValue& val,
                                         const StringValue& pattern, unsigned char* result);
+
+    static Status constant_regex_fn(LikeSearchState* state, const StringValue& val,
+                                         const StringValue& pattern, unsigned char* result);
 };
 
 class FunctionLike : public FunctionLikeBase {
@@ -146,9 +149,6 @@ public:
 private:
     static Status like_fn(LikeSearchState* state, const StringValue& val,
                           const StringValue& pattern, unsigned char* result);
-
-    static Status constant_regex_full_fn(LikeSearchState* state, const StringValue& val,
-                                         const StringValue& pattern, unsigned char* result);
 
     static void convert_like_pattern(LikeSearchState* state, const std::string& pattern,
                                      std::string* re_pattern);
