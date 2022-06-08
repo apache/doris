@@ -178,6 +178,16 @@ RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference/Data-Def
 
    删除已创建的远端仓库。删除仓库，仅仅是删除该仓库在 Doris 中的映射，不会删除实际的仓库数据。
 
+## 常见错误
+
+1. RESTORE报错：[20181: invalid md5 of downloaded file:/data/doris.HDD/snapshot/20220607095111.862.86400/19962/668322732/19962.hdr, expected: f05b63cca5533ea0466f62a9897289b5, get: d41d8cd98f00b204e9800998ecf8427e]
+   
+   备份和恢复的表的副本数不一致导致的，执行恢复命令时需指定副本个数，具体命令请参阅[RESTORE](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE.md) 命令手册
+
+2. RESTORE报错：[COMMON_ERROR, msg: Could not set meta version to 97 since it is lower than minimum required version 100]
+
+   备份和恢复不是同一个版本导致的，使用指定的 meta_version 来读取之前备份的元数据。注意，该参数作为临时方案，仅用于恢复老版本 Doris 备份的数据。最新版本的备份数据中已经包含 meta version，无需再指定，针对上述错误具体解决方案指定meta_version = 100，具体命令请参阅[RESTORE](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE.md) 命令手册
+
 ## 更多帮助
 
 关于 RESTORE 使用的更多详细语法及最佳实践，请参阅 [RESTORE](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP RESTORE` 获取更多帮助信息。
