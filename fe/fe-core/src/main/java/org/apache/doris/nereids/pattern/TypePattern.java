@@ -27,6 +27,11 @@ public class TypePattern<T extends TreeNode> extends Pattern<T> {
     }
 
     @Override
+    public TypePattern<T> withPredicates(List<Predicate<T>> predicates) {
+        return new TypePattern(type, predicates, children.toArray(new Pattern[0]));
+    }
+
+    @Override
     public boolean matchOperator(Operator operator) {
         return type.isInstance(operator);
     }

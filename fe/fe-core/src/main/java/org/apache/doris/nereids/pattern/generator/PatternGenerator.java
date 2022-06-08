@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.nereids.pattern.generator;
 
 import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
@@ -27,24 +44,34 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public abstract class PatternGenerator {
-    protected final OperatorAnalyzer analyzer;
+    protected final PatternGeneratorAnalyzer analyzer;
     protected final ClassDeclaration opType;
     protected final Set<String> parentClass;
     protected final List<EnumFieldPatternInfo> enumFieldPatternInfos;
     protected final List<String> generatePatterns = new ArrayList<>();
 
-    public PatternGenerator(OperatorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
+    public PatternGenerator(PatternGeneratorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
         this.analyzer = analyzer;
         this.opType = opType;
         this.parentClass = parentClass;
         this.enumFieldPatternInfos = getEnumFieldPatternInfos();
     }
 
+    public abstract String genericType();
+
+    public abstract String genericTypeWithChildren();
+
+    public abstract Set<String> getImports();
+
+    public abstract boolean isLogical();
+
+    public abstract int childrenNum();
+
     public String getPatternMethodName() {
         return opType.name.substring(0, 1).toLowerCase(Locale.ENGLISH) + opType.name.substring(1);
     }
 
-    public static String generateCode(List<PatternGenerator> generators, OperatorAnalyzer analyzer) {
+    public static String generateCode(List<PatternGenerator> generators, PatternGeneratorAnalyzer analyzer) {
         String generateCode
                 = "// Licensed to the Apache Software Foundation (ASF) under one\n"
                 + "// or more contributor license agreements.  See the NOTICE file\n"
@@ -169,21 +196,21 @@ public abstract class PatternGenerator {
         return parts;
     }
 
-    public static PatternGenerator create(OperatorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
+    public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
         if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator")) {
-            return new LogicalLeafPatternGenerator(analyzer, opType, parentClass);
+            return Optional.of(new LogicalLeafPatternGenerator(analyzer, opType, parentClass));
         } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator")) {
-            return new LogicalUnaryPatternGenerator(analyzer, opType, parentClass);
+            return Optional.of(new LogicalUnaryPatternGenerator(analyzer, opType, parentClass));
         } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator")) {
-            return new LogicalBinaryPatternGenerator(analyzer, opType, parentClass);
+            return Optional.of(new LogicalBinaryPatternGenerator(analyzer, opType, parentClass));
         } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator")) {
-            return new PhysicalLeafPatternGenerator(analyzer, opType, parentClass);
+            return Optional.of(new PhysicalLeafPatternGenerator(analyzer, opType, parentClass));
         } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator")) {
-            return new PhysicalUnaryPatternGenerator(analyzer, opType, parentClass);
+            return Optional.of(new PhysicalUnaryPatternGenerator(analyzer, opType, parentClass));
         } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalBinaryOperator")) {
-            return new PhysicalBinaryPatternGenerator(analyzer, opType, parentClass);
+            return Optional.of(new PhysicalBinaryPatternGenerator(analyzer, opType, parentClass));
         } else {
-            throw new IllegalStateException("Unsupported generate operator type: " + opType.getFullQualifiedName());
+            return Optional.empty();
         }
     }
 
@@ -220,16 +247,6 @@ public abstract class PatternGenerator {
         return generatePatterns();
     }
 
-    public abstract String genericType();
-
-    public abstract String genericTypeWithChildren();
-
-    public abstract Set<String> getImports();
-
-    public abstract boolean isLogical();
-
-    public abstract int childrenNum();
-
     public String generateTypePattern(String patterName, String className,
             String genericParam, String predicate, boolean specifyChildren) {
 
@@ -262,7 +279,7 @@ public abstract class PatternGenerator {
             generatePatterns.add(pattern);
             return pattern;
         } else {
-            String childrenPattern = StringUtils.repeat("new Pattern<>(OperatorType.FIXED)", ", ", childrenNum);
+            String childrenPattern = StringUtils.repeat("Pattern.FIXED", ", ", childrenNum);
             if (childrenNum > 0) {
                 childrenPattern = ", " + childrenPattern;
             }

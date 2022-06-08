@@ -15,25 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.pattern.generator.javaast;
+package org.apache.doris.nereids.pattern.generator;
 
-import java.util.Optional;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-public class TypeParameter implements JavaAstNode {
-    public final String identifier;
-    public final Optional<TypeBound> typeBound;
-
-    public TypeParameter(String identifier, TypeBound typeBound) {
-        this.identifier = identifier;
-        this.typeBound = Optional.ofNullable(typeBound);
-    }
-
-    @Override
-    public String toString() {
-        if (typeBound.isPresent()) {
-            return identifier + " extends " + typeBound.get();
-        } else {
-            return identifier;
-        }
-    }
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.SOURCE)
+public @interface PatternDescribable {
 }

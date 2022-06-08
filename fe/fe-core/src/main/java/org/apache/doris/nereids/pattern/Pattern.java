@@ -163,6 +163,10 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
         throw new RuntimeException();
     }
 
+    public Pattern<T> withPredicates(List<Predicate<T>> predicates) {
+        return new Pattern(operatorType, predicates, children.toArray(new Pattern[0]));
+    }
+
     @Override
     public GroupExpression getGroupExpression() {
         throw new RuntimeException();

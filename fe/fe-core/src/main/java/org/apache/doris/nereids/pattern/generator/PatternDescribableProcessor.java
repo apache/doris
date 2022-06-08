@@ -1,13 +1,27 @@
-package org.apache.doris.nereids.pattern;
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.pattern.generator;
 
 import org.apache.doris.nereids.JavaLexer;
 import org.apache.doris.nereids.JavaParser;
-import org.apache.doris.nereids.pattern.generator.JavaAstBuilder;
-import org.apache.doris.nereids.pattern.generator.OperatorAnalyzer;
 import org.apache.doris.nereids.pattern.generator.javaast.TypeDeclaration;
 
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.DefaultErrorStrategy;
@@ -27,7 +41,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -41,9 +54,9 @@ import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic.Kind;
 import javax.tools.StandardLocation;
 
-@SupportedAnnotationTypes("org.apache.doris.nereids.pattern.Describable")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
-public class DescribableProcessor extends AbstractProcessor {
+@SupportedAnnotationTypes("org.apache.doris.nereids.pattern.generator.PatternDescribable")
+public class PatternDescribableProcessor extends AbstractProcessor {
     private List<File> operatorPaths;
 
     @Override
@@ -56,7 +69,6 @@ public class DescribableProcessor extends AbstractProcessor {
                 .stream()
                 .map(path -> new File(path))
                 .collect(Collectors.toList());
-        System.out.println("Init DescribableProcessor");
     }
 
     @Override
@@ -66,12 +78,12 @@ public class DescribableProcessor extends AbstractProcessor {
         }
         try {
             List<File> operatorFiles = findJavaFiles(operatorPaths);
-            OperatorAnalyzer operatorAnalyzer = new OperatorAnalyzer();
+            PatternGeneratorAnalyzer patternGeneratorAnalyzer = new PatternGeneratorAnalyzer();
             for (File file : operatorFiles) {
                 List<TypeDeclaration> asts = parseJavaFile(file);
-                operatorAnalyzer.addAsts(asts);
+                patternGeneratorAnalyzer.addAsts(asts);
             }
-            String generatePatternCode = operatorAnalyzer.generatePatterns();
+            String generatePatternCode = patternGeneratorAnalyzer.generatePatterns();
             File generatePatternFile = new File(processingEnv.getFiler()
                     .getResource(StandardLocation.SOURCE_OUTPUT, "org.apache.doris.nereids.pattern",
                             "GeneratedPatterns.java").toUri());
@@ -82,7 +94,7 @@ public class DescribableProcessor extends AbstractProcessor {
                 generatePatternFile.getParentFile().mkdirs();
             }
 
-            // bypass create file for processingEnv.getFiler(), compile GeneratePatterns in next compile time
+            // bypass create file for processingEnv.getFiler(), compile GeneratePatterns in next compile term
             try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(generatePatternFile))) {
                 bufferedWriter.write(generatePatternCode);
             }

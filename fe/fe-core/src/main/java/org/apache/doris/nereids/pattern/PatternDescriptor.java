@@ -47,16 +47,12 @@ public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends T
 
     public <OUTPUT_TYPE extends RULE_TYPE> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> then(
             Function<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
-        return new PatternMatcher<>(patternWithPredicates(), defaultPromise, ctx -> matchedAction.apply(ctx.root));
+        return new PatternMatcher<>(
+                pattern.withPredicates(predicates), defaultPromise, ctx -> matchedAction.apply(ctx.root));
     }
 
     public <OUTPUT_TYPE extends RULE_TYPE> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> thenApply(
             MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
-        return new PatternMatcher<>(patternWithPredicates(), defaultPromise, matchedAction);
-    }
-
-    public Pattern<INPUT_TYPE> patternWithPredicates() {
-        Pattern[] children = pattern.children().toArray(new Pattern[0]);
-        return new Pattern<>(pattern.getOperatorType(), predicates, children);
+        return new PatternMatcher<>(pattern.withPredicates(predicates), defaultPromise, matchedAction);
     }
 }
