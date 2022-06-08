@@ -267,6 +267,7 @@ public:
         return _tablet_meta->all_beta();
     }
 
+    void find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const;
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
