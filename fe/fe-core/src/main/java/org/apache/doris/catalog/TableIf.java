@@ -62,7 +62,7 @@ public interface TableIf {
 
     String getName();
 
-    Table.TableType getType();
+    TableType getType();
 
     List<Column> getFullSchema();
 
@@ -74,4 +74,17 @@ public interface TableIf {
 
     Column getColumn(String name);
 
+    public enum TableType {
+        MYSQL,
+        ODBC,
+        OLAP,
+        SCHEMA,
+        INLINE_VIEW,
+        VIEW,
+        BROKER,
+        ELASTICSEARCH,
+        HIVE,
+        ICEBERG,
+        HUDI
+    }
 }

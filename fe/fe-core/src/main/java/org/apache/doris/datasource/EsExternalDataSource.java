@@ -47,8 +47,8 @@ public class EsExternalDataSource extends ExternalDataSource {
         return null;
     }
 
-    @Override
-    public List<ExternalScanRange> getExternalScanRanges(SessionContext ctx) {
-        return null;
-    }
+//    @Override
+//    public List<ExternalScanRange> getExternalScanRanges(SessionContext ctx) {
+//        return null;
+//    }
 }

@@ -60,47 +60,47 @@ public interface DatabaseIf {
 
     boolean isTableExist(String tableName);
 
-    List<Table> getTables();
+    List<TableIf> getTables();
 
-    List<Table> getTablesOnIdOrder();
+    List<TableIf> getTablesOnIdOrder();
 
-    List<Table> getViews();
+    List<TableIf> getViews();
 
-    List<Table> getTablesOnIdOrderIfExist(List<Long> tableIdList);
+    List<TableIf> getTablesOnIdOrderIfExist(List<Long> tableIdList);
 
-    List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException;
+    List<TableIf> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException;
 
     Set<String> getTableNamesWithLock();
 
-    Table getTableNullable(String tableName);
+    TableIf getTableNullable(String tableName);
 
-    Optional<Table> getTable(String tableName);
+    Optional<TableIf> getTable(String tableName);
 
-    Optional<Table> getTable(long tableId);
+    Optional<TableIf> getTable(long tableId);
 
-    <E extends Exception> Table getTableOrException(String tableName, java.util.function.Function<String, E> e)
-            throws E;
+    <E extends Exception> TableIf getTableOrException(String tableName, java.util.function.Function<String, E> e)
+        throws E;
 
-    <E extends Exception> Table getTableOrException(long tableId, java.util.function.Function<Long, E> e) throws E;
+    <E extends Exception> TableIf getTableOrException(long tableId, java.util.function.Function<Long, E> e) throws E;
 
-    Table getTableOrMetaException(String tableName) throws MetaNotFoundException;
+    TableIf getTableOrMetaException(String tableName) throws MetaNotFoundException;
 
-    Table getTableOrMetaException(long tableId) throws MetaNotFoundException;
-
-    @SuppressWarnings("unchecked")
-    <T extends Table> T getTableOrMetaException(String tableName, Table.TableType tableType)
-            throws MetaNotFoundException;
+    TableIf getTableOrMetaException(long tableId) throws MetaNotFoundException;
 
     @SuppressWarnings("unchecked")
-    <T extends Table> T getTableOrMetaException(long tableId, Table.TableType tableType) throws MetaNotFoundException;
+    <T extends TableIf>
+    T getTableOrMetaException(String tableName, TableIf.TableType tableType) throws MetaNotFoundException;
 
-    Table getTableOrDdlException(String tableName) throws DdlException;
+    @SuppressWarnings("unchecked")
+    <T extends TableIf> T getTableOrMetaException(long tableId, TableIf.TableType tableType) throws MetaNotFoundException;
 
-    Table getTableOrDdlException(long tableId) throws DdlException;
+    TableIf getTableOrDdlException(String tableName) throws DdlException;
 
-    Table getTableOrAnalysisException(String tableName) throws AnalysisException;
+    TableIf getTableOrDdlException(long tableId) throws DdlException;
+
+    TableIf getTableOrAnalysisException(String tableName) throws AnalysisException;
 
     OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException;
 
-    Table getTableOrAnalysisException(long tableId) throws AnalysisException;
+    TableIf getTableOrAnalysisException(long tableId) throws AnalysisException;
 }

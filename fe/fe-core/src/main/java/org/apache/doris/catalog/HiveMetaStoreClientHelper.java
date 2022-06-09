@@ -42,6 +42,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -67,12 +68,16 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Helper class for HiveMetaStoreClient
  */
 public class HiveMetaStoreClientHelper {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClientHelper.class);
+
+    private static final Pattern digitPattern = Pattern.compile("(\\d+)");
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -324,6 +329,18 @@ public class HiveMetaStoreClientHelper {
             client.close();
         }
         return table;
+    }
+
+    public static List<FieldSchema> getSchema(String dbName, String tableName, String metaStoreUris) throws DdlException {
+        HiveMetaStoreClient client = getClient(metaStoreUris);
+        try {
+            return client.getSchema(dbName, tableName);
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        } finally {
+            client.close();
+        }
     }
 
     /**
@@ -598,5 +615,61 @@ public class HiveMetaStoreClientHelper {
             stack.push(new ExprNodeConstantDesc(ti, val));
             return this;
         }
+    }
+
+    public static Type hiveTypeToDorisType(String hiveType) {
+        String lowerCaseType = hiveType.toLowerCase();
+        if (lowerCaseType.equals("boolean")) {
+            return Type.BOOLEAN;
+        }
+        if (lowerCaseType.equals("tinyint")) {
+            return Type.TINYINT;
+        }
+        if (lowerCaseType.equals("smallint")) {
+            return Type.SMALLINT;
+        }
+        if (lowerCaseType.equals("int")) {
+            return Type.INT;
+        }
+        if (lowerCaseType.equals("bigint")) {
+            return Type.BIGINT;
+        }
+        if (lowerCaseType.startsWith("char")) {
+            ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            if (match.find()) {
+                type.setLength(Integer.parseInt(match.group(1)));
+            }
+            return type;
+        }
+        if (lowerCaseType.startsWith("varchar")) {
+            ScalarType type = ScalarType.createType(PrimitiveType.VARCHAR);
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            if (match.find()) {
+                type.setLength(Integer.parseInt(match.group(1)));
+            }
+            return type;
+        }
+        if (lowerCaseType.startsWith("decimal")) {
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            int precision = ScalarType.DEFAULT_PRECISION;
+            int scale = ScalarType.DEFAULT_SCALE;
+            if (match.find()) {
+                precision = Integer.parseInt(match.group(1));
+            }
+            if (match.find()) {
+                scale = Integer.parseInt(match.group(1));
+            }
+            return ScalarType.createDecimalV2Type(precision, scale);
+        }
+        if (lowerCaseType.equals("date")) {
+            return Type.DATE;
+        }
+        if (lowerCaseType.equals("timestamp")) {
+            return Type.DATETIME;
+        }
+        // TODO: Handle unsupported types.
+        LOG.warn("Hive type {} may not supported, will use STRING instead.", hiveType);
+        return Type.STRING;
     }
 }

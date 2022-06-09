@@ -24,7 +24,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.external.ExternalScanRange;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -83,8 +82,9 @@ public abstract class ExternalDataSource implements DataSourceIf, Writable {
 
     /**
      * @return list of ExternalScanRange
+     * Do we really need this api in DataSource? Feels duplicate with getScanRangeLocations in ExternalScanNode.
      */
-    public abstract List<ExternalScanRange> getExternalScanRanges(SessionContext ctx);
+    //    public abstract List<ExternalScanRange> getExternalScanRanges(SessionContext ctx);
 
 
     @Override
