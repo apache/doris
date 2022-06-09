@@ -283,12 +283,21 @@ public abstract class SetOperationNode extends PlanNode {
             if (childSlotRef == null) {
                 return false;
             }
-            if (VectorizedUtil.isVectorized()
-                    && childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
-                return false;
-            }
-            if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
-                return false;
+            if (VectorizedUtil.isVectorized()) {
+                // On vectorized engine, we have more chance to do passthrough.
+                if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                    return false;
+                }
+                if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
+                    return false;
+                }
+                if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
+                    return false;
+                }
+            } else {
+                if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
+                    return false;
+                }
             }
         }
         return true;
