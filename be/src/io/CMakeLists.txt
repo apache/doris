@@ -22,28 +22,17 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
 set(IO_FILES
-     buffered_reader.cpp
-     local_file_reader.cpp
-     local_file_writer.cpp
      broker_reader.cpp
      broker_writer.cpp
-     s3_reader.cpp
-     s3_writer.cpp
-     hdfs_reader_writer.cpp
+     buffered_reader.cpp
      file_factory.cpp
      hdfs_file_reader.cpp
+     hdfs_reader_writer.cpp
      hdfs_writer.cpp
-     buffered_reader.cpp
      local_file_reader.cpp
      local_file_writer.cpp
-     broker_reader.cpp
-     broker_writer.cpp
      s3_reader.cpp
      s3_writer.cpp
-     hdfs_reader_writer.cpp
-     file_factory.cpp
-     hdfs_file_reader.cpp
-     hdfs_writer.cpp
 )
 
 add_library(IO STATIC
