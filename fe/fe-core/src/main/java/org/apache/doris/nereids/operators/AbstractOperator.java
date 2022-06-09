@@ -39,7 +39,9 @@ public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> impl
         return type;
     }
 
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, PhysicalPlan<?,?>  physicalPlan, C context){ return null; }
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, PhysicalPlan<?, ?> physicalPlan, C context) {
+        return null;
+    }
 
     public long getLimited() {
         return limited;

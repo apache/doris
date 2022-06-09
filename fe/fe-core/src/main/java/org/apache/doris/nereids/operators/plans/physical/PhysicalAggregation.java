@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
