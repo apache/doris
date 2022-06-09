@@ -953,6 +953,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
+    public void projectOutputTuple() throws NotImplementedException {
+        throw new NotImplementedException("The `projectOutputTuple` hasn't been implemented in " + planNodeName + ". "
+        + "But it does not affect the project optimizer");
+    }
+
     /**
      * If an plan node implements this method, its child plan node has the ability to implement the project.
      * The return value of this method will be used as
