@@ -55,6 +55,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -230,13 +231,36 @@ public class HashJoinNode extends PlanNode {
         }
         for (TupleDescriptor tupleDescriptor : outputTupleDescList) {
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                if (slotDescriptor.isMaterialized()
-                        && (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                if (slotDescriptor.isMaterialized() &&
+                        (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
                     outputSlotIds.add(slotDescriptor.getId());
                 }
             }
         }
         initHashOutputSlotIds(outputSlotIds, analyzer);
+    }
+
+    @Override
+    public void projectOutputTuple() throws NotImplementedException {
+        if (vOutputTupleDesc == null) {
+            return;
+        }
+        if (vOutputTupleDesc.getSlots().size() == outputSlotIds.size()) {
+            return;
+        }
+        Iterator<SlotDescriptor> iterator = vOutputTupleDesc.getSlots().iterator();
+        while (iterator.hasNext()) {
+            SlotDescriptor slotDescriptor = iterator.next();
+            for (SlotId outputSlotId : outputSlotIds) {
+                if (slotDescriptor.getId().equals(outputSlotId)) {
+                    break;
+                }
+            }
+            iterator.remove();
+            SlotRef slotRef = new SlotRef(slotDescriptor);
+            vSrcToOutputSMap.removeByRhsExpr(slotRef);
+        }
+        vOutputTupleDesc.computeStatAndMemLayout();
     }
 
     // output slots + predicate slots = input slots
@@ -816,9 +840,11 @@ public class HashJoinNode extends PlanNode {
         }
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                msg.hash_join_node.putToSrcToOutputMap(vSrcToOutputSMap.getLhs().get(i).treeToThrift(),
-                        vSrcToOutputSMap.getRhs().get(i).treeToThrift());
+                msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
+        }
+        if (vOutputTupleDesc != null) {
+            msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
         }
     }
 

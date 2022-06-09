@@ -100,6 +100,16 @@ public final class ExprSubstitutionMap {
         return null;
     }
 
+    public void removeByRhsExpr(Expr rhsExpr) {
+        for (int i = 0; i < rhs.size(); ++i) {
+            if (rhs.get(i).equals(rhsExpr)) {
+                lhs.remove(i);
+                rhs.remove(i);
+                break;
+            }
+        }
+    }
+
     /**
      * Return a map  which is equivalent to applying f followed by g,
      * i.e., g(f()).
