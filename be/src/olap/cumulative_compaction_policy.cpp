@@ -32,10 +32,11 @@ SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
           _size_based_promotion_ratio(size_based_promotion_ratio),
           _size_based_promotion_min_size(size_based_promotion_min_size),
           _size_based_compaction_lower_bound_size(size_based_compaction_lower_bound_size) {
-    // init _levels by divide 2 between size_based_promotion_size and size_based_compaction_lower_bound_size
+    // init _levels by divide 2 between size_based_compaction_lower_bound_size and 1K
+    // cu compaction handle file size less then size_based_compaction_lower_bound_size
     int64_t i_size = size_based_promotion_size / 2;
 
-    while (i_size >= size_based_compaction_lower_bound_size) {
+    while (i_size >= 1024) {
         _levels.push_back(i_size);
         i_size /= 2;
     }
