@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "hdfs_file_reader.h"
+#include "io/hdfs_file_reader.h"
 
 #include <sys/stat.h>
 #include <unistd.h>

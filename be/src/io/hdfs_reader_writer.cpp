@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "hdfs_reader_writer.h"
+#include "io/hdfs_reader_writer.h"
 
-#include "hdfs_file_reader.h"
-#include "hdfs_writer.h"
+#include "io/hdfs_file_reader.h"
+#include "io/hdfs_writer.h"
 
 namespace doris {
 
