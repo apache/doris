@@ -36,7 +36,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
