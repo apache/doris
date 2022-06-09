@@ -18,28 +18,21 @@
 #include "vec/runtime/vfile_result_writer.h"
 
 #include "common/consts.h"
-#include "exec/broker_writer.h"
-#include "exec/hdfs_reader_writer.h"
-#include "exec/local_file_writer.h"
-#include "exec/s3_writer.h"
 #include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
+#include "io/file_factory.h"
+#include "io/file_writer.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
-#include "runtime/raw_value.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/file_utils.h"
 #include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
-#include "vec/common/arena.h"
 #include "vec/core/block.h"
-#include "vec/core/types.h"
 
 namespace doris::vectorized {
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
@@ -63,10 +56,6 @@ VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
     _output_object_data = output_object_data;
 }
 
-VFileResultWriter::~VFileResultWriter() {
-    _close_file_writer(true);
-}
-
 Status VFileResultWriter::init(RuntimeState* state) {
     _state = state;
     _init_profile();
@@ -87,7 +76,7 @@ Status VFileResultWriter::_create_success_file() {
     std::string file_name;
     RETURN_IF_ERROR(_get_success_file_name(&file_name));
     RETURN_IF_ERROR(_create_file_writer(file_name));
-    return _close_file_writer(true, true);
+    return _close_file_writer(true);
 }
 
 Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
@@ -116,20 +105,11 @@ Status VFileResultWriter::_create_next_file_writer() {
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
-    if (_storage_type == TStorageBackendType::LOCAL) {
-        _file_writer = new LocalFileWriter(file_name, 0 /* start offset */);
-    } else if (_storage_type == TStorageBackendType::BROKER) {
-        _file_writer =
-                new BrokerWriter(_state->exec_env(), _file_opts->broker_addresses,
-                                 _file_opts->broker_properties, file_name, 0 /*start offset*/);
-    } else if (_storage_type == TStorageBackendType::S3) {
-        _file_writer = new S3Writer(_file_opts->broker_properties, file_name, 0 /* offset */);
-    } else if (_storage_type == TStorageBackendType::HDFS) {
-        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
-                const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties),
-                file_name, &_file_writer));
-    }
-    RETURN_IF_ERROR(_file_writer->open());
+    RETURN_IF_ERROR(FileFactory::create_file_writer(
+            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
+            _file_writer_impl));
+    RETURN_IF_ERROR(_file_writer_impl->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
@@ -330,8 +310,9 @@ Status VFileResultWriter::write_csv_header() {
             tmp_header += gen_types();
         }
         size_t written_len = 0;
-        RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(tmp_header.c_str()),
-                                            tmp_header.size(), &written_len));
+        RETURN_IF_ERROR(
+                _file_writer_impl->write(reinterpret_cast<const uint8_t*>(tmp_header.c_str()),
+                                         tmp_header.size(), &written_len));
         _header_sent = true;
     }
     return Status::OK();
@@ -346,8 +327,8 @@ Status VFileResultWriter::_flush_plain_text_outstream(bool eos) {
 
     const std::string& buf = _plain_text_outstream.str();
     size_t written_len = 0;
-    RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(buf.c_str()), buf.size(),
-                                        &written_len));
+    RETURN_IF_ERROR(_file_writer_impl->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
+                                             buf.size(), &written_len));
     COUNTER_UPDATE(_written_data_bytes, written_len);
     _current_written_bytes += written_len;
 
@@ -373,17 +354,11 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
     return Status::OK();
 }
 
-Status VFileResultWriter::_close_file_writer(bool done, bool only_close) {
+Status VFileResultWriter::_close_file_writer(bool done) {
     if (_parquet_writer != nullptr) {
         return Status::NotSupported("Parquet Writer is not supported yet!");
-    } else if (_file_writer != nullptr) {
-        _file_writer->close();
-        delete _file_writer;
-        _file_writer = nullptr;
-    }
-
-    if (only_close) {
-        return Status::OK();
+    } else if (_file_writer_impl) {
+        _file_writer_impl->close();
     }
 
     if (!done) {
@@ -504,7 +479,7 @@ Status VFileResultWriter::close() {
     // so does the profile in RuntimeState.
     COUNTER_SET(_written_rows_counter, _written_rows);
     SCOPED_TIMER(_writer_close_timer);
-    return _close_file_writer(true, false);
+    return _close_file_writer(true);
 }
 
 } // namespace doris::vectorized

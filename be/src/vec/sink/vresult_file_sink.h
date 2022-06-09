@@ -34,7 +34,7 @@ public:
                     const std::vector<TPlanFragmentDestination>& destinations,
                     int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
-    virtual ~VResultFileSink();
+    virtual ~VResultFileSink() = default;
     virtual Status init(const TDataSink& thrift_sink) override;
     virtual Status prepare(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
@@ -60,10 +60,9 @@ private:
     std::vector<ExprContext*> _output_expr_ctxs;
     RowDescriptor _output_row_descriptor;
 
-    Block* _output_block = nullptr;
+    std::unique_ptr<Block> _output_block = nullptr;
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<VResultWriter> _writer;
-    Block* _block = nullptr;
     int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;

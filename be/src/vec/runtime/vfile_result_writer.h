@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/file_writer.h"
 #include "runtime/file_result_writer.h"
 #include "vec/sink/result_sink.h"
 
@@ -33,7 +34,7 @@ public:
                       RuntimeProfile* parent_profile, BufferControlBlock* sinker,
                       Block* output_block, bool output_object_data,
                       const RowDescriptor& output_row_descriptor);
-    virtual ~VFileResultWriter();
+    virtual ~VFileResultWriter() = default;
 
     virtual Status append_block(Block& block) override;
     virtual Status append_row_batch(const RowBatch* batch) override {
@@ -67,7 +68,7 @@ private:
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
     // if only_close is true, this method will just close the file writer and return.
-    Status _close_file_writer(bool done, bool only_close = false);
+    Status _close_file_writer(bool done);
     // create a new file if current file size exceed limit
     Status _create_new_file_if_exceed_size();
     // send the final statistic result
@@ -83,7 +84,7 @@ private:
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    FileWriter* _file_writer = nullptr;
+    std::unique_ptr<FileWriter> _file_writer_impl;
     // parquet file writer
     ParquetWriterWrapper* _parquet_writer = nullptr;
     // Used to buffer the export data of plain text

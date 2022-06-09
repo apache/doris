@@ -77,12 +77,6 @@ VResultFileSink::VResultFileSink(ObjectPool* pool, int sender_id, const RowDescr
     _header = sink.header;
 }
 
-VResultFileSink::~VResultFileSink() {
-    if (_output_block != nullptr) {
-        delete _output_block;
-    }
-}
-
 Status VResultFileSink::init(const TDataSink& tsink) {
     return Status::OK();
 }
@@ -125,10 +119,10 @@ Status VResultFileSink::prepare(RuntimeState* state) {
         _uncompressed_bytes_counter =
                 ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
         // create writer
-        _output_block = new Block(_output_row_descriptor.tuple_descriptors()[0]->slots(), 1);
+        _output_block.reset(new Block(_output_row_descriptor.tuple_descriptors()[0]->slots(), 1));
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
-                _profile, nullptr, _output_block, state->return_object_data_as_binary(),
+                _profile, nullptr, _output_block.get(), state->return_object_data_as_binary(),
                 _output_row_descriptor));
     }
     _writer->set_header_info(_header_type, _header);
@@ -177,7 +171,7 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
                 state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
-            RETURN_IF_ERROR(serialize_block(_output_block, _cur_pb_block, _channels.size()));
+            RETURN_IF_ERROR(serialize_block(_output_block.get(), _cur_pb_block, _channels.size()));
             for (auto channel : _channels) {
                 RETURN_IF_ERROR(channel->send_block(_cur_pb_block));
             }
