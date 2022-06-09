@@ -30,14 +30,9 @@ import java.util.Objects;
 
 /**
  * Abstract class for all concrete plan node.
- *
- * @param <PLAN_TYPE> either {@link org.apache.doris.nereids.trees.plans.logical.LogicalPlan}
- *                  or {@link org.apache.doris.nereids.trees.plans.physical.PhysicalPlan}
  */
-public abstract class AbstractPlan<
-        PLAN_TYPE extends AbstractPlan<PLAN_TYPE, OP_TYPE>,
-        OP_TYPE extends PlanOperator>
-        extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE, OP_TYPE> {
+public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
+        extends AbstractTreeNode<Plan> implements Plan<OP_TYPE> {
 
     public final OP_TYPE operator;
 
@@ -54,16 +49,6 @@ public abstract class AbstractPlan<
     @Override
     public OP_TYPE getOperator() {
         return operator;
-    }
-
-    @Override
-    public List<Plan> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Plan child(int index) {
-        return (Plan) children.get(index);
     }
 
     /**

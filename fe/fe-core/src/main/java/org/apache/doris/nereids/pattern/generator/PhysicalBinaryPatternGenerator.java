@@ -33,7 +33,7 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<PhysicalBinary<" + opType.name + ", Plan<?, ?>, Plan<?, ?>>, Plan>";
+        return "<PhysicalBinary<" + opType.name + ", Plan<?>, Plan<?>>, Plan>";
     }
 
     @Override

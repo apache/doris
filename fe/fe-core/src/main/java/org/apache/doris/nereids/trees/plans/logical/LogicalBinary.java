@@ -36,9 +36,8 @@ public class LogicalBinary<
             OP_TYPE extends LogicalBinaryOperator,
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends AbstractLogicalPlan<LogicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, OP_TYPE>
-        implements BinaryPlan<LogicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends AbstractLogicalPlan<OP_TYPE>
+        implements BinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public LogicalBinary(OP_TYPE operator, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(NodeType.LOGICAL, operator, leftChild, rightChild);

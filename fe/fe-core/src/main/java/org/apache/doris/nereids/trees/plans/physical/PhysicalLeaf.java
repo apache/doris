@@ -32,8 +32,8 @@ import java.util.List;
  * Abstract class for all physical plan that have no child.
  */
 public class PhysicalLeaf<OP_TYPE extends PhysicalLeafOperator>
-        extends AbstractPhysicalPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE>
-        implements LeafPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE> {
+        extends AbstractPhysicalPlan<OP_TYPE>
+        implements LeafPlan<OP_TYPE> {
 
     public PhysicalLeaf(OP_TYPE operator, LogicalProperties logicalProperties) {
         super(NodeType.PHYSICAL, operator, logicalProperties);

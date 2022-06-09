@@ -34,7 +34,7 @@ import java.util.function.Predicate;
 /**
  * Pattern node used in pattern matching.
  */
-public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
+public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern> {
     public static final Pattern ANY = new Pattern(OperatorType.ANY);
     public static final Pattern MULTI = new Pattern(OperatorType.MULTI);
     public static final Pattern FIXED = new Pattern(OperatorType.FIXED);
@@ -187,15 +187,5 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
     @Override
     public int hashCode() {
         return Objects.hash(operatorType);
-    }
-
-    @Override
-    public List<Pattern> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Pattern child(int index) {
-        return (Pattern) children.get(index);
     }
 }

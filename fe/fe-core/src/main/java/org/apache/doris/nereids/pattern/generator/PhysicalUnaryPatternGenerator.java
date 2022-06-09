@@ -32,7 +32,7 @@ public class PhysicalUnaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<PhysicalUnary<" + opType.name + ", Plan<?, ?>>, Plan>";
+        return "<PhysicalUnary<" + opType.name + ", Plan<?>>, Plan>";
     }
 
     @Override

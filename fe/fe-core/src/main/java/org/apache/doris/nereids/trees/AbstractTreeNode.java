@@ -31,17 +31,17 @@ import java.util.List;
  * @param <NODE_TYPE> either {@link org.apache.doris.nereids.trees.plans.Plan}
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
-public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_TYPE>>
+public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode>
         implements TreeNode<NODE_TYPE> {
 
     protected final NodeType type;
-    protected final List<TreeNode> children;
+    protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/incubator-doris/pull/9807#discussion_r884829067
     protected final GroupExpression groupExpression;
 
 
-    public AbstractTreeNode(NodeType type, TreeNode... children) {
+    public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
         this(type, null, children);
     }
 
@@ -52,7 +52,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
      * @param groupExpression group expression related to the operator of this node
      * @param children children of this node
      */
-    public AbstractTreeNode(NodeType type, GroupExpression groupExpression, TreeNode... children) {
+    public AbstractTreeNode(NodeType type, GroupExpression groupExpression, NODE_TYPE... children) {
         this.type = type;
         this.children = ImmutableList.copyOf(children);
         this.groupExpression = groupExpression;
@@ -69,6 +69,16 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
     }
 
     @Override
+    public NODE_TYPE child(int index) {
+        return children.get(index);
+    }
+
+    @Override
+    public List<NODE_TYPE> children() {
+        return children;
+    }
+
+    @Override
     public NODE_TYPE newChildren(List<TreeNode> children) {
         throw new RuntimeException();
     }
@@ -76,16 +86,6 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
     @Override
     public NodeType getType() {
         return type;
-    }
-
-    @Override
-    public <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children() {
-        return (List) children;
-    }
-
-    @Override
-    public <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index) {
-        return (CHILD_TYPE) children.get(index);
     }
 
     public int arity() {

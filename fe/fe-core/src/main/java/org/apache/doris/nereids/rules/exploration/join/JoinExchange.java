@@ -39,8 +39,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin()).then(topJoin -> {
-            LogicalBinary<LogicalJoin, Plan<?, ?>, Plan<?, ?>> leftJoin = topJoin.left();
-            LogicalBinary<LogicalJoin, Plan<?, ?>, Plan<?, ?>> rightJoin = topJoin.right();
+            LogicalBinary<LogicalJoin, Plan<?>, Plan<?>> leftJoin = topJoin.left();
+            LogicalBinary<LogicalJoin, Plan<?>, Plan<?>> rightJoin = topJoin.right();
 
             Plan a = leftJoin.left();
             Plan b = leftJoin.right();

@@ -32,7 +32,7 @@ public class LogicalBinaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<LogicalBinary<" + opType.name + ", Plan<?, ?>, Plan<?, ?>>, Plan>";
+        return "<LogicalBinary<" + opType.name + ", Plan<?>, Plan<?>>, Plan>";
     }
 
     @Override

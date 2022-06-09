@@ -32,7 +32,7 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<LogicalUnary<" + opType.name + ", Plan<?, ?>>, Plan>";
+        return "<LogicalUnary<" + opType.name + ", Plan<?>>, Plan>";
     }
 
     @Override

@@ -32,10 +32,9 @@ import java.util.List;
  * Abstract class for all concrete logical plan.
  */
 public abstract class AbstractLogicalPlan<
-            PLAN_TYPE extends AbstractLogicalPlan<PLAN_TYPE, OP_TYPE>,
             OP_TYPE extends LogicalOperator>
-        extends AbstractPlan<PLAN_TYPE, OP_TYPE>
-        implements LogicalPlan<PLAN_TYPE, OP_TYPE> {
+        extends AbstractPlan<OP_TYPE>
+        implements LogicalPlan<OP_TYPE> {
 
     protected final LogicalProperties logicalProperties;
 

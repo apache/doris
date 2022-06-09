@@ -28,7 +28,7 @@ import java.util.List;
  * @param <NODE_TYPE> either {@link org.apache.doris.nereids.trees.plans.Plan}
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
-public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
+public interface TreeNode<NODE_TYPE extends TreeNode> {
 
     Operator getOperator();
 
@@ -36,9 +36,9 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     NodeType getType();
 
-    <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children();
+    List<NODE_TYPE> children();
 
-    <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index);
+    NODE_TYPE child(int index);
 
     int arity();
 

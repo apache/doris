@@ -30,8 +30,9 @@ import java.util.Objects;
 /**
  * Not expression: not a.
  */
-public class Not<CHILD_TYPE extends Expression> extends Expression<Not<CHILD_TYPE>>
-        implements UnaryExpression<Not<CHILD_TYPE>, CHILD_TYPE> {
+public class Not<CHILD_TYPE extends Expression> extends Expression
+        implements UnaryExpression<CHILD_TYPE> {
+
     public Not(CHILD_TYPE child) {
         super(NodeType.NOT, child);
     }

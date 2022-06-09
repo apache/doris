@@ -20,25 +20,12 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
 import org.apache.doris.nereids.trees.UnaryNode;
 
-import java.util.List;
-
 /**
  * interface for all plan node that have one child.
  */
 public interface UnaryPlan<
-            PLAN_TYPE extends UnaryPlan<PLAN_TYPE, OP_TYPE, CHILD_TYPE>,
             OP_TYPE extends UnaryPlanOperator,
             CHILD_TYPE extends Plan>
-        extends Plan<PLAN_TYPE, OP_TYPE>, UnaryNode<PLAN_TYPE, CHILD_TYPE> {
+        extends Plan<OP_TYPE>, UnaryNode<Plan, CHILD_TYPE> {
 
-    @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
-    @Override
-    default int arity() {
-        return 1;
-    }
 }

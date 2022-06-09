@@ -33,8 +33,8 @@ import java.util.List;
  * Abstract class for all logical plan that have one child.
  */
 public class LogicalUnary<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE extends Plan>
-        extends AbstractLogicalPlan<LogicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE>
-        implements UnaryPlan<LogicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE, CHILD_TYPE> {
+        extends AbstractLogicalPlan<OP_TYPE>
+        implements UnaryPlan<OP_TYPE, CHILD_TYPE> {
 
     public LogicalUnary(OP_TYPE operator, CHILD_TYPE child) {
         super(NodeType.LOGICAL, operator, child);

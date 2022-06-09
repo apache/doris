@@ -20,20 +20,9 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.List;
-
 /**
  * interface for all physical plan.
  */
-public interface PhysicalPlan<
-            PLAN_TYPE extends PhysicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends PhysicalOperator>
-        extends Plan<PLAN_TYPE, OP_TYPE> {
-
-    @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
+public interface PhysicalPlan<OP_TYPE extends PhysicalOperator>
+        extends Plan<OP_TYPE> {
 }

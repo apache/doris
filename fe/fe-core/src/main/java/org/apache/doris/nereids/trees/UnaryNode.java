@@ -20,13 +20,11 @@ package org.apache.doris.nereids.trees;
 /**
  * interface for all tree node that have one child.
  */
-public interface UnaryNode<
-            NODE_TYPE extends UnaryNode<NODE_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends TreeNode>
+public interface UnaryNode<NODE_TYPE extends TreeNode, CHILD_TYPE extends TreeNode>
         extends TreeNode<NODE_TYPE> {
 
     default CHILD_TYPE child() {
-        return child(0);
+        return (CHILD_TYPE) child(0);
     }
 
     @Override

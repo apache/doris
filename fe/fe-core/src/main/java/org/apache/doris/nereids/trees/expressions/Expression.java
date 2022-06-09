@@ -29,8 +29,7 @@ import java.util.List;
 /**
  * Abstract class for all Expression in Nereids.
  */
-public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
-        extends AbstractTreeNode<EXPR_TYPE> {
+public abstract class Expression extends AbstractTreeNode<Expression> {
 
     public Expression(NodeType type, Expression... children) {
         super(type, children);
@@ -63,7 +62,7 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
     }
 
     @Override
-    public EXPR_TYPE newChildren(List<TreeNode> children) {
+    public Expression newChildren(List<TreeNode> children) {
         throw new RuntimeException();
     }
 

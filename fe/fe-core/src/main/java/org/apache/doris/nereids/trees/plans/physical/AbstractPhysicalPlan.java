@@ -33,10 +33,9 @@ import java.util.Objects;
  * Abstract class for all concrete physical plan.
  */
 public abstract class AbstractPhysicalPlan<
-            PLAN_TYPE extends AbstractPhysicalPlan<PLAN_TYPE, OP_TYPE>,
             OP_TYPE extends PhysicalOperator>
-        extends AbstractPlan<PLAN_TYPE, OP_TYPE>
-        implements PhysicalPlan<PLAN_TYPE, OP_TYPE> {
+        extends AbstractPlan<OP_TYPE>
+        implements PhysicalPlan<OP_TYPE> {
 
     protected final LogicalProperties logicalProperties;
     protected final PhysicalProperties physicalProperties;

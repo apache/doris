@@ -32,10 +32,9 @@ import java.util.List;
 /**
  * Abstract class for all physical plan that have one child.
  */
-public class PhysicalUnary<OP_TYPE extends PhysicalUnaryOperator,
-            CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan<PhysicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE>
-        implements UnaryPlan<PhysicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE, CHILD_TYPE> {
+public class PhysicalUnary<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE extends Plan>
+        extends AbstractPhysicalPlan<OP_TYPE>
+        implements UnaryPlan<OP_TYPE, CHILD_TYPE> {
 
     public PhysicalUnary(OP_TYPE operator, LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(NodeType.PHYSICAL, operator, logicalProperties, child);

@@ -32,8 +32,8 @@ import java.util.List;
  * Abstract class for all logical plan that have no child.
  */
 public class LogicalLeaf<OP_TYPE extends LogicalLeafOperator>
-        extends AbstractLogicalPlan<LogicalLeaf<OP_TYPE>, OP_TYPE>
-        implements LeafPlan<LogicalLeaf<OP_TYPE>, OP_TYPE> {
+        extends AbstractLogicalPlan<OP_TYPE>
+        implements LeafPlan<OP_TYPE> {
 
     public LogicalLeaf(OP_TYPE operator) {
         super(NodeType.LOGICAL, operator);

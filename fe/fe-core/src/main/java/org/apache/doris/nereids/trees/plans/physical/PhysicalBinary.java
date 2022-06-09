@@ -36,10 +36,8 @@ public class PhysicalBinary<
             OP_TYPE extends PhysicalBinaryOperator,
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan<PhysicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, OP_TYPE>
-        implements BinaryPlan<
-            PhysicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends AbstractPhysicalPlan<OP_TYPE>
+        implements BinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public PhysicalBinary(OP_TYPE operator, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
