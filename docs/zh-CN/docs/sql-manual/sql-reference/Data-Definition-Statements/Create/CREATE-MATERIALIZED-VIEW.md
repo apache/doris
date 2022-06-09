@@ -102,6 +102,18 @@ mysql> desc duplicate_table;
 | k4    | BIGINT | Yes  | true | N/A     |       |
 +-------+--------+------+------+---------+-------+
 ```
+```sql
+create table duplicate_table(
+	k1 int null,
+	k2 int null,
+	k3 bigint null,
+	k4 bigint null
+)
+duplicate key (k1,k2,k3,k4)
+distributed BY hash(k4) buckets 3
+properties("replication_num" = "1");
+```
+注意：分区列和分桶列必须作为物化视图中的key列
 
 1. 创建一个仅包含原始表 （k1, k2）列的物化视图
 
