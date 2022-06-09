@@ -46,7 +46,7 @@ public class IcebergScanNode extends BrokerScanNode {
 
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, desc, planNodeName, fileStatusesList, filesAdded, NodeType.ICEBREG_SCAN_NODE);
+        super(id, desc, planNodeName, fileStatusesList, filesAdded, NodeType.ICEBERG_SCAN_NODE);
         icebergTable = (IcebergTable) desc.getTable();
     }
 

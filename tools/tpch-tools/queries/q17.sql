@@ -15,7 +15,9 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
     sum(l_extendedprice) / 7.0 as avg_yearly
 from
     lineitem,
@@ -28,7 +30,9 @@ where
         select
             0.2 * avg(l_quantity)
         from
-            lineitem
+            lineitem, part
         where
             l_partkey = p_partkey
-    );
+            and p_brand = 'Brand#23'
+            and p_container = 'MED BOX'
+    )

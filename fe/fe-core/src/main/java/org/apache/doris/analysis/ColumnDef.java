@@ -61,12 +61,31 @@ public class ColumnDef {
     public static class DefaultValue {
         public boolean isSet;
         public String value;
+        // used for column which defaultValue is an expression.
+        public DefaultValueExprDef defaultValueExprDef;
 
         public DefaultValue(boolean isSet, String value) {
             this.isSet = isSet;
             this.value = value;
+            this.defaultValueExprDef = null;
         }
 
+        /**
+         * used for column which defaultValue is an expression.
+         * @param isSet is Set DefaultValue
+         * @param value default value
+         * @param exprName default value expression
+         */
+        public DefaultValue(boolean isSet, String value, String exprName) {
+            this.isSet = isSet;
+            this.value = value;
+            this.defaultValueExprDef = new DefaultValueExprDef(exprName);
+        }
+
+        // default "CURRENT_TIMESTAMP", only for DATETIME type
+        public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
+        public static String NOW = "now";
+        public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
@@ -279,11 +298,13 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet && defaultValue.value != null) {
-            validateDefaultValue(type, defaultValue.value);
+            validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
         }
     }
 
-    public static void validateDefaultValue(Type type, String defaultValue) throws AnalysisException {
+    @SuppressWarnings("checkstyle:Indentation")
+    public static void validateDefaultValue(Type type, String defaultValue, DefaultValueExprDef defaultValueExprDef)
+            throws AnalysisException {
         Preconditions.checkNotNull(defaultValue);
         Preconditions.checkArgument(type.isScalarType());
         ScalarType scalarType = (ScalarType) type;
@@ -315,8 +336,18 @@ public class ColumnDef {
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
-            case DATETIME:
                 new DateLiteral(defaultValue, type);
+                break;
+            case DATETIME:
+                if (defaultValueExprDef == null) {
+                    new DateLiteral(defaultValue, type);
+                } else {
+                    if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
+                        break;
+                    } else {
+                        throw new AnalysisException("date literal [" + defaultValue + "] is invalid");
+                    }
+                }
                 break;
             case CHAR:
             case VARCHAR:
@@ -368,7 +399,7 @@ public class ColumnDef {
 
     public Column toColumn() {
         return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment,
-                visible);
+                visible, defaultValue.defaultValueExprDef);
     }
 
     @Override
