@@ -172,8 +172,20 @@ public class OlapScanNode extends ScanNode {
         setCanTurnOnPreAggr(false);
     }
 
-    public long getTotalTabletsNum() {
-        return totalTabletsNum;
+    /**
+     * In bucket shuffle join, we have 2 situation.
+     * 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
+     *    because when table turn on dynamic partition, the bucket number in default distribution info
+     *    is not correct.
+     * 2. Table is colocated: in this case, table could have more than one partition, but all partition's
+     *    bucket number must be same, so we use default bucket num is ok.
+     */
+    public int getBucketShuffleJoinBucketNum() {
+        if (olapTable.isColocateTable()) {
+            return olapTable.getDefaultDistributionInfo().getBucketNum();
+        } else {
+            return (int) totalTabletsNum;
+        }
     }
 
     public boolean getForceOpenPreAgg() {
