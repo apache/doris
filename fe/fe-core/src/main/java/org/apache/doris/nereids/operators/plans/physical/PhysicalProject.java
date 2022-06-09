@@ -53,6 +53,6 @@ public class PhysicalProject<INPUT_TYPE extends Plan>
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
         return visitor.visitPhysicalProject(
-                (PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) plan, context);
+                (PhysicalPlan<? extends PhysicalPlan, PhysicalProject>) plan, context);
     }
 }

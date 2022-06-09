@@ -65,7 +65,7 @@ public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPl
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalSortPlan((PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) plan,
+        return visitor.visitPhysicalSortPlan((PhysicalPlan<? extends PhysicalPlan, PhysicalSort>) plan,
                 context);
     }
 }

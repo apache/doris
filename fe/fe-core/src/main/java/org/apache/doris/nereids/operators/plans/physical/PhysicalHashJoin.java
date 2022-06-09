@@ -48,7 +48,7 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator<PhysicalHashJoin, P
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
         return visitor.visitPhysicalHashJoinPlan(
-                (PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) plan, context);
+                (PhysicalPlan<? extends PhysicalPlan, PhysicalHashJoin>) plan, context);
     }
 
 }

@@ -82,7 +82,7 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
         return visitor.visitPhysicalOlapScanPlan(
-                (PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) plan, context);
+                (PhysicalPlan<? extends PhysicalPlan, PhysicalOlapScan>) plan, context);
     }
 
 }
