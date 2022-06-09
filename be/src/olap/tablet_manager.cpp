@@ -474,7 +474,8 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     }
     if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
         LOG(WARNING) << "fail to drop tablet because replica_id not match. "
-                     << "tablet_id=" << tablet_id;
+                     << "tablet_id=" << tablet_id << ", replica_id=" << to_drop_tablet->replica_id()
+                     << ", request replica_id=" << replica_id;
         return Status::OK();
     }
 
