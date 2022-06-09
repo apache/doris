@@ -283,8 +283,9 @@ public abstract class SetOperationNode extends PlanNode {
             if (childSlotRef == null) {
                 return false;
             }
-            if (VectorizedUtil.isVectorized() && childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
-                    return false;
+            if (VectorizedUtil.isVectorized()
+                    && childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                return false;
             }
             if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
                 return false;
