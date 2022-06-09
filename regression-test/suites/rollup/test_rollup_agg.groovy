@@ -16,6 +16,15 @@
 // under the License.
 suite("test_rollup_agg", "rollup") {
     def tbName = "test_rollup_agg"
+
+    def getJobRollupState = { tableName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+        return jobStateResult[0][8]
+    }
+    def getJobColumnState = { tableName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+        return jobStateResult[0][9]
+    }
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName}(
@@ -28,31 +37,39 @@ suite("test_rollup_agg", "rollup") {
             AGGREGATE KEY (siteid,citycode,username)
             DISTRIBUTED BY HASH(siteid) BUCKETS 5 properties("replication_num" = "1");
         """
-    String res = "null"
-    sql "ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
+    sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"""
+    int max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobRollupState(tbName)
+        if (res == "FINISHED") {
             break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
         }
-        Thread.sleep(1000)
     }
-    res = "null"
     sql "ALTER TABLE ${tbName} ADD COLUMN vv BIGINT SUM NULL DEFAULT '0' TO rollup_city;"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobColumnState(tbName)
+        if (res == "FINISHED") {
             break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
         }
-        Thread.sleep(1000)
     }
     sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}';"
     qt_sql "DESC ${tbName} ALL;"
     sql "insert into ${tbName} values(1, 1, 'test1', 100,100,100);"
     sql "insert into ${tbName} values(2, 1, 'test2', 100,100,100);"
-    explain{
+    explain {
         sql("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode")
         contains("rollup: rollup_city")
     }

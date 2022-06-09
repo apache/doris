@@ -312,6 +312,11 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
     case ::arrow::Type::DECIMAL:
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>();
         break;
+    case ::arrow::Type::LIST:
+        DCHECK(type->num_fields() == 1);
+        nested = std::make_shared<vectorized::DataTypeArray>(
+                create_data_type(type->field(0)->type().get(), true));
+        break;
     default:
         DCHECK(false) << "invalid arrow type:" << (int)(type->id());
         break;

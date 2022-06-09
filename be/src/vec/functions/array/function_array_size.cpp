@@ -15,26 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "vec/functions/array/function_array_size.h"
 
-#include <arrow/type.h>
-#include <arrow/type_fwd.h>
+#include "vec/functions/simple_function_factory.h"
 
-#include <iostream>
-#include <memory>
-
-#include "common/status.h"
-#include "runtime/primitive_type.h"
-#include "vec/core/column_with_type_and_name.h"
-
-// This files contains some utilities to convert Doris internal
-// data format from Apache Arrow format.
 namespace doris::vectorized {
 
-const PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type);
-
-Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
-                                    ColumnPtr& doirs_column, size_t num_elements,
-                                    const std::string& timezone);
+void register_function_array_size(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArraySize>();
+    factory.register_alias(FunctionArraySize::name, "cardinality");
+}
 
 } // namespace doris::vectorized
