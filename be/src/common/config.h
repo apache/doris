@@ -301,7 +301,7 @@ CONF_mInt32(convert_rowset_thread_num, "0");
 CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
 
 // This config can be set to limit thread number in  smallcompaction thread pool.
-CONF_mInt32(small_compaction_max_threads, "10");
+CONF_mInt32(quick_compaction_max_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
@@ -744,14 +744,14 @@ CONF_Int32(parquet_reader_max_buffer_size, "50");
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
 
-// For continuous versions that rows less than small_compaction_max_rows will  trigger compaction quickly
-// if set to 0 means turn off this feature
-CONF_Int32(small_compaction_max_rows, "10000");
-
+//whether turn on quick compaction feature
+CONF_Bool(enable_quick_compaction, "false");
+// For continuous versions that rows less than quick_compaction_max_rows will  trigger compaction quickly
+CONF_Int32(quick_compaction_max_rows, "1000");
 // min compaction versions
-CONF_Int32(small_compaction_batch_size, "10");
+CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
-CONF_Int32(small_compaction_min_rowsets, "10");
+CONF_Int32(quick_compaction_min_rowsets, "10");
 
 } // namespace config
 

@@ -193,7 +193,7 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
-    Status submit_small_compaction_task(TabletSharedPtr tablet);
+    Status submit_quick_compaction_task(TabletSharedPtr tablet);
 
 private:
     // Instance should be inited from `static open()`
@@ -271,7 +271,7 @@ private:
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
 
-    Status _handle_small_compaction(TabletSharedPtr);
+    Status _handle_quick_compaction(TabletSharedPtr);
 
 private:
     struct CompactionCandidate {
@@ -381,7 +381,7 @@ private:
     HeartbeatFlags* _heartbeat_flags;
 
     std::unique_ptr<ThreadPool> _compaction_thread_pool;
-    std::unique_ptr<ThreadPool> _small_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
 
     scoped_refptr<Thread> _alpha_rowset_scan_thread;
     std::unique_ptr<ThreadPool> _convert_rowset_thread_pool;

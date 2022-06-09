@@ -55,7 +55,7 @@ Status Compaction::execute_compact() {
     return st;
 }
 
-Status Compaction::small_rowsets_compact() {
+Status Compaction::quick_rowsets_compact() {
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "The tablet is under cumulative compaction. tablet="
@@ -72,46 +72,35 @@ Status Compaction::small_rowsets_compact() {
 
     _input_rowsets.clear();
     int version_count = _tablet->version_count();
-    int64_t now = UnixMillis();
+    MonotonicStopWatch watch;
+    watch.start();
     int64_t permits = 0;
-    _tablet->pick_small_verson_rowsets(&_input_rowsets, &permits);
-    std::string input_ver = "";
-    for (int i = 0; i < _input_rowsets.size(); i++) {
-        input_ver.append("[" + std::to_string(_input_rowsets[i]->start_version()) + ",");
-        input_ver.append(std::to_string(_input_rowsets[i]->start_version()) + "]");
-    }
-
+    _tablet->pick_quick_compaction_rowsets(&_input_rowsets, &permits);
     std::vector<Version> missedVersions;
     find_longest_consecutive_version(&_input_rowsets, &missedVersions);
     if (missedVersions.size() != 0) {
-        std::string logstr = "";
-        for (int i = 0; i < missedVersions.size(); i++) {
-            logstr.append("[" + std::to_string(missedVersions[i].first));
-            logstr.append("," + std::to_string(missedVersions[i].second));
-            logstr.append("]");
-        }
-        LOG(WARNING) << "small_rowsets_compaction, find missed version" << logstr
-                     << ",input_size:" << _input_rowsets.size() << "version:" << input_ver;
+        LOG(WARNING) << "quick_rowsets_compaction, find missed version"
+                     << ",input_size:" << _input_rowsets.size();
     }
     int nums = _input_rowsets.size();
-    if (_input_rowsets.size() >= config::small_compaction_min_rowsets) {
+    if (_input_rowsets.size() >= config::quick_compaction_min_rowsets) {
         Status st = check_version_continuity(_input_rowsets);
         if (!st.ok()) {
-            LOG(WARNING) << "small_rowsets_compaction failed, cause version not continuous";
+            LOG(WARNING) << "quick_rowsets_compaction failed, cause version not continuous";
             return st;
         }
         st = do_compaction(permits);
         if (!st.ok()) {
             gc_output_rowset();
-            LOG(WARNING) << "small_rowsets_compaction failed";
+            LOG(WARNING) << "quick_rowsets_compaction failed";
         } else {
-            LOG(INFO) << "small_rowsets_compaction succ"
+            LOG(INFO) << "quick_compaction succ"
                       << ", before_versions:" << version_count
                       << ", after_versions:" << _tablet->version_count()
-                      << ", cost:" << (UnixMillis() - now) << "ms"
-                      << ", merged: " << nums << ", batch:" << config::small_compaction_batch_size
+                      << ", cost:" << (watch.elapsed_time() / 1000 / 1000) << "ms"
+                      << ", merged: " << nums << ", batch:" << config::quick_compaction_batch_size
                       << ", segments:" << permits << ", tabletid:" << _tablet->tablet_id();
-            _tablet->set_last_small_compaction_success_time(UnixMillis());
+            _tablet->set_last_quick_compaction_success_time(UnixMillis());
         }
     }
     return Status::OK();
