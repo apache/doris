@@ -442,6 +442,7 @@ module.exports = [
               "bitmap_xor",
               "to_bitmap",
               "bitmap_max",
+              "intersect_count",
               "orthogonal_bitmap_intersect",
               "orthogonal_bitmap_intersect_count",
               "orthogonal_bitmap_union_count",
