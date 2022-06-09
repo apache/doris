@@ -18,8 +18,7 @@
 package org.apache.doris.nereids.operators;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Objects;
 
@@ -28,10 +27,16 @@ import java.util.Objects;
  */
 public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> implements Operator<TYPE> {
     protected final OperatorType type;
-    protected long limited;
+    protected final long limited;
 
     public AbstractOperator(OperatorType type) {
         this.type = Objects.requireNonNull(type, "type can not be null");
+        this.limited = -1;
+    }
+
+    public AbstractOperator(OperatorType type, long limited) {
+        this.type = type;
+        this.limited = limited;
     }
 
     @Override
@@ -39,16 +44,12 @@ public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> impl
         return type;
     }
 
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, PhysicalPlan<?, ?> physicalPlan, C context) {
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
         return null;
     }
 
     public long getLimited() {
         return limited;
-    }
-
-    public void setLimited(long limited) {
-        this.limited = limited;
     }
 
 }

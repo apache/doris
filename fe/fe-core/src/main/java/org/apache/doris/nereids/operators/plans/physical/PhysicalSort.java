@@ -17,21 +17,23 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import java.util.List;
 
 public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPlan> {
 
-    private int offset;
+    private final int offset;
 
-    private int limit = -1;
+    private final int limit;
 
-    private List<OrderKey> orderList;
+    private final List<OrderKey> orderList;
 
-    private boolean useTopN;
+    private final boolean useTopN;
 
     public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean useTopN) {
         super(OperatorType.PHYSICAL_SORT);
@@ -39,10 +41,6 @@ public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPl
         this.limit = limit;
         this.orderList = orderList;
         this.useTopN = useTopN;
-    }
-
-    public PhysicalSort() {
-        super(OperatorType.PHYSICAL_SORT);
     }
 
     public int getOffset() {
@@ -63,5 +61,11 @@ public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPl
 
     public boolean hasLimit() {
         return limit > -1;
+    }
+
+    @Override
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
+        return visitor.visitPhysicalSortPlan((PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) plan,
+                context);
     }
 }

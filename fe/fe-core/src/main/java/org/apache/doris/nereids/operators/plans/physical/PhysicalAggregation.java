@@ -17,37 +17,38 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import java.util.List;
 
 public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregation, PhysicalPlan> {
 
-    private List<Expression> groupByExprList;
+    private final List<Expression> groupByExprList;
 
-    private List<Expression> aggExprList;
+    private final List<Expression> aggExprList;
 
-    private List<Expression> partitionExprList;
+    private final List<Expression> partitionExprList;
 
-    private AggPhase aggPhase;
+    private final AggPhase aggPhase;
 
-    private boolean needFinalize;
+    private final boolean needFinalize;
 
-    private boolean usingStream;
-
-    public PhysicalAggregation() {
-        super(OperatorType.PHYSICAL_AGGREGATION);
-    }
+    private final boolean usingStream;
 
     public PhysicalAggregation(OperatorType type, List<Expression> groupByExprList, List<Expression> aggExprList,
-            AggPhase aggPhase) {
-        super(type);
+            List<Expression> partitionExprList, AggPhase aggPhase, boolean needFinalize, boolean usingStream) {
+        super(OperatorType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.aggExprList = aggExprList;
+        this.partitionExprList = partitionExprList;
         this.aggPhase = aggPhase;
+        this.needFinalize = needFinalize;
+        this.usingStream = usingStream;
     }
 
     public List<Expression> getGroupByExprList() {
@@ -70,31 +71,13 @@ public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregati
         return usingStream;
     }
 
-    public void setGroupByExprList(List<Expression> groupByExprList) {
-        this.groupByExprList = groupByExprList;
-    }
-
-    public void setAggExprList(List<Expression> aggExprList) {
-        this.aggExprList = aggExprList;
-    }
-
     public List<Expression> getPartitionExprList() {
         return partitionExprList;
     }
 
-    public void setPartitionExprList(List<Expression> partitionExprList) {
-        this.partitionExprList = partitionExprList;
-    }
-
-    public void setAggPhase(AggPhase aggPhase) {
-        this.aggPhase = aggPhase;
-    }
-
-    public void setNeedFinalize(boolean needFinalize) {
-        this.needFinalize = needFinalize;
-    }
-
-    public void setUsingStream(boolean usingStream) {
-        this.usingStream = usingStream;
+    @Override
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
+        return visitor.visitPhysicalAggregationPlan(
+                (PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) plan, context);
     }
 }

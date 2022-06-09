@@ -17,39 +17,42 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 @SuppressWarnings("rawtypes")
 public abstract class PlanOperatorVisitor<R, C> {
-    public abstract R visit(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan, C context);
 
-    public R visitPhysicalAggregationPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan,
+    public abstract R visit(Plan<? extends Plan, ? extends Operator> plan, C context);
+
+    public R visitPhysicalAggregationPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> aggPlan,
             C context) {
         return null;
     }
 
-    public R visitPhysicalOlapScanPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan,
+    public R visitPhysicalOlapScanPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> olapScanPlan,
             C context) {
         return null;
     }
 
-    public R visitPhysicalSortPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan,
+    public R visitPhysicalSortPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> sortPlan,
             C context) {
         return null;
     }
 
-    public R visitPhysicalHashJoinPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan,
+    public R visitPhysicalHashJoinPlan(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> hashJoinPlan,
             C context) {
         return null;
     }
 
-    public R visitPhysicalProject(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan,
+    public R visitPhysicalProject(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> projectPlan,
             C context) {
         return null;
     }
 
-    public R visitPhysicalFilter(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> physicalPlan,
+    public R visitPhysicalFilter(PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator> filterPlan,
             C context) {
         return null;
     }

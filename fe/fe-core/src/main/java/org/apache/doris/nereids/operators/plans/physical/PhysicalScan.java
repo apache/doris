@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.OperatorType;
 
 import java.util.List;
@@ -35,10 +34,9 @@ public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>> extends Phys
      * Constructor for PhysicalScan.
      *
      * @param type node type
-     * @param table scan table
      * @param qualifier table's name
      */
-    public PhysicalScan(OperatorType type, Table table, List<String> qualifier) {
+    public PhysicalScan(OperatorType type, List<String> qualifier) {
         super(type);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }

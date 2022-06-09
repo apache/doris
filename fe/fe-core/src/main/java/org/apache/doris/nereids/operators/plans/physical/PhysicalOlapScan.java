@@ -19,8 +19,10 @@ package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import com.clearspring.analytics.util.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -35,7 +37,7 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;
 
-    private OlapTable olapTable;
+    private final OlapTable olapTable;
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -44,7 +46,8 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
      * @param qualifier table's name
      */
     public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier) {
-        super(OperatorType.PHYSICAL_OLAP_SCAN, olapTable, qualifier);
+        super(OperatorType.PHYSICAL_OLAP_SCAN, qualifier);
+        this.olapTable = olapTable;
         this.selectedIndexId = olapTable.getBaseIndexId();
         this.selectedTabletId = Lists.newArrayList();
         this.selectedPartitionId = olapTable.getPartitionIds();
@@ -72,9 +75,14 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     @Override
     public String toString() {
         return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
-            + " (selected index id: " + selectedTabletId
-            + ", selected partition ids: " + selectedPartitionId
-            + ", selected tablet ids: " + selectedTabletId
-            + ")";
+                + " (selected index id: " + selectedTabletId + ", selected partition ids: " + selectedPartitionId
+                + ", selected tablet ids: " + selectedTabletId + ")";
     }
+
+    @Override
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
+        return visitor.visitPhysicalOlapScanPlan(
+                (PhysicalPlan<? extends PhysicalPlan, ? extends PhysicalOperator>) plan, context);
+    }
+
 }
