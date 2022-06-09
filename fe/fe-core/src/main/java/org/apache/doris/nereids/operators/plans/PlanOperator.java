@@ -23,4 +23,5 @@ import org.apache.doris.nereids.operators.Operator;
  * interface for all concrete plan operator.
  */
 public interface PlanOperator<TYPE extends PlanOperator<TYPE>> extends Operator<TYPE> {
+    long getLimit();
 }

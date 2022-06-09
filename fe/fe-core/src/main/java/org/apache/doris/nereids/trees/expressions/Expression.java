@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.statistics.ExprStats;
 
 import java.util.List;
 
@@ -29,7 +30,9 @@ import java.util.List;
  * Abstract class for all Expression in Nereids.
  */
 public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
-        extends AbstractTreeNode<EXPR_TYPE> {
+        extends AbstractTreeNode<EXPR_TYPE> implements ExprStats {
+
+    protected double selectivity;
 
     public Expression(NodeType type, Expression... children) {
         super(type, children);
@@ -60,5 +63,25 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
     @Override
     public EXPR_TYPE newChildren(List<TreeNode> children) {
         throw new RuntimeException();
+    }
+
+    @Override
+    public boolean hasSelectivity() {
+        return false;
+    }
+
+    @Override
+    public double getSelectivity() {
+        return 0;
+    }
+
+    @Override
+    public void setSelectivity() {
+        selectivity = -1;
+    }
+
+    @Override
+    public long getNumDistinctValues() {
+        return 0;
     }
 }

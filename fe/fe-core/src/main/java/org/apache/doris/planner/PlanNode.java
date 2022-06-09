@@ -36,6 +36,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -71,7 +72,7 @@ import java.util.Set;
  * this node, ie, they only reference tuples materialized by this node or one of
  * its children (= are bound by tupleIds).
  */
-abstract public class PlanNode extends TreeNode<PlanNode> {
+abstract public class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     private final static Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
@@ -351,6 +352,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     public List<Expr> getConjuncts() {
         return conjuncts;
+    }
+
+    @Override
+    public List<? extends PlanStats> getChildrenStats() {
+        return children;
     }
 
     void initCompoundPredicate(Expr expr) {

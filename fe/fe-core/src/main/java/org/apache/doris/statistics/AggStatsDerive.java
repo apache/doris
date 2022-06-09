@@ -20,7 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.AggregationNode;
-import org.apache.doris.planner.PlanNode;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -37,7 +36,7 @@ public class AggStatsDerive extends BaseStatsDerive {
     List<Expr> groupingExprs = new ArrayList<>();
 
     @Override
-    public void init(PlanNode node) throws UserException {
+    public void init(PlanStats node) throws UserException {
         Preconditions.checkState(node instanceof AggregationNode);
         super.init(node);
         groupingExprs.addAll(((AggregationNode) node).getAggInfo().getGroupingExprs());

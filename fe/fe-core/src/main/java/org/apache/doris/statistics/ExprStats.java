@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,26 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
-
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.PlanStats;
-
-import java.util.List;
+package org.apache.doris.statistics;
 
 /**
- * interface for all physical plan.
+ * Used to abstract a common expression interface for statistics deduction to fit both optimizers.
  */
-public interface PhysicalPlan<
-            PLAN_TYPE extends PhysicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends PhysicalOperator>
-        extends Plan<PLAN_TYPE, OP_TYPE> {
+public interface ExprStats {
 
-    @Override
-    List<Plan> children();
+    boolean hasSelectivity();
 
-    @Override
-    Plan child(int index);
+    double getSelectivity();
+
+    void setSelectivity();
+
+    long getNumDistinctValues();
 
 }

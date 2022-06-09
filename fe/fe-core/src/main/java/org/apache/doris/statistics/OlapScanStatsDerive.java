@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.PlanNode;
 
 import com.google.common.base.Preconditions;
 
@@ -45,7 +44,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
     private Map<SlotId, Pair<Long, String>> slotIdToTableIdAndColumnName;
 
     @Override
-    public void init(PlanNode node) throws UserException {
+    public void init(PlanStats node) throws UserException {
         Preconditions.checkState(node instanceof OlapScanNode);
         super.init(node);
         buildStructure((OlapScanNode) node);

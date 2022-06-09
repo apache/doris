@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
@@ -60,7 +61,7 @@ import java.util.Set;
 /**
  * Root of the expr node hierarchy.
  */
-abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneable, Writable {
+abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneable, Writable, ExprStats {
     private static final Logger LOG = LogManager.getLogger(Expr.class);
 
     // Name of the function that needs to be implemented by every Expr that

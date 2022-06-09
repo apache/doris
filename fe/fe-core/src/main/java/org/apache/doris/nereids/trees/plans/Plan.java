@@ -21,6 +21,7 @@ import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.statistics.PlanStats;
 
 import java.util.List;
 
@@ -29,7 +30,7 @@ import java.util.List;
  */
 public interface Plan<
         PLAN_TYPE extends Plan<PLAN_TYPE, OP_TYPE>,
-        OP_TYPE extends PlanOperator> extends TreeNode<PLAN_TYPE> {
+        OP_TYPE extends PlanOperator> extends TreeNode<PLAN_TYPE>, PlanStats {
 
     OP_TYPE getOperator();
 
