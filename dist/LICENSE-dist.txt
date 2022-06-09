@@ -1525,7 +1525,7 @@ The Apache Software License, Version 2.0
     * benchmark: 1.5.6
     * simdjson: 1.0.2
     * libhdfs3: commit 5fccd36
-    * opentelemetry-cpp: 1.2.0
+    * opentelemetry-cpp: 1.4.0
 
 The MIT License -- licenses/LICENSE-MIT.txt
     * datatables: 1.10.25

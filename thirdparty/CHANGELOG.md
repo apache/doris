@@ -4,7 +4,7 @@ This file contains version of the third-party dependency libraries in the build-
 
 ## v20220607
 
-- Added: opentelemetry-cpp 1.2.0, it was introduced for tracing.
+- Added: opentelemetry-cpp 1.4.0, it was introduced for tracing.
 - Added: nlohmann/json 3.10.1, it is depended on by opentelemetry-cpp.
 
 ## v20220522
