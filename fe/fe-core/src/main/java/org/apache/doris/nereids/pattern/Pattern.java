@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.pattern;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
@@ -35,6 +37,8 @@ import java.util.function.Predicate;
 public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
     public static final Pattern ANY = new Pattern(OperatorType.ANY);
     public static final Pattern MULTI = new Pattern(OperatorType.MULTI);
+    public static final Pattern FIXED = new Pattern(OperatorType.FIXED);
+    public static final Pattern MULTI_FIXED = new Pattern(OperatorType.MULTI_FIXED);
 
     private final List<Predicate<T>> predicates;
     private final OperatorType operatorType;
@@ -73,6 +77,35 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
         return operatorType;
     }
 
+    public boolean isFixed() {
+        return operatorType == OperatorType.FIXED;
+    }
+
+    public boolean isAny() {
+        return operatorType == OperatorType.ANY;
+    }
+
+    public boolean isMulti() {
+        return operatorType == OperatorType.MULTI;
+    }
+
+    /**
+     * Return ture if current Pattern match Operator in params.
+     *
+     * @param operator wait to match
+     * @return ture if current Pattern match Operator in params
+     */
+    public boolean matchOperator(Operator operator) {
+        if (operator == null) {
+            return false;
+        }
+        if (operatorType == OperatorType.MULTI || operatorType == OperatorType.ANY
+                || operatorType == OperatorType.MULTI_FIXED || operatorType == OperatorType.FIXED) {
+            return true;
+        }
+        return getOperatorType().equals(operator.getType());
+    }
+
     /**
      * Return ture if current Pattern match Plan in params.
      *
@@ -84,7 +117,7 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
             return false;
         }
 
-        if (root.children().size() < this.children().size() && !children.contains(MULTI)) {
+        if (root.arity() > this.arity() && !children.contains(MULTI)) {
             return false;
         }
 
@@ -92,7 +125,7 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
             return true;
         }
 
-        return getOperatorType().equals(root.getType())
+        return getOperatorType().equals(root.getOperator().getType())
                 && predicates.stream().allMatch(predicate -> predicate.test(root));
     }
 
@@ -119,6 +152,16 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
      */
     public boolean match(T root) {
         return matchRoot(root) && matchChildren(root);
+    }
+
+    @Override
+    public Pattern<T> newChildren(List<TreeNode> children) {
+        throw new RuntimeException();
+    }
+
+    @Override
+    public GroupExpression getGroupExpression() {
+        throw new RuntimeException();
     }
 
     @Override

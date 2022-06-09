@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
@@ -24,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -39,7 +41,13 @@ public abstract class AbstractLogicalPlan<
 
     public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Plan... children) {
         super(type, operator, children);
-        this.logicalProperties = new LogicalProperties(operator.computeOutput(children));
+        this.logicalProperties = new LogicalProperties(Collections.emptyList());
+    }
+
+    public AbstractLogicalPlan(NodeType type, OP_TYPE operator,
+            GroupExpression groupExpression, LogicalProperties logicalProperties, Plan... children) {
+        super(type, operator, groupExpression, children);
+        this.logicalProperties = logicalProperties;
     }
 
     @Override

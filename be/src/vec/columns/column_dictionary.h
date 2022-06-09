@@ -258,9 +258,9 @@ public:
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
-    phmap::flat_hash_set<int32_t> find_codes(
-            const phmap::flat_hash_set<StringValue>& values) const {
-        return _dict.find_codes(values);
+    void find_codes(const phmap::flat_hash_set<StringValue>& values,
+                    std::vector<bool>& selected) const {
+        return _dict.find_codes(values, selected);
     }
 
     bool is_dict_sorted() const { return _dict_sorted; }
@@ -362,22 +362,23 @@ public:
             return greater ? bound - greater + eq : bound - eq;
         }
 
-        phmap::flat_hash_set<int32_t> find_codes(
-                const phmap::flat_hash_set<StringValue>& values) const {
-            phmap::flat_hash_set<int32_t> code_set;
+        void find_codes(const phmap::flat_hash_set<StringValue>& values,
+                        std::vector<bool>& selected) const {
+            size_t dict_word_num = _dict_data.size();
+            selected.resize(dict_word_num);
+            selected.assign(dict_word_num, false);
             for (const auto& value : values) {
                 auto it = _inverted_index.find(value);
                 if (it != _inverted_index.end()) {
-                    code_set.insert(it->second);
+                    selected[it->second] = true;
                 }
             }
-            return code_set;
         }
 
         void clear() {
             _dict_data.clear();
             _inverted_index.clear();
-            _code_convert_map.clear();
+            _code_convert_table.clear();
             _hash_values.clear();
         }
 
@@ -385,14 +386,15 @@ public:
 
         void sort() {
             size_t dict_size = _dict_data.size();
+            _code_convert_table.reserve(dict_size);
             std::sort(_dict_data.begin(), _dict_data.end(), _comparator);
             for (size_t i = 0; i < dict_size; ++i) {
-                _code_convert_map[_inverted_index.find(_dict_data[i])->second] = (T)i;
+                _code_convert_table[_inverted_index.find(_dict_data[i])->second] = (T)i;
                 _inverted_index[_dict_data[i]] = (T)i;
             }
         }
 
-        T convert_code(const T& code) const { return _code_convert_map.find(code)->second; }
+        T convert_code(const T& code) const { return _code_convert_table[code]; }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 
@@ -405,8 +407,8 @@ public:
         DictContainer _dict_data;
         // dict value -> dict code
         phmap::flat_hash_map<StringValue, T, StringValue::HashOfStringValue> _inverted_index;
-        // data page code -> sorted dict code, only used for range comparison predicate
-        phmap::flat_hash_map<T, T> _code_convert_map;
+        // only used for range comparison predicate. _code_convert_table[i] = j, where i is dataPageCode, and j is sortedDictCode
+        std::vector<T> _code_convert_table;
         // hash value of origin string , used for bloom filter
         // It's a trade-off of space for performance
         // But in TPC-DS 1GB q60,we see no significant improvement.

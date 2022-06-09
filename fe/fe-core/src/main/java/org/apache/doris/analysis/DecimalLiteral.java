@@ -248,6 +248,8 @@ public class DecimalLiteral extends LiteralExpr {
             return new IntLiteral(value.longValue(), targetType);
         } else if (targetType.isStringType()) {
             return new StringLiteral(value.toString());
+        } else if (targetType.isLargeIntType()) {
+            return new LargeIntLiteral(value.toBigInteger().toString());
         }
         return super.uncheckedCastTo(targetType);
     }

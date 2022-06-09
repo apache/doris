@@ -32,6 +32,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
+/**
+ * Base class for statistics derive.
+ */
 public class BaseStatsDerive {
     private static final Logger LOG = LogManager.getLogger(BaseStatsDerive.class);
     // estimate of the output rowCount of this node;
@@ -49,8 +52,9 @@ public class BaseStatsDerive {
         for (PlanNode childNode : node.getChildren()) {
             StatsDeriveResult result = childNode.getStatsDeriveResult();
             if (result == null) {
-                throw new UserException("childNode statsDeriveResult is null, childNodeType is " + childNode.getNodeType()
-                + "parentNodeType is " + node.getNodeType());
+                throw new UserException(
+                        "childNode statsDeriveResult is null, childNodeType is " + childNode.getNodeType()
+                                + "parentNodeType is " + node.getNodeType());
             }
             childrenStatsResult.add(result);
         }
@@ -92,14 +96,19 @@ public class BaseStatsDerive {
     /**
      * Returns the estimated combined selectivity of all conjuncts. Uses heuristics to
      * address the following estimation challenges:
-     * 1. The individual selectivities of conjuncts may be unknown.
-     * 2. Two selectivities, whether known or unknown, could be correlated. Assuming
-     * independence can lead to significant underestimation.
+     *
      * <p>
-     * The first issue is addressed by using a single default selectivity that is
-     * representative of all conjuncts with unknown selectivities.
-     * The second issue is addressed by an exponential backoff when multiplying each
-     * additional selectivity into the final result.
+     * * 1. The individual selectivities of conjuncts may be unknown.
+     * * 2. Two selectivities, whether known or unknown, could be correlated. Assuming
+     * * independence can lead to significant underestimation.
+     * </p>
+     *
+     * <p>
+     * * The first issue is addressed by using a single default selectivity that is
+     * * representative of all conjuncts with unknown selectivities.
+     * * The second issue is addressed by an exponential backoff when multiplying each
+     * * additional selectivity into the final result.
+     * </p>
      */
     protected double computeCombinedSelectivity(List<Expr> conjuncts) {
         // Collect all estimated selectivities.

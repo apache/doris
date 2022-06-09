@@ -22,7 +22,7 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.pattern.PatternMatching;
+import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Job to apply rule on {@link GroupExpression}.
  */
-public class ApplyRuleJob extends Job {
+public class ApplyRuleJob extends Job<Plan> {
     private final GroupExpression groupExpression;
     private final Rule<Plan> rule;
     private final boolean exploredOnly;
@@ -53,32 +53,29 @@ public class ApplyRuleJob extends Job {
 
     @Override
     public void execute() throws AnalysisException {
-        if (groupExpression.hasExplored(rule)) {
+        if (groupExpression.hasApplied(rule)) {
             return;
         }
 
-        // TODO: need to find all plan reference tree that match this pattern
-        PatternMatching patternMatching = new PatternMatching();
-        for (Plan<?, ?> plan : patternMatching) {
-            if (!rule.check(plan, context)) {
-                continue;
-            }
-            List<Plan> newPlanList = rule.transform(plan, context);
-            for (Plan newPlan : newPlanList) {
+        GroupExpressionMatching<Plan> groupExpressionMatching
+                = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+        for (Plan plan : groupExpressionMatching) {
+            List<Plan> newPlans = rule.transform(plan, context);
+            for (Plan newPlan : newPlans) {
                 GroupExpression newGroupExpression = context.getOptimizerContext().getMemo()
-                        .newGroupExpression(newPlan, groupExpression.getParent());
-                // TODO need to check return is a new Reference, other wise will be into a dead loop
+                        .copyIn(newPlan, groupExpression.getParent(), rule.isRewrite());
                 if (newPlan instanceof LogicalPlan) {
                     pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {
-                        pushTask(new ExplorePlanJob(newGroupExpression, context));
+                        pushTask(new ExploreGroupExpressionJob(newGroupExpression, context));
+                        continue;
                     }
-                    pushTask(new OptimizePlanJob(newGroupExpression, context));
+                    pushTask(new OptimizeGroupExpressionJob(newGroupExpression, context));
                 } else {
                     pushTask(new CostAndEnforcerJob(newGroupExpression, context));
                 }
             }
         }
-        groupExpression.setExplored(rule);
+        groupExpression.setApplied(rule);
     }
 }

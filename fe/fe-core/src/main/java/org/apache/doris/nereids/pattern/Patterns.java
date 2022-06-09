@@ -57,6 +57,10 @@ public interface Patterns {
         return new PatternDescriptor<>(Pattern.MULTI, defaultPromise());
     }
 
+    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode> PatternDescriptor<T, RULE_TYPE> fixed() {
+        return new PatternDescriptor<>(Pattern.FIXED, defaultPromise());
+    }
+
     /**
      * create a unboundRelation pattern.
      */
@@ -72,7 +76,7 @@ public interface Patterns {
      */
     default PatternDescriptor<LogicalUnary<LogicalFilter, Plan>, Plan> logicalFilter() {
         return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_FILTER),
+                new Pattern<>(OperatorType.LOGICAL_FILTER, new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
         );
     }
@@ -93,7 +97,7 @@ public interface Patterns {
      */
     default PatternDescriptor<LogicalUnary<LogicalProject, Plan>, Plan> logicalProject() {
         return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_PROJECT),
+                new Pattern<>(OperatorType.LOGICAL_PROJECT, new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
         );
     }
@@ -114,7 +118,8 @@ public interface Patterns {
      */
     default PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan> logicalJoin() {
         return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN),
+                new Pattern<>(OperatorType.LOGICAL_JOIN,
+                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
         );
     }
@@ -124,9 +129,10 @@ public interface Patterns {
      */
     default PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan> logicalJoin(JoinType joinType) {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN),
+                new Pattern<>(OperatorType.LOGICAL_JOIN,
+                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == joinType);
+        ).when(j -> j.operator.getJoinType() == joinType);
     }
 
     /**
@@ -139,7 +145,7 @@ public interface Patterns {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan>(
                 new Pattern<>(OperatorType.LOGICAL_JOIN, leftChildPattern.pattern, rightChildPattern.pattern),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == joinType);
+        ).when(j -> j.operator.getJoinType() == joinType);
     }
 
     /**
@@ -159,9 +165,10 @@ public interface Patterns {
      */
     default PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan> innerLogicalJoin() {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN),
+                new Pattern<>(OperatorType.LOGICAL_JOIN,
+                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == JoinType.INNER_JOIN);
+        ).when(j -> j.operator.getJoinType() == JoinType.INNER_JOIN);
     }
 
     /**
@@ -173,7 +180,7 @@ public interface Patterns {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan>(
                 new Pattern<>(OperatorType.LOGICAL_JOIN, leftChildPattern.pattern, rightChildPattern.pattern),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == JoinType.INNER_JOIN);
+        ).when(j -> j.operator.getJoinType() == JoinType.INNER_JOIN);
     }
 
     /**
@@ -193,7 +200,7 @@ public interface Patterns {
      */
     default PatternDescriptor<PhysicalUnary<PhysicalFilter, Plan>, Plan> physicalFilter() {
         return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_FILTER),
+                new Pattern<>(OperatorType.PHYSICAL_FILTER, new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
         );
     }
@@ -214,7 +221,7 @@ public interface Patterns {
      */
     default PatternDescriptor<PhysicalUnary<PhysicalProject, Plan>, Plan> physicalProject() {
         return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_PROJECT),
+                new Pattern<>(OperatorType.PHYSICAL_PROJECT, new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
         );
     }
@@ -236,7 +243,8 @@ public interface Patterns {
     default PatternDescriptor<PhysicalBinary<PhysicalBroadcastHashJoin, Plan, Plan>, Plan>
             physicalBroadcastHashJoin() {
         return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_BROADCAST_HASH_JOIN),
+                new Pattern<>(OperatorType.PHYSICAL_BROADCAST_HASH_JOIN,
+                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
                 defaultPromise()
         );
     }

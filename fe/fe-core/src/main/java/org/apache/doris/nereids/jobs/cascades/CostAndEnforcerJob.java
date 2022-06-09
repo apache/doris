@@ -21,11 +21,12 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Job to compute cost and add enforcer.
  */
-public class CostAndEnforcerJob extends Job {
+public class CostAndEnforcerJob extends Job<Plan> {
     private final GroupExpression groupExpression;
 
     public CostAndEnforcerJob(GroupExpression groupExpression, PlannerContext context) {

@@ -313,4 +313,10 @@ public class UtFrameUtils {
         String digest = queryStmt.toDigest();
         return DigestUtils.md5Hex(digest);
     }
+
+    public static boolean checkPlanResultContainsNode(String planResult, int idx, String nodeName) {
+        String realNodeName = idx + ":" + nodeName;
+        String realVNodeName = idx + ":V" + nodeName;
+        return planResult.contains(realNodeName) || planResult.contains(realVNodeName);
+    }
 }

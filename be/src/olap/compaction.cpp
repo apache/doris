@@ -82,7 +82,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
-    auto use_vectorized_compaction = _should_use_vectorized_compaction();
+    auto use_vectorized_compaction = config::enable_vectorized_compaction;
     string merge_type = use_vectorized_compaction ? "v" : "";
 
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
@@ -131,7 +131,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     TRACE("check correctness finished");
 
     // 4. modify rowsets in memory
-    modify_rowsets();
+    RETURN_NOT_OK(modify_rowsets());
     TRACE("modify rowsets finished");
 
     // 5. update last success compaction time
@@ -179,13 +179,13 @@ Status Compaction::construct_input_rowset_readers() {
     return Status::OK();
 }
 
-void Compaction::modify_rowsets() {
+Status Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-
     std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
-    _tablet->modify_rowsets(output_rowsets, _input_rowsets);
+    RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     _tablet->save_meta();
+    return Status::OK();
 }
 
 void Compaction::gc_output_rowset() {
@@ -282,16 +282,6 @@ int64_t Compaction::_get_input_num_rows_from_seg_grps() {
         }
     }
     return num_rows;
-}
-
-bool Compaction::_should_use_vectorized_compaction() {
-    auto cols = _tablet->tablet_schema().columns();
-    for (auto it = cols.begin(); it != cols.end(); it++) {
-        if ((*it).type() == FieldType::OLAP_FIELD_TYPE_STRING) {
-            return false;
-        }
-    }
-    return config::enable_vectorized_compaction;
 }
 
 int64_t Compaction::get_compaction_permits() {

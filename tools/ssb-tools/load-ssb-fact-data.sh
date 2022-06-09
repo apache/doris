@@ -131,6 +131,7 @@ for ((i = 1; i <= $PARALLEL; i++)); do
     echo >&3
 done
 
+echo $(date)
 for file in $(ls $SSB_DATA_DIR/lineorder.tbl.*); do
     read -u3
     {
@@ -141,3 +142,6 @@ done
 
 # wait for child thread finished
 wait
+
+echo $(date)
+echo "DONE."

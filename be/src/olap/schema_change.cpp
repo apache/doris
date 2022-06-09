@@ -1456,17 +1456,18 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         // for schema change, seek_columns is the same to return_columns
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+        reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
 
         do {
+            RowsetSharedPtr max_rowset;
             // get history data to be converted and it will check if there is hold in base tablet
-            res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
+            res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed, &max_rowset);
             if (!res.ok()) {
                 LOG(WARNING) << "fail to get version to be changed. res=" << res;
                 break;
             }
 
             // should check the max_version >= request.alter_version, if not the convert is useless
-            RowsetSharedPtr max_rowset = base_tablet->rowset_with_max_version();
             if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
                 LOG(WARNING) << "base tablet's max version="
                              << (max_rowset == nullptr ? 0 : max_rowset->end_version())
@@ -1481,9 +1482,23 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
             new_tablet->acquire_version_and_rowsets(&version_rowsets);
+            std::sort(version_rowsets.begin(), version_rowsets.end(),
+                      [](const std::pair<Version, RowsetSharedPtr>& l,
+                         const std::pair<Version, RowsetSharedPtr>& r) {
+                          return l.first.first < r.first.first;
+                      });
             for (auto& pair : version_rowsets) {
                 if (pair.first.second <= max_rowset->end_version()) {
                     rowsets_to_delete.push_back(pair.second);
+                } else if (pair.first.first <= max_rowset->end_version()) {
+                    // If max version is [X-10] and new tablet has version [7-9][10-12],
+                    // we only can remove [7-9] from new tablet. If we add [X-10] to new tablet, it will has version
+                    // cross: [X-10] [10-12].
+                    // So, we should return OLAP_ERR_VERSION_ALREADY_MERGED for fast fail.
+                    LOG(WARNING) << "New tablet has a version " << pair.first
+                                 << " crossing base tablet's max_version="
+                                 << max_rowset->end_version();
+                    Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
@@ -1578,8 +1593,15 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                         std::make_pair(item.column_name, mv_param));
             }
         }
-
+        {
+            std::lock_guard<std::shared_mutex> wrlock(_mutex);
+            _tablet_ids_in_converting.insert(new_tablet->tablet_id());
+        }
         res = _convert_historical_rowsets(sc_params);
+        {
+            std::lock_guard<std::shared_mutex> wrlock(_mutex);
+            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+        }
         if (!res.ok()) {
             break;
         }
@@ -1606,6 +1628,11 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     }
 
     return res;
+}
+
+bool SchemaChangeHandler::tablet_in_converting(int64_t tablet_id) {
+    std::shared_lock rdlock(_mutex);
+    return _tablet_ids_in_converting.find(tablet_id) != _tablet_ids_in_converting.end();
 }
 
 Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
@@ -1669,6 +1696,7 @@ Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
     reader_context.return_columns = &return_columns;
     reader_context.seek_columns = &return_columns;
     reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+    reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
@@ -1724,18 +1752,17 @@ SCHEMA_VERSION_CONVERT_ERR:
 }
 
 Status SchemaChangeHandler::_get_versions_to_be_changed(
-        TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed) {
+        TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed,
+        RowsetSharedPtr* max_rowset) {
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
         LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS);
     }
+    *max_rowset = rowset;
 
-    std::vector<Version> span_versions;
     RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                           &span_versions));
-    versions_to_be_changed->insert(versions_to_be_changed->end(), span_versions.begin(),
-                                   span_versions.end());
+                                                           versions_to_be_changed));
 
     return Status::OK();
 }

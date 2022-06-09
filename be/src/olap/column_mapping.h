@@ -15,16 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
-#define DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
+#pragma once
 
+#include <gen_cpp/Exprs_types.h>
+
+#include <memory>
 namespace doris {
 
 class WrapperField;
 
 struct ColumnMapping {
     ColumnMapping() : ref_column(-1), default_value(nullptr) {}
-    virtual ~ColumnMapping() {}
+    virtual ~ColumnMapping() = default;
 
     // <0: use default value
     // >=0: use origin column
@@ -33,9 +35,9 @@ struct ColumnMapping {
     WrapperField* default_value;
     // materialize view transform function used in schema change
     std::string materialized_function;
+    std::shared_ptr<TExpr> expr;
 };
 
-typedef std::vector<ColumnMapping> SchemaMapping;
+using SchemaMapping = std::vector<ColumnMapping>;
 
 } // namespace doris
-#endif // DORIS_BE_SRC_COLUMN_MAPPING_H
