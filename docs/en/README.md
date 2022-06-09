@@ -105,7 +105,7 @@ under the License.
         <img src="/blog-images/data.png" alt="Data" />
         <div class="dim"><img src="/blog-images/data-1.png" alt="Data" /></div>
       </div>
-      <div class="al wow fadeInUp"><a href="/en/docs/get-starting/get-starting.html" class="a">Understand More</a></div>
+      <div class="al wow fadeInUp"><a href="/en/docs/get-starting/get-starting.html" class="a">Learn More</a></div>
     </div>
   </div>
 </div>
@@ -115,7 +115,7 @@ under the License.
     <div class="apptitle">
       <p class="t wow fadeInUp">Data Import </p>
       <p class="s wow fadeInUp">Apache Doris provides rich data synchronization methods, supports fast loading of data from localhost, Hadoop, Flink, Spark, Kafka and other  systems.</p>
-      <div class="al wow fadeInUp"><a href="/en/docs/data-operate/import/load-manual.html">Understand More</a></div>
+      <div class="al wow fadeInUp"><a href="/en/docs/data-operate/import/load-manual.html">Learn More</a></div>
     </div>
     <div class="appimg wow fadeInUp">
       <img src="/blog-images/doris1.png" alt="doris">
@@ -128,7 +128,7 @@ under the License.
     <div class="apptitle">
       <p class="t wow fadeInUp">Data Access</p>
       <p class="s wow fadeInUp">Apache Doris can directly access data in MySQL, PostgreSQL, Oracle, S3, Hive, Iceberg, Elasticsearch and other systems without data replication. At the same time, the data stored in Doris can also be read by Spark and Flink, and can be output to the downstream data application for display and analysis.</p>
-      <div class="al wow fadeInUp"><a href="/en/docs/ecosystem/external-table/doris-on-es.html">Understand More</a></div>
+      <div class="al wow fadeInUp"><a href="/en/docs/ecosystem/external-table/doris-on-es.html">Learn More</a></div>
     </div>
     <div class="appimg wow fadeInUp">
       <img src="/blog-images/doris2.png" alt="doris">
@@ -141,7 +141,7 @@ under the License.
     <div class="apptitle">
       <p class="t wow fadeInUp">Data Application</p>
       <p class="s wow fadeInUp">Apache Doris supports outputting data to downstream applications through JDBC standard protocol, and also supports various BI / Client tools to connect Doris through MySQL protocol。Based on this, Apache Doris can be well applied in many business fields, such as multi-dimensional reporting, user portrait, ad-hoc query, real-time dashboard and so on.</p>
-      <div class="al wow fadeInUp"><a href="/en/docs/get-starting/get-starting.html">Understand More</a></div>
+      <div class="al wow fadeInUp"><a href="/en/docs/get-starting/get-starting.html">Learn More</a></div>
     </div>
     <div class="appimg wow fadeInUp">
       <img src="/blog-images/doris3.png" alt="doris">
