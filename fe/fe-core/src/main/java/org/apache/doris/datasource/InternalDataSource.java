@@ -563,7 +563,8 @@ public class InternalDataSource implements DataSourceIf {
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
                                     throw new DdlException("The table [" + olapTable.getState() + "]'s state is "
                                             + olapTable.getState() + ", cannot be dropped."
-                                            + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                            + " please cancel the operation on olap table firstly."
+                                            + " If you want to forcibly drop(cannot be recovered),"
                                             + " please use \"DROP table FORCE\".");
                                 }
                             }
@@ -894,7 +895,8 @@ public class InternalDataSource implements DataSourceIf {
                     if ((olapTable.getState() != OlapTableState.NORMAL)) {
                         throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
                                 + ", cannot be dropped."
-                                + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                + " please cancel the operation on olap table firstly."
+                                + " If you want to forcibly drop(cannot be recovered),"
                                 + " please use \"DROP table FORCE\".");
                     }
                 }
@@ -1823,7 +1825,8 @@ public class InternalDataSource implements DataSourceIf {
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
-            // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
+            // if this is a partitioned table, there properties are already analyzed
+            // in RangePartitionDesc analyze phase.
 
             // use table name as this single partition name
             long partitionId = partitionNameToId.get(tableName);

@@ -229,12 +229,14 @@ public abstract class LoadEtlTask extends MasterTask {
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
+            OlapTable table = (OlapTable) db.getTableOrException(tableId,
+                    s -> new LoadException("table does not exist. id: " + s));
 
             table.readLock();
             try {
                 TableLoadInfo tableLoadInfo = tableEntry.getValue();
-                for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
+                for (Entry<Long, PartitionLoadInfo> partitionEntry
+                        : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
                     long partitionId = partitionEntry.getKey();
                     boolean needLoad = false;
 
@@ -305,6 +307,8 @@ public abstract class LoadEtlTask extends MasterTask {
     }
 
     protected abstract boolean updateJobEtlStatus();
+
     protected abstract void processEtlRunning() throws LoadException;
+
     protected abstract Map<String, Pair<String, Long>> getFilePathMap() throws LoadException;
 }

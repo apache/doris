@@ -90,7 +90,8 @@ public class ProfileTreeBuilder {
     private static final Pattern FRAGMENT_ID_PATTERN;
 
     // Match string like:
-    // Instance e0f7390f5363419e-b416a2a7999608b6 (host=TNetworkAddress(hostname:192.168.1.1, port:9060)):(Active: 1s858ms, % non-child: 0.02%)
+    // Instance e0f7390f5363419e-b416a2a7999608b6
+    //   (host=TNetworkAddress(hostname:192.168.1.1, port:9060)):(Active: 1s858ms, % non-child: 0.02%)
     // Extract "e0f7390f5363419e-b416a2a7999608b6", "192.168.1.1", "9060"
     private static final String INSTANCE_PATTERN_STR = "^Instance (.*) \\(.*hostname:(.*), port:([0-9]+).*";
     private static final Pattern INSTANCE_PATTERN;
@@ -249,7 +250,8 @@ public class ProfileTreeBuilder {
         String extractName;
         String extractId;
         if ((!m.find() && finalSenderName == null) || m.groupCount() != 2) {
-            // DataStreamBuffer name like: "DataBufferSender (dst_fragment_instance_id=d95356f9219b4831-986b4602b41683ca):"
+            // DataStreamBuffer name like:
+            // "DataBufferSender (dst_fragment_instance_id=d95356f9219b4831-986b4602b41683ca):"
             // So it has no id.
             // Other profile should has id like:
             // EXCHANGE_NODE (id=3):(Active: 103.899ms, % non-child: 2.27%)
@@ -321,7 +323,8 @@ public class ProfileTreeBuilder {
             if (root != null) {
                 root.addChild(counterNode);
             }
-            counterNode.setCounter(childCounterName, RuntimeProfile.printCounter(counter.getValue(), counter.getType()));
+            counterNode.setCounter(childCounterName,
+                    RuntimeProfile.printCounter(counter.getValue(), counter.getType()));
             buildCounterNode(profile, childCounterName, counterNode);
         }
         return;

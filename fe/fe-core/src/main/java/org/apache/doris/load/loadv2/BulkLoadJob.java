@@ -92,7 +92,8 @@ public abstract class BulkLoadJob extends LoadJob {
         super(jobType);
     }
 
-    public BulkLoadJob(EtlJobType jobType, long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
+    public BulkLoadJob(EtlJobType jobType, long dbId, String label,
+            OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
         super(jobType, dbId, label);
         this.originStmt = originStmt;
         this.authorizationInfo = gatherAuthInfo();
@@ -169,7 +170,8 @@ public abstract class BulkLoadJob extends LoadJob {
     public Set<String> getTableNamesForShow() {
         Optional<Database> db = Catalog.getCurrentCatalog().getDb(dbId);
         return fileGroupAggInfo.getAllTableIds().stream()
-                .map(tableId -> db.flatMap(d -> d.getTable(tableId)).map(Table::getName).orElse(String.valueOf(tableId)))
+                .map(tableId -> db.flatMap(d -> d.getTable(tableId))
+                        .map(Table::getName).orElse(String.valueOf(tableId)))
                 .collect(Collectors.toSet());
     }
 
@@ -334,7 +336,8 @@ public abstract class BulkLoadJob extends LoadJob {
             }
             String filePathListName = StringUtils.join(filePathList, ",");
             String brokerUserName = getBrokerUserName();
-            AuditEvent auditEvent = new LoadAuditEvent.AuditEventBuilder().setEventType(AuditEvent.EventType.LOAD_SUCCEED)
+            AuditEvent auditEvent = new LoadAuditEvent.AuditEventBuilder()
+                    .setEventType(AuditEvent.EventType.LOAD_SUCCEED)
                     .setJobId(id).setLabel(label).setLoadType(jobType.name()).setDb(dbName).setTableList(tableListName)
                     .setFilePathList(filePathListName).setBrokerUser(brokerUserName).setTimestamp(createTimestamp)
                     .setLoadStartTime(loadStartTimestamp).setLoadFinishTime(finishTimestamp)

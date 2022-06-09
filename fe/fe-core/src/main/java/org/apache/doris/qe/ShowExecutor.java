@@ -394,7 +394,8 @@ public class ShowExecutor {
         List<List<String>> rowSet = Lists.newArrayList();
         rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of palo", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it", "NO", "NO", "NO"));
+        rowSet.add(Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it",
+                "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("HIVE", "YES", "HIVE database which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ICEBERG", "YES", "ICEBERG data lake which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ODBC", "YES", "ODBC driver which data we can connect", "NO", "NO", "NO"));
@@ -1059,7 +1060,8 @@ public class ShowExecutor {
         Database db = catalog.getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
 
-        List<List<Comparable>> streamLoadRecords = catalog.getStreamLoadRecordMgr().getStreamLoadRecordByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), showStmt.getState());
+        List<List<Comparable>> streamLoadRecords = catalog.getStreamLoadRecordMgr().getStreamLoadRecordByDb(
+                dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), showStmt.getState());
 
         // order the result of List<StreamLoadRecord> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1289,8 +1291,9 @@ public class ShowExecutor {
         // if job exists
         RoutineLoadJob routineLoadJob;
         try {
-            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(showRoutineLoadTaskStmt.getDbFullName(),
-                                                                                        showRoutineLoadTaskStmt.getJobName());
+            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(
+                    showRoutineLoadTaskStmt.getDbFullName(),
+                    showRoutineLoadTaskStmt.getJobName());
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
             throw new AnalysisException(e.getMessage());
@@ -1306,7 +1309,8 @@ public class ShowExecutor {
         try {
             tableName = routineLoadJob.getTableName();
         } catch (MetaNotFoundException e) {
-            throw new AnalysisException("The table metadata of job has been changed. The job will be cancelled automatically", e);
+            throw new AnalysisException("The table metadata of job has been changed."
+                    + " The job will be cancelled automatically", e);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
                                                                 dbFullName,
@@ -1696,7 +1700,8 @@ public class ShowExecutor {
         ShowBackupStmt showStmt = (ShowBackupStmt) stmt;
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
-        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
+        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler()
+                .getJobs(db.getId(), showStmt.getLabelPredicate());
 
         List<BackupJob> backupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
                 .map(job -> (BackupJob) job).collect(Collectors.toList());
@@ -1710,7 +1715,8 @@ public class ShowExecutor {
         ShowRestoreStmt showStmt = (ShowRestoreStmt) stmt;
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
-        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
+        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler()
+                .getJobs(db.getId(), showStmt.getLabelPredicate());
 
         List<RestoreJob> restoreJobs = jobs.stream().filter(job -> job instanceof RestoreJob)
                 .map(job -> (RestoreJob) job).collect(Collectors.toList());
@@ -1825,7 +1831,8 @@ public class ShowExecutor {
                     continue;
                 }
 
-                DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
+                DynamicPartitionScheduler dynamicPartitionScheduler
+                        = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
                 OlapTable olapTable = (OlapTable) tbl;
                 olapTable.readLock();
                 try {
@@ -1840,7 +1847,8 @@ public class ShowExecutor {
                             PrivPredicate.SHOW)) {
                         continue;
                     }
-                    DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
+                    DynamicPartitionProperty dynamicPartitionProperty
+                            = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
                     ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
                     if (replicaAlloc.isNotSet()) {
@@ -1858,12 +1866,18 @@ public class ShowExecutor {
                             String.valueOf(replicaAlloc.getTotalReplicaNum()),
                             replicaAlloc.toCreateStmt(),
                             dynamicPartitionProperty.getStartOfInfo(),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG),
-                            dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods, dynamicPartitionProperty.getTimeUnit().toUpperCase())));
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                                    DynamicPartitionScheduler.LAST_UPDATE_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                                    DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                                    DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                                    DynamicPartitionScheduler.CREATE_PARTITION_MSG),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                                    DynamicPartitionScheduler.DROP_PARTITION_MSG),
+                            dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods,
+                                    dynamicPartitionProperty.getTimeUnit().toUpperCase())));
                 } catch (DdlException e) {
                     e.printStackTrace();
                 } finally {
@@ -1883,7 +1897,8 @@ public class ShowExecutor {
         TransactionStatus status = showStmt.getStatus();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         if (status != TransactionStatus.UNKNOWN) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+            resultSet = new ShowResultSet(showStmt.getMetaData(),
+                    transactionMgr.getDbTransInfoByStatus(db.getId(), status));
         } else {
             Long txnId = showStmt.getTxnId();
             String label = showStmt.getLabel();
@@ -1928,7 +1943,8 @@ public class ShowExecutor {
                         = ProfileManager.getInstance().getFragmentInstanceList(
                         showStmt.getQueryId(), showStmt.getQueryId(), showStmt.getFragmentId());
                 if (instanceList == null) {
-                    throw new AnalysisException("Failed to get instance list for fragment: " + showStmt.getFragmentId());
+                    throw new AnalysisException("Failed to get instance list for fragment: "
+                            + showStmt.getFragmentId());
                 }
                 for (Triple<String, String, Long> triple : instanceList) {
                     List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
@@ -1943,7 +1959,8 @@ public class ShowExecutor {
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getQueryId(),
                         showStmt.getQueryId(), showStmt.getFragmentId(), showStmt.getInstanceId());
                 if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                    throw new AnalysisException("Failed to get instance tree for instance: "
+                            + showStmt.getInstanceId());
                 }
                 List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
                 rows.add(row);
@@ -1990,7 +2007,8 @@ public class ShowExecutor {
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getJobId(),
                         showStmt.getTaskId(), "0", showStmt.getInstanceId());
                 if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                    throw new AnalysisException("Failed to get instance tree for instance: "
+                            + showStmt.getInstanceId());
                 }
                 List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
                 rows.add(row);
@@ -2012,7 +2030,8 @@ public class ShowExecutor {
         if (showCreateRoutineLoadStmt.isIncludeHistory()) {
             List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
             try {
-                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true, null);
+                routineLoadJobList = Catalog.getCurrentCatalog()
+                        .getRoutineLoadManager().getJob(dbName, labelName, true, null);
             } catch (MetaNotFoundException e) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
                         .add("error_msg", "Routine load cannot be found by this name")
@@ -2038,15 +2057,18 @@ public class ShowExecutor {
                     resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
                     continue;
                 }
-                rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
+                rows.add(Lists.newArrayList(String.valueOf(job.getId()),
+                        showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
             }
         } else {
             // if job exists
             RoutineLoadJob routineLoadJob;
             try {
-                routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
+                routineLoadJob = Catalog.getCurrentCatalog()
+                        .getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
                 // get routine load info
-                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()),
+                        showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
             } catch (MetaNotFoundException | DdlException e) {
                 LOG.warn(e.getMessage(), e);
                 throw new AnalysisException(e.getMessage());

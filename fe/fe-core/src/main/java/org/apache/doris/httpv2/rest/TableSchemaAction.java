@@ -88,7 +88,8 @@ public class TableSchemaAction extends RestBaseController {
                         baseInfo.put("comment", column.getComment());
                         baseInfo.put("name", column.getDisplayName());
                         Optional aggregationType = Optional.ofNullable(column.getAggregationType());
-                        baseInfo.put("aggregation_type", aggregationType.isPresent() ? column.getAggregationType().toSql() : "");
+                        baseInfo.put("aggregation_type", aggregationType.isPresent()
+                                ? column.getAggregationType().toSql() : "");
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);

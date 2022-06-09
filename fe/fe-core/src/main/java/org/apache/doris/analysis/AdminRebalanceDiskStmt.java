@@ -40,12 +40,10 @@ public class AdminRebalanceDiskStmt extends DdlStmt {
         ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
         Map<String, Long> backendsID = new HashMap<String, Long>();
         for (Backend backend : backendsInfo.values()) {
-            backendsID.put(String.valueOf(backend.getHost()) + ":" + String.valueOf(backend.getHeartbeatPort()), backend.getId());
+            backendsID.put(backend.getHost() + ":" + backend.getHeartbeatPort(), backend.getId());
         }
         if (backends == null) {
-            for (Backend backend : backendsInfo.values()) {
-                this.backends.add(backend);
-            }
+            this.backends.addAll(backendsInfo.values());
         } else {
             for (String backend : backends) {
                 if (backendsID.get(backend) != null) {

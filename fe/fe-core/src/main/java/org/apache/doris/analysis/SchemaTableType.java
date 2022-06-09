@@ -72,8 +72,9 @@ public enum SchemaTableType {
         fullSelectLists = new SelectList();
         fullSelectLists.addItem(SelectListItem.createStarItem(null));
     }
-    private final String           description;
-    private final String           tableName;
+
+    private final String description;
+    private final String tableName;
     private final TSchemaTableType tableType;
 
     SchemaTableType(String description, String tableName, TSchemaTableType tableType) {

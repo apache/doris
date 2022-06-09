@@ -132,7 +132,8 @@ public class BrokerLoadPendingTask extends LoadTask {
             totalFileNum += tableTotalFileNum;
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(aggKey, fileStatusList);
             LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
-                    tableTotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
+                    tableTotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start),
+                    callback.getCallbackId());
         }
 
         ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);

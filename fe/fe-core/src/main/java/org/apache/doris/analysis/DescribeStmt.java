@@ -169,7 +169,8 @@ public class DescribeStmt extends ShowStmt {
                                     column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
-                                    column.getDefaultValue() == null ? FeConstants.null_string : column.getDefaultValue(),
+                                    column.getDefaultValue() == null
+                                            ? FeConstants.null_string : column.getDefaultValue(),
                                     extraStr,
                                     ((Boolean) column.isVisible()).toString()
                             );
@@ -221,6 +222,7 @@ public class DescribeStmt extends ShowStmt {
     public String getTableName() {
         return dbTableName.getTbl();
     }
+
     public String getDb() {
         return dbTableName.getDb();
     }

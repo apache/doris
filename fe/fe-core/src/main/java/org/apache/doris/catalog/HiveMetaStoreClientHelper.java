@@ -190,7 +190,8 @@ public class HiveMetaStoreClientHelper {
                     brokerFileStatus.setIsSplitable(true);
                     brokerFileStatus.setSize(fileStatus.getLen());
                     // path = "/path/to/partition/file_name"
-                    // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse/dae.db/customer/state=CA/city=SanJose/000000_0
+                    // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
+                    //     + /dae.db/customer/state=CA/city=SanJose/000000_0
                     String path = fileStatus.getPath().toUri().getPath();
                     brokerFileStatus.setPath(path);
                     fileStatuses.add(brokerFileStatus);
@@ -236,7 +237,8 @@ public class HiveMetaStoreClientHelper {
         return hivePartitions;
     }
 
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions, Map<String, String> properties) throws DdlException {
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions,
+            Map<String, String> properties) throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -258,7 +260,8 @@ public class HiveMetaStoreClientHelper {
         return iterators;
     }
 
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Map<String, String> properties) throws DdlException {
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table,
+            Map<String, String> properties) throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -335,7 +338,8 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      * @throws SemanticException
      */
-    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr, List<String> partitions, String tblName) throws DdlException {
+    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr,
+            List<String> partitions, String tblName) throws DdlException {
         if (dorisExpr == null) {
             return null;
         }
@@ -344,8 +348,10 @@ public class HiveMetaStoreClientHelper {
             CompoundPredicate compoundPredicate = (CompoundPredicate) dorisExpr;
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
+                            compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
+                            compoundPredicate.getChild(0), partitions, tblName);
                     if (left != null && right != null) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
                         andArgs.add(left);
@@ -359,8 +365,10 @@ public class HiveMetaStoreClientHelper {
                     return null;
                 }
                 case OR: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
+                            compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
+                            compoundPredicate.getChild(0), partitions, tblName);
                     if (left != null && right != null) {
                         List<ExprNodeDesc> orArgs = new ArrayList<>();
                         orArgs.add(left);
@@ -515,6 +523,7 @@ public class HiveMetaStoreClientHelper {
         }
         return null;
     }
+
     /**
      * Convert from Doris column type to Hive column type
      * @param dorisType

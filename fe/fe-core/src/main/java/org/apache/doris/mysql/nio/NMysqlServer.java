@@ -39,7 +39,7 @@ import java.util.concurrent.ExecutorService;
  * mysql protocol implementation based on nio.
  */
 public class NMysqlServer extends MysqlServer {
-    private final static Logger LOG = LogManager.getLogger(NMysqlServer.class);
+    private static final Logger LOG = LogManager.getLogger(NMysqlServer.class);
 
     private XnioWorker xnioWorker;
 
@@ -48,7 +48,8 @@ public class NMysqlServer extends MysqlServer {
     private AcceptingChannel<StreamConnection> server;
 
     // default task service.
-    private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_mysql_service_task_threads_num, "doris-mysql-nio-pool", true);
+    private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.max_mysql_service_task_threads_num, "doris-mysql-nio-pool", true);
 
     public NMysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;
@@ -65,8 +66,8 @@ public class NMysqlServer extends MysqlServer {
     @Override
     public boolean start() {
         try {
-            server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port),
-                    acceptListener, OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
+            server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port), acceptListener,
+                    OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
             server.resumeAccepts();
             running = true;
             LOG.info("Open mysql server success on {}", port);

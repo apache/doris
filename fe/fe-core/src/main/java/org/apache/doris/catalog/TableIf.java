@@ -42,8 +42,7 @@ public interface TableIf {
 
     boolean isWriteLockHeldByCurrentThread();
 
-    <E extends Exception>
-    void writeLockOrException(E e) throws E;
+    <E extends Exception> void writeLockOrException(E e) throws E;
 
     void writeLockOrDdlException() throws DdlException;
 
@@ -53,8 +52,7 @@ public interface TableIf {
 
     boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException;
 
-    <E extends Exception>
-    boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E;
+    <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E;
 
     boolean tryWriteLockIfExist(long timeout, TimeUnit unit);
 

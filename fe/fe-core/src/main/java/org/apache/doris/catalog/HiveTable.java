@@ -38,7 +38,8 @@ import java.util.Map;
  * Currently only support loading from hive table
  */
 public class HiveTable extends Table {
-    private static final String PROPERTY_MISSING_MSG = "Hive %s is null. Please add properties('%s'='xxx') when create table";
+    private static final String PROPERTY_MISSING_MSG = "Hive %s is null."
+            + " Please add properties('%s'='xxx') when create table";
 
     private static final String HIVE_DB = "database";
     private static final String HIVE_TABLE = "table";

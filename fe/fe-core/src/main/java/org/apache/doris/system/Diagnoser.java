@@ -86,7 +86,8 @@ public class Diagnoser {
             results.add(Lists.newArrayList("MaterializedIndex", "Not exist", ""));
             return results;
         }
-        results.add(Lists.newArrayList("MaterializedIndex", tbl.getIndexNameById(mIndex.getId()) + ": " + mIndex.getId(), ""));
+        results.add(Lists.newArrayList("MaterializedIndex",
+                tbl.getIndexNameById(mIndex.getId()) + ": " + mIndex.getId(), ""));
         // replica info
         Tablet tablet = mIndex.getTablet(tabletId);
         List<Replica> replicas = tablet.getReplicas();
@@ -98,7 +99,8 @@ public class Diagnoser {
         // replica
         short replicaNum = tbl.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
         if (replicas.size() != replicaNum) {
-            results.add(Lists.newArrayList("ReplicasNum", "Replica num is " + replicas.size() + ", expected: " + replicaNum, ""));
+            results.add(Lists.newArrayList("ReplicasNum", "Replica num is "
+                    + replicas.size() + ", expected: " + replicaNum, ""));
         } else {
             results.add(Lists.newArrayList("ReplicasNum", "OK", ""));
         }
@@ -153,10 +155,14 @@ public class Diagnoser {
                         + replica.getVersionCount());
             }
         }
-        results.add(Lists.newArrayList("ReplicaBackendStatus", (backendErr.length() == 0 ? "OK" : backendErr.toString()), ""));
-        results.add(Lists.newArrayList("ReplicaVersionStatus", (versionErr.length() == 0 ? "OK" : versionErr.toString()), ""));
-        results.add(Lists.newArrayList("ReplicaStatus", (statusErr.length() == 0 ? "OK" : statusErr.toString()), ""));
-        results.add(Lists.newArrayList("ReplicaCompactionStatus", (compactionErr.length() == 0 ? "OK" : compactionErr.toString()), ""));
+        results.add(Lists.newArrayList("ReplicaBackendStatus", (backendErr.length() == 0
+                ? "OK" : backendErr.toString()), ""));
+        results.add(Lists.newArrayList("ReplicaVersionStatus", (versionErr.length() == 0
+                ? "OK" : versionErr.toString()), ""));
+        results.add(Lists.newArrayList("ReplicaStatus", (statusErr.length() == 0
+                ? "OK" : statusErr.toString()), ""));
+        results.add(Lists.newArrayList("ReplicaCompactionStatus", (compactionErr.length() == 0
+                ? "OK" : compactionErr.toString()), ""));
         return results;
     }
 }

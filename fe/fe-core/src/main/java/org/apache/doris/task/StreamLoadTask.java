@@ -210,6 +210,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     public void setJsonRoot(String jsonRoot) {
         this.jsonRoot = jsonRoot;
     }
+
     public LoadTask.MergeType getMergeType() {
         return mergeType;
     }

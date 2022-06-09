@@ -297,6 +297,7 @@ public class ShowExecutorTest {
             Catalog getCurrentCatalog() {
                 return catalog;
             }
+
             @Mock
             SystemInfoService getCurrentSystemInfo() {
                 return clusterInfo;

@@ -82,7 +82,8 @@ public class EsShardPartitions {
                                         (JSONObject) jsonObject.get("nodes")));
                     } catch (Exception e) {
                         LOG.error("fetch index [{}] shard partitions failure", indexName, e);
-                        throw new DorisEsException("fetch [" + indexName + "] shard partitions failure [" + e.getMessage() + "]");
+                        throw new DorisEsException("fetch [" + indexName
+                                + "] shard partitions failure [" + e.getMessage() + "]");
                     }
                 }
             }

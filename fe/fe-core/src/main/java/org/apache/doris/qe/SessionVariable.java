@@ -160,7 +160,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
 
-    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
+    // If user set a very small value, use this value instead.
+    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
@@ -180,7 +181,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
-    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
+            = "trim_tailing_spaces_for_external_table_query";
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 

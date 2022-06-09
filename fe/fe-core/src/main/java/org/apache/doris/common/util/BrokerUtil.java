@@ -204,13 +204,15 @@ public class BrokerUtil {
         return brokerName + "[" + address.toString() + "]";
     }
 
-    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
+    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
+            throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new UserException("Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
@@ -220,11 +222,13 @@ public class BrokerUtil {
                 continue;
             }
             if (str == null || !str.contains("=")) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new UserException("Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new UserException("Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             int index = columnsFromPath.indexOf(pair[0]);
             if (index == -1) {
@@ -237,7 +241,8 @@ public class BrokerUtil {
             }
         }
         if (size != columnsFromPath.size()) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new UserException("Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         return Lists.newArrayList(columns);
     }
@@ -494,8 +499,9 @@ public class BrokerUtil {
         }
     }
 
-    public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc) throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = new Pair<TPaloBrokerService.Client, TNetworkAddress>(null, null);
+    public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc)
+            throws UserException {
+        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = new Pair<>(null, null);
         TNetworkAddress address = getAddress(brokerDesc);
         TPaloBrokerService.Client client = borrowClient(address);
         pair.first = client;
@@ -591,7 +597,8 @@ public class BrokerUtil {
 
         public void write(ByteBuffer byteBuffer, long bufferSize) throws UserException {
             if (!isReady) {
-                throw new UserException("Broker writer is not ready. filePath=" + brokerFilePath + ", broker=" + address);
+                throw new UserException("Broker writer is not ready. filePath="
+                        + brokerFilePath + ", broker=" + address);
             }
 
             failed = true;

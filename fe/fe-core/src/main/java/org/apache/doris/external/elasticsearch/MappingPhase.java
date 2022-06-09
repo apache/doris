@@ -92,7 +92,8 @@ public class MappingPhase implements SearchPhase {
             properties = (JSONObject) rootSchema.get("properties");
         }
         if (properties == null) {
-            throw new DorisEsException("index[" + searchContext.sourceIndex() + "] type[" + searchContext.type() + "] mapping not found for the ES Cluster");
+            throw new DorisEsException("index[" + searchContext.sourceIndex() + "] type[" + searchContext.type()
+                    + "] mapping not found for the ES Cluster");
         }
         for (Column col : searchContext.columns()) {
             String colName = col.getName();

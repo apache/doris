@@ -72,7 +72,7 @@ import java.util.Set;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {
-    private final static Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
+    private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
     @Deprecated
     public static final String OBJECT_FILE_KEY = "object_file";
     public static final String FILE_KEY = "file";
@@ -238,10 +238,12 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void analyzeUda() throws AnalysisException {
-        AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
+        AggregateFunction.AggregateFunctionBuilder builder
+                = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
-        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
-                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).location(URI.create(userFile));
+        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType())
+                .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType())
+                .location(URI.create(userFile));
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null) {
             throw new AnalysisException("No 'init_fn' in properties");

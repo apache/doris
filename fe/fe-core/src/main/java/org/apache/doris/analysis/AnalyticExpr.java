@@ -62,7 +62,7 @@ import java.util.Objects;
  * and need to be substituted as such; example: COUNT(COUNT(..)) OVER (..)
  */
 public class AnalyticExpr extends Expr {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
     private static String NTILE = "NTILE";
 
     private FunctionCallExpr fnCall;
@@ -134,12 +134,15 @@ public class AnalyticExpr extends Expr {
     public FunctionCallExpr getFnCall() {
         return fnCall;
     }
+
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }
+
     public List<OrderByElement> getOrderByElements() {
         return orderByElements;
     }
+
     public AnalyticWindow getWindow() {
         return window;
     }
@@ -210,11 +213,10 @@ public class AnalyticExpr extends Expr {
                 || fn.functionName().equalsIgnoreCase(MAX) || fn.functionName().equalsIgnoreCase(COUNT)) {
             return true;
         }
-
         return false;
     }
 
-    static private boolean isOffsetFn(Function fn) {
+    private static boolean isOffsetFn(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }
@@ -222,7 +224,7 @@ public class AnalyticExpr extends Expr {
         return fn.functionName().equalsIgnoreCase(LEAD) || fn.functionName().equalsIgnoreCase(LAG);
     }
 
-    static private boolean isMinMax(Function fn) {
+    private static boolean isMinMax(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }
@@ -230,7 +232,7 @@ public class AnalyticExpr extends Expr {
         return fn.functionName().equalsIgnoreCase(MIN) || fn.functionName().equalsIgnoreCase(MAX);
     }
 
-    static private boolean isRankingFn(Function fn) {
+    private static boolean isRankingFn(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }
@@ -241,7 +243,7 @@ public class AnalyticExpr extends Expr {
                || fn.functionName().equalsIgnoreCase(NTILE);
     }
 
-    static private boolean isHllAggFn(Function fn) {
+    private static boolean isHllAggFn(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }
@@ -376,6 +378,7 @@ public class AnalyticExpr extends Expr {
                 + orderByElements.get(0).getExpr().toSql());
         }
     }
+
     /**
      * check the value out of range in lag/lead() function
      */

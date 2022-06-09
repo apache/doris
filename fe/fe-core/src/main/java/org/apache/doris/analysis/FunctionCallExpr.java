@@ -466,7 +466,8 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase("json_object")) {
             if ((children.size() & 1) == 1 && (originChildSize == children.size())) {
-                throw new AnalysisException("json_object can't be odd parameters, need even parameters: " + this.toSql());
+                throw new AnalysisException("json_object can't be odd parameters, need even parameters: "
+                        + this.toSql());
             }
             String res = parseJsonDataType(true);
             if (children.size() == originChildSize) {
@@ -505,7 +506,8 @@ public class FunctionCallExpr extends Expr {
                 if (children.size() > 2) {
                     if (!getChild(1).isConstant() || !getChild(2).isConstant()) {
                         throw new AnalysisException(
-                                "The default parameter (parameter 2 or parameter 3) of LEAD/LAG must be a constant: " + this.toSql());
+                                "The default parameter (parameter 2 or parameter 3) of LEAD/LAG must be a constant: "
+                                        + this.toSql());
                     }
                     uncheckedCastChild(Type.BIGINT, 1);
                     if (!getChild(2).type.matchesType(getChild(0).type) && !getChild(2).type.matchesType(Type.NULL)) {
@@ -567,7 +569,8 @@ public class FunctionCallExpr extends Expr {
 
             Type inputType = getChild(0).getType();
             if (!inputType.isBitmapType()) {
-                throw new AnalysisException("intersect_count function first argument should be of BITMAP type, but was " + inputType);
+                throw new AnalysisException("intersect_count function first argument should be of BITMAP type, but was "
+                        + inputType);
             }
 
             for (int i = 2; i < children.size(); i++) {
@@ -587,7 +590,8 @@ public class FunctionCallExpr extends Expr {
             }
             Type inputType = getChild(0).getType();
             if (!inputType.isBitmapType()) {
-                throw new AnalysisException(fnName + " function's argument should be of BITMAP type, but was " + inputType);
+                throw new AnalysisException(fnName
+                        + " function's argument should be of BITMAP type, but was " + inputType);
             }
             return;
         }
@@ -598,7 +602,8 @@ public class FunctionCallExpr extends Expr {
             }
             Type inputType = getChild(0).getType();
             if (!inputType.isQuantileStateType()) {
-                throw new AnalysisException(fnName + " function's argument should be of QUANTILE_STATE type, but was" + inputType);
+                throw new AnalysisException(fnName
+                        + " function's argument should be of QUANTILE_STATE type, but was" + inputType);
             }
         }
 
@@ -882,7 +887,8 @@ public class FunctionCallExpr extends Expr {
             }
             for (int i = 3; i < children.size(); i++) {
                 if (children.get(i).type != Type.BOOLEAN) {
-                    throw new AnalysisException("The 4th and subsequent params of " + fnName + " function must be boolean");
+                    throw new AnalysisException("The 4th and subsequent params of "
+                            + fnName + " function must be boolean");
                 }
                 childTypes[i] = children.get(i).type;
             }
@@ -916,7 +922,8 @@ public class FunctionCallExpr extends Expr {
                 if (fn == null) {
                     if (!analyzer.isUDFAllowed()) {
                         throw new AnalysisException(
-                                "Does not support non-builtin functions, or function does not exist: " + this.toSqlImpl());
+                                "Does not support non-builtin functions, or function does not exist: "
+                                        + this.toSqlImpl());
                     }
 
                     String dbName = fnName.analyzeDb(analyzer);
@@ -1078,7 +1085,8 @@ public class FunctionCallExpr extends Expr {
         List<Expr> inputParamsExprs = retExpr.fnParams.exprs();
         List<String> parameters = ((AliasFunction) retExpr.fn).getParameters();
         Preconditions.checkArgument(inputParamsExprs.size() == parameters.size(),
-                "Alias function [" + retExpr.fn.getFunctionName().getFunction() + "] args number is not equal to it's definition");
+                "Alias function [" + retExpr.fn.getFunctionName().getFunction()
+                        + "] args number is not equal to it's definition");
         List<Expr> oriParamsExprs = oriExpr.fnParams.exprs();
 
         // replace origin function params exprs' with input params expr depending on parameter name
@@ -1105,7 +1113,8 @@ public class FunctionCallExpr extends Expr {
      * @return
      * @throws AnalysisException
      */
-    private Expr replaceParams(List<String> parameters, List<Expr> inputParamsExprs, Expr oriExpr) throws AnalysisException {
+    private Expr replaceParams(List<String> parameters, List<Expr> inputParamsExprs, Expr oriExpr)
+            throws AnalysisException {
         for (int i = 0; i < oriExpr.getChildren().size(); i++) {
             Expr retExpr = replaceParams(parameters, inputParamsExprs, oriExpr.getChild(i));
             oriExpr.setChild(i, retExpr);

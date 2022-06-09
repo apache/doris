@@ -65,6 +65,7 @@ public class WebConfigurer implements WebMvcConfigurer {
                     "/notFound"));
         };
     }
+
     @Bean(name = "multipartResolver")
     public CommonsMultipartResolver multipartResolver() {
         CommonsMultipartResolver multipartResolver = new CommonsMultipartResolver();

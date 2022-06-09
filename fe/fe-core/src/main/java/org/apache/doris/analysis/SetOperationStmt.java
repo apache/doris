@@ -48,7 +48,7 @@ import java.util.Set;
  * and we need to mark the slots of resolved exprs as materialized.
  */
 public class SetOperationStmt extends QueryStmt {
-    private final static Logger LOG = LogManager.getLogger(SetOperationStmt.class);
+    private static final Logger LOG = LogManager.getLogger(SetOperationStmt.class);
 
     public enum Operation {
         UNION,
@@ -213,7 +213,8 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet)
+            throws AnalysisException {
         getWithClauseTables(analyzer, tableMap, parentViewNameSet);
         for (SetOperand op : operands) {
             op.getQueryStmt().getTables(analyzer, tableMap, parentViewNameSet);
@@ -886,6 +887,7 @@ public class SetOperationStmt extends QueryStmt {
         public Operation getOperation() {
             return operation;
         }
+
         // Used for propagating DISTINCT.
         public void setQualifier(Qualifier qualifier) {
             this.qualifier = qualifier;

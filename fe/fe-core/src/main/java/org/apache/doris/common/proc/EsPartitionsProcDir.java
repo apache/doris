@@ -69,8 +69,10 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                 rangePartitionInfo = (RangePartitionInfo) esTable.getEsTablePartitions().getPartitionInfo();
             }
             Joiner joiner = Joiner.on(", ");
-            Map<String, EsShardPartitions> unPartitionedIndices = esTable.getEsTablePartitions().getUnPartitionedIndexStates();
-            Map<String, EsShardPartitions> partitionedIndices = esTable.getEsTablePartitions().getPartitionedIndexStates();
+            Map<String, EsShardPartitions> unPartitionedIndices
+                    = esTable.getEsTablePartitions().getUnPartitionedIndexStates();
+            Map<String, EsShardPartitions> partitionedIndices
+                    = esTable.getEsTablePartitions().getPartitionedIndexStates();
             for (EsShardPartitions esShardPartitions : unPartitionedIndices.values()) {
                 List<Comparable> partitionInfo = new ArrayList<Comparable>();
                 partitionInfo.add(esShardPartitions.getIndexName());

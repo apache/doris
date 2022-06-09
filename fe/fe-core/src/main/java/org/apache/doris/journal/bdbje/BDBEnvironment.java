@@ -92,8 +92,8 @@ public class BDBEnvironment {
                 LOG.error("Current node is not in the electable_nodes list. will exit");
                 System.exit(-1);
             }
-            DbResetRepGroup resetUtility = new DbResetRepGroup(envHome, PALO_JOURNAL_GROUP, selfNodeName,
-                                                               selfNodeHostPort);
+            DbResetRepGroup resetUtility = new DbResetRepGroup(
+                    envHome, PALO_JOURNAL_GROUP, selfNodeName, selfNodeHostPort);
             resetUtility.reset();
             LOG.info("group has been reset.");
         }
@@ -108,8 +108,10 @@ public class BDBEnvironment {
         replicationConfig.setMaxClockDelta(Config.max_bdbje_clock_delta_ms, TimeUnit.MILLISECONDS);
         replicationConfig.setConfigParam(ReplicationConfig.TXN_ROLLBACK_LIMIT,
                 String.valueOf(Config.txn_rollback_limit));
-        replicationConfig.setConfigParam(ReplicationConfig.REPLICA_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
-        replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
+        replicationConfig.setConfigParam(ReplicationConfig.REPLICA_TIMEOUT,
+                Config.bdbje_heartbeat_timeout_second + " s");
+        replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT,
+                Config.bdbje_heartbeat_timeout_second + " s");
 
         if (isElectable) {
             replicationConfig.setReplicaAckTimeout(Config.bdbje_replica_ack_timeout_second, TimeUnit.SECONDS);

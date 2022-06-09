@@ -95,7 +95,8 @@ public class StatisticProcNode implements ProcNodeInterface {
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         ++partitionNum;
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex materializedIndex
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             ++indexNum;
                             List<Tablet> tablets = materializedIndex.getTablets();
                             for (int i = 0; i < tablets.size(); ++i) {

@@ -36,7 +36,7 @@ import java.util.Objects;
  * Statistics for a single column.
  */
 public class ColumnStats implements Writable {
-    private final static Logger LOG = LogManager.getLogger(ColumnStats.class);
+    private static final Logger LOG = LogManager.getLogger(ColumnStats.class);
 
     @SerializedName(value = "avgSerializedSize")
     private float avgSerializedSize;  // in bytes; includes serialization overhead
@@ -126,6 +126,7 @@ public class ColumnStats implements Writable {
         out.writeLong(maxSize);
         out.writeLong(numNulls);
     }
+
     public void readFields(DataInput in) throws IOException {
         numDistinctValues = in.readLong();
         avgSerializedSize = in.readFloat();
@@ -158,6 +159,7 @@ public class ColumnStats implements Writable {
                 && (maxSize == stats.maxSize)
                 && (numNulls == stats.numNulls);
     }
+
     /**
      * For fixed-length type (those which don't need additional storage besides
      * the slot they occupy), sets avgSerializedSize and maxSize to their slot size.
@@ -172,6 +174,7 @@ public class ColumnStats implements Writable {
             maxSize = colType.getSlotSize();
         }
     }
+
     /**
      * Creates ColumnStats from the given expr. Sets numDistinctValues and if the expr
      * is a SlotRef also numNulls.

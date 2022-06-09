@@ -132,9 +132,11 @@ public abstract class Type {
     public static ArrayList<ScalarType> getIntegerTypes() {
         return integerTypes;
     }
+
     public static ArrayList<ScalarType> getNumericTypes() {
         return numericTypes;
     }
+
     public static ArrayList<ScalarType> getSupportedTypes() {
         return supportedTypes;
     }
@@ -323,6 +325,7 @@ public abstract class Type {
     public boolean isDate() {
         return isScalarType(PrimitiveType.DATE);
     }
+
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
@@ -569,6 +572,7 @@ public abstract class Type {
                 return null;
         }
     }
+
     public static List<TTypeDesc> toThrift(Type[] types) {
         return toThrift(Lists.newArrayList(types));
     }

@@ -685,7 +685,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // So if this replica was previously set to DECOMMISSION, this state needs to be reset to NORMAL.
             // It may happen as follows:
             // 1. A tablet of colocation table is in COLOCATION_REDUNDANT state
-            // 2. The tablet is being scheduled and set one of replica as DECOMMISSION in TabletScheduler.deleteReplicaInternal()
+            // 2. The tablet is being scheduled and set one of replica as
+            //    DECOMMISSION in TabletScheduler.deleteReplicaInternal()
             // 3. The tablet will then be scheduled again
             // 4. But at that time, the BE node of the replica that was
             //    set to the DECOMMISSION state in step 2 is returned to the colocation group.
@@ -735,7 +736,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         if (storageMediaMigrationTask != null) {
-            AgentTaskQueue.removeTask(storageMediaMigrationTask.getBackendId(), TTaskType.STORAGE_MEDIUM_MIGRATE, storageMediaMigrationTask.getSignature());
+            AgentTaskQueue.removeTask(storageMediaMigrationTask.getBackendId(),
+                    TTaskType.STORAGE_MEDIUM_MIGRATE, storageMediaMigrationTask.getSignature());
         }
         if (cloneTask != null) {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
@@ -834,11 +836,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 visibleVersion, (int) (taskTimeoutMs / 1000));
         cloneTask.setPathHash(srcPathHash, destPathHash);
 
-        // if this is a balance task, or this is a repair task with REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
+        // if this is a balance task, or this is a repair task with
+        // REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
         // we create a new replica with state CLONE
         if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
                 || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
-                || tabletStatus == TabletStatus.COLOCATE_MISMATCH || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
+                || tabletStatus == TabletStatus.COLOCATE_MISMATCH
+                || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
                     -1 /* version */, schemaHash,
@@ -913,9 +917,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         // 1. check the tablet status first
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new SchedException(Status.UNRECOVERABLE, "db " + dbId + " does not exist"));
-        OlapTable olapTable = (OlapTable) db.getTableOrException(tblId, s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletId + " does not exist"));
-        olapTable.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table " + olapTable.getName() + " does not exist"));
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId,
+                s -> new SchedException(Status.UNRECOVERABLE, "db " + dbId + " does not exist"));
+        OlapTable olapTable = (OlapTable) db.getTableOrException(tblId,
+                s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletId + " does not exist"));
+        olapTable.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table "
+                + olapTable.getName() + " does not exist"));
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {

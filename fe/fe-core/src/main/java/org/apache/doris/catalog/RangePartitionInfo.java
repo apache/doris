@@ -79,7 +79,8 @@ public class RangePartitionInfo extends PartitionInfo {
     // create a new range and check it.
     private Range<PartitionKey> createAndCheckNewRange(PartitionKeyDesc partKeyDesc, boolean isTemp)
             throws AnalysisException, DdlException {
-        boolean isFixedPartitionKeyValueType = partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED;
+        boolean isFixedPartitionKeyValueType
+                = partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED;
 
         // generate partitionItemEntryList
         List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType
@@ -122,7 +123,7 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     private Range<PartitionKey> createNewRangeForFixedPartitionValueType(PartitionKeyDesc partKeyDesc,
-                                                                         List<Map.Entry<Long, PartitionItem>> partitionItemEntryList)
+            List<Map.Entry<Long, PartitionItem>> partitionItemEntryList)
             throws AnalysisException, DdlException {
         PartitionKey lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
         PartitionKey upperKey =  PartitionKey.createPartitionKey(partKeyDesc.getUpperValues(), partitionColumns);
@@ -169,7 +170,8 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     @Override
-    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2)
+            throws DdlException {
         RangeUtils.checkRangeConflict(list1, list2);
     }
 

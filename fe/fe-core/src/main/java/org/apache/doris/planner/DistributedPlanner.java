@@ -59,7 +59,7 @@ import java.util.stream.Collectors;
  * from a single-node plan that can be sent to the backend.
  */
 public class DistributedPlanner {
-    private final static Logger LOG = LogManager.getLogger(DistributedPlanner.class);
+    private static final Logger LOG = LogManager.getLogger(DistributedPlanner.class);
 
     private final PlannerContext ctx;
 
@@ -491,11 +491,12 @@ public class DistributedPlanner {
         }
     }
 
-    private boolean dataDistributionMatchEqPredicate(Map<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> scanNodeWithJoinConjuncts,
-                                                     List<String> cannotReason) {
+    private boolean dataDistributionMatchEqPredicate(Map<Pair<OlapScanNode, OlapScanNode>,
+            List<BinaryPredicate>> scanNodeWithJoinConjuncts, List<String> cannotReason) {
         // If left table and right table is same table and they select same single partition or no partition
         // they are naturally colocate relationship no need to check colocate group
-        for (Map.Entry<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> entry : scanNodeWithJoinConjuncts.entrySet()) {
+        for (Map.Entry<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> entry
+                : scanNodeWithJoinConjuncts.entrySet()) {
             OlapScanNode leftScanNode = entry.getKey().first;
             OlapScanNode rightScanNode = entry.getKey().second;
             List<BinaryPredicate> eqPredicates = entry.getValue();
@@ -626,8 +627,8 @@ public class DistributedPlanner {
         if (leftDistribution instanceof HashDistributionInfo) {
             // use the table_name + '-' + column_name as check condition
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
-            List<String> leftDistributeColumnNames = leftDistributeColumns.stream().
-                    map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
+            List<String> leftDistributeColumnNames = leftDistributeColumns.stream()
+                    .map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
 
             List<String> leftJoinColumnNames = new ArrayList<>();
             List<Expr> rightExprs = new ArrayList<>();
@@ -1105,8 +1106,8 @@ public class DistributedPlanner {
             childFragment.addPlanRoot(node);
             mergeFragment = childFragment;
         } else {
-            DataPartition mergePartition =
-                    partitionExprs == null ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
+            DataPartition mergePartition = partitionExprs == null
+                    ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
             // Convert the existing node to a preaggregation.
             AggregationNode preaggNode = (AggregationNode) node.getChild(0);
 
