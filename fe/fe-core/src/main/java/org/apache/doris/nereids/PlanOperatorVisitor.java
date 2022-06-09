@@ -27,6 +27,11 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalSort;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
+/**
+ * Base class for the processing of logical and physical plan
+ * @param <R> Return type of each visit method
+ * @param <C> Context type
+ */
 @SuppressWarnings("rawtypes")
 public abstract class PlanOperatorVisitor<R, C> {
 
