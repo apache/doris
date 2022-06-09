@@ -231,7 +231,7 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
     }
 
     //set dict to slotdesc
-    if (_olap_scan_node.__isset.slot_to_dict) {
+    if (_olap_scan_node.__isset.slot_to_dict && !_olap_scan_node.slot_to_dict.empty()) {
         if (!config::enable_storage_vectorization) {
             return Status::InternalError(
                     "must enable_storage_vectorization before using global dict");
