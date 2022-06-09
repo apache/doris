@@ -17,11 +17,7 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.DatabaseProperty;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.*;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -38,7 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 
-public class ExternalDatabase implements DatabaseIf {
+public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> {
 
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
@@ -118,27 +114,27 @@ public class ExternalDatabase implements DatabaseIf {
     }
 
     @Override
-    public List<Table> getTables() {
+    public List<T> getTables() {
         return null;
     }
 
     @Override
-    public List<Table> getTablesOnIdOrder() {
+    public List<T> getTablesOnIdOrder() {
         return null;
     }
 
     @Override
-    public List<Table> getViews() {
+    public List<T> getViews() {
         return null;
     }
 
     @Override
-    public List<Table> getTablesOnIdOrderIfExist(List<Long> tableIdList) {
+    public List<T> getTablesOnIdOrderIfExist(List<Long> tableIdList) {
         return null;
     }
 
     @Override
-    public List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
+    public List<T> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
         return null;
     }
 
@@ -148,64 +144,64 @@ public class ExternalDatabase implements DatabaseIf {
     }
 
     @Override
-    public Table getTableNullable(String tableName) {
+    public T getTableNullable(String tableName) {
         return null;
     }
 
     @Override
-    public Optional<Table> getTable(String tableName) {
+    public Optional<T> getTable(String tableName) {
         return Optional.empty();
     }
 
     @Override
-    public Optional<Table> getTable(long tableId) {
+    public Optional<T> getTable(long tableId) {
         return Optional.empty();
     }
 
     @Override
-    public <E extends Exception> Table getTableOrException(String tableName, Function<String, E> e) throws E {
+    public <E extends Exception> T getTableOrException(String tableName, Function<String, E> e) throws E {
         return null;
     }
 
     @Override
-    public <E extends Exception> Table getTableOrException(long tableId, Function<Long, E> e) throws E {
+    public <E extends Exception> T getTableOrException(long tableId, Function<Long, E> e) throws E {
         return null;
     }
 
     @Override
-    public Table getTableOrMetaException(String tableName) throws MetaNotFoundException {
+    public T getTableOrMetaException(String tableName) throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public Table getTableOrMetaException(long tableId) throws MetaNotFoundException {
+    public T getTableOrMetaException(long tableId) throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public <T extends Table> T getTableOrMetaException(String tableName, Table.TableType tableType)
+    public <V extends Table> V getTableOrMetaException(String tableName, Table.TableType tableType)
             throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public <T extends Table> T getTableOrMetaException(long tableId, Table.TableType tableType)
+    public <V extends Table> V getTableOrMetaException(long tableId, Table.TableType tableType)
             throws MetaNotFoundException {
         return null;
     }
 
     @Override
-    public Table getTableOrDdlException(String tableName) throws DdlException {
+    public T getTableOrDdlException(String tableName) throws DdlException {
         return null;
     }
 
     @Override
-    public Table getTableOrDdlException(long tableId) throws DdlException {
+    public T getTableOrDdlException(long tableId) throws DdlException {
         return null;
     }
 
     @Override
-    public Table getTableOrAnalysisException(String tableName) throws AnalysisException {
+    public T getTableOrAnalysisException(String tableName) throws AnalysisException {
         return null;
     }
 
@@ -215,7 +211,7 @@ public class ExternalDatabase implements DatabaseIf {
     }
 
     @Override
-    public Table getTableOrAnalysisException(long tableId) throws AnalysisException {
+    public T getTableOrAnalysisException(long tableId) throws AnalysisException {
         return null;
     }
 }

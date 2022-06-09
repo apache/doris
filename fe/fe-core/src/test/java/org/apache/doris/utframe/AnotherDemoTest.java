@@ -104,7 +104,7 @@ public class AnotherDemoTest {
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // 4. get and test the created db and table
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:db1");
-        OlapTable tbl = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
             Assert.assertNotNull(tbl);
