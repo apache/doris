@@ -1081,7 +1081,6 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
             dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
                     _tablet->_cumulative_compaction_policy.get());
 
-    EXPECT_EQ(4, policy->_levels.size());
     EXPECT_EQ(536870912, policy->_levels[0]);
     EXPECT_EQ(268435456, policy->_levels[1]);
     EXPECT_EQ(134217728, policy->_levels[2]);
