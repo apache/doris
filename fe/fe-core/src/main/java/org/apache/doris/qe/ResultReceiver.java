@@ -48,11 +48,11 @@ public class ResultReceiver {
     private Long backendId;
     private Thread currentThread;
 
-    public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, int timeoutMs) {
+    public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs) {
         this.finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
         this.address = address;
-        this.timeoutTs = System.currentTimeMillis() + timeoutMs;
+        this.timeoutTs = timeoutTs;
     }
 
     public RowBatch getNext(Status status) throws TException {

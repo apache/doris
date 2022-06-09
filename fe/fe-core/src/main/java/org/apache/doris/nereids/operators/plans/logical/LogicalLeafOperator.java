@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 
 import java.util.List;
 
@@ -42,4 +44,9 @@ public abstract class LogicalLeafOperator<TYPE extends LogicalLeafOperator<TYPE>
     }
 
     public abstract List<Slot> doComputeOutput();
+
+    @Override
+    public LogicalLeaf toTreeNode(GroupExpression groupExpression) {
+        return new LogicalLeaf(this, groupExpression, groupExpression.getParent().getLogicalProperties());
+    }
 }

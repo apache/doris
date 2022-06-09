@@ -30,7 +30,6 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-SSB_DATA_DIR=$CURDIR/ssb-data/
 
 usage() {
     echo "
@@ -93,44 +92,44 @@ load_lineitem_flat() {
         run_sql "
 INSERT INTO lineorder_flat
 SELECT
-    lo_orderkey,
-    lo_linenumber,
-    lo_custkey,
-    lo_partkey,
-    lo_suppkey,
-    lo_orderdate,
-    lo_orderpriority,
-    lo_shippriority,
-    lo_quantity,
-    lo_extendedprice,
-    lo_ordtotalprice,
-    lo_discount,
-    lo_revenue,
-    lo_supplycost,
-    lo_tax,
-    lo_commitdate,
-    lo_shipmode,
-    c_name,
-    c_address,
-    c_city,
-    c_nation,
-    c_region,
-    c_phone,
-    c_mktsegment,
-    s_name,
-    s_address,
-    s_city,
-    s_nation,
-    s_region,
-    s_phone,
-    p_name,
-    p_mfgr,
-    p_category,
-    p_brand,
-    p_color,
-    p_type,
-    p_size,
-    p_container
+    LO_ORDERDATE,
+    LO_ORDERKEY,
+    LO_LINENUMBER,
+    LO_CUSTKEY,
+    LO_PARTKEY,
+    LO_SUPPKEY,
+    LO_ORDERPRIORITY,
+    LO_SHIPPRIORITY,
+    LO_QUANTITY,
+    LO_EXTENDEDPRICE,
+    LO_ORDTOTALPRICE,
+    LO_DISCOUNT,
+    LO_REVENUE,
+    LO_SUPPLYCOST,
+    LO_TAX,
+    LO_COMMITDATE,
+    LO_SHIPMODE,
+    C_NAME,
+    C_ADDRESS,
+    C_CITY,
+    C_NATION,
+    C_REGION,
+    C_PHONE,
+    C_MKTSEGMENT,
+    S_NAME,
+    S_ADDRESS,
+    S_CITY,
+    S_NATION,
+    S_REGION,
+    S_PHONE,
+    P_NAME,
+    P_MFGR,
+    P_CATEGORY,
+    P_BRAND,
+    P_COLOR,
+    P_TYPE,
+    P_SIZE,
+    P_CONTAINER
 FROM (
     SELECT
         lo_orderkey,
@@ -185,6 +184,7 @@ run_sql "set global query_timeout=7200;"
 run_sql "set global parallel_fragment_exec_instance_num=1;"
 
 echo '============================================'
+echo $(date)
 load_lineitem_flat
 
 echo '============================================'
@@ -193,4 +193,5 @@ run_sql "set global query_timeout=${origin_query_timeout};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel};"
 
 echo '============================================'
+echo $(date)
 echo "DONE."

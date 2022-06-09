@@ -33,10 +33,19 @@ namespace vectorized {
 
 class VExpr {
 public:
+    // resize inserted param column to make sure column size equal to block.rows()
+    // and return param column index
+    static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
+        // usualy elem.column always is const column, so we just clone it.
+        elem.column = elem.column->clone_resized(size);
+        block->insert(std::move(elem));
+        return block->columns() - 1;
+    }
+
     VExpr(const TExprNode& node);
     VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable);
     // only used for test
-    VExpr() {}
+    VExpr() = default;
     virtual ~VExpr() = default;
 
     virtual VExpr* clone(ObjectPool* pool) const = 0;
@@ -108,15 +117,12 @@ public:
                                           VExpr* parent, int* node_idx, VExpr** root_expr,
                                           VExprContext** ctx);
     const std::vector<VExpr*>& children() const { return _children; }
-    void set_children(RuntimeState* state, VExprContext* ctx, std::vector<VExpr*> children) {
-        close(state, ctx, ctx->get_function_state_scope());
-        _children = children;
-    }
+    void set_children(std::vector<VExpr*> children) { _children = children; }
     virtual std::string debug_string() const;
     static std::string debug_string(const std::vector<VExpr*>& exprs);
     static std::string debug_string(const std::vector<VExprContext*>& ctxs);
 
-    bool is_and_expr() { return _fn.name.function_name == "and"; }
+    bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
     const TFunction& fn() const { return _fn; }
 
@@ -148,12 +154,12 @@ protected:
     /// 2. Call function's prepare() to initialize function state, fragment-local or
     /// thread-local according the input `FunctionStateScope` argument.
     Status init_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                 const FunctionBasePtr& function);
+                                 const FunctionBasePtr& function) const;
 
     /// Helper function to close function context, fragment-local or thread-local according
     /// the input `FunctionStateScope` argument. Called in `close` phase of VExpr.
     void close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                const FunctionBasePtr& function);
+                                const FunctionBasePtr& function) const;
 
     TExprNodeType::type _node_type;
     TypeDescriptor _type;

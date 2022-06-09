@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/s3_reader.h"
+#include "io/s3_reader.h"
 
 #include <aws/core/Aws.h>
 #include <gtest/gtest.h>
@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-#include "exec/s3_writer.h"
+#include "io/s3_writer.h"
 
 namespace doris {
 static const std::string AK = "";

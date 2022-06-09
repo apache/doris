@@ -223,7 +223,7 @@ struct MurmurHash3Impl32 {
 };
 using FunctionMurmurHash3_32 = FunctionVariadicArgumentsBase<DataTypeInt32, MurmurHash3Impl32>;
 
-void register_function_function_hash(SimpleFunctionFactory& factory) {
+void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash2_64>();
     factory.register_function<FunctionMurmurHash3_32>();
 }

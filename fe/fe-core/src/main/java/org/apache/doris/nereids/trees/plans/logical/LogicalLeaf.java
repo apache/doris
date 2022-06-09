@@ -17,9 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Abstract class for all logical plan that have no child.
@@ -30,5 +37,15 @@ public class LogicalLeaf<OP_TYPE extends LogicalLeafOperator>
 
     public LogicalLeaf(OP_TYPE operator) {
         super(NodeType.LOGICAL, operator);
+    }
+
+    public LogicalLeaf(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public LogicalLeaf newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return new LogicalLeaf(operator, groupExpression, logicalProperties);
     }
 }

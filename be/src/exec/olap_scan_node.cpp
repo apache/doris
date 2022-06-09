@@ -1574,7 +1574,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             bool ready = runtime_filter->is_ready();
             if (ready) {
                 runtime_filter->get_prepared_context(&contexts, row_desc(), _expr_mem_tracker);
-                _runtime_filter_ctxs[i].apply_mark = true;
+                scanner_filter_apply_marks[i] = true;
             }
         }
     }

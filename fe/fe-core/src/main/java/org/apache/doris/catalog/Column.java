@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -87,6 +88,8 @@ public class Column implements Writable {
     private Expr defineExpr; // use to define column in materialize view
     @SerializedName(value = "visible")
     private boolean visible;
+    @SerializedName(value = "defaultValueExprDef")
+    private DefaultValueExprDef defaultValueExprDef; // used for default value
 
     public Column() {
         this.name = "";
@@ -95,6 +98,7 @@ public class Column implements Writable {
         this.isKey = false;
         this.stats = new ColumnStats();
         this.visible = true;
+        this.defineExpr = null;
         this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
     }
 
@@ -117,10 +121,10 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
+        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null);
     }
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-                  String defaultValue, String comment, boolean visible) {
+                  String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -136,6 +140,7 @@ public class Column implements Writable {
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
+        this.defaultValueExprDef = defaultValueExprDef;
         this.comment = comment;
         this.stats = new ColumnStats();
         this.visible = visible;
@@ -151,6 +156,7 @@ public class Column implements Writable {
         this.isKey = column.isKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
+        this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
         this.stats = column.getStats();
         this.visible = column.visible;
@@ -297,10 +303,14 @@ public class Column implements Writable {
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
         }
+        if (defaultValueExprDef != null) {
+            return defaultValueExprDef.getExpr();
+        }
         Expr result = defaultValueLiteral.castTo(getType());
         result.checkValueValid();
         return result;
     }
+
 
     public void setStats(ColumnStats stats) {
         this.stats = stats;
@@ -497,6 +507,10 @@ public class Column implements Writable {
         defineExpr = expr;
     }
 
+    public DefaultValueExprDef getDefaultValueExprDef() {
+        return defaultValueExprDef;
+    }
+
     public SlotRef getRefColumn() {
         List<Expr> slots = new ArrayList<>();
         if (defineExpr == null) {
@@ -642,7 +656,6 @@ public class Column implements Writable {
     }
 
     public static Column read(DataInput in) throws IOException {
-
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Column.class);
     }

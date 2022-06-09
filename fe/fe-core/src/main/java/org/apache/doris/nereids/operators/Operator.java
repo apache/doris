@@ -17,9 +17,14 @@
 
 package org.apache.doris.nereids.operators;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.TreeNode;
+
 /**
  * interface for all concrete operator.
  */
 public interface Operator<TYPE extends Operator<TYPE>> {
     OperatorType getType();
+
+    <NODE_TYPE extends TreeNode> NODE_TYPE toTreeNode(GroupExpression groupExpression);
 }

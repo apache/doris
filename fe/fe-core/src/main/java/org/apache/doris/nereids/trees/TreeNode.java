@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.operators.Operator;
+
 import java.util.List;
 
 /**
@@ -27,6 +30,10 @@ import java.util.List;
  */
 public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
+    Operator getOperator();
+
+    GroupExpression getGroupExpression();
+
     NodeType getType();
 
     <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children();
@@ -34,4 +41,6 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index);
 
     int arity();
+
+    NODE_TYPE newChildren(List<TreeNode> children);
 }

@@ -613,6 +613,15 @@ void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t
     }
 }
 
+Block Block::copy_block(const std::vector<int>& column_offset) const {
+    ColumnsWithTypeAndName columns_with_type_and_name;
+    for (auto offset : column_offset) {
+        DCHECK(offset < data.size());
+        columns_with_type_and_name.emplace_back(data[offset]);
+    }
+    return columns_with_type_and_name;
+}
+
 Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
     ColumnPtr filter_column = block->get_by_position(filter_column_id).column;
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {

@@ -17,11 +17,15 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 
 import java.util.List;
 
@@ -45,4 +49,11 @@ public abstract class LogicalBinaryOperator<
     }
 
     public abstract List<Slot> doComputeOutput(LEFT_INPUT_TYPE left, RIGHT_INPUT_TYPE right);
+
+    @Override
+    public LogicalBinary toTreeNode(GroupExpression groupExpression) {
+        LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        return new LogicalBinary(this, groupExpression, logicalProperties,
+                new PlaceHolderPlan(), new PlaceHolderPlan());
+    }
 }
