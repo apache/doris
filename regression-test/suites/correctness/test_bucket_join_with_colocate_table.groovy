@@ -53,10 +53,10 @@
            "replication_allocation" = "tag.location.default: 1",
            "in_memory" = "false",
            "storage_format" = "V2"
-         ) 
+         )
      """
 
-     sql """ INSERT INTO ${colocateTableName} VALUES 
+     sql """ INSERT INTO ${colocateTableName} VALUES
          (0, 0, 0),
          (1, 1, 1),
          (2, 2, 2),
@@ -64,7 +64,7 @@
          ;
      """
 
-     sql """ INSERT INTO ${rightTable} VALUES 
+     sql """ INSERT INTO ${rightTable} VALUES
          (1, 1),
          (2, 2),
          (3, 3),
