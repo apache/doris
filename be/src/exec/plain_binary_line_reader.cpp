@@ -18,7 +18,7 @@
 #include "exec/plain_binary_line_reader.h"
 
 #include "common/status.h"
-#include "exec/file_reader.h"
+#include "io/file_reader.h"
 
 namespace doris {
 

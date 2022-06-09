@@ -191,7 +191,9 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _stale_rs_metas(b._stale_rs_metas),
           _del_pred_array(b._del_pred_array),
           _in_restore_mode(b._in_restore_mode),
-          _preferred_rowset_type(b._preferred_rowset_type) {}
+          _preferred_rowset_type(b._preferred_rowset_type),
+          _remote_storage_name(b._remote_storage_name),
+          _storage_medium(b._storage_medium) {};
 
 void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                            ColumnPB* column) {

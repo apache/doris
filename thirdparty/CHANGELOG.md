@@ -3,10 +3,13 @@
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
 ## v20220607
-
 - Added: opentelemetry-cpp 1.4.0, it was introduced for tracing.
 - Added: opentelemetry-proto 0.18.0, it is depended on by opentelemetry-cpp.
 - Added: nlohmann/json 3.10.1, it is depended on by opentelemetry-cpp.
+
+## v20220606
+- Added: hyperscan 5.4.0, and a patch for compilation
+- Added: ragel 6.1.0, it is used by hyperscan to generate files before compilation
 
 ## v20220522
 

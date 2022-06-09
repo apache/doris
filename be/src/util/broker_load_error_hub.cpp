@@ -17,7 +17,7 @@
 
 #include "util/broker_load_error_hub.h"
 
-#include "exec/broker_writer.h"
+#include "io/broker_writer.h"
 #include "util/defer_op.h"
 
 namespace doris {

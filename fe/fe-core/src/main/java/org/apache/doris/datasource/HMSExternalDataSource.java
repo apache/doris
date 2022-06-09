@@ -30,21 +30,9 @@ import java.util.List;
  */
 public class HMSExternalDataSource extends ExternalDataSource {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDataSource.class);
-
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
 
     public HMSExternalDataSource() {
-
-    }
-
-    @Override
-    public String getType() {
-        return "hms";
-    }
-
-    @Override
-    public String getName() {
-        return "hms";
     }
 
     @Override

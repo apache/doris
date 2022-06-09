@@ -18,15 +18,12 @@
 #include "runtime/file_result_writer.h"
 
 #include "common/consts.h"
-#include "exec/broker_writer.h"
-#include "exec/hdfs_reader_writer.h"
-#include "exec/local_file_writer.h"
 #include "exec/parquet_writer.h"
-#include "exec/s3_writer.h"
 #include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
+#include "io/file_factory.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
@@ -95,15 +92,6 @@ Status FileResultWriter::_get_success_file_name(std::string* file_name) {
     ss << _file_opts->file_path << _file_opts->success_file_name;
     *file_name = ss.str();
     if (_storage_type == TStorageBackendType::LOCAL) {
-        // For local file writer, the file_path is a local dir.
-        // Here we do a simple security verification by checking whether the file exists.
-        // Because the file path is currently arbitrarily specified by the user,
-        // Doris is not responsible for ensuring the correctness of the path.
-        // This is just to prevent overwriting the existing file.
-        if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name +
-                                         ". Host: " + BackendOptions::get_localhost());
-        }
     }
 
     return Status::OK();
@@ -116,26 +104,18 @@ Status FileResultWriter::_create_next_file_writer() {
 }
 
 Status FileResultWriter::_create_file_writer(const std::string& file_name) {
-    if (_storage_type == TStorageBackendType::LOCAL) {
-        _file_writer = new LocalFileWriter(file_name, 0 /* start offset */);
-    } else if (_storage_type == TStorageBackendType::BROKER) {
-        _file_writer =
-                new BrokerWriter(_state->exec_env(), _file_opts->broker_addresses,
-                                 _file_opts->broker_properties, file_name, 0 /*start offset*/);
-    } else if (_storage_type == TStorageBackendType::S3) {
-        _file_writer = new S3Writer(_file_opts->broker_properties, file_name, 0 /* offset */);
-    } else if (_storage_type == TStorageBackendType::HDFS) {
-        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
-                const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties),
-                file_name, &_file_writer));
-    }
+    RETURN_IF_ERROR(FileFactory::create_file_writer(
+            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
+            _file_writer));
     RETURN_IF_ERROR(_file_writer->open());
+
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs,
+        _parquet_writer = new ParquetWriterWrapper(_file_writer.get(), _output_expr_ctxs,
                                                    _file_opts->file_properties, _file_opts->schema,
                                                    _output_object_data);
         break;
@@ -417,12 +397,8 @@ Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         delete _parquet_writer;
         _parquet_writer = nullptr;
-        delete _file_writer;
-        _file_writer = nullptr;
-    } else if (_file_writer != nullptr) {
+    } else if (_file_writer) {
         _file_writer->close();
-        delete _file_writer;
-        _file_writer = nullptr;
     }
 
     if (only_close) {
