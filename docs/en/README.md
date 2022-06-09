@@ -329,7 +329,7 @@ under the License.
           <li><a href="https://github.com/apache/incubator-doris" target="_blank"><img src="/blog-images/fx2.png" alt="Github" /></a></li>
           <li><a href="https://twitter.com/doris_apache" target="_blank"><img src="/blog-images/fx3.png" alt="Twitter" /></a></li>
           <li><a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-18u6vjopj-Th15vTVfmCzVfhhL5rz26A" target="_blank"><img src="/blog-images/fx4.png" alt="Slack" /></a></li>
-          <li><a href="https://mp.weixin.qq.com/mp/homepage?__biz=Mzg5MDEyODc1OA==&hid=1&sn=eb2d31c20d5c4fc638b897c764e11195&scene=18" target="_blank"><img src="/blog-images/fx5.png" alt="WeChart" /></a></li>
+          <!-- <li><a href="https://mp.weixin.qq.com/mp/homepage?__biz=Mzg5MDEyODc1OA==&hid=1&sn=eb2d31c20d5c4fc638b897c764e11195&scene=18" target="_blank"><img src="/blog-images/fx5.png" alt="WeChart" /></a></li> -->
           <li><a href="https://space.bilibili.com/362350065" target="_blank"><img src="/blog-images/fx6.png" alt="bilibili" /></a></li>
         </ul>
       </div>
