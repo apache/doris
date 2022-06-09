@@ -31,8 +31,8 @@ under the License.
         <p class="description">Apache Doris</p> 
         <p class="sum">A fast MPP database for all modern analytics on big data</p> 
         <div class="bannerHref">
-          <a href="/en/docs/get-starting/get-starting.html" class="button1">Quick Start</a> 
-          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GitHub</a>
+          <a href="/en/docs/get-starting/get-starting.html" class="button1">QUICK START</a> 
+          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
         </div>
       </div> 
       <div class="bImg">

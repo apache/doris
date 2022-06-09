@@ -32,7 +32,7 @@ under the License.
         <p class="sum">现代化的高性能MPP分析型数据库</p> 
         <div class="bannerHref">
           <a href="/zh-CN/docs/get-starting/get-starting.html" class="button1">快速开始</a> 
-          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GitHub</a>
+          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
         </div>
       </div> 
       <div class="bImg">
