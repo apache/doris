@@ -23,9 +23,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
-public class PhysicalHashJoin
-    extends PhysicalBinaryOperator
-    <PhysicalHashJoin, PhysicalPlan, PhysicalPlan> {
+public class PhysicalHashJoin extends PhysicalBinaryOperator<PhysicalHashJoin, PhysicalPlan, PhysicalPlan> {
 
     private JoinType joinType;
 
