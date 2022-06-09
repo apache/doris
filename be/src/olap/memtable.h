@@ -56,7 +56,7 @@ public:
 
     void shrink_memtable_by_agg();
 
-    bool is_flush();
+    bool is_flush() const;
 
     bool need_to_agg();
 
@@ -72,7 +72,7 @@ private:
     class RowCursorComparator : public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
-        int operator()(const char* left, const char* right) const;
+        int operator()(const char* left, const char* right) const override;
 
     private:
         const Schema* _schema;
@@ -121,9 +121,9 @@ private:
     };
 
 private:
-    typedef SkipList<char*, RowComparator> Table;
-    typedef Table::key_type TableKey;
-    typedef SkipList<RowInBlock*, RowInBlockComparator> VecTable;
+    using Table = SkipList<char*, RowComparator>;
+    using TableKey = Table::key_type;
+    using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
 
 public:
     /// The iterator of memtable, so that the data in this memtable

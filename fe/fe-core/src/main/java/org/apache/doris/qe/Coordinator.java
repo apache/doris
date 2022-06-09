@@ -635,6 +635,7 @@ public class Coordinator {
                         beToExecStates.putIfAbsent(execState.backend.getId(), states);
                     }
                     states.addState(execState);
+                    ++backendIdx;
                 }
                 profileFragmentId += 1;
             } // end for fragments

@@ -42,7 +42,6 @@
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
@@ -104,7 +103,9 @@ public:
     std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
     DataDir* get_store(const std::string& path);
 
-    uint32_t available_storage_medium_type_count() { return _available_storage_medium_type_count; }
+    uint32_t available_storage_medium_type_count() const {
+        return _available_storage_medium_type_count;
+    }
 
     Status set_cluster_id(int32_t cluster_id);
     int32_t effective_cluster_id() const { return _effective_cluster_id; }

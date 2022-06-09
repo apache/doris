@@ -29,6 +29,7 @@
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
 #include "udf/udf.h"
+#include "util/slice.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -54,6 +55,7 @@ struct StringRef {
 
     std::string to_string() const { return std::string(data, size); }
     std::string_view to_string_view() const { return std::string_view(data, size); }
+    doris::Slice to_slice() const { return doris::Slice(data, size); }
 
     // this is just for show, eg. print data to error log, to avoid print large string.
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
