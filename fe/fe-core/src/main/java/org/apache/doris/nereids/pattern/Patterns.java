@@ -68,6 +68,7 @@ public interface Patterns {
     }
 
     /* abstract plan operator patterns */
+
     /**
      * create a leafPlan pattern.
      */
