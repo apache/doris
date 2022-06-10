@@ -73,9 +73,9 @@ suite("test_alter_table_column", "schema_change") {
     sql "SHOW ALTER TABLE COLUMN;"
     sql "insert into ${tbName1} values(1,1,10,20);"
     sql "insert into ${tbName1} values(1,1,30,40);"
-    qt_sql "desc ${tbName1}"
-    qt_sql "select * from ${tbName1}"
-    sql "DROP TABLE ${tbName1}"
+    qt_sql "desc ${tbName1};"
+    qt_sql "select * from ${tbName1};"
+    sql "DROP TABLE ${tbName1} FORCE;"
 
     def tbName2 = "alter_table_column_agg"
     sql "DROP TABLE IF EXISTS ${tbName2}"
@@ -109,7 +109,7 @@ suite("test_alter_table_column", "schema_change") {
     sql "SHOW ALTER TABLE COLUMN"
     sql "insert into ${tbName2} values(1,1,10,20);"
     sql "insert into ${tbName2} values(1,1,30,40);"
-    qt_sql "desc ${tbName2}"
-    qt_sql "select * from ${tbName2}"
-    sql "DROP TABLE ${tbName2}"
+    qt_sql "desc ${tbName2};"
+    qt_sql "select * from ${tbName2};"
+    sql "DROP TABLE ${tbName2} FORCE;"
 }
