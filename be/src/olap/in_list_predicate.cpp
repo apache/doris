@@ -138,7 +138,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                         uint16_t idx = sel[i];                                                   \
                         sel[new_size] = idx;                                                     \
                         const auto& cell_value = data_array[idx];                                \
-                        DCHECK(cell_value < selected.size());                                    \
+                        DCHECK(cell_value < (int64_t)selected.size());                           \
                         bool ret = !null_bitmap[idx] && (selected[cell_value] OP false);         \
                         new_size += _opposite ? !ret : ret;                                      \
                     }                                                                            \
@@ -168,7 +168,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                     uint16_t idx = sel[i];                                                       \
                     sel[new_size] = idx;                                                         \
                     const auto& cell_value = data_array[idx];                                    \
-                    DCHECK(cell_value < selected.size());                                        \
+                    DCHECK(cell_value < (int64_t)selected.size());                               \
                     auto result = (selected[cell_value] OP false);                               \
                     new_size += _opposite ? !result : result;                                    \
                 }                                                                                \
