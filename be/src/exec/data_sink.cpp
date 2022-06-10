@@ -38,6 +38,7 @@
 #include "vec/sink/result_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmysql_table_writer.h"
+#include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vtablet_sink.h"
 #include "vec/sink/vmysql_table_sink.h"
 
@@ -91,13 +92,35 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.result_file_sink) {
             return Status::InternalError("Missing result file sink.");
         }
-        // Result file sink is not the top sink
-        if (params.__isset.destinations && params.destinations.size() > 0) {
-            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink,
-                                          params.destinations, pool, params.sender_id, desc_tbl);
+
+        // TODO: figure out good buffer size based on size of output row
+        if (is_vec) {
+            bool send_query_statistics_with_every_batch =
+                    params.__isset.send_query_statistics_with_every_batch
+                            ? params.send_query_statistics_with_every_batch
+                            : false;
+            // Result file sink is not the top sink
+            if (params.__isset.destinations && params.destinations.size() > 0) {
+                tmp_sink = new doris::vectorized::VResultFileSink(
+                        pool, params.sender_id, row_desc, thrift_sink.result_file_sink,
+                        params.destinations, 16 * 1024, send_query_statistics_with_every_batch,
+                        output_exprs, desc_tbl);
+            } else {
+                tmp_sink = new doris::vectorized::VResultFileSink(
+                        pool, row_desc, thrift_sink.result_file_sink, 16 * 1024,
+                        send_query_statistics_with_every_batch, output_exprs);
+            }
         } else {
-            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink);
+            // Result file sink is not the top sink
+            if (params.__isset.destinations && params.destinations.size() > 0) {
+                tmp_sink =
+                        new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink,
+                                           params.destinations, pool, params.sender_id, desc_tbl);
+            } else {
+                tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink);
+            }
         }
+
         sink->reset(tmp_sink);
         break;
     }
