@@ -22,12 +22,12 @@
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
-#include "olap/rowset/beta_rowset.h"
 
 namespace doris {
 

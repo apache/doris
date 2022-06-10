@@ -61,7 +61,9 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/file_scan_node.h"
+#include "vec/exec/decode_node.h"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/meta_scan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -82,9 +84,6 @@
 #include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vtable_valued_function_scannode.h"
 #include "vec/exec/vunion_node.h"
-#include "vec/exec/meta_scan_node.h"
-#include "vec/exec/decode_node.h"
-#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {

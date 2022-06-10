@@ -18,8 +18,8 @@
 #pragma once
 
 #include "runtime/string_value.h"
-#include "vec/common/pod_array_fwd.h"
 #include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 
 namespace doris {
 namespace vectorized {

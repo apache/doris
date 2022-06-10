@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "vec/runtime/dict/dict.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/runtime/dict/dict.h"
 
 namespace doris {
 namespace vectorized {

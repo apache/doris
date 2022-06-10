@@ -137,7 +137,7 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
 void TabletsChannel::_close_wait(DeltaWriter* writer,
                                  google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                                  google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
-    std::vector<std::string> invalid_dict_column_names;               
+    std::vector<std::string> invalid_dict_column_names;
     Status st = writer->close_wait(&invalid_dict_column_names);
     if (st.ok()) {
         if (_broken_tablets.find(writer->tablet_id()) == _broken_tablets.end()) {

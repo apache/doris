@@ -18,6 +18,7 @@
 #include "vec/sink/thrift_result_writer.h"
 
 #include <arrow/memory_pool.h>
+
 #include <string>
 
 #include "runtime/buffer_control_block.h"

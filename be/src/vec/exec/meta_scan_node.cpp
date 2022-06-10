@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/exec/meta_scan_node.h"
+
 #include "vec/exec/volap_scan_node.h"
 namespace doris::vectorized {
 

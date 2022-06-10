@@ -20,7 +20,6 @@
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
 #include <memory>  // for unique_ptr
-
 #include <set>
 #include <string>
 
@@ -141,7 +140,7 @@ public:
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
     bool all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts, BlockCompressionCodec* codec);
-    
+
     Status get_dict_data(std::set<string>& dict_words);
 
     uint64_t num_rows() const { return _num_rows; }
