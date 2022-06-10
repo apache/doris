@@ -342,6 +342,7 @@ set(VEC_TEST_FILES
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp
+    vec/function/function_array_size_test.cpp
     vec/function/function_bitmap_test.cpp
     vec/function/function_comparison_test.cpp
     vec/function/function_hash_test.cpp

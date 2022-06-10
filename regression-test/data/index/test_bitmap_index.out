@@ -84,6 +84,7 @@ default_cluster:regression_test.test_bitmap_index_unique		index8		k8						BITMAP
 default_cluster:regression_test.test_bitmap_index_unique		index9		k9						BITMAP	
 default_cluster:regression_test.test_bitmap_index_unique		index10		k10						BITMAP	
 default_cluster:regression_test.test_bitmap_index_unique		index11		k11						BITMAP	
+default_cluster:regression_test.test_bitmap_index_unique		index12		v1						BITMAP	
 
 -- !sql --
 1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	1

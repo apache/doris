@@ -86,9 +86,6 @@ public class TypeDef implements ParseNode {
         }
 
         if (type.isComplexType()) {
-            if (!Config.enable_complex_type_support) {
-                throw new AnalysisException("Unsupported data type: " + type.toSql());
-            }
             if (type.isArrayType()) {
                 Type itemType = ((ArrayType) type).getItemType();
                 if (itemType instanceof ScalarType) {

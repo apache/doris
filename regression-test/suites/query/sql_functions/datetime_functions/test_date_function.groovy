@@ -22,25 +22,37 @@ suite("test_date_function", "query") {
 
     sql """ SET enable_vectorized_engine = TRUE; """
 
+    sql """
+            CREATE TABLE ${tableName} (
+                test_datetime datetime NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(test_datetime)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(test_datetime) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03") """
     // convert_tz
-    // 转换datetime值，从 from_tz 给定时区转到 to_tz 给定时区，并返回结果值。 如果参数无效该函数返回NULL。
-    qt_sql """ SELECT convert_tz('2019-08-01 13:21:03', 'Asia/Shanghai', 'America/Los_Angeles') result; """
-    qt_sql """ SELECT convert_tz('2019-08-01 13:21:03', '+08:00', 'America/Los_Angeles') result; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from ${tableName}; """
 
-    qt_sql """ SELECT convert_tz('2019-08-01 13:21:03', 'Asia/Shanghai', 'Europe/London') result; """
-    qt_sql """ SELECT convert_tz('2019-08-01 13:21:03', '+08:00', 'Europe/London') result; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from ${tableName}; """
 
-    qt_sql """ SELECT convert_tz('2019-08-01 13:21:03', '+08:00', 'America/London') result; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from ${tableName}; """
 
     // some invalid date
     qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
 
-
+    sql """ truncate table ${tableName} """
 
     // curdate,current_date
-    // 获取当前的日期，以DATE类型返回
     String curdate_str = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
     def curdate_result = sql """ SELECT CURDATE() """
     def curdate_date_result = sql """ SELECT CURRENT_DATE() """
@@ -48,7 +60,6 @@ suite("test_date_function", "query") {
     assertTrue(curdate_str == curdate_date_result[0][0].toString())
 
     // DATETIME CURRENT_TIMESTAMP()
-    //获得当前的时间，以Datetime类型返回
     def current_timestamp_result = """ SELECT current_timestamp() """
     assertTrue(current_timestamp_result[0].size() == 1)
 
@@ -56,31 +67,50 @@ suite("test_date_function", "query") {
     def curtime_result = sql """ SELECT CURTIME() """
     assertTrue(curtime_result[0].size() == 1)
 
+    sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
     // DATE_ADD
-    qt_sql """ select date_add('2010-11-30 23:59:59', INTERVAL 2 YEAR) result; """
-    qt_sql """ select date_add('2010-11-30 23:59:59', INTERVAL 2 MONTH) result; """
-    qt_sql """ select date_add('2010-11-30 23:59:59', INTERVAL 2 DAY) result; """
-    qt_sql """ select date_add('2010-11-30 23:59:59', INTERVAL 2 HOUR) result; """
-    qt_sql """ select date_add('2010-11-30 23:59:59', INTERVAL 2 MINUTE) result; """
-    qt_sql """ select date_add('2010-11-30 23:59:59', INTERVAL 2 SECOND) result; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 YEAR) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 MONTH) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 DAY) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 HOUR) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 MINUTE) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
 
     // DATE_FORMAT
-    qt_sql """ select date_format('2009-10-04 22:23:00', '%W %M %Y') """
-    qt_sql """ select date_format('2007-10-04 22:23:00', '%H:%i:%s') """
-    qt_sql """ select date_format('1900-10-04 22:23:00', '%D %y %a %d %m %b %j') """
-    qt_sql """ select date_format('1997-10-04 22:23:00', '%H %k %I %r %T %S %w') """
-    qt_sql """ select date_format('1999-01-01 00:00:00', '%X %V') """
-    qt_sql """ select date_format('2006-06-01', '%d') """
-    qt_sql """ select date_format('2006-06-01', '%%%d') """
-    qt_sql """ select date_format('2009-10-04 22:23:00', 'yyyy-MM-dd') """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
+    def resArray = ["Sunday October 2009", "星期日 十月 2009"]
+    def res = sql  """ select date_format(test_datetime, '%W %M %Y') from ${tableName}; """
+    assertTrue(resArray.contains(res[0][0]))
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2007-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, '%H:%i:%s') from ${tableName};"""
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("1900-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, '%D %y %a %d %m %b %j') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("1997-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, '%H %k %I %r %T %S %w') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("1999-01-01 00:00:00") """
+    qt_sql """ select date_format(test_datetime, '%X %V') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2006-06-01") """
+    qt_sql """ select date_format(test_datetime, '%d') from ${tableName}; """
+    qt_sql """ select date_format(test_datetime, '%%%d') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, 'yyyy-MM-dd') from ${tableName}; """
+    sql """ truncate table ${tableName} """
 
+    sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
     // DATE_SUB
-    qt_sql """ select date_sub('2010-11-30 23:59:59', INTERVAL 2 YEAR) """
-    qt_sql """ select date_sub('2010-11-30 23:59:59', INTERVAL 2 MONTH) """
-    qt_sql """ select date_sub('2010-11-30 23:59:59', INTERVAL 2 DAY) """
-    qt_sql """ select date_sub('2010-11-30 23:59:59', INTERVAL 2 HOUR) """
-    qt_sql """ select date_sub('2010-11-30 23:59:59', INTERVAL 2 MINUTE) """
-    qt_sql """ select date_sub('2010-11-30 23:59:59', INTERVAL 2 SECOND) """
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 YEAR) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 MONTH) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 DAY) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 HOUR) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 MINUTE) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 SECOND) from ${tableName};"""
 
 
     // DATEDIFF
@@ -146,10 +176,14 @@ suite("test_date_function", "query") {
     qt_sql """ select second('2018-12-31 00:00:00') """
 
     // STR_TO_DATE
-    qt_sql """ select str_to_date('2014-12-21 12:34:56', '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select str_to_date('2014-12-21 12:34%3A56', '%Y-%m-%d %H:%i%%3A%s') """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
+    qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
+    qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
-    qt_sql """ select str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s") """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2020-09-01")  """
+    qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
 
     // TIME_ROUND
     qt_sql """ SELECT YEAR_FLOOR('20200202000000') """
@@ -163,13 +197,15 @@ suite("test_date_function", "query") {
     qt_sql """ SELECT TIMEDIFF('2019-01-01 00:00:00', NULL) """
 
     // TIMESTAMPADD
-    qt_sql """ SELECT TIMESTAMPADD(YEAR,1,'2019-01-02') """
-    qt_sql """ SELECT TIMESTAMPADD(MONTH,1,'2019-01-02') """
-    qt_sql """ SELECT TIMESTAMPADD(WEEK,1,'2019-01-02') """
-    qt_sql """ SELECT TIMESTAMPADD(DAY,1,'2019-01-02') """
-    qt_sql """ SELECT TIMESTAMPADD(HOUR,1,'2019-01-02') """
-    qt_sql """ SELECT TIMESTAMPADD(MINUTE,1,'2019-01-02') """
-    qt_sql """ SELECT TIMESTAMPADD(SECOND,1,'2019-01-02') """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2019-01-02") ; """
+    qt_sql """ SELECT TIMESTAMPADD(YEAR,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(MONTH,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(WEEK,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(DAY,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(HOUR,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(MINUTE,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(SECOND,1,test_datetime) from ${tableName}; """
 
     // TIMESTAMPDIFF
     qt_sql """ SELECT TIMESTAMPDIFF(MONTH,'2003-02-01','2003-05-01') """
@@ -200,7 +236,7 @@ suite("test_date_function", "query") {
     qt_sql """ select week('2020-7-1',1) """
 
     // WEEKDAY
-    //TODO 添加 WEKKDAY case
+    //TODO add WEEKDAY case
 
     // WEEKOFYEAR
     qt_sql """ select weekofyear('2008-02-20 00:00:00') """
@@ -213,5 +249,5 @@ suite("test_date_function", "query") {
     qt_sql """ select yearweek('2021-1-1') """
     qt_sql """ select yearweek('2020-7-1') """
 
-
+    sql """ drop table ${tableName} """
 }

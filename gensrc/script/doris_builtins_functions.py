@@ -159,6 +159,8 @@ visible_functions = [
     [['array_position'], 'BIGINT', ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
+    [['cardinality', 'size'], 'BIGINT', ['ARRAY'], '', '', '', 'vec', ''],
+
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE',

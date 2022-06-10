@@ -34,8 +34,8 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
           _is_vec(is_vec) {
     _mem_tracker = MemTracker::create_tracker(
             mem_limit, "LoadChannel:tabletId=" + _load_id.to_string(),
-            ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(
-                    _load_id.to_string()),
+            ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->register_load_mem_tracker(
+                    _load_id.to_string(), mem_limit),
             MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased

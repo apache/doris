@@ -505,6 +505,20 @@ build_re2() {
     ${BUILD_SYSTEM} -j $PARALLEL install
 }
 
+# hyperscan
+build_hyperscan() {
+    check_if_source_exist $RAGEL_SOURCE
+    cd $TP_SOURCE_DIR/$RAGEL_SOURCE
+    ./configure --prefix=$TP_INSTALL_DIR && make install
+
+    check_if_source_exist $HYPERSCAN_SOURCE
+    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+    -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+    ${BUILD_SYSTEM} -j $PARALLEL install
+}
+
 # boost
 build_boost() {
     check_if_source_exist $BOOST_SOURCE
@@ -985,15 +999,6 @@ build_benchmark() {
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/build/src/libbenchmark.a $TP_LIB_DIR/
 }
 
-# breakpad
-build_breakpad() {
-    check_if_source_exist $BREAKPAD_SOURCE
-
-    cd $TP_SOURCE_DIR/$BREAKPAD_SOURCE
-    ./configure --prefix=$TP_INSTALL_DIR
-    make -j $PARALLEL && make install
-}
-
 # simdjson
 build_simdjson() {
     check_if_source_exist $SIMDJSON_SOURCE
@@ -1008,6 +1013,27 @@ build_simdjson() {
     cp $TP_SOURCE_DIR/$SIMDJSON_SOURCE/$BUILD_DIR/libsimdjson.a $TP_INSTALL_DIR/lib64
 
     cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
+}
+
+# nlohmann_json
+build_nlohmann_json() {
+    check_if_source_exist $NLOHMANN_JSON_SOURCE
+    cd $TP_SOURCE_DIR/$NLOHMANN_JSON_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+
+    $CMAKE_CMD -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DJSON_BuildTests=OFF ..
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# opentelemetry
+build_opentelemetry() {
+    check_if_source_exist $OPENTELEMETRY_SOURCE
+    cd $TP_SOURCE_DIR/$OPENTELEMETRY_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+
+    $CMAKE_CMD -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_TESTING=OFF \
+    -DWITH_OTLP=ON -DWITH_OTLP_GRPC=OFF -DWITH_OTLP_HTTP=ON -DWITH_ZIPKIN=ON -DWITH_EXAMPLES=OFF ..
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
 build_libunixodbc
@@ -1028,6 +1054,7 @@ build_snappy
 build_gperftools
 build_curl
 build_re2
+build_hyperscan
 build_thrift
 build_leveldb
 build_brpc
@@ -1058,8 +1085,9 @@ build_krb5
 build_hdfs3
 build_hdfs3_with_kerberos
 build_benchmark
-build_breakpad
 build_simdjson
+build_nlohmann_json
+build_opentelemetry
 build_libbacktrace
 
 echo "Finished to build all thirdparties"

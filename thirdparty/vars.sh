@@ -152,6 +152,18 @@ RE2_NAME=re2-2021-02-02.tar.gz
 RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
 
+# hyperscan
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.0
+HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+
+# ragel (dependency for hyperscan)
+RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"
+RAGEL_NAME=ragel-6.10.tar.gz
+RAGEL_SOURCE=ragel-6.10
+RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
+
 # boost
 BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
 BOOST_NAME=boost_1_73_0.tar.gz
@@ -365,14 +377,6 @@ BENCHMARK_NAME=benchmark-1.5.6.tar.gz
 BENCHMARK_SOURCE=benchmark-1.5.6
 BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
 
-# breakpad
-# breakpad has no release version, the source is from commit@38ee0be,
-# and also add lss files. See README.md in it.
-BREAKPAD_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/breakpad-src-38ee0be-with-lss.tar.gz"
-BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
-BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
-BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
-
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
 XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz"
@@ -385,6 +389,24 @@ SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2
 SIMDJSON_NAME=simdjson-1.0.2.tar.gz
 SIMDJSON_SOURCE=simdjson-1.0.2
 SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
+
+# nlohmann_json
+NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
+NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
+NLOHMANN_JSON_SOURCE=json-3.10.1
+NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# opentelemetry-proto
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
+OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+
+# opentelemetry
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
+OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -409,6 +431,8 @@ BZIP
 LZO2
 CURL
 RE2
+HYPERSCAN
+RAGEL
 BOOST
 MYSQL
 ODBC
@@ -444,7 +468,9 @@ HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
-BREAKPAD
 XSIMD
 SIMDJSON
+NLOHMANN_JSON
+OPENTELEMETRY_PROTO
+OPENTELEMETRY
 LIBBACKTRACE"

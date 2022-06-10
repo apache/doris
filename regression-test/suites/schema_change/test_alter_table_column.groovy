@@ -17,6 +17,11 @@
 
 suite("test_alter_table_column", "schema_change") {
     def tbName1 = "alter_table_column_dup"
+
+    def getJobState = { tableName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+        return jobStateResult[0][9]
+    }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1} (
@@ -26,67 +31,46 @@ suite("test_alter_table_column", "schema_change") {
             DUPLICATE KEY (k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
-    String res = "null"
-    sql "ALTER TABLE ${tbName1} ADD COLUMN k2 INT KEY AFTER k1"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
+    sql """
+            ALTER TABLE ${tbName1} 
+            ADD COLUMN k2 INT KEY AFTER k1,
+            ADD COLUMN value2 VARCHAR(255) AFTER value1,
+            ADD COLUMN value3 VARCHAR(255) AFTER value2,
+            MODIFY COLUMN value2 INT AFTER value3;
+        """
+    int max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName1)
+        if (res == "FINISHED") {
             break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
         }
-        Thread.sleep(1000)
     }
-    res = "null"
-    sql "ALTER TABLE ${tbName1} ADD COLUMN value2 VARCHAR(255) AFTER value1"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
+    sql """
+            ALTER TABLE ${tbName1}   
+            ORDER BY(k1,k2,value1,value2,value3),
+            DROP COLUMN value3;
+        """
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName1)
+        if (res == "FINISHED") {
             break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
         }
-        Thread.sleep(1000)
     }
-    res = "null"
-    sql "ALTER TABLE ${tbName1} ADD COLUMN value3 VARCHAR(255) AFTER value2"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
-            break
-        }
-        Thread.sleep(1000)
-    }
-    res = "null"
-    sql "ALTER TABLE ${tbName1} MODIFY COLUMN value2 INT AFTER value3;"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
-            break
-        }
-        Thread.sleep(1000)
-    }
-    res = "null"
-    sql "ALTER TABLE ${tbName1} ORDER BY(k1,k2,value1,value2,value3);"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
-            break
-        }
-        Thread.sleep(1000)
-    }
-    res = "null"
-    sql "ALTER TABLE ${tbName1} DROP COLUMN value3;"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
-            break
-        }
-        Thread.sleep(1000)
-    }
-    sql "SHOW ALTER TABLE COLUMN"
+
+    sql "SHOW ALTER TABLE COLUMN;"
     sql "insert into ${tbName1} values(1,1,10,20);"
     sql "insert into ${tbName1} values(1,1,30,40);"
     qt_sql "desc ${tbName1}"
@@ -103,26 +87,25 @@ suite("test_alter_table_column", "schema_change") {
             AGGREGATE KEY (k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "ALTER TABLE ${tbName2} ADD COLUMN k2 INT KEY AFTER k1"
-    res = "null"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName2}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
+    sql """
+            ALTER TABLE ${tbName2} 
+            ADD COLUMN k2 INT KEY AFTER k1,
+            ADD COLUMN value2 INT SUM AFTER value1;
+        """
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName2)
+        if (res == "FINISHED") {
             break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
         }
-        Thread.sleep(1000)
     }
-    res = "null"
-    sql "ALTER TABLE ${tbName2} ADD COLUMN value2 INT SUM AFTER value1"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName2}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
-            break
-        }
-        Thread.sleep(1000)
-    }
+
     sql "SHOW ALTER TABLE COLUMN"
     sql "insert into ${tbName2} values(1,1,10,20);"
     sql "insert into ${tbName2} values(1,1,30,40);"
@@ -130,5 +113,3 @@ suite("test_alter_table_column", "schema_change") {
     qt_sql "select * from ${tbName2}"
     sql "DROP TABLE ${tbName2}"
 }
-
-

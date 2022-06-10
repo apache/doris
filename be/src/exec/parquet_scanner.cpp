@@ -18,13 +18,13 @@
 #include "exec/parquet_scanner.h"
 
 #include "exec/arrow/parquet_reader.h"
-#include "exec/broker_reader.h"
-#include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
-#include "exec/hdfs_reader_writer.h"
-#include "exec/local_file_reader.h"
-#include "exec/s3_reader.h"
 #include "exec/text_converter.h"
+#include "exec/text_converter.hpp"
+#include "exprs/expr.h"
+#include "io/buffered_reader.h"
+#include "io/file_factory.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/raw_value.h"
 #include "runtime/stream_load/load_stream_mgr.h"
@@ -101,42 +101,11 @@ Status ParquetScanner::open_next_reader() {
         }
         const TBrokerRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
-        switch (range.file_type) {
-        case TFileType::FILE_LOCAL: {
-            file_reader.reset(new LocalFileReader(range.path, range.start_offset));
-            break;
-        }
-        case TFileType::FILE_HDFS: {
-            FileReader* reader;
-            RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
-                                                            range.start_offset, &reader));
-            file_reader.reset(reader);
-            break;
-        }
-        case TFileType::FILE_BROKER: {
-            int64_t file_size = 0;
-            // for compatibility
-            if (range.__isset.file_size) {
-                file_size = range.file_size;
-            }
-            file_reader.reset(new BufferedReader(
-                    _profile,
-                    new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
-                                     range.path, range.start_offset, file_size)));
-            break;
-        }
-        case TFileType::FILE_S3: {
-            file_reader.reset(new BufferedReader(
-                    _profile, new S3Reader(_params.properties, range.path, range.start_offset)));
-            break;
-        }
-        default: {
-            std::stringstream ss;
-            ss << "Unknown file type, type=" << range.file_type;
-            return Status::InternalError(ss.str());
-        }
-        }
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                range.file_type, _state->exec_env(), _profile, _broker_addresses,
+                _params.properties, range, range.start_offset, file_reader));
         RETURN_IF_ERROR(file_reader->open());
+
         if (file_reader->size() == 0) {
             file_reader->close();
             continue;
