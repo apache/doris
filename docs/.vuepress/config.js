@@ -128,7 +128,7 @@ module.exports = {
             icon: "doris doris-xiala",
             name: 'blog',
             items: [
-              { text: "Doris Weekly", link: "/en/categories/DorisWeekly/" },
+              // { text: "Doris Weekly", link: "/en/categories/DorisWeekly/" },
               { text: "Best Practice", link: "/en/categories/PracticalCases/" },
               { text: "Release Note", link: "/en/categories/ReleaseNote/" },
               {
@@ -221,7 +221,7 @@ module.exports = {
             icon: "doris doris-xiala",
             name: 'blog',
             items: [
-              { text: "每周通报", link: "/zh-CN/categories/DorisWeekly/" },
+              // { text: "每周通报", link: "/zh-CN/categories/DorisWeekly/" },
               { text: "最佳实践", link: "/zh-CN/categories/PracticalCases/" },
               { text: "版本发布", link: "/zh-CN/categories/ReleaseNote/" },
               {

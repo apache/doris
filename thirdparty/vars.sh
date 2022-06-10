@@ -152,6 +152,18 @@ RE2_NAME=re2-2021-02-02.tar.gz
 RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
 
+# hyperscan
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.0
+HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+
+# ragel (dependency for hyperscan)
+RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"
+RAGEL_NAME=ragel-6.10.tar.gz
+RAGEL_SOURCE=ragel-6.10
+RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
+
 # boost
 BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
 BOOST_NAME=boost_1_73_0.tar.gz
@@ -401,6 +413,8 @@ BZIP
 LZO2
 CURL
 RE2
+HYPERSCAN
+RAGEL
 BOOST
 MYSQL
 ODBC
