@@ -37,8 +37,7 @@ CREATE POLICY
 1. 创建安全策略(ROW POLICY)，explain 可以查看改写后的 SQL。
 2. 创建数据迁移策略(STORAGE POLICY)，用于冷热数据转换。
 
-#### 行安全策略
-语法：
+#### 语法：
 
 1. ROW POLICY
 ```sql
