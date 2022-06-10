@@ -201,7 +201,7 @@ public:
         LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
 
-    virtual void insert_many_data(const char* pos, size_t length, size_t data_num) {
+    void insert_many_data(const char* pos, size_t length, size_t data_num) {
         for (size_t i = 0; i < data_num; ++i) {
             insert_data(pos, length);
         }
