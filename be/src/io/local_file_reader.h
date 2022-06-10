@@ -20,7 +20,7 @@
 #define _FILE_OFFSET_BITS 64
 #include <stdio.h>
 
-#include "file_reader.h"
+#include "io/file_reader.h"
 
 namespace doris {
 

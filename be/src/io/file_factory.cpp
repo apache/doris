@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "file_factory.h"
+#include "io/file_factory.h"
 
-#include "broker_reader.h"
-#include "broker_writer.h"
-#include "buffered_reader.h"
-#include "hdfs_reader_writer.h"
-#include "local_file_reader.h"
-#include "local_file_writer.h"
+#include "io/broker_reader.h"
+#include "io/broker_writer.h"
+#include "io/buffered_reader.h"
+#include "io/hdfs_reader_writer.h"
+#include "io/local_file_reader.h"
+#include "io/local_file_writer.h"
+#include "io/s3_reader.h"
+#include "io/s3_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
-#include "s3_reader.h"
-#include "s3_writer.h"
 
 doris::Status doris::FileFactory::create_file_writer(
         TFileType::type type, doris::ExecEnv* env,

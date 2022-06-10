@@ -15,39 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.persist.meta;
 
-import org.apache.doris.common.io.Text;
+public enum FeMetaFormat {
+    COR1("COR1", "v1");
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
+    private final String magicString;
+    private final String version;
 
-public class MetaIndex {
-    public String name;
-    public long offset;
-
-    public MetaIndex() {
+    private FeMetaFormat(String magicString, String version) {
+        this.magicString = magicString;
+        this.version = version;
     }
 
-    public MetaIndex(String name, long offset) {
-        this.name = name;
-        this.offset = offset;
+    public String getMagicString() {
+        return magicString;
     }
 
-    public static MetaIndex read(RandomAccessFile raf) throws IOException {
-        MetaIndex metaIndex = new MetaIndex();
-        metaIndex.name = Text.readString(raf);
-        metaIndex.offset = raf.readLong();
-        return metaIndex;
-    }
-
-    public static void write(RandomAccessFile raf, MetaIndex metaIndex) throws IOException {
-        Text.writeString(raf, metaIndex.name);
-        raf.writeLong(metaIndex.offset);
+    public String getVersion() {
+        return version;
     }
 
     @Override
     public String toString() {
-        return name + ":" + offset;
+        return getMagicString();
     }
 }

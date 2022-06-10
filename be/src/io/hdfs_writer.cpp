@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "hdfs_writer.h"
+#include "io/hdfs_writer.h"
 
 #include <filesystem>
 

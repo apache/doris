@@ -39,6 +39,7 @@ extern const char* k_ut_net_dev_path;
 extern const char* k_ut_fd_path;
 extern const char* k_ut_net_snmp_path;
 extern const char* k_ut_load_avg_path;
+extern const char* k_ut_vmstat_path;
 
 TEST_F(SystemMetricsTest, normal) {
     std::string dir_path = GetCurrentRunningDir();
@@ -61,6 +62,9 @@ TEST_F(SystemMetricsTest, normal) {
     std::string load_avg_path(dir_path);
     load_avg_path += "/util/test_data/load_avg_normal";
     k_ut_load_avg_path = load_avg_path.c_str();
+    std::string vmstat_path(dir_path);
+    vmstat_path += "/util/test_data/vmstat_normal";
+    k_ut_vmstat_path = vmstat_path.c_str();
 
     MetricRegistry registry("test");
     {
@@ -75,39 +79,55 @@ TEST_F(SystemMetricsTest, normal) {
         metrics.update();
 
         // cpu
-        Metric* cpu_user = entity->get_metric("cpu_user", "cpu");
+        auto cpu_entity = registry.get_entity("cpu", {{"device", "cpu"}});
+        EXPECT_TRUE(cpu_entity != nullptr);
+        EXPECT_TRUE("cpu" == cpu_entity->name());
+        Metric* cpu_user = cpu_entity->get_metric("cpu_user", "cpu");
         EXPECT_TRUE(cpu_user != nullptr);
-        // EXPECT_STREQ("57199151", cpu_user->to_string().c_str());
-        Metric* cpu_nice = entity->get_metric("cpu_nice", "cpu");
+        EXPECT_STREQ("57199151", cpu_user->to_string().c_str());
+        Metric* cpu_nice = cpu_entity->get_metric("cpu_nice", "cpu");
         EXPECT_TRUE(cpu_nice != nullptr);
         EXPECT_STREQ("2616310", cpu_nice->to_string().c_str());
-        Metric* cpu_system = entity->get_metric("cpu_system", "cpu");
+        Metric* cpu_system = cpu_entity->get_metric("cpu_system", "cpu");
         EXPECT_TRUE(cpu_system != nullptr);
         EXPECT_STREQ("10600935", cpu_system->to_string().c_str());
-        Metric* cpu_idle = entity->get_metric("cpu_idle", "cpu");
+        Metric* cpu_idle = cpu_entity->get_metric("cpu_idle", "cpu");
         EXPECT_TRUE(cpu_idle != nullptr);
         EXPECT_STREQ("1517505423", cpu_idle->to_string().c_str());
-        Metric* cpu_iowait = entity->get_metric("cpu_iowait", "cpu");
+        Metric* cpu_iowait = cpu_entity->get_metric("cpu_iowait", "cpu");
         EXPECT_TRUE(cpu_iowait != nullptr);
         EXPECT_STREQ("2137148", cpu_iowait->to_string().c_str());
-        Metric* cpu_irq = entity->get_metric("cpu_irq", "cpu");
+        Metric* cpu_irq = cpu_entity->get_metric("cpu_irq", "cpu");
         EXPECT_TRUE(cpu_irq != nullptr);
         EXPECT_STREQ("0", cpu_irq->to_string().c_str());
-        Metric* cpu_softirq = entity->get_metric("cpu_soft_irq", "cpu");
+        Metric* cpu_softirq = cpu_entity->get_metric("cpu_soft_irq", "cpu");
         EXPECT_TRUE(cpu_softirq != nullptr);
         EXPECT_STREQ("108277", cpu_softirq->to_string().c_str());
-        Metric* cpu_steal = entity->get_metric("cpu_steal", "cpu");
+        Metric* cpu_steal = cpu_entity->get_metric("cpu_steal", "cpu");
         EXPECT_TRUE(cpu_steal != nullptr);
         EXPECT_STREQ("0", cpu_steal->to_string().c_str());
-        Metric* cpu_guest = entity->get_metric("cpu_guest", "cpu");
+        Metric* cpu_guest = cpu_entity->get_metric("cpu_guest", "cpu");
         EXPECT_TRUE(cpu_guest != nullptr);
         EXPECT_STREQ("0", cpu_guest->to_string().c_str());
-        Metric* cpu_guest_nice = entity->get_metric("cpu_guest_nice", "cpu");
+        Metric* cpu_guest_nice = cpu_entity->get_metric("cpu_guest_nice", "cpu");
         EXPECT_TRUE(cpu_guest_nice != nullptr);
         EXPECT_STREQ("0", cpu_guest_nice->to_string().c_str());
+
         // memroy
         Metric* memory_allocated_bytes = entity->get_metric("memory_allocated_bytes");
         EXPECT_TRUE(memory_allocated_bytes != nullptr);
+        Metric* memory_pgpgin = entity->get_metric("memory_pgpgin");
+        EXPECT_TRUE(memory_pgpgin != nullptr);
+        EXPECT_STREQ("21458611100", memory_pgpgin->to_string().c_str());
+        Metric* memory_pgpgout = entity->get_metric("memory_pgpgout");
+        EXPECT_TRUE(memory_pgpgout != nullptr);
+        EXPECT_STREQ("149080494692", memory_pgpgout->to_string().c_str());
+        Metric* memory_pswpin = entity->get_metric("memory_pswpin");
+        EXPECT_TRUE(memory_pswpin != nullptr);
+        EXPECT_STREQ("167785", memory_pswpin->to_string().c_str());
+        Metric* memory_pswpout = entity->get_metric("memory_pswpout");
+        EXPECT_TRUE(memory_pswpout != nullptr);
+        EXPECT_STREQ("203724", memory_pswpout->to_string().c_str());
 
         // network
         auto net_entity = registry.get_entity("network_metrics.xgbe0", {{"device", "xgbe0"}});
@@ -184,6 +204,20 @@ TEST_F(SystemMetricsTest, normal) {
                 entity->get_metric("load_average_15_minutes", "load_average");
         EXPECT_TRUE(fd_metric != nullptr);
         EXPECT_STREQ("2.020000", load_average_15_minutes->to_string().c_str());
+
+        // proc
+        Metric* proc_interrupt = entity->get_metric("proc_interrupt", "proc");
+        EXPECT_TRUE(proc_interrupt != nullptr);
+        EXPECT_STREQ("20935913098", proc_interrupt->to_string().c_str());
+        Metric* proc_ctxt_switch = entity->get_metric("proc_ctxt_switch", "proc");
+        EXPECT_TRUE(proc_ctxt_switch != nullptr);
+        EXPECT_STREQ("11043516832", proc_ctxt_switch->to_string().c_str());
+        Metric* proc_procs_running = entity->get_metric("proc_procs_running", "proc");
+        EXPECT_TRUE(proc_procs_running != nullptr);
+        EXPECT_STREQ("1", proc_procs_running->to_string().c_str());
+        Metric* proc_procs_blocked = entity->get_metric("proc_procs_blocked", "proc");
+        EXPECT_TRUE(proc_procs_blocked != nullptr);
+        EXPECT_STREQ("0", proc_procs_blocked->to_string().c_str());
     }
 }
 
@@ -201,6 +235,9 @@ TEST_F(SystemMetricsTest, no_proc_file) {
     k_ut_net_dev_path = net_dev_path.c_str();
     k_ut_fd_path = "";
     k_ut_net_snmp_path = "";
+    std::string vmstat_path(dir_path);
+    vmstat_path += "/util/test_data/no_vmstat_normal";
+    k_ut_vmstat_path = vmstat_path.c_str();
 
     MetricRegistry registry("test");
     {
@@ -214,24 +251,52 @@ TEST_F(SystemMetricsTest, no_proc_file) {
         EXPECT_TRUE(entity != nullptr);
 
         // cpu
-        Metric* cpu_user = entity->get_metric("cpu_user", "cpu");
-        EXPECT_TRUE(cpu_user != nullptr);
-        EXPECT_STREQ("0", cpu_user->to_string().c_str());
+        auto cpu_entity = registry.get_entity("cpu", {{"device", "cpu"}});
+        EXPECT_TRUE(cpu_entity == nullptr);
+
         // memroy
         Metric* memory_allocated_bytes = entity->get_metric("memory_allocated_bytes");
         EXPECT_TRUE(memory_allocated_bytes != nullptr);
+        Metric* memory_pgpgin = entity->get_metric("memory_pgpgin");
+        EXPECT_TRUE(memory_pgpgin != nullptr);
+        EXPECT_STREQ("0", memory_pgpgin->to_string().c_str());
+        Metric* memory_pgpgout = entity->get_metric("memory_pgpgout");
+        EXPECT_TRUE(memory_pgpgout != nullptr);
+        EXPECT_STREQ("0", memory_pgpgout->to_string().c_str());
+        Metric* memory_pswpin = entity->get_metric("memory_pswpin");
+        EXPECT_TRUE(memory_pswpin != nullptr);
+        EXPECT_STREQ("0", memory_pswpin->to_string().c_str());
+        Metric* memory_pswpout = entity->get_metric("memory_pswpout");
+        EXPECT_TRUE(memory_pswpout != nullptr);
+        EXPECT_STREQ("0", memory_pswpout->to_string().c_str());
+
         // network
         auto net_entity = registry.get_entity("network_metrics.xgbe0", {{"device", "xgbe0"}});
         EXPECT_TRUE(net_entity != nullptr);
         Metric* receive_bytes = net_entity->get_metric("network_receive_bytes");
         EXPECT_TRUE(receive_bytes != nullptr);
         EXPECT_STREQ("0", receive_bytes->to_string().c_str());
+
         // disk
         auto disk_entity = registry.get_entity("disk_metrics.sda", {{"device", "sda"}});
         EXPECT_TRUE(disk_entity != nullptr);
         Metric* bytes_read = disk_entity->get_metric("disk_bytes_read");
         EXPECT_TRUE(bytes_read != nullptr);
         EXPECT_STREQ("0", bytes_read->to_string().c_str());
+
+        // proc
+        Metric* proc_interrupt = entity->get_metric("proc_interrupt", "proc");
+        EXPECT_TRUE(proc_interrupt != nullptr);
+        EXPECT_STREQ("0", proc_interrupt->to_string().c_str());
+        Metric* proc_ctxt_switch = entity->get_metric("proc_ctxt_switch", "proc");
+        EXPECT_TRUE(proc_ctxt_switch != nullptr);
+        EXPECT_STREQ("0", proc_ctxt_switch->to_string().c_str());
+        Metric* proc_procs_running = entity->get_metric("proc_procs_running", "proc");
+        EXPECT_TRUE(proc_procs_running != nullptr);
+        EXPECT_STREQ("0", proc_procs_running->to_string().c_str());
+        Metric* proc_procs_blocked = entity->get_metric("proc_procs_blocked", "proc");
+        EXPECT_TRUE(proc_procs_blocked != nullptr);
+        EXPECT_STREQ("0", proc_procs_blocked->to_string().c_str());
     }
 }
 
