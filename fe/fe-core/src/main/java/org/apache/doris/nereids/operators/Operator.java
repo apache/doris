@@ -30,6 +30,6 @@ public interface Operator<TYPE extends Operator<TYPE>> {
 
     <NODE_TYPE extends TreeNode> NODE_TYPE toTreeNode(GroupExpression groupExpression);
 
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?,?> plan, C context);
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context);
 
 }
