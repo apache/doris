@@ -51,6 +51,7 @@ suite("test_alter_table_column", "schema_change") {
             }
         }
     }
+    Thread.sleep(200)
     sql """
             ALTER TABLE ${tbName1}   
             ORDER BY(k1,k2,value1,value2,value3),
