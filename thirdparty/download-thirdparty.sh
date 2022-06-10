@@ -303,6 +303,18 @@ if [ $LIBRDKAFKA_SOURCE = "librdkafka-1.8.2" ]; then
 fi
 echo "Finished patching $LIBRDKAFKA_SOURCE"
 
+# patch hyperscan
+# https://github.com/intel/hyperscan/issues/292
+if [ $HYPERSCAN_SOURCE = "hyperscan-5.4.0" ]; then
+    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p0 < $TP_PATCH_DIR/hyperscan-5.4.0.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+fi
+echo "Finished patching $HYPERSCAN_SOURCE"
+
 cd $TP_SOURCE_DIR/$AWS_SDK_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     if [ $AWS_SDK_SOURCE == "aws-sdk-cpp-1.9.211" ]; then

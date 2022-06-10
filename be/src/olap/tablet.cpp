@@ -77,7 +77,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_pa
           _cumulative_compaction_type(cumulative_compaction_type),
           _last_record_scan_count(0),
           _last_record_scan_count_timestamp(time(nullptr)),
-          _is_clone_occurred(false) {
+          _is_clone_occurred(false),
+          _last_missed_version(-1),
+          _last_missed_time_s(0) {
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
@@ -1277,7 +1279,10 @@ bool Tablet::_contains_rowset(const RowsetId rowset_id) {
     return false;
 }
 
-void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
+// need check if consecutive version missing in full report
+// alter tablet will ignore this check
+void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
+                                      bool enable_consecutive_missing_check) {
     std::shared_lock rdlock(_meta_lock);
     tablet_info->tablet_id = _tablet_meta->tablet_id();
     tablet_info->schema_hash = _tablet_meta->schema_hash();
@@ -1290,7 +1295,28 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     Version max_version;
     bool has_version_cross;
     _max_continuous_version_from_beginning_unlocked(&cversion, &max_version, &has_version_cross);
-    tablet_info->__set_version_miss(cversion.second < max_version.second);
+    // cause publish version task runs concurrently, version may be flying
+    // so we add a consecutive miss check to solve this problem:
+    // if publish version 5 arrives but version 4 flying, we may judge replica miss version
+    // and set version miss in tablet_info, which makes fe treat this replica as unhealth
+    // and lead to other problems
+    if (enable_consecutive_missing_check) {
+        if (cversion.second < max_version.second) {
+            if (_last_missed_version == cversion.second + 1) {
+                if (_last_missed_time_s - MonotonicSeconds() >= 60) {
+                    // version missed for over 60 seconds
+                    tablet_info->__set_version_miss(true);
+                    _last_missed_version = -1;
+                    _last_missed_time_s = 0;
+                }
+            } else {
+                _last_missed_version = cversion.second + 1;
+                _last_missed_time_s = MonotonicSeconds();
+            }
+        }
+    } else {
+        tablet_info->__set_version_miss(cversion.second < max_version.second);
+    }
     // find rowset with max version
     auto iter = _rs_version_map.find(max_version);
     if (iter == _rs_version_map.end()) {

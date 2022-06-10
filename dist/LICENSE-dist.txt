@@ -1549,6 +1549,7 @@ Other dependencies:
     * rapidjson@1a803826 -- license/LICENSE-rapidjson.txt
     * curl: 7.79.0 -- license/LICENSE-curl.txt
     * re2: 2021-02-02 -- license/LICENSE-re2.txt
+    * hyperscan: 5.4.0 -- license/LICENSE-hyperscan.txt
     * boost: 1.73.0 -- license/LICENSE-boost.txt
     * unixodbc: 2.3.7 -- license/LICENSE-unixodbc.txt
     * leveldb: 1.20 -- license/LICENSE-leveldb.txt
