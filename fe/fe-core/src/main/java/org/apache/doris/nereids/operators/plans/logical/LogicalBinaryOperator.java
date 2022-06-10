@@ -25,7 +25,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 
 import java.util.List;
 
@@ -47,9 +47,9 @@ public abstract class LogicalBinaryOperator extends AbstractOperator
     public abstract List<Slot> doComputeOutput(Plan left, Plan right);
 
     @Override
-    public LogicalBinary toTreeNode(GroupExpression groupExpression) {
+    public LogicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new LogicalBinary(this, groupExpression, logicalProperties,
+        return new LogicalBinaryPlan(this, groupExpression, logicalProperties,
                 new PlaceHolderPlan(), new PlaceHolderPlan());
     }
 }

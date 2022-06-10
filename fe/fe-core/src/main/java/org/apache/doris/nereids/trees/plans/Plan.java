@@ -27,9 +27,9 @@ import java.util.List;
 /**
  * Abstract class for all plan node.
  */
-public interface Plan<OP_TYPE extends PlanOperator> extends TreeNode<Plan> {
+public interface Plan extends TreeNode<Plan> {
 
-    OP_TYPE getOperator();
+    PlanOperator getOperator();
 
     LogicalProperties getLogicalProperties();
 

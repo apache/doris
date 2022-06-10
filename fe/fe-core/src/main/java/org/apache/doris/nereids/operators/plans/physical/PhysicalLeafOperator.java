@@ -24,7 +24,7 @@ import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
 import java.util.List;
 
@@ -48,7 +48,7 @@ public abstract class PhysicalLeafOperator extends AbstractOperator
     }
 
     @Override
-    public PhysicalLeaf toTreeNode(GroupExpression groupExpression) {
-        return new PhysicalLeaf(this, groupExpression, groupExpression.getParent().getLogicalProperties());
+    public PhysicalLeafPlan toTreeNode(GroupExpression groupExpression) {
+        return new PhysicalLeafPlan(this, groupExpression, groupExpression.getParent().getLogicalProperties());
     }
 }

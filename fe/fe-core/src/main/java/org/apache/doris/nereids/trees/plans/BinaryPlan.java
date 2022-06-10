@@ -23,10 +23,9 @@ import org.apache.doris.nereids.trees.BinaryNode;
 /**
  * interface for all plan that have two children.
  */
-public interface BinaryPlan<
-            OP_TYPE extends BinaryPlanOperator,
-            LEFT_CHILD_TYPE extends Plan,
-            RIGHT_CHILD_TYPE extends Plan>
-        extends Plan<OP_TYPE>, BinaryNode<Plan, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public interface BinaryPlan<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
+        extends Plan, BinaryNode<Plan, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
+    @Override
+    BinaryPlanOperator getOperator();
 }

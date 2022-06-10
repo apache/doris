@@ -25,7 +25,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import java.util.List;
 
@@ -49,8 +49,8 @@ public abstract class PhysicalUnaryOperator extends AbstractOperator
     }
 
     @Override
-    public PhysicalUnary toTreeNode(GroupExpression groupExpression) {
+    public PhysicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalUnary(this, groupExpression, logicalProperties, new PlaceHolderPlan());
+        return new PhysicalUnaryPlan(this, groupExpression, logicalProperties, new PlaceHolderPlan());
     }
 }

@@ -33,12 +33,12 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<PhysicalBinary<" + opType.name + ", Plan<?>, Plan<?>>, Plan>";
+        return "<PhysicalBinaryPlan<" + opType.name + ", Plan, Plan>, Plan>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        return "<PhysicalBinary<" + opType.name + ", C1, C2>, Plan>";
+        return "<PhysicalBinaryPlan<" + opType.name + ", C1, C2>, Plan>";
     }
 
     @Override
@@ -47,7 +47,7 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalBinary");
+        imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

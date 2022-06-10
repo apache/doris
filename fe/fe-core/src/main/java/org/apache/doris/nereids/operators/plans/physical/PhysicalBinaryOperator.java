@@ -25,7 +25,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBinary;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 
 import java.util.List;
 
@@ -49,9 +49,9 @@ public abstract class PhysicalBinaryOperator extends AbstractOperator
     }
 
     @Override
-    public PhysicalBinary toTreeNode(GroupExpression groupExpression) {
+    public PhysicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalBinary(this, groupExpression, logicalProperties,
+        return new PhysicalBinaryPlan(this, groupExpression, logicalProperties,
                 new PlaceHolderPlan(), new PlaceHolderPlan());
     }
 }

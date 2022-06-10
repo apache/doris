@@ -23,8 +23,10 @@ import org.apache.doris.nereids.trees.LeafNode;
 /**
  * Abstract class for all plan node that have no child.
  */
-public interface LeafPlan<OP_TYPE extends LeafPlanOperator>
-        extends Plan<OP_TYPE>, LeafNode<Plan> {
+public interface LeafPlan extends Plan, LeafNode<Plan> {
+
+    @Override
+    LeafPlanOperator getOperator();
 
     @Override
     default int arity() {

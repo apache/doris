@@ -15,39 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator;
+import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 
 /**
- * Abstract class for all physical plan that have one child.
+ * Abstract class for all logical plan that have no child.
  */
-public class PhysicalUnary<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan<OP_TYPE>
-        implements UnaryPlan<OP_TYPE, CHILD_TYPE> {
+public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
+        extends AbstractLogicalPlan<OP_TYPE>
+        implements LeafPlan {
 
-    public PhysicalUnary(OP_TYPE operator, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(NodeType.PHYSICAL, operator, logicalProperties, child);
+    public LogicalLeafPlan(OP_TYPE operator) {
+        super(NodeType.LOGICAL, operator);
     }
 
-    public PhysicalUnary(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
-        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties, child);
+    public LogicalLeafPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties);
     }
 
     @Override
-    public PhysicalUnary newChildren(List<TreeNode> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalUnary(operator, groupExpression, logicalProperties, (Plan) children.get(0));
+    public LogicalLeafPlan<OP_TYPE> newChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return new LogicalLeafPlan(operator, groupExpression.orElse(null), logicalProperties);
     }
 }

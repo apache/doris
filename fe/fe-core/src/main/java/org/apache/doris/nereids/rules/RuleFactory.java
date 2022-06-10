@@ -25,7 +25,7 @@ import java.util.List;
 /**
  * interface for all rule factories for build some rules.
  */
-public interface RuleFactory<TYPE extends TreeNode> extends GeneratedPatterns {
+public interface RuleFactory<TYPE extends TreeNode<TYPE>> extends GeneratedPatterns {
     // need implement
     List<Rule<TYPE>> buildRules();
 

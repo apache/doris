@@ -32,12 +32,12 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<LogicalUnary<" + opType.name + ", Plan<?>>, Plan>";
+        return "<LogicalUnaryPlan<" + opType.name + ", Plan>, Plan>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        return "<LogicalUnary<" + opType.name + ", C1>, Plan>";
+        return "<LogicalUnaryPlan<" + opType.name + ", C1>, Plan>";
     }
 
     @Override
@@ -46,7 +46,7 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalUnary");
+        imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

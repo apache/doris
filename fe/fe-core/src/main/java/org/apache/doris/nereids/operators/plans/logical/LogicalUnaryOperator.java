@@ -25,7 +25,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
 import java.util.List;
 
@@ -47,8 +47,8 @@ public abstract class LogicalUnaryOperator extends AbstractOperator
     public abstract List<Slot> doComputeOutput(Plan input);
 
     @Override
-    public LogicalUnary toTreeNode(GroupExpression groupExpression) {
+    public LogicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new LogicalUnary(this, groupExpression, logicalProperties, new PlaceHolderPlan());
+        return new LogicalUnaryPlan(this, groupExpression, logicalProperties, new PlaceHolderPlan());
     }
 }

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.operators.Operator;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for plan node in Nereids, include plan node and expression.
@@ -31,14 +32,14 @@ import java.util.List;
  * @param <NODE_TYPE> either {@link org.apache.doris.nereids.trees.plans.Plan}
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
-public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode>
+public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
 
     protected final NodeType type;
     protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/incubator-doris/pull/9807#discussion_r884829067
-    protected final GroupExpression groupExpression;
+    protected final Optional<GroupExpression> groupExpression;
 
 
     public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
@@ -55,7 +56,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode>
     public AbstractTreeNode(NodeType type, GroupExpression groupExpression, NODE_TYPE... children) {
         this.type = type;
         this.children = ImmutableList.copyOf(children);
-        this.groupExpression = groupExpression;
+        this.groupExpression = Optional.ofNullable(groupExpression);
     }
 
     @Override
@@ -64,7 +65,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode>
     }
 
     @Override
-    public GroupExpression getGroupExpression() {
+    public Optional<GroupExpression> getGroupExpression() {
         return groupExpression;
     }
 
@@ -76,11 +77,6 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode>
     @Override
     public List<NODE_TYPE> children() {
         return children;
-    }
-
-    @Override
-    public NODE_TYPE newChildren(List<TreeNode> children) {
-        throw new RuntimeException();
     }
 
     @Override

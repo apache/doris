@@ -28,19 +28,20 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
-
 
 /**
  * Pattern node used in pattern matching.
  */
-public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern> {
+public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
+        extends AbstractTreeNode<Pattern<? extends NODE_TYPE, NODE_TYPE>> {
     public static final Pattern ANY = new Pattern(OperatorType.ANY);
     public static final Pattern MULTI = new Pattern(OperatorType.MULTI);
     public static final Pattern FIXED = new Pattern(OperatorType.FIXED);
     public static final Pattern MULTI_FIXED = new Pattern(OperatorType.MULTI_FIXED);
 
-    protected final List<Predicate<T>> predicates;
+    protected final List<Predicate<TYPE>> predicates;
     protected final OperatorType operatorType;
 
     /**
@@ -62,7 +63,7 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern> {
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
-    public Pattern(OperatorType operatorType, List<Predicate<T>> predicates, Pattern... children) {
+    public Pattern(OperatorType operatorType, List<Predicate<TYPE>> predicates, Pattern... children) {
         super(NodeType.PATTERN, children);
         this.operatorType = operatorType;
         this.predicates = ImmutableList.copyOf(predicates);
@@ -112,7 +113,7 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern> {
      * @param root wait to match
      * @return ture if current Pattern match Plan in params
      */
-    public boolean matchRoot(T root) {
+    public boolean matchRoot(TYPE root) {
         if (root == null) {
             return false;
         }
@@ -128,7 +129,7 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern> {
         return doMatchRoot(root);
     }
 
-    protected boolean doMatchRoot(T root) {
+    protected boolean doMatchRoot(TYPE root) {
         return getOperatorType().equals(root.getOperator().getType())
                 && predicates.stream().allMatch(predicate -> predicate.test(root));
     }
@@ -139,9 +140,10 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern> {
      * @param root wait to match
      * @return ture if children Patterns match root's children in params
      */
-    public boolean matchChildren(T root) {
+    public boolean matchChildren(TYPE root) {
         for (int i = 0; i < arity(); i++) {
-            if (!child(i).match(root.child(i))) {
+            Pattern child = child(i);
+            if (!child.match(root.child(i))) {
                 return false;
             }
         }
@@ -154,22 +156,22 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern> {
      * @param root wait to match
      * @return ture if current pattern and children patterns match root in params
      */
-    public boolean match(T root) {
+    public boolean match(TYPE root) {
         return matchRoot(root) && matchChildren(root);
     }
 
     @Override
-    public Pattern<T> newChildren(List<TreeNode> children) {
+    public Pattern<? extends NODE_TYPE, NODE_TYPE> newChildren(List<Pattern<? extends NODE_TYPE, NODE_TYPE>> children) {
         throw new RuntimeException();
     }
 
-    public Pattern<T> withPredicates(List<Predicate<T>> predicates) {
+    public Pattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
         return new Pattern(operatorType, predicates, children.toArray(new Pattern[0]));
     }
 
     @Override
-    public GroupExpression getGroupExpression() {
-        throw new RuntimeException();
+    public Optional<GroupExpression> getGroupExpression() {
+        return Optional.empty();
     }
 
     @Override

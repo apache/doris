@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
@@ -62,7 +61,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     }
 
     @Override
-    public Expression newChildren(List<TreeNode> children) {
+    public Expression newChildren(List<Expression> children) {
         throw new RuntimeException();
     }
 

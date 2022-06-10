@@ -26,7 +26,7 @@ import java.util.List;
 /**
  * abstract class for all rule factories build one rule.
  */
-public abstract class OneRuleFactory<TYPE extends TreeNode> implements RuleFactory<TYPE> {
+public abstract class OneRuleFactory<TYPE extends TreeNode<TYPE>> implements RuleFactory<TYPE> {
     @Override
     public final List<Rule<TYPE>> buildRules() {
         return ImmutableList.of(build());

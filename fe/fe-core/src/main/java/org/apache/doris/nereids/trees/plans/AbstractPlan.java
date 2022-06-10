@@ -32,7 +32,7 @@ import java.util.Objects;
  * Abstract class for all concrete plan node.
  */
 public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
-        extends AbstractTreeNode<Plan> implements Plan<OP_TYPE> {
+        extends AbstractTreeNode<Plan> implements Plan {
 
     public final OP_TYPE operator;
 

@@ -35,7 +35,7 @@ public class LogicalLeafPatternGenerator extends PatternGenerator {
         String opClassName = opType.name;
         String methodName = getPatternMethodName();
 
-        String patternParam = "<LogicalLeaf<" + opClassName + ">, Plan>";
+        String patternParam = "<LogicalLeafPlan<" + opClassName + ">, Plan>";
 
         generateTypePattern(methodName, opClassName, patternParam, "", false);
 
@@ -50,12 +50,12 @@ public class LogicalLeafPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return  "<LogicalLeaf<" + opType.name + ">, Plan>";
+        return  "<LogicalLeafPlan<" + opType.name + ">, Plan>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        throw new IllegalStateException("Can not get children generic type by LeafPlan");
+        throw new IllegalStateException("Can not get children generic type by LogicalLeafPlan");
     }
 
     @Override
@@ -63,7 +63,7 @@ public class LogicalLeafPatternGenerator extends PatternGenerator {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalLeaf");
+        imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

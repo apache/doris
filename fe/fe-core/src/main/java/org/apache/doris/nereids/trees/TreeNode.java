@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.Operator;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * interface for all node in Nereids, include plan node and expression.
@@ -28,11 +29,11 @@ import java.util.List;
  * @param <NODE_TYPE> either {@link org.apache.doris.nereids.trees.plans.Plan}
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
-public interface TreeNode<NODE_TYPE extends TreeNode> {
+public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     Operator getOperator();
 
-    GroupExpression getGroupExpression();
+    Optional<GroupExpression> getGroupExpression();
 
     NodeType getType();
 
@@ -42,5 +43,5 @@ public interface TreeNode<NODE_TYPE extends TreeNode> {
 
     int arity();
 
-    NODE_TYPE newChildren(List<TreeNode> children);
+    NODE_TYPE newChildren(List<NODE_TYPE> children);
 }

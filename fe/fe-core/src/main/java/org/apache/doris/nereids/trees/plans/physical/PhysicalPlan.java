@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * interface for all physical plan.
  */
-public interface PhysicalPlan<OP_TYPE extends PhysicalOperator>
-        extends Plan<OP_TYPE> {
+public interface PhysicalPlan extends Plan {
+    @Override
+    PhysicalOperator getOperator();
 }

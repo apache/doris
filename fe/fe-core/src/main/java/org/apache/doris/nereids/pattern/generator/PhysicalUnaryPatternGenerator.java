@@ -32,12 +32,12 @@ public class PhysicalUnaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<PhysicalUnary<" + opType.name + ", Plan<?>>, Plan>";
+        return "<PhysicalUnaryPlan<" + opType.name + ", Plan>, Plan>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        return "<PhysicalUnary<" + opType.name + ", C1>, Plan>";
+        return "<PhysicalUnaryPlan<" + opType.name + ", C1>, Plan>";
     }
 
     @Override
@@ -46,7 +46,7 @@ public class PhysicalUnaryPatternGenerator extends PatternGenerator {
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalUnary");
+        imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

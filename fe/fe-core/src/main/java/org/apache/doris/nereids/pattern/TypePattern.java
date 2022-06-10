@@ -26,26 +26,27 @@ import java.util.Objects;
 import java.util.function.Predicate;
 
 /** pattern that used to match class type. */
-public class TypePattern<T extends TreeNode> extends Pattern<T> {
-    protected final Class<T> type;
+public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
+        extends Pattern<TYPE, NODE_TYPE> {
+    protected final Class<TYPE> type;
 
-    public TypePattern(Class<T> clazz, Pattern... children) {
+    public TypePattern(Class<TYPE> clazz, Pattern... children) {
         super(OperatorType.NORMAL_PATTERN, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
-    public TypePattern(Class<T> clazz, List<Predicate<T>> predicates, Pattern... children) {
+    public TypePattern(Class<TYPE> clazz, List<Predicate<TYPE>> predicates, Pattern... children) {
         super(OperatorType.NORMAL_PATTERN, predicates, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
     @Override
-    protected boolean doMatchRoot(T root) {
+    protected boolean doMatchRoot(TYPE root) {
         return type.isInstance(root) && predicates.stream().allMatch(predicate -> predicate.test(root));
     }
 
     @Override
-    public TypePattern<T> withPredicates(List<Predicate<T>> predicates) {
+    public TypePattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
         return new TypePattern(type, predicates, children.toArray(new Pattern[0]));
     }
 

@@ -28,9 +28,9 @@ import java.util.List;
 /**
  * Abstract class for all rules.
  */
-public abstract class Rule<TYPE extends TreeNode> {
+public abstract class Rule<TYPE extends TreeNode<TYPE>> {
     private final RuleType ruleType;
-    private final Pattern<? extends TYPE> pattern;
+    private final Pattern<? extends TYPE, TYPE> pattern;
     private final RulePromise rulePromise;
 
     /**
@@ -40,7 +40,7 @@ public abstract class Rule<TYPE extends TreeNode> {
      * @param pattern target pattern of rule
      * @param rulePromise rule promise
      */
-    public Rule(RuleType ruleType, Pattern<? extends TYPE> pattern, RulePromise rulePromise) {
+    public Rule(RuleType ruleType, Pattern<? extends TYPE, TYPE> pattern, RulePromise rulePromise) {
         this.ruleType = ruleType;
         this.pattern = pattern;
         this.rulePromise = rulePromise;
@@ -54,7 +54,7 @@ public abstract class Rule<TYPE extends TreeNode> {
         return rulePromise;
     }
 
-    public Pattern<? extends TYPE> getPattern() {
+    public Pattern<? extends TYPE, TYPE> getPattern() {
         return pattern;
     }
 

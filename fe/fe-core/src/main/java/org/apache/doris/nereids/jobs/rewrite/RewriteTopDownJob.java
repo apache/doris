@@ -34,7 +34,7 @@ import java.util.Objects;
 /**
  * Top down job for rewrite, use pattern match.
  */
-public class RewriteTopDownJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYPE> {
+public class RewriteTopDownJob<NODE_TYPE extends TreeNode<NODE_TYPE>> extends Job<NODE_TYPE> {
     private final Group group;
     private final List<Rule<NODE_TYPE>> rules;
 

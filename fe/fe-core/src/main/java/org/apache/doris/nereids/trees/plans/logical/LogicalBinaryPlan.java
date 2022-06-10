@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalBinaryOperator;
+import org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -30,29 +29,28 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /**
- * Abstract class for all physical plan that have two children.
+ * Abstract class for all logical plan that have two children.
  */
-public class PhysicalBinary<
-            OP_TYPE extends PhysicalBinaryOperator,
+public class LogicalBinaryPlan<
+            OP_TYPE extends LogicalBinaryOperator,
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan<OP_TYPE>
-        implements BinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends AbstractLogicalPlan<OP_TYPE>
+        implements BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalBinary(OP_TYPE operator, LogicalProperties logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.PHYSICAL, operator, logicalProperties, leftChild, rightChild);
+    public LogicalBinaryPlan(OP_TYPE operator, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(NodeType.LOGICAL, operator, leftChild, rightChild);
     }
 
-    public PhysicalBinary(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
+    public LogicalBinaryPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties, leftChild, rightChild);
+        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, leftChild, rightChild);
     }
 
     @Override
-    public PhysicalBinary newChildren(List<TreeNode> children) {
+    public LogicalBinaryPlan<OP_TYPE, Plan, Plan> newChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalBinary(operator, groupExpression, logicalProperties,
-                (Plan) children.get(0), (Plan) children.get(1));
+        return new LogicalBinaryPlan(operator, groupExpression.orElse(null),
+                logicalProperties, children.get(0), children.get(1));
     }
 }

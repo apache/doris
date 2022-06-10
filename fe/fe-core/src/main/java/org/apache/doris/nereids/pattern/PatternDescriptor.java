@@ -30,12 +30,12 @@ import java.util.function.Predicate;
  * Define a descriptor to wrap a pattern tree to define a pattern shape.
  * It can support pattern generic type to MatchedAction.
  */
-public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode> {
-    public final Pattern<INPUT_TYPE> pattern;
+public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> {
+    public final Pattern<INPUT_TYPE, RULE_TYPE> pattern;
     public final RulePromise defaultPromise;
     public final List<Predicate<INPUT_TYPE>> predicates = new ArrayList<>();
 
-    public PatternDescriptor(Pattern<INPUT_TYPE> pattern, RulePromise defaultPromise) {
+    public PatternDescriptor(Pattern<INPUT_TYPE, RULE_TYPE> pattern, RulePromise defaultPromise) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
         this.defaultPromise = Objects.requireNonNull(defaultPromise, "defaultPromise can not be null");
     }
@@ -52,7 +52,7 @@ public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends T
     }
 
     public <OUTPUT_TYPE extends RULE_TYPE> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> thenApply(
-            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> matchedAction) {
         return new PatternMatcher<>(pattern.withPredicates(predicates), defaultPromise, matchedAction);
     }
 }

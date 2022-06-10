@@ -21,7 +21,7 @@ package org.apache.doris.nereids.trees;
  * interface for all tree node that have two children.
  */
 public interface BinaryNode<
-            NODE_TYPE extends TreeNode,
+            NODE_TYPE extends TreeNode<NODE_TYPE>,
             LEFT_CHILD_TYPE extends TreeNode,
             RIGHT_CHILD_TYPE extends TreeNode>
         extends TreeNode<NODE_TYPE> {

@@ -22,7 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 
 
 /**
@@ -39,8 +39,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin()).then(topJoin -> {
-            LogicalBinary<LogicalJoin, Plan<?>, Plan<?>> leftJoin = topJoin.left();
-            LogicalBinary<LogicalJoin, Plan<?>, Plan<?>> rightJoin = topJoin.right();
+            LogicalBinaryPlan<LogicalJoin, Plan, Plan> leftJoin = topJoin.left();
+            LogicalBinaryPlan<LogicalJoin, Plan, Plan> rightJoin = topJoin.right();
 
             Plan a = leftJoin.left();
             Plan b = leftJoin.right();

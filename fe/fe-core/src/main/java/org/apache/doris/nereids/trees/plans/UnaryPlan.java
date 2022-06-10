@@ -23,9 +23,9 @@ import org.apache.doris.nereids.trees.UnaryNode;
 /**
  * interface for all plan node that have one child.
  */
-public interface UnaryPlan<
-            OP_TYPE extends UnaryPlanOperator,
-            CHILD_TYPE extends Plan>
-        extends Plan<OP_TYPE>, UnaryNode<Plan, CHILD_TYPE> {
+public interface UnaryPlan<CHILD_TYPE extends Plan>
+        extends Plan, UnaryNode<Plan, CHILD_TYPE> {
 
+    @Override
+    UnaryPlanOperator getOperator();
 }
