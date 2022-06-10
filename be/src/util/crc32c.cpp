@@ -206,12 +206,11 @@ static inline uint64_t LE_LOAD64(const uint8_t* p) {
 }
 
 static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
-#ifdef __SSE4_2__
-#if (defined(__LP64__) || defined(_WIN64))
+#if defined(__SSE4_2__) || defined(__aarch64__)
+    #if (defined(__LP64__) || defined(_WIN64)) && !defined(__aarch64__)
     *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
     *p += 8;
-#endif
-#elif __aarch64__
+    #else
     *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
     *p += 4;
     *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
