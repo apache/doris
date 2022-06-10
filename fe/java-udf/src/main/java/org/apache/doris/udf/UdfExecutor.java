@@ -552,12 +552,14 @@ public class UdfExecutor {
                 method = m;
                 Pair<Boolean, JavaUdfDataType> returnType;
                 if (methodTypes.length == 0 && parameterTypes.length == 0) {
+                    // Special case where the UDF doesn't take any input args
                     returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
                     if (!returnType.first) {
                         continue;
                     } else {
                         retType = returnType.second;
                     }
+                    argTypes = new JavaUdfDataType[0];
                     LOG.debug("Loaded UDF '" + udfPath + "' from " + jarPath);
                     return;
                 }

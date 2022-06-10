@@ -57,7 +57,6 @@ public:
     AggregateJavaUdafData() = default;
     AggregateJavaUdafData(int64_t num_args) {
         argument_size = num_args;
-        first_init = true;
         input_values_buffer_ptr.reset(new int64_t[num_args]);
         input_nulls_buffer_ptr.reset(new int64_t[num_args]);
         input_offsets_ptrs.reset(new int64_t[num_args]);
@@ -77,45 +76,41 @@ public:
     }
 
     Status init_udaf(const TFunction& fn) {
-        if (first_init) {
-            JNIEnv* env = nullptr;
-            RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env),
-                                           "Java-Udaf init_udaf function");
-            RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, UDAF_EXECUTOR_CLASS, &executor_cl));
-            RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
-                                           "Java-Udaf register_func_id function");
+        JNIEnv* env = nullptr;
+        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf init_udaf function");
+        RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, UDAF_EXECUTOR_CLASS, &executor_cl));
+        RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
+                                       "Java-Udaf register_func_id function");
 
-            // Add a scoped cleanup jni reference object. This cleans up local refs made below.
-            JniLocalFrame jni_frame;
-            {
-                std::string local_location;
-                auto function_cache = UserFunctionCache::instance();
-                RETURN_IF_ERROR(function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum,
-                                                            &local_location));
-                TJavaUdfExecutorCtorParams ctor_params;
-                ctor_params.__set_fn(fn);
-                ctor_params.__set_location(local_location);
-                ctor_params.__set_input_offsets_ptrs((int64_t)input_offsets_ptrs.get());
-                ctor_params.__set_input_buffer_ptrs((int64_t)input_values_buffer_ptr.get());
-                ctor_params.__set_input_nulls_ptrs((int64_t)input_nulls_buffer_ptr.get());
-                ctor_params.__set_output_buffer_ptr((int64_t)output_value_buffer.get());
+        // Add a scoped cleanup jni reference object. This cleans up local refs made below.
+        JniLocalFrame jni_frame;
+        {
+            std::string local_location;
+            auto function_cache = UserFunctionCache::instance();
+            RETURN_IF_ERROR(function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum,
+                                                        &local_location));
+            TJavaUdfExecutorCtorParams ctor_params;
+            ctor_params.__set_fn(fn);
+            ctor_params.__set_location(local_location);
+            ctor_params.__set_input_offsets_ptrs((int64_t)input_offsets_ptrs.get());
+            ctor_params.__set_input_buffer_ptrs((int64_t)input_values_buffer_ptr.get());
+            ctor_params.__set_input_nulls_ptrs((int64_t)input_nulls_buffer_ptr.get());
+            ctor_params.__set_output_buffer_ptr((int64_t)output_value_buffer.get());
 
-                ctor_params.__set_output_null_ptr((int64_t)output_null_value.get());
-                ctor_params.__set_output_offsets_ptr((int64_t)output_offsets_ptr.get());
-                ctor_params.__set_output_intermediate_state_ptr(
-                        (int64_t)output_intermediate_state_ptr.get());
+            ctor_params.__set_output_null_ptr((int64_t)output_null_value.get());
+            ctor_params.__set_output_offsets_ptr((int64_t)output_offsets_ptr.get());
+            ctor_params.__set_output_intermediate_state_ptr(
+                    (int64_t)output_intermediate_state_ptr.get());
 
-                jbyteArray ctor_params_bytes;
+            jbyteArray ctor_params_bytes;
 
-                // Pushed frame will be popped when jni_frame goes out-of-scope.
-                RETURN_IF_ERROR(jni_frame.push(env));
-                RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-                executor_obj = env->NewObject(executor_cl, executor_ctor_id, ctor_params_bytes);
-            }
-            RETURN_ERROR_IF_EXC(env);
-            RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
-            first_init = false;
+            // Pushed frame will be popped when jni_frame goes out-of-scope.
+            RETURN_IF_ERROR(jni_frame.push(env));
+            RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
+            executor_obj = env->NewObject(executor_cl, executor_ctor_id, ctor_params_bytes);
         }
+        RETURN_ERROR_IF_EXC(env);
+        RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
         return Status::OK();
     }
 
@@ -151,7 +146,7 @@ public:
         }
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_add_id, row_num_start,
                                       row_num_end);
-        return Status::OK();
+        return JniUtil::GetJniExceptionMsg(env);
     }
 
     Status merge(const AggregateJavaUdafData& rhs) {
@@ -162,26 +157,24 @@ public:
         jbyteArray arr = env->NewByteArray(len);
         env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_merge_id, arr);
-        return Status::OK();
+        return JniUtil::GetJniExceptionMsg(env);
     }
 
     Status write(BufferWritable& buf) {
-        write_binary(first_init, buf);
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf write function");
+        // TODO: Here get a byte[] from FE serialize, and then allocate the same length bytes to
+        // save it in BE, Because i'm not sure there is a way to use the byte[] not allocate again.
         jbyteArray arr = (jbyteArray)(env->CallNonvirtualObjectMethod(executor_obj, executor_cl,
                                                                       executor_serialize_id));
         int len = env->GetArrayLength(arr);
         serialize_data.resize(len);
         env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         write_binary(serialize_data, buf);
-        return Status::OK();
+        return JniUtil::GetJniExceptionMsg(env);
     }
 
-    void read(BufferReadable& buf) {
-        read_binary(first_init, buf);
-        read_binary(serialize_data, buf);
-    }
+    void read(BufferReadable& buf) { read_binary(serialize_data, buf); }
 
     Status get(IColumn& to, const DataTypePtr& result_type) const {
         to.insert_default();
@@ -233,7 +226,7 @@ public:
             env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,
                                              to.size() - 1);
         }
-        return Status::OK();
+        return JniUtil::GetJniExceptionMsg(env);
     }
 
 private:
@@ -279,7 +272,6 @@ private:
     std::unique_ptr<int64_t> output_offsets_ptr;
     std::unique_ptr<int64_t> output_intermediate_state_ptr;
 
-    bool first_init;
     int argument_size = 0;
     std::string serialize_data;
 };
@@ -301,6 +293,8 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(argument_types.size());
+        Status status = Status::OK();
+        RETURN_IF_STATUS_ERROR(status, data(place).init_udaf(_fn));
     }
 
     String get_name() const override { return _fn.name.function_name; }
@@ -310,18 +304,16 @@ public:
     // TODO: here calling add operator maybe only hava done one row, this performance may be poorly
     // so it's possible to maintain a hashtable in FE, the key is place address, value is the object
     // then we can calling add_bacth function and calculate the whole batch at once,
-    // and avoid calling jni multiple times
+    // and avoid calling jni multiple times.
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        Status status = Status::OK();
-        RETURN_IF_STATUS_ERROR(status, data(place).init_udaf(_fn));
         this->data(place).add(columns, row_num, row_num + 1, argument_types);
     }
 
+    // TODO: Here we calling method by jni, And if we get a thrown from FE,
+    // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        Status status = Status::OK();
-        RETURN_IF_STATUS_ERROR(status, data(place).init_udaf(_fn));
         this->data(place).add(columns, 0, batch_size, argument_types);
     }
 
@@ -329,8 +321,6 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        Status status = Status::OK();
-        RETURN_IF_STATUS_ERROR(status, data(place).init_udaf(_fn));
         this->data(place).merge(this->data(rhs));
     }
 
@@ -340,8 +330,6 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        Status status = Status::OK();
-        RETURN_IF_STATUS_ERROR(status, data(place).init_udaf(_fn));
         this->data(place).read(buf);
     }
 

@@ -71,8 +71,6 @@ public class UdafExecutor {
     private URLClassLoader classLoader;
     private JavaUdfDataType[] argTypes;
     private JavaUdfDataType retType;
-    private Object[] inputObjects;
-    private Object[] inputArgs;
     private Object stateObj;
 
     /**
@@ -136,10 +134,10 @@ public class UdafExecutor {
      */
     public void add(long rowStart, long rowEnd) throws UdfRuntimeException {
         try {
-            inputArgs = new Object[argTypes.length + 1];
+            Object[] inputArgs = new Object[argTypes.length + 1];
             inputArgs[0] = stateObj;
             for (long row = rowStart; row < rowEnd; ++row) {
-                allocateInputObjects(row);
+                Object[] inputObjects = allocateInputObjects(row);
                 for (int i = 0; i < argTypes.length; ++i) {
                     if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) == -1
                             || UdfUtils.UNSAFE.getByte(null,
@@ -351,8 +349,8 @@ public class UdafExecutor {
         }
     }
 
-    private void allocateInputObjects(long row) throws UdfRuntimeException {
-        inputObjects = new Object[argTypes.length];
+    private Object[] allocateInputObjects(long row) throws UdfRuntimeException {
+        Object[] inputObjects = new Object[argTypes.length];
 
         for (int i = 0; i < argTypes.length; ++i) {
             switch (argTypes[i]) {
@@ -436,6 +434,7 @@ public class UdafExecutor {
                     throw new UdfRuntimeException("Unsupported argument type: " + argTypes[i]);
             }
         }
+        return inputObjects;
     }
 
     private void init(String jarPath, String udfPath, Type funcRetType, Type... parameterTypes)
@@ -493,6 +492,9 @@ public class UdafExecutor {
                             } else {
                                 argTypes = inputType.second;
                             }
+                        } else {
+                            // Special case where the UDF doesn't take any input args
+                            argTypes = new JavaUdfDataType[0];
                         }
                         break;
                     }

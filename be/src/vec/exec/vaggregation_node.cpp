@@ -272,8 +272,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
         _agg_data.without_key = reinterpret_cast<AggregateDataPtr>(
                 _mem_pool->allocate(_total_size_of_aggregate_states));
 
-        _create_agg_status(_agg_data.without_key);
-
         if (_is_merge) {
             _executor.execute = std::bind<Status>(&AggregationNode::_merge_without_key, this,
                                                   std::placeholders::_1);
@@ -345,7 +343,12 @@ Status AggregationNode::open(RuntimeState* state) {
 
     // Streaming preaggregations do all processing in GetNext().
     if (_is_streaming_preagg) return Status::OK();
-
+    // move _create_agg_status to open not in during prepare,
+    // because during prepare and open thread is not the same one,
+    // this could cause unable to get JVM
+    if (_probe_expr_ctxs.empty()) {
+        _create_agg_status(_agg_data.without_key);
+    }
     bool eos = false;
     Block block;
     while (!eos) {
