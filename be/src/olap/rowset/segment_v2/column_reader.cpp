@@ -470,33 +470,34 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
 
     bool offsets_has_null = false;
     auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
-    auto start = column_offsets_ptr->size();
-    _length_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null);
+    ssize_t start = column_offsets_ptr->size();
+    RETURN_IF_ERROR(_length_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
+    if (*n == 0) {
+        return Status::OK();
+    }
     auto& column_offsets =
             static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
     auto& offsets_data = column_offsets.get_data();
-    for (int i = start; i < offsets_data.size(); ++i) {
+    for (ssize_t i = start; i < offsets_data.size(); ++i) {
         offsets_data[i] += offsets_data[i - 1]; // -1 is ok
     }
 
     auto column_items_ptr = column_array->get_data().assume_mutable();
-    for (int64_t i = start; i < offsets_data.size(); ++i) {
-        auto offset = offsets_data[i - 1]; // -1 is ok.
-        auto size = offsets_data[i] - offset;
-        if (size == 0) {
-            continue;
-        }
-        size_t num_items = size;
+    size_t num_items = offsets_data.back() - offsets_data[start - 1];
+    if (num_items > 0) {
+        size_t num_read = num_items;
         bool items_has_null = false;
-        _item_iterator->next_batch(&num_items, column_items_ptr, &items_has_null);
+        RETURN_IF_ERROR(_item_iterator->next_batch(&num_read, column_items_ptr, &items_has_null));
+        DCHECK(num_read == num_items);
     }
 
     if (dst->is_nullable()) {
         auto null_map_ptr =
                 static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
-        size_t num_null_signs = *n;
+        size_t num_read = *n;
         bool null_signs_has_null = false;
-        _null_iterator->next_batch(&num_null_signs, null_map_ptr, &null_signs_has_null);
+        RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        DCHECK(num_read == *n);
     }
 
     return Status::OK();
