@@ -36,8 +36,7 @@ Create policies,such as:
 1. Create security policies(ROW POLICY) and explain to view the rewritten SQL.
 2. Create storage migration policy(STORAGE POLICY), used for cold and hot data transform
 
-#### 行安全策略
-grammar：
+#### Grammar:
 
 1. ROW POLICY
 ```sql
