@@ -17,7 +17,6 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 
-#include "common/logging.h"
 #include "gutil/strings/substitute.h"                // for Substitute
 #include "olap/column_block.h"                       // for ColumnBlockView
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
@@ -28,8 +27,9 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/types.h"                          // for TypeInfo
 #include "util/block_compression.h"
-#include "util/coding.h"       // for get_varint32
 #include "util/rle_encoding.h" // for RleDecoder
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
@@ -459,6 +459,46 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     }
 
     dst->advance(*n);
+    return Status::OK();
+}
+
+Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                           bool* has_null) {
+    const auto* column_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
+                               : *dst);
+
+    bool offsets_has_null = false;
+    auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
+    auto start = column_offsets_ptr->size();
+    _length_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null);
+    auto& column_offsets =
+            static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
+    auto& offsets_data = column_offsets.get_data();
+    for (int i = start; i < offsets_data.size(); ++i) {
+        offsets_data[i] += offsets_data[i - 1]; // -1 is ok
+    }
+
+    auto column_items_ptr = column_array->get_data().assume_mutable();
+    for (int64_t i = start; i < offsets_data.size(); ++i) {
+        auto offset = offsets_data[i - 1]; // -1 is ok.
+        auto size = offsets_data[i] - offset;
+        if (size == 0) {
+            continue;
+        }
+        size_t num_items = size;
+        bool items_has_null = false;
+        _item_iterator->next_batch(&num_items, column_items_ptr, &items_has_null);
+    }
+
+    if (dst->is_nullable()) {
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        size_t num_null_signs = *n;
+        bool null_signs_has_null = false;
+        _null_iterator->next_batch(&num_null_signs, null_map_ptr, &null_signs_has_null);
+    }
+
     return Status::OK();
 }
 
