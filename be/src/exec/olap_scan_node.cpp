@@ -39,8 +39,8 @@
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/runtime_profile.h"
-#include "util/to_string.h"
 #include "util/thread.h"
+#include "util/to_string.h"
 
 namespace doris {
 

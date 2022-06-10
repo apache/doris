@@ -23,7 +23,7 @@
 #include <sstream>
 
 #include "common/utils.h"
-#include "exec/hash_table.hpp"
+#include "exec/hash_table.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
