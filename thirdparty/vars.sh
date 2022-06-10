@@ -32,9 +32,6 @@ export TP_SOURCE_DIR=$TP_DIR/src
 # thirdparties will be installed to here
 export TP_INSTALL_DIR=$TP_DIR/installed
 
-# libhdfs3-with-kerberos will be installed to here
-export HDFS3_KRB5_INSTALL_DIR=$TP_INSTALL_DIR/libhdfs_with_kerberos
-
 # patches for all thirdparties
 export TP_PATCH_DIR=$TP_DIR/patches
 
