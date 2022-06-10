@@ -540,6 +540,7 @@ module.exports = [
               "WINDOW-FUNCTION-FIRST-VALUE",
               "WINDOW-FUNCTION-LAST-VALUE",
               "WINDOW-FUNCTION-ROW-NUMBER",
+              "WINDOW-FUNCTION-NTILE",
             ],
           },
           {
