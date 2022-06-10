@@ -63,9 +63,9 @@ illustrate：
     2. cooldown_datetime：cool down time for tablet, can't be set with cooldown_ttl.
     3. cooldown_ttl：hot data stay time. The time cost between the time of tablet created and
             the time of migrated to cold data, formatted as：
-        1d：1天
-        1h：1小时
-        50000: 50000秒
+        1d：1 day
+        1h：1 hour
+        50000: 50000 second
 
 ### Example
 

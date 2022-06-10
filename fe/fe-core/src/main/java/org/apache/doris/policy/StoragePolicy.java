@@ -31,6 +31,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -61,7 +64,7 @@ public class StoragePolicy extends Policy {
     private String storageResource = null;
 
     @SerializedName(value = "cooldownDatetime")
-    private String cooldownDatetime = null;
+    private Date cooldownDatetime = null;
 
     @SerializedName(value = "cooldownTtl")
     private String cooldownTtl = null;
@@ -80,7 +83,7 @@ public class StoragePolicy extends Policy {
      * @param cooldownTtl cool down time cost after partition is created
      */
     public StoragePolicy(final PolicyTypeEnum type, final String policyName, final String storageResource,
-                         final String cooldownDatetime, final String cooldownTtl) {
+                         final Date cooldownDatetime, final String cooldownTtl) {
         super(type, policyName);
         this.storageResource = storageResource;
         this.cooldownDatetime = cooldownDatetime;
@@ -112,7 +115,13 @@ public class StoragePolicy extends Policy {
         boolean hasCooldownTtl = false;
         if (props.containsKey(COOLDOWN_DATETIME)) {
             hasCooldownDatetime = true;
-            this.cooldownDatetime = props.get(COOLDOWN_DATETIME);
+            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            try {
+                this.cooldownDatetime = df.parse(props.get(COOLDOWN_DATETIME));
+            } catch (ParseException e) {
+                throw new AnalysisException(String.format("cooldown_datetime format error: %s",
+                                            props.get(COOLDOWN_DATETIME)), e);
+            }
         }
         if (props.containsKey(COOLDOWN_TTL)) {
             hasCooldownTtl = true;
@@ -124,6 +133,9 @@ public class StoragePolicy extends Policy {
         if (!hasCooldownDatetime && !hasCooldownTtl) {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
+        if (!Catalog.getCurrentCatalog().getResourceMgr().containsResource(this.storageResource)) {
+            throw new AnalysisException("storage resource doesn't exist: " + this.storageResource);
+        }
     }
 
     /**
@@ -134,8 +146,9 @@ public class StoragePolicy extends Policy {
         if (Catalog.getCurrentCatalog().getResourceMgr().containsResource(this.storageResource)) {
             props = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.storageResource).toString();
         }
+        SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
-                                  this.cooldownDatetime, this.cooldownTtl, props);
+                                  df.format(this.cooldownDatetime), this.cooldownTtl, props);
     }
 
     @Override
