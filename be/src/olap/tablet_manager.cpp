@@ -903,7 +903,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
             TTablet t_tablet;
             for (TabletSharedPtr tablet_ptr : item.second.table_arr) {
                 TTabletInfo tablet_info;
-                tablet_ptr->build_tablet_report_info(&tablet_info);
+                tablet_ptr->build_tablet_report_info(&tablet_info, true);
                 // find expired transaction corresponding to this tablet
                 TabletInfo tinfo(tablet_id, tablet_ptr->schema_hash(), tablet_ptr->tablet_uid());
                 auto find = expire_txn_map.find(tinfo);
