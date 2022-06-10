@@ -7,6 +7,11 @@ This file contains version of the third-party dependency libraries in the build-
 - Modified: make libhdfs3 with kerberos support as default
 - Modified: change libhdfs3 to https://github.com/yangzhg/libhdfs3/releases/tag/v2.3.0 . This version support arm CPUs
 
+## v20220607
+- Added: opentelemetry-cpp 1.4.0, it was introduced for tracing.
+- Added: opentelemetry-proto 0.18.0, it is depended on by opentelemetry-cpp.
+- Added: nlohmann/json 3.10.1, it is depended on by opentelemetry-cpp.
+
 ## v20220606
 - Added: hyperscan 5.4.0, and a patch for compilation
 - Added: ragel 6.1.0, it is used by hyperscan to generate files before compilation
