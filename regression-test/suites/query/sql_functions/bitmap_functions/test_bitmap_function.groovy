@@ -52,9 +52,6 @@ suite("test_bitmap_function", "query") {
     qt_sql """ select bitmap_count(bitmap_hash('')) """
     qt_sql """ select bitmap_count(bitmap_hash(null)) """
 
-
-    // BITMAP_INTERSECT
-
     // BITMAP_OR
     qt_sql """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(1))) cnt """
