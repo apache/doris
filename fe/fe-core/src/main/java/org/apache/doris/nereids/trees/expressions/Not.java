@@ -43,7 +43,7 @@ public class Not<CHILD_TYPE extends Expression> extends Expression<Not<CHILD_TYP
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitNotExpression(this, context);
+        return visitor.visitNot(this, context);
     }
 
     @Override

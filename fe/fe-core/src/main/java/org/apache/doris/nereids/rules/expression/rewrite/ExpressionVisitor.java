@@ -29,7 +29,7 @@ public abstract class ExpressionVisitor<R, C> {
 
     public abstract R visitExpression(Expression expr, C context);
 
-    public R visitNotExpression(Not expr, C context) {
+    public R visitNot(Not expr, C context) {
         return visitExpression(expr, context);
     }
 

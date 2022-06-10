@@ -1,5 +1,5 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements.  See the notICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
@@ -17,14 +17,11 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.nereids.parser.SqlParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressionRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,22 +29,20 @@ import org.junit.Test;
  * all expr rewrite rule test case.
  */
 public class ExpressionRewriteTest {
-    private static final Logger LOG = LogManager.getLogger(Database.class);
-
     private static final SqlParser PARSER = new SqlParser();
     private ExpressionRewriter rewriter;
 
     @Test
-    public void testNotExpressionRewrite() {
+    public void testNotRewrite() {
         rewriter = new ExpressionRewriter(SimplifyNotExprRule.INSTANCE);
 
-        assertRewrite("NOT x > y", "x <= y");
-        assertRewrite("NOT x < y", "x >= y");
-        assertRewrite("NOT x >= y", "x < y");
-        assertRewrite("NOT x <= y", "x > y");
-        assertRewrite("NOT x = y", "NOT x = y");
-        assertRewrite("NOT NOT x > y", "x > y");
-        assertRewrite("NOT NOT NOT x > y", "x <= y");
+        assertRewrite("not x > y", "x <= y");
+        assertRewrite("not x < y", "x >= y");
+        assertRewrite("not x >= y", "x < y");
+        assertRewrite("not x <= y", "x > y");
+        assertRewrite("not x = y", "not x = y");
+        assertRewrite("not not x > y", "x > y");
+        assertRewrite("not not not x > y", "x <= y");
     }
 
     @Test

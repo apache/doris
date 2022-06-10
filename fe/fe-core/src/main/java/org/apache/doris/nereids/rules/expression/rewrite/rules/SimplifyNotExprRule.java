@@ -46,14 +46,14 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
 
 
     @Override
-    public Expression visitNotExpression(Not expr, ExpressionRewriteContext context) {
+    public Expression visitNot(Not expr, ExpressionRewriteContext context) {
 
         Expression child = expr.child();
 
         if (child instanceof ComparisonPredicate) {
             ComparisonPredicate cp = (ComparisonPredicate) expr.child();
-            Expression left =  cp.left();
-            Expression right = cp.right();
+            Expression left =  rewrite(cp.left(), context);
+            Expression right = rewrite(cp.right(), context);
             NodeType type = cp.getType();
             switch (type) {
                 case GREATER_THAN:

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressionRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.LeafExpression;
 
 import com.google.common.collect.Lists;
 
@@ -51,9 +50,6 @@ public class ExpressionRewriter {
 
     /**
      * Given an expression, returns a rewritten expression.
-
-     * @param root need rewrite expression.
-     * @return rewritten expression.
      */
     public Expression rewrite(Expression root) {
         Expression result = root;
@@ -64,20 +60,7 @@ public class ExpressionRewriter {
     }
 
     private Expression applyRule(Expression expr, ExpressionRewriteRule rule) {
-        Expression rewrittenExpr = expr;
-        rewrittenExpr = applyRuleBottomUp(rewrittenExpr, rule);
-        return rewrittenExpr;
-    }
-
-    //todo: flag whether expr has changed
-    private Expression applyRuleBottomUp(Expression expr, ExpressionRewriteRule rule) {
-        List<Expression> children = Lists.newArrayList();
-        for (int i = 0; i < expr.children().size(); ++i) {
-            children.add(applyRuleBottomUp(expr.child(i), rule));
-        }
-        if (!(expr instanceof LeafExpression)) {
-            expr = expr.newChildren(children);
-        }
         return rule.rewrite(expr, ctx);
     }
+
 }
