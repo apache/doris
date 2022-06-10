@@ -136,12 +136,14 @@ SwitchThreadMemTracker<Existed>::~SwitchThreadMemTracker() {
 #endif // USE_MEM_TRACKER
 }
 
-SwitchThreadMemTrackerErrCallBack::SwitchThreadMemTrackerErrCallBack(
-        const std::string& action_type, bool cancel_work, ERRCALLBACK err_call_back_func) {
+SwitchThreadMemTrackerErrCallBack::SwitchThreadMemTrackerErrCallBack(const std::string& action_type,
+                                                                     bool cancel_work,
+                                                                     ERRCALLBACK err_call_back_func,
+                                                                     bool log_limit_exceeded) {
 #ifdef USE_MEM_TRACKER
     DCHECK(action_type != std::string());
     _old_tracker_cb = tls_ctx()->_thread_mem_tracker_mgr->update_consume_err_cb(
-            action_type, cancel_work, err_call_back_func);
+            action_type, cancel_work, err_call_back_func, log_limit_exceeded);
 #endif
 }
 
