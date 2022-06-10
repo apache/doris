@@ -37,80 +37,80 @@ suite("test_cast_array_functions", "query") {
     test {
         sql "select cast(cast('x' as char) as array<char>)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(cast('x' as string) as array<string>)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(cast('x' as varchar) as array<int>)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Array does not start with"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(1 as array<int>)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(999.999 as array<double>)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(cast(999.999 as double) as array<double>)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(cast(999.999 as decimal) as array<decimal>)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
     //  ========== cast array to scalar ===========
 
     test {
         sql "select cast(['x'] as char)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(['x'] as varchar)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast(['x'] as string)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast([0] as int)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast([999.999] as double)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
     test {
         sql "select cast([999.999] as decimal)"
         // check exception message contains
-        exception "errCode = 2, detailMessage = Invalid type cast of"
+        exception "errCode = 2,"
     }
 
 }
