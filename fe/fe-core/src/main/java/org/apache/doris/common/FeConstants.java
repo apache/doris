@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.persist.meta.FeMetaFormat;
+
 public class FeConstants {
     // Database and table's default configurations, we will never change them
     public static short default_replication_num = 3;
