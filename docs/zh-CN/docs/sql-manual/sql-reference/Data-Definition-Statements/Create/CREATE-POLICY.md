@@ -32,22 +32,39 @@ CREATE POLICY
 
 ### Description
 
-创建安全策略，explain 可以查看改写后的 SQL。
+创建策略，包含以下几种：
+
+1. 创建安全策略(ROW POLICY)，explain 可以查看改写后的 SQL。
+2. 创建数据迁移策略(STORAGE POLICY)，用于冷热数据转换。
 
 #### 行安全策略
 语法：
 
+1. ROW POLICY
 ```sql
 CREATE ROW POLICY test_row_policy_1 ON test.table1 
 AS {RESTRICTIVE|PERMISSIVE} TO test USING (id in (1, 2));
 ```
-
 参数说明：
 
 - filterType：RESTRICTIVE 将一组策略通过 AND 连接, PERMISSIVE 将一组策略通过 OR 连接
 - 配置多个策略首先合并 RESTRICTIVE 的策略，再添加 PERMISSIVE 的策略
 - RESTRICTIVE 和 PERMISSIVE 之间通过 AND 连接的
 - 不允许对 root 和 admin 用户创建
+
+2. STORAGE POLICY
+```sql
+CREATE STORAGE POLICY test_storage_policy_1
+PROPERTIES ("key"="value", ...);
+```
+参数说明：
+- PROPERTIES中需要指定资源的类型:
+    1. storage_resource：指定策略使用的storage resource名称。
+    2. cooldown_datetime：热数据转为冷数据时间，不能与cooldown_ttl同时存在。
+    3. cooldown_ttl：热数据持续时间。从数据分片生成时开始计算，经过指定时间后转为冷数据。支持的格式：
+        1d：1天
+        1h：1小时
+        50000: 50000秒
 
 ### Example
 
@@ -75,6 +92,23 @@ AS {RESTRICTIVE|PERMISSIVE} TO test USING (id in (1, 2));
    ```sql
    select * from (select * from table1 where c1 = 'a' and c2 = 'b' or c3 = 'c' or c4 = 'd')
    ```
+2. 创建数据迁移策略
+    1. 指定数据冷却时间创建数据迁移策略
+    ```sql
+    CREATE STORAGE POLICY testPolicy
+    PROPERTIES(
+      "storage_resource" = "s3",
+      "cooldown_datetime" = "2022-06-08 00:00:00"
+    );
+    ```
+    2. 指定热数据持续时间创建数据迁移策略
+    ```sql
+    CREATE STORAGE POLICY testPolicy
+    PROPERTIES(
+      "storage_resource" = "s3",
+      "cooldown_ttl" = "1d"
+    );
+    ```
 
 ### Keywords
 
