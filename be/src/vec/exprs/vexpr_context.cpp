@@ -48,7 +48,11 @@ doris::Status VExprContext::prepare(doris::RuntimeState* state,
                                     const doris::RowDescriptor& row_desc,
                                     const std::shared_ptr<doris::MemTracker>& tracker) {
     _prepared = true;
-    _mem_tracker = tracker;
+    if (!tracker) {
+        _mem_tracker = tls_ctx()->_thread_mem_tracker_mgr->mem_tracker();
+    } else {
+        _mem_tracker = tracker;
+    }
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _pool.reset(new MemPool(_mem_tracker.get()));
     return _root->prepare(state, row_desc, this);
@@ -78,7 +82,7 @@ void VExprContext::close(doris::RuntimeState* state) {
         _fn_contexts[i]->impl()->close();
     }
     // _pool can be NULL if Prepare() was never called
-    if (_pool != NULL) {
+    if (_pool != nullptr) {
         _pool->free_all();
     }
     _closed = true;
@@ -140,7 +144,9 @@ Block VExprContext::get_output_block_after_execute_exprs(
     for (auto vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
         status = vexpr_ctx->execute(&tmp_block, &result_column_id);
-        if (UNLIKELY(!status.ok())) return {};
+        if (UNLIKELY(!status)) {
+            return {};
+        }
         DCHECK(result_column_id != -1);
         result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
     }

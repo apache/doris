@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "exec/decompressor.h"
-#include "exec/file_reader.h"
+#include "io/file_reader.h"
 
 // INPUT_CHUNK must
 //  larger than 15B for correct lz4 file decompressing

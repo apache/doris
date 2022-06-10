@@ -50,6 +50,7 @@ private:
     class OlapColumnDataConvertorBase : public IOlapColumnDataAccessor {
     public:
         OlapColumnDataConvertorBase() = default;
+        ~OlapColumnDataConvertorBase() override = default;
         OlapColumnDataConvertorBase(const OlapColumnDataConvertorBase&) = delete;
         OlapColumnDataConvertorBase& operator=(const OlapColumnDataConvertorBase&) = delete;
         OlapColumnDataConvertorBase(OlapColumnDataConvertorBase&&) = delete;
@@ -120,6 +121,11 @@ private:
                 column->offsets[i] = (i + 1) * (padding_length + 1);
 
                 auto str = input->get_data_at(i);
+
+                DCHECK(str.size <= padding_length)
+                        << "char type data length over limit, padding_length=" << padding_length
+                        << ", real=" << str.size;
+
                 if (str.size) {
                     memcpy(padded_column->chars.data() + i * (padding_length + 1), str.data,
                            str.size);

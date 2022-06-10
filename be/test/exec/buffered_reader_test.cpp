@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/buffered_reader.h"
+#include "io/buffered_reader.h"
 
 #include <gtest/gtest.h>
 
-#include "exec/local_file_reader.h"
+#include "io/local_file_reader.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {

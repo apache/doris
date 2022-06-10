@@ -334,7 +334,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
-        LOG.info("begin to handle task report from backend {}", backendId);
+        LOG.debug("begin to handle task report from backend {}", backendId);
         long start = System.currentTimeMillis();
 
         if (LOG.isDebugEnabled()) {

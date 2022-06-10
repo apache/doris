@@ -1046,15 +1046,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_local_replica_selection_fallback = false;
 
-
-    /**
-     * The timeout of executing async remote fragment.
-     * In normal case, the async remote fragment will be executed in a short time. If system are under high load
-     * condition，try to set this timeout longer.
-     */
-    @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
-
     /**
      * The number of query retries.
      * A query may retry if we encounter RPC exception and no result has been sent to user.
@@ -1303,11 +1294,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
-    /*
-     * If set to true, Doris will support complex type
-     */
-    @ConfField
-    public static boolean enable_complex_type_support = false;
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
      * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
@@ -1654,5 +1640,12 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
+
+    /**
+     * Temp config for multi catalog feature.
+     * Should be removed when this feature is ready.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_multi_catalog = false; // 1 min
 
 }

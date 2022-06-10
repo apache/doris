@@ -224,8 +224,8 @@ under the License.
         <snappy-java.version>1.1.7.2</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
-        <kubernetes-client.version>1.4.27</kubernetes-client.version>
-        <kubernetes-model.version>1.0.64</kubernetes-model.version>
+        <kubernetes-client.version>5.12.2</kubernetes-client.version>
+        <kubernetes-model.version>5.12.2</kubernetes-model.version>
         <logging-interceptor.version>4.7.2</logging-interceptor.version>
         <okhttp.version>4.7.2</okhttp.version>
         <okhttp-ws.version>3.4.2</okhttp-ws.version>
@@ -655,12 +655,6 @@ under the License.
                 <groupId>javax.validation</groupId>
                 <artifactId>validation-api</artifactId>
                 <version>${validation-api.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/io.fabric8/zjsonpatch -->
-            <dependency>
-                <groupId>io.fabric8</groupId>
-                <artifactId>zjsonpatch</artifactId>
-                <version>${zjsonpatch.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
             <dependency>

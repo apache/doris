@@ -601,6 +601,20 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablet_stat_list(*local_cache);
 }
 
+void TabletManager::find_tablet_have_alpha_rowset(std::vector<TabletSharedPtr>& tablets) {
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& tablet_map : tablets_shard.tablet_map) {
+            const TabletSharedPtr& tablet_ptr = tablet_map.second;
+            if (!tablet_ptr->all_beta() &&
+                tablet_ptr->can_do_compaction(tablet_ptr->data_dir()->path_hash(),
+                                              BASE_COMPACTION)) {
+                tablets.push_back(tablet_ptr);
+            }
+        }
+    }
+}
+
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
         const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
@@ -853,7 +867,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
             TabletSharedPtr tablet_ptr = item.second;
             TTablet t_tablet;
             TTabletInfo tablet_info;
-            tablet_ptr->build_tablet_report_info(&tablet_info);
+            tablet_ptr->build_tablet_report_info(&tablet_info, true);
             // find expired transaction corresponding to this tablet
             TabletInfo tinfo(tablet_id, tablet_ptr->schema_hash(), tablet_ptr->tablet_uid());
             auto find = expire_txn_map.find(tinfo);

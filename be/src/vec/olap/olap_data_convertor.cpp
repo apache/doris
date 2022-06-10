@@ -123,7 +123,9 @@ std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_colu
 // class OlapBlockDataConvertor::OlapColumnDataConvertorBase
 void OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
-    assert(num_rows > 0 && row_pos + num_rows <= typed_column.column->size());
+    DCHECK(row_pos + num_rows <= typed_column.column->size())
+            << "row_pos=" << row_pos << ", num_rows=" << num_rows
+            << ", typed_column.column->size()=" << typed_column.column->size();
     _typed_column = typed_column;
     _row_pos = row_pos;
     _num_rows = num_rows;
@@ -358,55 +360,21 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
         column_string = assert_cast<const vectorized::ColumnString*>(_typed_column.column.get());
     }
 
-    assert(column_string);
-
     // If column_string is not padded to full, we should do padding here.
     if (should_padding(column_string, _length)) {
         _column = clone_and_padding(column_string, _length);
         column_string = assert_cast<const vectorized::ColumnString*>(_column.get());
     }
 
-    const ColumnString::Char* char_data = column_string->get_chars().data();
-    const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;
-    const ColumnString::Offset* offset_end = offset_cur + _num_rows;
-    Slice* slice = _slice.data();
-    size_t string_length;
-    size_t string_offset = *(offset_cur - 1);
-    [[maybe_unused]] size_t slice_size = _length;
-    if (_nullmap) {
-        const UInt8* nullmap_cur = _nullmap + _row_pos;
-        while (offset_cur != offset_end) {
-            if (!*nullmap_cur) {
-                string_length = *offset_cur - string_offset - 1;
-                assert(string_length <= slice_size);
-                slice->data = (char*)char_data + string_offset;
-                slice->size = string_length;
-            } else {
-                // TODO: this may not be necessary, check and remove later
-                slice->data = nullptr;
-                slice->size = 0;
-            }
-
-            string_offset = *offset_cur;
-            ++nullmap_cur;
-            ++slice;
-            ++offset_cur;
+    for (size_t i = 0; i < _num_rows; i++) {
+        if (!_nullmap || !_nullmap[i + _row_pos]) {
+            _slice[i] = column_string->get_data_at(i + _row_pos).to_slice();
+            DCHECK(_slice[i].size == _length)
+                    << "char type data length not equal to schema, schema=" << _length
+                    << ", real=" << _slice[i].size;
         }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
-    } else {
-        while (offset_cur != offset_end) {
-            string_length = *offset_cur - string_offset - 1;
-            assert(string_length <= slice_size);
-
-            slice->data = (char*)char_data + string_offset;
-            slice->size = string_length;
-
-            string_offset = *offset_cur;
-            ++slice;
-            ++offset_cur;
-        }
-        assert(slice == _slice.get_end_ptr());
     }
+
     return Status::OK();
 }
 

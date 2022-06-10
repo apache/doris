@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
@@ -81,15 +80,18 @@ public class CountFieldToSum implements ExprRewriteRule {
         }
 
         // rewrite expr
-        return rewriteExpr(fnChild0, mvColumn, analyzer);
+        return rewriteExpr(mvColumn, analyzer);
     }
 
-    private Expr rewriteExpr(SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {
+    private Expr rewriteExpr(Column mvColumn, Analyzer analyzer) {
         Preconditions.checkNotNull(mvColumn);
-        Preconditions.checkNotNull(queryColumnSlotRef);
-        TableName tableName = queryColumnSlotRef.getTableName();
-        Preconditions.checkNotNull(tableName);
-        SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getName());
+        // Notice that we shouldn't set table name field of mvSlotRef here, for we will analyze the new mvSlotRef
+        // later, if the table name was set here, the Analyzer::registerColumnRef would invoke
+        // Analyzer::resolveColumnRef(TableName, String) which only try to find the column from the tupleByAlias,
+        // as at the most time the alias is not equal with the origin table name, so it would cause the unexpected
+        // exception to Unknown column, because we can't find an alias which named as origin table name that has
+        // required column.
+        SlotRef mvSlotRef = new SlotRef(null, mvColumn.getName());
         List<Expr> newFnParams = Lists.newArrayList();
         newFnParams.add(mvSlotRef);
         FunctionCallExpr result = new FunctionCallExpr("sum", newFnParams);

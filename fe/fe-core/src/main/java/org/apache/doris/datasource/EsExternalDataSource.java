@@ -28,16 +28,6 @@ import java.util.List;
 public class EsExternalDataSource extends ExternalDataSource {
 
     @Override
-    public String getType() {
-        return "es";
-    }
-
-    @Override
-    public String getName() {
-        return "es";
-    }
-
-    @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
         return null;
     }
