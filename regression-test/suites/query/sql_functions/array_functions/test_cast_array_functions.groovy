@@ -32,6 +32,8 @@ suite("test_cast_array_functions", "query") {
         )
     }
 
+    //  ========== cast scalar to array===========
+
     test {
         sql "select cast(cast('x' as char) as array<char>)"
         // check exception message contains
@@ -73,4 +75,42 @@ suite("test_cast_array_functions", "query") {
         // check exception message contains
         exception "errCode = 2, detailMessage = Invalid type cast of"
     }
+    //  ========== cast array to scalar ===========
+
+    test {
+        sql "select cast(['x'] as char)"
+        // check exception message contains
+        exception "errCode = 2, detailMessage = Invalid type cast of"
+    }
+
+    test {
+        sql "select cast(['x'] as varchar)"
+        // check exception message contains
+        exception "errCode = 2, detailMessage = Invalid type cast of"
+    }
+
+    test {
+        sql "select cast(['x'] as string)"
+        // check exception message contains
+        exception "errCode = 2, detailMessage = Invalid type cast of"
+    }
+
+    test {
+        sql "select cast([0] as int)"
+        // check exception message contains
+        exception "errCode = 2, detailMessage = Invalid type cast of"
+    }
+
+    test {
+        sql "select cast([999.999] as double)"
+        // check exception message contains
+        exception "errCode = 2, detailMessage = Invalid type cast of"
+    }
+
+    test {
+        sql "select cast([999.999] as decimal)"
+        // check exception message contains
+        exception "errCode = 2, detailMessage = Invalid type cast of"
+    }
+
 }
