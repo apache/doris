@@ -988,8 +988,8 @@ build_simdjson() {
     cd $TP_SOURCE_DIR/$SIMDJSON_SOURCE
 
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    CXX_FLAGS="-O3" \
-    C_FLAGS="-O3" \
+    CXXFLAGS="-O3" \
+    CFLAGS="-O3" \
     $CMAKE_CMD ..
     $CMAKE_CMD --build .
 
