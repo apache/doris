@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
  * I just copied some common interface from the origin Database class.
  * Maybe changed later.
  */
-public interface DatabaseIf <T extends TableIf> {
+public interface DatabaseIf<T extends TableIf> {
 
     void readLock();
 
@@ -99,7 +99,7 @@ public interface DatabaseIf <T extends TableIf> {
 
     T getTableOrAnalysisException(String tableName) throws AnalysisException;
 
-    OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException;
-
     T getTableOrAnalysisException(long tableId) throws AnalysisException;
+
+    OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException;
 }

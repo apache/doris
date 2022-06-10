@@ -17,7 +17,10 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DatabaseProperty;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -34,9 +37,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 
+/**
+ * Base class of external database.
+ *
+ * @param <T> External table type is ExternalTable or its subclass.
+ */
 public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> {
 
-    private static final Logger LOG = LogManager.getLogger(Database.class);
+    private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     private long id;
     private String name;
