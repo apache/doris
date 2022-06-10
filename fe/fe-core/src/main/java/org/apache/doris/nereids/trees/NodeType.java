@@ -21,20 +21,9 @@ package org.apache.doris.nereids.trees;
  * Types for all TreeNode in Nereids, include Plan and Expression.
  */
 public enum NodeType {
-    // logical plan
+    // plan
     LOGICAL,
-    LOGICAL_UNBOUND_RELATION,
-    LOGICAL_BOUND_RELATION,
-    LOGICAL_PROJECT,
-    LOGICAL_FILTER,
-    LOGICAL_JOIN,
-
-    // physical plan
     PHYSICAL,
-    PHYSICAL_OLAP_SCAN,
-    PHYSICAL_PROJECT,
-    PHYSICAL_FILTER,
-    PHYSICAL_BROADCAST_HASH_JOIN,
 
     // expressions
     EXPRESSION,
@@ -55,6 +44,8 @@ public enum NodeType {
 
     // pattern
     PATTERN,
-    ANY,
-    MULTI,
+
+    // fixed
+    FIXED,
+    ;
 }

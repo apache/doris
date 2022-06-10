@@ -56,7 +56,7 @@ public class AlterTableStatsStmt extends DdlStmt {
         tableName.analyze(analyzer);
         // check properties
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
-            .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType)).findFirst();
+                .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid statistic");
         }

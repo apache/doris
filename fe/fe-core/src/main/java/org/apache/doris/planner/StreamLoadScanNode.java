@@ -75,7 +75,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     // used to construct for streaming loading
     public StreamLoadScanNode(
             TUniqueId loadId, PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, LoadTaskInfo taskInfo) {
-        super(id, tupleDesc, "StreamLoadScanNode");
+        super(id, tupleDesc, "StreamLoadScanNode", NodeType.STREAM_LOAD_SCAN_NODE);
         this.loadId = loadId;
         this.dstTable = dstTable;
         this.taskInfo = taskInfo;
@@ -193,7 +193,9 @@ public class StreamLoadScanNode extends LoadScanNode {
     }
 
     @Override
-    public int getNumInstances() { return 1; }
+    public int getNumInstances() {
+        return 1;
+    }
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {

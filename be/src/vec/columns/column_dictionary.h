@@ -62,6 +62,7 @@ private:
     ColumnDictionary() {}
     ColumnDictionary(const size_t n) : _codes(n) {}
     ColumnDictionary(const ColumnDictionary& src) : _codes(src._codes.begin(), src._codes.end()) {}
+    ColumnDictionary(FieldType type) : _type(type) {}
 
 public:
     using Self = ColumnDictionary;
@@ -251,13 +252,15 @@ public:
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
-    void generate_hash_values() { _dict.generate_hash_values(); }
+    void generate_hash_values_for_runtime_filter() {
+        _dict.generate_hash_values_for_runtime_filter(_type);
+    }
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
-    phmap::flat_hash_set<int32_t> find_codes(
-            const phmap::flat_hash_set<StringValue>& values) const {
-        return _dict.find_codes(values);
+    void find_codes(const phmap::flat_hash_set<StringValue>& values,
+                    std::vector<bool>& selected) const {
+        return _dict.find_codes(values, selected);
     }
 
     bool is_dict_sorted() const { return _dict_sorted; }
@@ -305,12 +308,26 @@ public:
             return code >= _dict_data.size() ? _null_value : _dict_data[code];
         }
 
-        inline void generate_hash_values() {
+        // The function is only used in the runtime filter feature
+        inline void generate_hash_values_for_runtime_filter(FieldType type) {
             if (_hash_values.empty()) {
                 _hash_values.resize(_dict_data.size());
                 for (size_t i = 0; i < _dict_data.size(); i++) {
                     auto& sv = _dict_data[i];
-                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.ptr, sv.len, 0);
+                    // The char data is stored in the disk with the schema length,
+                    // and zeros are filled if the length is insufficient
+
+                    // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
+                    // Remove the suffix 0
+                    // When writing data, use the CharField::consume function to fill in the trailing 0.
+
+                    // For dictionary data of char type, sv.len is the schema length,
+                    // so use strnlen to remove the 0 at the end to get the actual length.
+                    int32_t len = sv.len;
+                    if (type == OLAP_FIELD_TYPE_CHAR) {
+                        len = strnlen(sv.ptr, sv.len);
+                    }
+                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.ptr, len, 0);
                     _hash_values[i] = hash_val;
                 }
             }
@@ -345,22 +362,23 @@ public:
             return greater ? bound - greater + eq : bound - eq;
         }
 
-        phmap::flat_hash_set<int32_t> find_codes(
-                const phmap::flat_hash_set<StringValue>& values) const {
-            phmap::flat_hash_set<int32_t> code_set;
+        void find_codes(const phmap::flat_hash_set<StringValue>& values,
+                        std::vector<bool>& selected) const {
+            size_t dict_word_num = _dict_data.size();
+            selected.resize(dict_word_num);
+            selected.assign(dict_word_num, false);
             for (const auto& value : values) {
                 auto it = _inverted_index.find(value);
                 if (it != _inverted_index.end()) {
-                    code_set.insert(it->second);
+                    selected[it->second] = true;
                 }
             }
-            return code_set;
         }
 
         void clear() {
             _dict_data.clear();
             _inverted_index.clear();
-            _code_convert_map.clear();
+            _code_convert_table.clear();
             _hash_values.clear();
         }
 
@@ -368,14 +386,15 @@ public:
 
         void sort() {
             size_t dict_size = _dict_data.size();
+            _code_convert_table.reserve(dict_size);
             std::sort(_dict_data.begin(), _dict_data.end(), _comparator);
             for (size_t i = 0; i < dict_size; ++i) {
-                _code_convert_map[_inverted_index.find(_dict_data[i])->second] = (T)i;
+                _code_convert_table[_inverted_index.find(_dict_data[i])->second] = (T)i;
                 _inverted_index[_dict_data[i]] = (T)i;
             }
         }
 
-        T convert_code(const T& code) const { return _code_convert_map.find(code)->second; }
+        T convert_code(const T& code) const { return _code_convert_table[code]; }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 
@@ -388,8 +407,8 @@ public:
         DictContainer _dict_data;
         // dict value -> dict code
         phmap::flat_hash_map<StringValue, T, StringValue::HashOfStringValue> _inverted_index;
-        // data page code -> sorted dict code, only used for range comparison predicate
-        phmap::flat_hash_map<T, T> _code_convert_map;
+        // only used for range comparison predicate. _code_convert_table[i] = j, where i is dataPageCode, and j is sortedDictCode
+        std::vector<T> _code_convert_table;
         // hash value of origin string , used for bloom filter
         // It's a trade-off of space for performance
         // But in TPC-DS 1GB q60,we see no significant improvement.
@@ -404,6 +423,7 @@ private:
     bool _dict_code_converted = false;
     Dictionary _dict;
     Container _codes;
+    FieldType _type;
 };
 
 template class ColumnDictionary<int32_t>;

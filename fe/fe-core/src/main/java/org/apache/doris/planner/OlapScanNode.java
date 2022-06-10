@@ -172,7 +172,9 @@ public class OlapScanNode extends ScanNode {
         setCanTurnOnPreAggr(false);
     }
 
-    public long getTotalTabletsNum() { return totalTabletsNum; }
+    public long getTotalTabletsNum() {
+        return totalTabletsNum;
+    }
 
     public boolean getForceOpenPreAgg() {
         return forceOpenPreAgg;
@@ -252,7 +254,7 @@ public class OlapScanNode extends ScanNode {
         String situation;
         boolean update;
         CHECK:
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
                 situation = "The key type of table is duplicate.";
                 update = true;
@@ -272,18 +274,20 @@ public class OlapScanNode extends ScanNode {
             situation = "The key type of table is aggregated.";
             update = false;
             break CHECK;
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         if (update) {
             this.selectedIndexId = selectedIndexId;
             setIsPreAggregation(isPreAggregation, reasonOfDisable);
             updateColumnType();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
+                LOG.debug("Using the new scan range info instead of the old one. {}, {}",
+                        situation, scanRangeInfo);
             }
         } else {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Using the old scan range info instead of the new one. {}, {}", situation, scanRangeInfo);
+                LOG.debug("Using the old scan range info instead of the new one. {}, {}",
+                        situation, scanRangeInfo);
             }
         }
     }
@@ -345,8 +349,8 @@ public class OlapScanNode extends ScanNode {
          * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
          * - So only an inaccurate cardinality can be calculated here.
          */
+        mockRowCountInStatistic();
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            mockRowCountInStatistic();
             computeInaccurateCardinality();
         }
     }
@@ -393,7 +397,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (cardinality > 0) {
             avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
@@ -597,9 +601,9 @@ public class OlapScanNode extends ScanNode {
         }
         selectedPartitionNum = selectedPartitionIds.size();
 
-        for(long id : selectedPartitionIds){
+        for (long id : selectedPartitionIds) {
             Partition partition = olapTable.getPartition(id);
-            if(partition.getState() == PartitionState.RESTORE){
+            if (partition.getState() == PartitionState.RESTORE) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), "RESTORING");
             }
         }

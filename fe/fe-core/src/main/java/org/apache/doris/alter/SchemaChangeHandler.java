@@ -255,8 +255,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column column : baseSchema) {
                     if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
                         isKey = true;
-                    } else if (AggregateType.REPLACE == column.getAggregationType() ||
-                            AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
+                    } else if (AggregateType.REPLACE == column.getAggregationType()
+                            || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
                 }
@@ -273,8 +273,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column column : targetIndexSchema) {
                     if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
                         isKey = true;
-                    } else if (AggregateType.REPLACE == column.getAggregationType() ||
-                            AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
+                    } else if (AggregateType.REPLACE == column.getAggregationType()
+                            || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
                 }
@@ -360,7 +360,6 @@ public class SchemaChangeHandler extends AlterHandler {
         String newColName = modColumn.getName();
         boolean hasColPos = (columnPos != null && !columnPos.isFirst());
         boolean found = false;
-        boolean typeChanged = false;
 
         int modColIndex = -1;
         int lastColIndex = -1;
@@ -369,9 +368,6 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
-                if (!col.equals(modColumn)) {
-                    typeChanged = true;
-                }
             }
             if (hasColPos) {
                 if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
@@ -781,8 +777,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not assign aggregation method on column in Duplicate data model table: " + newColName);
             }
             if (!newColumn.isKey()) {
-                if (targetIndexId != -1L &&
-                        olapTable.getIndexMetaByIndexId(targetIndexId).getKeysType() == KeysType.AGG_KEYS) {
+                if (targetIndexId != -1L
+                        && olapTable.getIndexMetaByIndexId(targetIndexId).getKeysType() == KeysType.AGG_KEYS) {
                     throw new DdlException("Please add non-key column on base table directly");
                 }
                 newColumn.setAggregationType(AggregateType.NONE, true);
@@ -1402,8 +1398,8 @@ public class SchemaChangeHandler extends AlterHandler {
     private void runAlterJobV2() {
         runnableSchemaChangeJobV2.values().forEach(
                 alterJobsV2 -> {
-                    if (!alterJobsV2.isDone() && !activeSchemaChangeJobsV2.containsKey(alterJobsV2.getJobId()) &&
-                            activeSchemaChangeJobsV2.size() < MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE) {
+                    if (!alterJobsV2.isDone() && !activeSchemaChangeJobsV2.containsKey(alterJobsV2.getJobId())
+                            && activeSchemaChangeJobsV2.size() < MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE) {
                         if (FeConstants.runningUnitTest) {
                             alterJobsV2.run();
                         } else {
@@ -1494,9 +1490,10 @@ public class SchemaChangeHandler extends AlterHandler {
                                 DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
                             } catch (DdlException e) {
                                 // This table is not a dynamic partition table and didn't supply all dynamic partition properties
-                                throw new DdlException("Table " + db.getFullName() + "." +
-                                        olapTable.getName() + " is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
-                                        "to see how to change a normal table to a dynamic partition table.");
+                                throw new DdlException("Table " + db.getFullName() + "."
+                                        + olapTable.getName() + " is not a dynamic partition table."
+                                        + " Use command `HELP ALTER TABLE` "
+                                        + "to see how to change a normal table to a dynamic partition table.");
                             }
                         }
                         Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
@@ -1662,8 +1659,8 @@ public class SchemaChangeHandler extends AlterHandler {
             try {
                 updatePartitionInMemoryMeta(db, olapTable.getName(), partitionName, isInMemory);
             } catch (Exception e) {
-                String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. " +
-                        "The reason is [" + e.getMessage() + "]";
+                String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
+                        + "The reason is [" + e.getMessage() + "]";
                 throw new DdlException(errMsg);
             }
         }
@@ -1765,8 +1762,8 @@ public class SchemaChangeHandler extends AlterHandler {
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLockOrDdlException();
         try {
-            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE &&
-                    olapTable.getState() != OlapTableState.WAITING_STABLE) {
+            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE
+                    && olapTable.getState() != OlapTableState.WAITING_STABLE) {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
             }
 

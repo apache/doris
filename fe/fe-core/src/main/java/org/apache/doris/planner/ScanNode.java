@@ -64,8 +64,7 @@ abstract public class ScanNode extends PlanNode {
     protected Analyzer analyzer;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
-        super(id, desc.getId().asList(), planNodeName);
-        super.nodeType = nodeType;
+        super(id, desc.getId().asList(), planNodeName, nodeType);
         this.desc = desc;
     }
 
@@ -153,8 +152,8 @@ abstract public class ScanNode extends PlanNode {
                 continue;
             }
 
-            if (expr instanceof CompoundPredicate &&
-                ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
+            if (expr instanceof CompoundPredicate
+                    && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
                 // Try to get column filter from disjunctive predicates.
                 List<Expr> disjunctivePredicates = PredicateUtils.splitDisjunctivePredicates(expr);
                 if (disjunctivePredicates.isEmpty()) {
@@ -215,8 +214,7 @@ abstract public class ScanNode extends PlanNode {
             BinaryPredicate binPred = (BinaryPredicate) expr;
             Expr slotBinding = binPred.getSlotBinding(desc.getId());
 
-            if (slotBinding == null || !slotBinding.isConstant() ||
-                !(slotBinding instanceof LiteralExpr)) {
+            if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                 return ColumnRanges.createFailure();
             }
 
@@ -259,8 +257,7 @@ abstract public class ScanNode extends PlanNode {
             }
 
             for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
-                ColumnBound bound =
-                    ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
+                ColumnBound bound = ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
                 result.add(Range.closed(bound, bound));
             }
         }

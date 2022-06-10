@@ -193,7 +193,6 @@ public class DecimalLiteral extends LiteralExpr {
     protected void toThrift(TExprNode msg) {
         // TODO(hujie01) deal with loss information
         msg.node_type = TExprNodeType.DECIMAL_LITERAL;
-        BigDecimal v = new BigDecimal(value.toBigInteger());
         msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 
@@ -249,6 +248,8 @@ public class DecimalLiteral extends LiteralExpr {
             return new IntLiteral(value.longValue(), targetType);
         } else if (targetType.isStringType()) {
             return new StringLiteral(value.toString());
+        } else if (targetType.isLargeIntType()) {
+            return new LargeIntLiteral(value.toBigInteger().toString());
         }
         return super.uncheckedCastTo(targetType);
     }

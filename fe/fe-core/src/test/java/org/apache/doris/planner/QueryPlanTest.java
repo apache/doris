@@ -46,6 +46,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.TestWithFeService;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -65,354 +66,354 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         createDatabase("test");
 
-        createTable("create table test.test1\n" +
-                "(\n" +
-                "    query_id varchar(48) comment \"Unique query id\",\n" +
-                "    time datetime not null comment \"Query start time\",\n" +
-                "    client_ip varchar(32) comment \"Client IP\",\n" +
-                "    user varchar(64) comment \"User name\",\n" +
-                "    db varchar(96) comment \"Database of this query\",\n" +
-                "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n" +
-                "    query_time bigint comment \"Query execution time in millisecond\",\n" +
-                "    scan_bytes bigint comment \"Total scan bytes of this query\",\n" +
-                "    scan_rows bigint comment \"Total scan rows of this query\",\n" +
-                "    return_rows bigint comment \"Returned rows of this query\",\n" +
-                "    stmt_id int comment \"An incremental id of statement\",\n" +
-                "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n" +
-                "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n" +
-                "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n" +
-                ")\n" +
-                "partition by range(time) ()\n" +
-                "distributed by hash(query_id) buckets 1\n" +
-                "properties(\n" +
-                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
-                "    \"dynamic_partition.start\" = \"-30\",\n" +
-                "    \"dynamic_partition.end\" = \"3\",\n" +
-                "    \"dynamic_partition.prefix\" = \"p\",\n" +
-                "    \"dynamic_partition.buckets\" = \"1\",\n" +
-                "    \"dynamic_partition.enable\" = \"true\",\n" +
-                "    \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("create table test.test1\n"
+                + "(\n"
+                + "    query_id varchar(48) comment \"Unique query id\",\n"
+                + "    time datetime not null comment \"Query start time\",\n"
+                + "    client_ip varchar(32) comment \"Client IP\",\n"
+                + "    user varchar(64) comment \"User name\",\n"
+                + "    db varchar(96) comment \"Database of this query\",\n"
+                + "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n"
+                + "    query_time bigint comment \"Query execution time in millisecond\",\n"
+                + "    scan_bytes bigint comment \"Total scan bytes of this query\",\n"
+                + "    scan_rows bigint comment \"Total scan rows of this query\",\n"
+                + "    return_rows bigint comment \"Returned rows of this query\",\n"
+                + "    stmt_id int comment \"An incremental id of statement\",\n"
+                + "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n"
+                + "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n"
+                + "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n"
+                + ")\n"
+                + "partition by range(time) ()\n"
+                + "distributed by hash(query_id) buckets 1\n"
+                + "properties(\n"
+                + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "    \"dynamic_partition.start\" = \"-30\",\n"
+                + "    \"dynamic_partition.end\" = \"3\",\n"
+                + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n"
+                + "    \"dynamic_partition.enable\" = \"true\",\n"
+                + "    \"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.bitmap_table (\n" +
-                "  `id` int(11) NULL COMMENT \"\",\n" +
-                "  `id2` bitmap bitmap_union NULL\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`id`)\n" +
-                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.bitmap_table (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `id2` bitmap bitmap_union NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.join1 (\n" +
-                "  `dt` int(11) COMMENT \"\",\n" +
-                "  `id` int(11) COMMENT \"\",\n" +
-                "  `value` varchar(8) COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`dt`, `id`)\n" +
-                "PARTITION BY RANGE(`dt`)\n" +
-                "(PARTITION p1 VALUES LESS THAN (\"10\"))\n" +
-                "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "  \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.join1 (\n"
+                + "  `dt` int(11) COMMENT \"\",\n"
+                + "  `id` int(11) COMMENT \"\",\n"
+                + "  `value` varchar(8) COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`dt`, `id`)\n"
+                + "PARTITION BY RANGE(`dt`)\n"
+                + "(PARTITION p1 VALUES LESS THAN (\"10\"))\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.join2 (\n" +
-                "  `dt` int(11) COMMENT \"\",\n" +
-                "  `id` int(11) COMMENT \"\",\n" +
-                "  `value` varchar(8) COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`dt`, `id`)\n" +
-                "PARTITION BY RANGE(`dt`)\n" +
-                "(PARTITION p1 VALUES LESS THAN (\"10\"))\n" +
-                "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "  \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.join2 (\n"
+                + "  `dt` int(11) COMMENT \"\",\n"
+                + "  `id` int(11) COMMENT \"\",\n"
+                + "  `value` varchar(8) COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`dt`, `id`)\n"
+                + "PARTITION BY RANGE(`dt`)\n"
+                + "(PARTITION p1 VALUES LESS THAN (\"10\"))\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.bitmap_table_2 (\n" +
-                "  `id` int(11) NULL COMMENT \"\",\n" +
-                "  `id2` bitmap bitmap_union NULL,\n" +
-                "  `id3` bitmap bitmap_union NULL\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`id`)\n" +
-                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.bitmap_table_2 (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `id2` bitmap bitmap_union NULL,\n"
+                + "  `id3` bitmap bitmap_union NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.hll_table (\n" +
-                "  `id` int(11) NULL COMMENT \"\",\n" +
-                "  `id2` hll hll_union NULL\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`id`)\n" +
-                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.hll_table (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `id2` hll hll_union NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.`bigtable` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
-                "  `k3` int(11) NULL COMMENT \"\",\n" +
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
-                "  `k6` char(5) NULL COMMENT \"\",\n" +
-                "  `k10` date NULL COMMENT \"\",\n" +
-                "  `k11` datetime NULL COMMENT \"\",\n" +
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
-                "  `k8` double MAX NULL COMMENT \"\",\n" +
-                "  `k9` float SUM NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`bigtable` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` int(11) NULL COMMENT \"\",\n"
+                + "  `k4` bigint(20) NULL COMMENT \"\",\n"
+                + "  `k5` decimal(9, 3) NULL COMMENT \"\",\n"
+                + "  `k6` char(5) NULL COMMENT \"\",\n"
+                + "  `k10` date NULL COMMENT \"\",\n"
+                + "  `k11` datetime NULL COMMENT \"\",\n"
+                + "  `k7` varchar(20) NULL COMMENT \"\",\n"
+                + "  `k8` double MAX NULL COMMENT \"\",\n"
+                + "  `k9` float SUM NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.`baseall` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
-                "  `k3` int(11) NULL COMMENT \"\",\n" +
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
-                "  `k6` char(5) NULL COMMENT \"\",\n" +
-                "  `k10` date NULL COMMENT \"\",\n" +
-                "  `k11` datetime NULL COMMENT \"\",\n" +
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
-                "  `k8` double MAX NULL COMMENT \"\",\n" +
-                "  `k9` float SUM NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`baseall` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` int(11) NULL COMMENT \"\",\n"
+                + "  `k4` bigint(20) NULL COMMENT \"\",\n"
+                + "  `k5` decimal(9, 3) NULL COMMENT \"\",\n"
+                + "  `k6` char(5) NULL COMMENT \"\",\n"
+                + "  `k10` date NULL COMMENT \"\",\n"
+                + "  `k11` datetime NULL COMMENT \"\",\n"
+                + "  `k7` varchar(20) NULL COMMENT \"\",\n"
+                + "  `k8` double MAX NULL COMMENT \"\",\n"
+                + "  `k9` float SUM NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.`dynamic_partition` (\n" +
-                "  `k1` date NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
-                "  `k3` int(11) NULL COMMENT \"\",\n" +
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
-                "  `k6` char(5) NULL COMMENT \"\",\n" +
-                "  `k10` date NULL COMMENT \"\",\n" +
-                "  `k11` datetime NULL COMMENT \"\",\n" +
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
-                "  `k8` double MAX NULL COMMENT \"\",\n" +
-                "  `k9` float SUM NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE (k1)\n" +
-                "(\n" +
-                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
-                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
-                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"dynamic_partition.enable\" = \"true\",\n" +
-                "\"dynamic_partition.start\" = \"-3\",\n" +
-                "\"dynamic_partition.end\" = \"3\",\n" +
-                "\"dynamic_partition.time_unit\" = \"day\",\n" +
-                "\"dynamic_partition.prefix\" = \"p\",\n" +
-                "\"dynamic_partition.buckets\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`dynamic_partition` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` int(11) NULL COMMENT \"\",\n"
+                + "  `k4` bigint(20) NULL COMMENT \"\",\n"
+                + "  `k5` decimal(9, 3) NULL COMMENT \"\",\n"
+                + "  `k6` char(5) NULL COMMENT \"\",\n"
+                + "  `k10` date NULL COMMENT \"\",\n"
+                + "  `k11` datetime NULL COMMENT \"\",\n"
+                + "  `k7` varchar(20) NULL COMMENT \"\",\n"
+                + "  `k8` double MAX NULL COMMENT \"\",\n"
+                + "  `k9` float SUM NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE (k1)\n"
+                + "(\n"
+                + "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n"
+                + "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n"
+                + "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.time_unit\" = \"day\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.`app_profile` (\n" +
-                "  `event_date` date NOT NULL COMMENT \"\",\n" +
-                "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `age` varchar(32) NOT NULL COMMENT \"\",\n" +
-                "  `gender` varchar(32) NOT NULL COMMENT \"\",\n" +
-                "  `level` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `city` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `model` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `brand` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `hours` varchar(16) NOT NULL COMMENT \"\",\n" +
-                "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n" +
-                "  `use_time` double SUM NOT NULL COMMENT \"\",\n" +
-                "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
+        createTable("CREATE TABLE test.`app_profile` (\n"
+                + "  `event_date` date NOT NULL COMMENT \"\",\n"
+                + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `age` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `gender` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `level` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `city` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `model` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `brand` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `hours` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n"
+                + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
+                + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
                 +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE(`event_date`)\n" +
-                "(PARTITION p_20200301 VALUES [('2020-02-27'), ('2020-03-02')),\n" +
-                "PARTITION p_20200306 VALUES [('2020-03-02'), ('2020-03-07')))\n" +
-                "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
+                "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`event_date`)\n"
+                + "(PARTITION p_20200301 VALUES [('2020-02-27'), ('2020-03-02')),\n"
+                + "PARTITION p_20200306 VALUES [('2020-03-02'), ('2020-03-07')))\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
                 +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");");
+                "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.`pushdown_test` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
-                "  `k3` int(11) NULL COMMENT \"\",\n" +
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
-                "  `k6` char(5) NULL COMMENT \"\",\n" +
-                "  `k10` date NULL COMMENT \"\",\n" +
-                "  `k11` datetime NULL COMMENT \"\",\n" +
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
-                "  `k8` double MAX NULL COMMENT \"\",\n" +
-                "  `k9` float SUM NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE(`k1`)\n" +
-                "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n" +
-                "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n" +
-                "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"DEFAULT\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`pushdown_test` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` int(11) NULL COMMENT \"\",\n"
+                + "  `k4` bigint(20) NULL COMMENT \"\",\n"
+                + "  `k5` decimal(9, 3) NULL COMMENT \"\",\n"
+                + "  `k6` char(5) NULL COMMENT \"\",\n"
+                + "  `k10` date NULL COMMENT \"\",\n"
+                + "  `k11` datetime NULL COMMENT \"\",\n"
+                + "  `k7` varchar(20) NULL COMMENT \"\",\n"
+                + "  `k8` double MAX NULL COMMENT \"\",\n"
+                + "  `k9` float SUM NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n"
+                + "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n"
+                + "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"DEFAULT\"\n"
+                + ");");
 
-        createTable("create table test.jointest\n" +
-                "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
-                "properties(\"replication_num\" = \"1\");");
+        createTable("create table test.jointest\n"
+                + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\");");
 
-        createTable("create table test.bucket_shuffle1\n" +
-                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 5\n" +
-                "properties(\"replication_num\" = \"1\"" +
-                ");");
+        createTable("create table test.bucket_shuffle1\n"
+                + "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 5\n"
+                + "properties(\"replication_num\" = \"1\""
+                + ");");
 
-        createTable("CREATE TABLE test.`bucket_shuffle2` (\n" +
-                "  `k1` int NULL COMMENT \"\",\n" +
-                "  `k2` int(6) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE(`k1`)\n" +
-                "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n" +
-                "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n" +
-                "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n" +
-                "DISTRIBUTED BY HASH(k1, k2) BUCKETS 5\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"DEFAULT\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`bucket_shuffle2` (\n"
+                + "  `k1` int NULL COMMENT \"\",\n"
+                + "  `k2` int(6) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n"
+                + "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n"
+                + "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n"
+                + "DISTRIBUTED BY HASH(k1, k2) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"DEFAULT\"\n"
+                + ");");
 
-        createTable("create table test.colocate1\n" +
-                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
-                "properties(\"replication_num\" = \"1\"," +
-                "\"colocate_with\" = \"group1\");");
+        createTable("create table test.colocate1\n"
+                + "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\","
+                + "\"colocate_with\" = \"group1\");");
 
-        createTable("create table test.colocate2\n" +
-                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
-                "properties(\"replication_num\" = \"1\"," +
-                "\"colocate_with\" = \"group1\");");
+        createTable("create table test.colocate2\n"
+                + "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\","
+                + "\"colocate_with\" = \"group1\");");
 
-        createTable("create external table test.mysql_table\n" +
-                "(k1 int, k2 int)\n" +
-                "ENGINE=MYSQL\n" +
-                "PROPERTIES (\n" +
-                "\"host\" = \"127.0.0.1\",\n" +
-                "\"port\" = \"3306\",\n" +
-                "\"user\" = \"root\",\n" +
-                "\"password\" = \"123\",\n" +
-                "\"database\" = \"db1\",\n" +
-                "\"table\" = \"tbl1\"\n" +
-                ");");
+        createTable("create external table test.mysql_table\n"
+                + "(k1 int, k2 int)\n"
+                + "ENGINE=MYSQL\n"
+                + "PROPERTIES (\n"
+                + "\"host\" = \"127.0.0.1\",\n"
+                + "\"port\" = \"3306\",\n"
+                + "\"user\" = \"root\",\n"
+                + "\"password\" = \"123\",\n"
+                + "\"database\" = \"db1\",\n"
+                + "\"table\" = \"tbl1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.`table_partitioned` (\n" +
-                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
-                "PARTITION BY RANGE(`dt`)\n" +
-                "(PARTITION p20200101 VALUES [(\"-1\"), (\"20200101\")),\n" +
-                "PARTITION p20200201 VALUES [(\"20200101\"), (\"20200201\")))\n" +
-                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`table_partitioned` (\n"
+                + "  `dt` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`dt`, `dis_key`)\n"
+                + "PARTITION BY RANGE(`dt`)\n"
+                + "(PARTITION p20200101 VALUES [(\"-1\"), (\"20200101\")),\n"
+                + "PARTITION p20200201 VALUES [(\"20200101\"), (\"20200201\")))\n"
+                + "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.`table_unpartitioned` (\n" +
-                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`table_unpartitioned` (\n"
+                + "  `dt` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`dt`, `dis_key`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
 
-        createTable("create external table test.odbc_oracle\n" +
-                "(k1 float, k2 int)\n" +
-                "ENGINE=ODBC\n" +
-                "PROPERTIES (\n" +
-                "\"host\" = \"127.0.0.1\",\n" +
-                "\"port\" = \"3306\",\n" +
-                "\"user\" = \"root\",\n" +
-                "\"password\" = \"123\",\n" +
-                "\"database\" = \"db1\",\n" +
-                "\"table\" = \"tbl1\",\n" +
-                "\"driver\" = \"Oracle Driver\",\n" +
-                "\"odbc_type\" = \"oracle\"\n" +
-                ");");
+        createTable("create external table test.odbc_oracle\n"
+                + "(k1 float, k2 int)\n"
+                + "ENGINE=ODBC\n"
+                + "PROPERTIES (\n"
+                + "\"host\" = \"127.0.0.1\",\n"
+                + "\"port\" = \"3306\",\n"
+                + "\"user\" = \"root\",\n"
+                + "\"password\" = \"123\",\n"
+                + "\"database\" = \"db1\",\n"
+                + "\"table\" = \"tbl1\",\n"
+                + "\"driver\" = \"Oracle Driver\",\n"
+                + "\"odbc_type\" = \"oracle\"\n"
+                + ");");
 
-        createTable("create external table test.odbc_mysql\n" +
-                "(k1 int, k2 int)\n" +
-                "ENGINE=ODBC\n" +
-                "PROPERTIES (\n" +
-                "\"host\" = \"127.0.0.1\",\n" +
-                "\"port\" = \"3306\",\n" +
-                "\"user\" = \"root\",\n" +
-                "\"password\" = \"123\",\n" +
-                "\"database\" = \"db1\",\n" +
-                "\"table\" = \"tbl1\",\n" +
-                "\"driver\" = \"Oracle Driver\",\n" +
-                "\"odbc_type\" = \"mysql\"\n" +
-                ");");
+        createTable("create external table test.odbc_mysql\n"
+                + "(k1 int, k2 int)\n"
+                + "ENGINE=ODBC\n"
+                + "PROPERTIES (\n"
+                + "\"host\" = \"127.0.0.1\",\n"
+                + "\"port\" = \"3306\",\n"
+                + "\"user\" = \"root\",\n"
+                + "\"password\" = \"123\",\n"
+                + "\"database\" = \"db1\",\n"
+                + "\"table\" = \"tbl1\",\n"
+                + "\"driver\" = \"Oracle Driver\",\n"
+                + "\"odbc_type\" = \"mysql\"\n"
+                + ");");
 
-        createTable("create table test.tbl_int_date (" +
-                "`date` datetime NULL," +
-                "`day` date NULL," +
-                "`site_id` int(11) NULL )" +
-                " ENGINE=OLAP " +
-                "DUPLICATE KEY(`date`, `day`, `site_id`)" +
-                "DISTRIBUTED BY HASH(`site_id`) BUCKETS 10 " +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");");
+        createTable("create table test.tbl_int_date ("
+                + "`date` datetime NULL,"
+                + "`day` date NULL,"
+                + "`site_id` int(11) NULL )"
+                + " ENGINE=OLAP "
+                + "DUPLICATE KEY(`date`, `day`, `site_id`)"
+                + "DISTRIBUTED BY HASH(`site_id`) BUCKETS 10 "
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");");
 
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
         createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as concat FROM test.test1;");
 
-        createTable("create table test.tbl_using_a\n" +
-                "(\n" +
-                "    k1 int,\n" +
-                "    k2 int,\n" +
-                "    v1 int sum\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"" +
-                ");");
+        createTable("create table test.tbl_using_a\n"
+                + "(\n"
+                + "    k1 int,\n"
+                + "    k2 int,\n"
+                + "    v1 int sum\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 "
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\""
+                + ");");
 
-        createTable("create table test.tbl_using_b\n" +
-                "(\n" +
-                "    k1 int,\n" +
-                "    k2 int,\n" +
-                "    k3 int \n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"" +
-                ");");
+        createTable("create table test.tbl_using_b\n"
+                + "(\n"
+                + "    k1 int,\n"
+                + "    k2 int,\n"
+                + "    k3 int \n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 "
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\""
+                + ");");
     }
 
     @Test
@@ -423,25 +424,25 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Test
     public void testBitmapInsertInto() throws Exception {
-        assertSQLPlanOrErrorMsgContains(
-            "INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));",
-            "OLAP TABLE SINK");
+        String sql = "INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));";
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
 
-        assertSQLPlanOrErrorMsgContains(
-            "insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;",
-            "OLAP TABLE SINK",
-            "bitmap_union",
-            "1:AGGREGATE",
-            "0:OlapScanNode");
+        sql = "insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;";
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
+        Assert.assertTrue(explainString.contains("bitmap_union"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "AGGREGATE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
-        assertSQLPlanOrErrorMsgContains(
-            "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;",
-            "OLAP TABLE SINK",
-            "OUTPUT EXPRS:`id` | `id2`",
-            "0:OlapScanNode");
+        sql = "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;";
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | `id2`"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
         assertSQLPlanOrErrorMsgContains("insert into test.bitmap_table select id, id from test.bitmap_table_2;",
-            "bitmap column require the function return type is BITMAP");
+                "bitmap column require the function return type is BITMAP");
     }
 
     @Test
@@ -691,14 +692,14 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testDateTypeEquality() throws Exception {
         // related to Github issue #3309
-        String loadStr = "load label test.app_profile_20200306\n" +
-                "(DATA INFILE('filexxx')INTO TABLE app_profile partition (p_20200306)\n" +
-                "COLUMNS TERMINATED BY '\\t'\n" +
-                "(app_name,package_name,age,gender,level,city,model,brand,hours,use_num,use_time,start_times)\n" +
-                "SET\n" +
-                "(event_date = default_value('2020-03-06'))) \n" +
-                "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n" +
-                "";
+        String loadStr = "load label test.app_profile_20200306\n"
+                + "(DATA INFILE('filexxx')INTO TABLE app_profile partition (p_20200306)\n"
+                + "COLUMNS TERMINATED BY '\\t'\n"
+                + "(app_name,package_name,age,gender,level,city,model,brand,hours,use_num,use_time,start_times)\n"
+                + "SET\n"
+                + "(event_date = default_value('2020-03-06'))) \n"
+                + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n"
+                + "";
         LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
         Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
                 System.currentTimeMillis());
@@ -711,37 +712,37 @@ public class QueryPlanTest extends TestWithFeService {
         ConnectContext.get().getSessionVariable().setEnableInferPredicate(true);
         /*  TODO: commit on_clause and where_clause Cross-identification
         // test left join : left table where binary predicate
-        String sql = "select join1.id\n" +
-                "from join1\n" +
-                "left join join2 on join1.id = join2.id\n" +
-                "where join1.id > 1;";
+        String sql = "select join1.id\n"
+                + "from join1\n"
+                + "left join join2 on join1.id = join2.id\n"
+                + "where join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test left join: left table where in predicate
-        sql = "select join1.id\n" +
-                "from join1\n" +
-                "left join join2 on join1.id = join2.id\n" +
-                "where join1.id in (2);";
+        sql = "select join1.id\n"
+                + "from join1\n"
+                + "left join join2 on join1.id = join2.id\n"
+                + "where join1.id in (2);";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` IN (2)"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` IN (2)"));
 
         // test left join: left table where between predicate
-        sql = "select join1.id\n" +
-                "from join1\n" +
-                "left join join2 on join1.id = join2.id\n" +
-                "where join1.id BETWEEN 1 AND 2;";
+        sql = "select join1.id\n"
+                + "from join1\n"
+                + "left join join2 on join1.id = join2.id\n"
+                + "where join1.id BETWEEN 1 AND 2;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` >= 1, `join1`.`id` <= 2"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` >= 1, `join2`.`id` <= 2"));
 
         */
         // test left join: left table join predicate, left table couldn't push down
-        String sql = "select *\n from join1\n" +
-                "left join join2 on join1.id = join2.id\n" +
-                "and join1.id > 1;";
+        String sql = "select *\n from join1\n"
+                + "left join join2 on join1.id = join2.id\n"
+                + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
@@ -750,111 +751,111 @@ public class QueryPlanTest extends TestWithFeService {
         // test left join: right table where predicate.
         // If we eliminate outer join, we could push predicate down to join1 and join2.
         // Currently, we push predicate to join1 and keep join predicate for join2
-        sql = "select *\n from join1\n" +
-                "left join join2 on join1.id = join2.id\n" +
-                "where join2.id > 1;";
+        sql = "select *\n from join1\n"
+                + "left join join2 on join1.id = join2.id\n"
+                + "where join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("other join predicates: `join2`.`id` > 1"));
         */
 
         // test left join: right table join predicate, only push down right table
-        sql = "select *\n from join1\n" +
-                "left join join2 on join1.id = join2.id\n" +
-                "and join2.id > 1;";
+        sql = "select *\n from join1\n"
+                + "left join join2 on join1.id = join2.id\n"
+                + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
         // test inner join: left table where predicate, both push down left table and right table
-        sql = "select *\n from join1\n" +
-                "join join2 on join1.id = join2.id\n" +
-                "where join1.id > 1;";
+        sql = "select *\n from join1\n"
+                + "join join2 on join1.id = join2.id\n"
+                + "where join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         */
 
         // test inner join: left table join predicate, both push down left table and right table
-        sql = "select *\n from join1\n" +
-                "join join2 on join1.id = join2.id\n" +
-                "and join1.id > 1;";
+        sql = "select *\n from join1\n"
+                + "join join2 on join1.id = join2.id\n"
+                + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
         /*
         // test inner join: right table where predicate, both push down left table and right table
-        sql = "select *\n from join1\n" +
-                "join join2 on join1.id = join2.id\n" +
-                "where join2.id > 1;";
+        sql = "select *\n from join1\n"
+                + "join join2 on join1.id = join2.id\n"
+                + "where join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         */
 
         // test inner join: right table join predicate, both push down left table and right table
-        sql = "select *\n from join1\n" +
-                "join join2 on join1.id = join2.id\n" +
-                "and 1 < join2.id;";
+        sql = "select *\n from join1\n"
+
+                + "join join2 on join1.id = join2.id\n" + "and 1 < join2.id;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
-        sql = "select *\n from join1\n" +
-                "join join2 on join1.id = join2.value\n" +
-                "and join2.value in ('abc');";
+        sql = "select *\n from join1\n"
+                + "join join2 on join1.id = join2.value\n"
+                + "and join2.value in ('abc');";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertFalse(explainString.contains("'abc' is not a number"));
         Assert.assertFalse(explainString.contains("`join1`.`value` IN ('abc')"));
 
         // test anti join, right table join predicate, only push to right table
-        sql = "select *\n from join1\n" +
-                "left anti join join2 on join1.id = join2.id\n" +
-                "and join2.id > 1;";
+        sql = "select *\n from join1\n"
+                + "left anti join join2 on join1.id = join2.id\n"
+                + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, right table join predicate, only push to right table
-        sql = "select *\n from join1\n" +
-                "left semi join join2 on join1.id = join2.id\n" +
-                "and join2.id > 1;";
+        sql = "select *\n from join1\n"
+                + "left semi join join2 on join1.id = join2.id\n"
+                + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test anti join, left table join predicate, left table couldn't push down
-        sql = "select *\n from join1\n" +
-                "left anti join join2 on join1.id = join2.id\n" +
-                "and join1.id > 1;";
+        sql = "select *\n from join1\n"
+                + "left anti join join2 on join1.id = join2.id\n"
+                + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
-        sql = "select *\n from join1\n" +
-                "left semi join join2 on join1.id = join2.id\n" +
-                "and join1.id > 1;";
+        sql = "select *\n from join1\n"
+                + "left semi join join2 on join1.id = join2.id\n"
+                + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
         // test anti join, left table where predicate, only push to left table
-        sql = "select join1.id\n" +
-                "from join1\n" +
-                "left anti join join2 on join1.id = join2.id\n" +
-                "where join1.id > 1;";
+        sql = "select join1.id\n"
+                + "from join1\n"
+                + "left anti join join2 on join1.id = join2.id\n"
+                + "where join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
         // test semi join, left table where predicate, only push to left table
-        sql = "select join1.id\n" +
-                "from join1\n" +
-                "left semi join join2 on join1.id = join2.id\n" +
-                "where join1.id > 1;";
+        sql = "select join1.id\n"
+                + "from join1\n"
+                + "left semi join join2 on join1.id = join2.id\n"
+                + "where join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
@@ -989,11 +990,11 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testJoinPredicateTransitivityWithSubqueryInWhereClause() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String sql = "SELECT *\n" +
-                "FROM test.pushdown_test\n" +
-                "WHERE 0 < (\n" +
-                "    SELECT MAX(k9)\n" +
-                "    FROM test.pushdown_test);";
+        String sql = "SELECT *\n"
+
+                + "FROM test.pushdown_test\n"
+                + "WHERE 0 < (\n"
+                + "    SELECT MAX(k9)\n" + "    FROM test.pushdown_test);";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
         Assert.assertTrue(explainString.contains("CROSS JOIN"));
@@ -1105,13 +1106,15 @@ public class QueryPlanTest extends TestWithFeService {
         }
 
         // single partition
-        String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2"
+                + " where t1.k1 = t2.k1 and t1.k1 = t2.k2";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
 
         // not bucket shuffle join do not support different type
-        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint) = t2.k1 and t1.k1 = t2.k2";
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2"
+                + " where cast (t1.k1 as tinyint) = t2.k1 and t1.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
@@ -1121,32 +1124,37 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // multi partition, should not be bucket shuffle join
-        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle2 t2"
+                + " where t1.k1 = t2.k1 and t1.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // left table is colocate table, should be bucket shuffle
-        queryStr = "explain select * from test.colocate1 t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        queryStr = "explain select * from test.colocate1 t1, test.bucket_shuffle2 t2"
+                + " where t1.k1 = t2.k1 and t1.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // support recurse of bucket shuffle join
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
-                "on t2.k1 = t3.k1 and t2.k2 = t3.k2";
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2"
+                + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
+                + " on t2.k1 = t3.k1 and t2.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
 
         // support recurse of bucket shuffle because t4 join t2 and join column name is same as t2 distribute column name
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
-                "on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and t4.k1 = t2.k2";
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2"
+                + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
+                + " on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and t4.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
         // some column name in join expr t3 join t4 and t1 distribute column name, so should not be bucket shuffle join
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
-                "on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and t4.k2 = t3.k2";
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2"
+                + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
+                + " on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and t4.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
@@ -1177,12 +1185,12 @@ public class QueryPlanTest extends TestWithFeService {
         String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1224,12 +1232,12 @@ public class QueryPlanTest extends TestWithFeService {
         String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2, odbc_mysql t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1311,7 +1319,6 @@ public class QueryPlanTest extends TestWithFeService {
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("EnableTransaction: true"));
     }
-
 
     @Test
     public void testPreferBroadcastJoin() throws Exception {
@@ -1853,7 +1860,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         // false or (expr and true) ==> expr
         String sql10 = "select * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
-        String explainString10 = getSQLPlanOrErrorMsg( "EXPLAIN " + sql10);
+        String explainString10 = getSQLPlanOrErrorMsg("EXPLAIN " + sql10);
         Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
     }
 
@@ -1861,24 +1868,28 @@ public class QueryPlanTest extends TestWithFeService {
     public void testOutfile() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         Config.enable_outfile_to_local = true;
-        createTable("CREATE TABLE test.`outfile1` (\n" +
-                "  `date` date NOT NULL,\n" +
-                "  `road_code` int(11) NOT NULL DEFAULT \"-1\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`date`, `road_code`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE(`date`)\n" +
-                "(PARTITION v2x_ads_lamp_source_percent_statistic_20210929 VALUES [('2021-09-29'), ('2021-09-30')))\n" +
-                "DISTRIBUTED BY HASH(`road_code`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`outfile1` (\n"
+                + "  `date` date NOT NULL,\n"
+                + "  `road_code` int(11) NOT NULL DEFAULT \"-1\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`date`, `road_code`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`date`)\n"
+                + "(PARTITION v2x_ads_lamp_source_percent_statistic_20210929 VALUES [('2021-09-29'), ('2021-09-30')))\n"
+                + "DISTRIBUTED BY HASH(`road_code`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
 
         // test after query rewrite, outfile still work
-        String sql = "select * from test.outfile1 where `date` between '2021-10-07' and '2021-10-11'" +
-                "INTO OUTFILE \"file:///tmp/1_\" FORMAT AS CSV PROPERTIES (     \"column_separator\" = \",\",     \"line_delimiter\" = \"\\n\",     \"max_file_size\" = \"500MB\" );";
+        String sql = "select * from test.outfile1 where `date` between '2021-10-07' and '2021-10-11'"
+                + "INTO OUTFILE \"file:///tmp/1_\" FORMAT AS CSV PROPERTIES ("
+                + "     \"column_separator\" = \",\","
+                + "     \"line_delimiter\" = \"\\n\","
+                + "     \"max_file_size\" = \"500MB\" );";
         String explainStr = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
+        Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00',"
+                + " `date` <= '2021-10-11 00:00:00'"));
     }
 
     // Fix: issue-#7929
@@ -1888,33 +1899,34 @@ public class QueryPlanTest extends TestWithFeService {
         String createDbStmtStr = "create database issue7929;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        createTable(" CREATE TABLE issue7929.`t1` (\n" +
-                "  `k1` int(11) NULL COMMENT \"\",\n" +
-                "  `k2` int(11) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ")");
-        createTable("CREATE TABLE issue7929.`t2` (\n" +
-                "  `j1` int(11) NULL COMMENT \"\",\n" +
-                "  `j2` int(11) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`j1`, `j2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`j1`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ")");
-        String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2)a on t1.k1=a.x where 1=0;";
+        createTable(" CREATE TABLE issue7929.`t1` (\n"
+                + "  `k1` int(11) NULL COMMENT \"\",\n"
+                + "  `k2` int(11) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ")");
+        createTable("CREATE TABLE issue7929.`t2` (\n"
+                + "  `j1` int(11) NULL COMMENT \"\",\n"
+                + "  `j2` int(11) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`j1`, `j2`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`j1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ")");
+        String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
+                + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
-        Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
     }
 
@@ -1924,15 +1936,15 @@ public class QueryPlanTest extends TestWithFeService {
         String createDbStmtStr = "create database issue1111;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        createTable("CREATE TABLE issue1111.`test1` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
-                ");");
+        createTable("CREATE TABLE issue1111.`test1` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ");");
         String sql = "SELECT k1 ,GROUPING(k2) FROM issue1111.test1 GROUP BY CUBE (k1) ORDER BY k1";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
         System.out.println(explainStr);
@@ -1971,32 +1983,32 @@ public class QueryPlanTest extends TestWithFeService {
         String createDbStmtStr = "create database issue7971;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        createTable("CREATE TABLE issue7971.`t` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
-                "  `k3` smallint(6) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ")");
-        createTable("CREATE TABLE issue7971.`t1` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
-                "  `k21` smallint(6) NULL COMMENT \"\",\n" +
-                "  `k31` smallint(6) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ")");
+        createTable("CREATE TABLE issue7971.`t` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` smallint(6) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ")");
+        createTable("CREATE TABLE issue7971.`t1` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k21` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k31` smallint(6) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ")");
         String sql = "SELECT k1, k2, GROUPING(k1), GROUPING(k2), SUM(k3) FROM issue7971.t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k1), ( ) );";
         String explainStr = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(explainStr.contains("REPEAT_NODE"));
@@ -2015,8 +2027,8 @@ public class QueryPlanTest extends TestWithFeService {
         String iSql2 = "explain insert into test.tbl_using_b values(1,3,1),(3,1,1),(4,1,1),(5,2,1)";
         getSQLPlanOrErrorMsg(iSql1);
         getSQLPlanOrErrorMsg(iSql2);
-        String qSQL = "explain  select t1.* from test.tbl_using_a t1 join test.tbl_using_b t2 using(k1,k2) where t1.k1 " +
-                "between 1 and 3 and t2.k3 between 1+0 and 3+0";
+        String qSQL = "explain  select t1.* from test.tbl_using_a t1 join test.tbl_using_b t2 using(k1,k2) where t1.k1 "
+                + "between 1 and 3 and t2.k3 between 1+0 and 3+0";
         try {
             getSQLPlanOrErrorMsg(qSQL);
         } catch (AnalysisException e) {
@@ -2027,27 +2039,27 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testResultExprs() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        createTable("CREATE TABLE test.result_exprs (\n" +
-                "  `aid` int(11) NULL,\n" +
-                "  `bid` int(11) NULL\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`aid`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`aid`) BUCKETS 7\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"business_key_column_name\" = \"\",\n" +
-                "\"storage_medium\" = \"HDD\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");\n");
-        String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n" +
-                "SELECT a.aid,\n" +
-                "       b.bid\n" +
-                "FROM\n" +
-                "  (SELECT 3 AS aid)a\n" +
-                "RIGHT JOIN\n" +
-                "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
+        createTable("CREATE TABLE test.result_exprs (\n"
+                + "  `aid` int(11) NULL,\n"
+                + "  `bid` int(11) NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`aid`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`aid`) BUCKETS 7\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"business_key_column_name\" = \"\",\n"
+                + "\"storage_medium\" = \"HDD\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");\n");
+        String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n"
+                + "SELECT a.aid,\n"
+                + "       b.bid\n"
+                + "FROM\n"
+                + "  (SELECT 3 AS aid)a\n"
+                + "RIGHT JOIN\n"
+                + "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
         System.out.println(explainString);
@@ -2057,18 +2069,18 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testInsertIntoSelect() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        createTable("CREATE TABLE test.`decimal_tb` (\n" +
-                "  `k1` decimal(1, 0) NULL COMMENT \"\",\n" +
-                "  `v1` decimal(1, 0) SUM NULL COMMENT \"\",\n" +
-                "  `v2` decimal(1, 0) MAX NULL COMMENT \"\",\n" +
-                "  `v3` decimal(1, 0) MIN NULL COMMENT \"\",\n" +
-                "  `v4` decimal(1, 0) REPLACE NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`k1`)\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
-                ")");
+        createTable("CREATE TABLE test.`decimal_tb` (\n"
+                + "  `k1` decimal(1, 0) NULL COMMENT \"\",\n"
+                + "  `v1` decimal(1, 0) SUM NULL COMMENT \"\",\n"
+                + "  `v2` decimal(1, 0) MAX NULL COMMENT \"\",\n"
+                + "  `v3` decimal(1, 0) MIN NULL COMMENT \"\",\n"
+                + "  `v4` decimal(1, 0) REPLACE NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`)\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ")");
         String sql = "explain insert into test.decimal_tb select 1, 10, 1, 1, 1;";
         String explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
@@ -2077,21 +2089,21 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testOutJoinWithOnFalse() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        createTable("create table out_join_1\n" +
-                "(\n" +
-                "    k1 int,\n" +
-                "    v int\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
-                "PROPERTIES(\"replication_num\" = \"1\");");
+        createTable("create table out_join_1\n"
+                + "(\n"
+                + "    k1 int,\n"
+                + "    v int\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 10\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
 
-        createTable("create table out_join_2\n" +
-                "(\n" +
-                "    k1 int,\n" +
-                "    v int\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
-                "PROPERTIES(\"replication_num\" = \"1\");");
+        createTable("create table out_join_2\n"
+                + "(\n"
+                + "    k1 int,\n"
+                + "    v int\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 10\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
 
         String sql = "explain select * from out_join_1 left join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
         String explainString = getSQLPlanOrErrorMsg(sql);

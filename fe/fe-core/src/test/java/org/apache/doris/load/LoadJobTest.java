@@ -135,7 +135,7 @@ public class LoadJobTest {
     @Test
     public void testSerialization() throws Exception {
         // mock meta version
-        FakeCatalog fakeCatalog = new FakeCatalog();
+        FakeCatalog fakeCatalog = new FakeCatalog(); // CHECKSTYLE IGNORE THIS LINE
         FakeCatalog.setMetaVersion(FeConstants.meta_version);
 
         File file = new File("./loadJobTest" + System.currentTimeMillis());
@@ -202,10 +202,10 @@ public class LoadJobTest {
 
     @Test
     public void testEqual() throws Exception {
-        LoadJob job1 = getLoadJob();
-        LoadJob job2 = new LoadJob();
+        getLoadJob();
+        new LoadJob();
         Thread.sleep(10);
-        LoadJob job3 = getLoadJob();
+        getLoadJob();
     }
 
     @Test

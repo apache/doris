@@ -33,7 +33,6 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/rowset/rowset_writer.h"
 #include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/utils.h"
@@ -48,6 +47,8 @@ class TabletMeta;
 class CumulativeCompactionPolicy;
 class CumulativeCompaction;
 class BaseCompaction;
+class RowsetWriter;
+struct RowsetWriterContext;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
@@ -100,8 +101,8 @@ public:
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
     Status create_initial_rowset(const int64_t version);
-    void modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                        std::vector<RowsetSharedPtr>& to_delete);
+    Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
+                          std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
 
     // _rs_version_map and _stale_rs_version_map should be protected by _meta_lock
     // The caller must call hold _meta_lock when call this two function.
@@ -225,7 +226,8 @@ public:
     // Rowset whose version range is not covered by this tablet is also useful.
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
-    void build_tablet_report_info(TTabletInfo* tablet_info);
+    void build_tablet_report_info(TTabletInfo* tablet_info,
+                                  bool enable_consecutive_missing_check = false);
 
     void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
     // caller should hold the _meta_lock before calling this method
@@ -253,10 +255,14 @@ public:
         return _cumulative_compaction_policy;
     }
 
+    std::shared_ptr<MemTracker>& get_compaction_mem_tracker(CompactionType compaction_type);
+
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }
+
+    void find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const;
 
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                 const SegmentsOverlapPB& overlap,
@@ -277,8 +283,8 @@ private:
     // Returns:
     // version: the max continuous version from beginning
     // max_version: the max version of this tablet
-    void _max_continuous_version_from_beginning_unlocked(Version* version,
-                                                         Version* max_version) const;
+    void _max_continuous_version_from_beginning_unlocked(Version* version, Version* max_version,
+                                                         bool* has_version_cross) const;
     RowsetSharedPtr _rowset_with_largest_size();
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
@@ -352,6 +358,9 @@ private:
     std::shared_ptr<BaseCompaction> _base_compaction;
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
     std::atomic<bool> _is_clone_occurred;
+
+    int64_t _last_missed_version;
+    int64_t _last_missed_time_s;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

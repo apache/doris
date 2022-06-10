@@ -24,7 +24,6 @@
 #include <unordered_set>
 
 #include "olap/bloom_filter_predicate.h"
-#include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
@@ -225,6 +224,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.use_page_cache = read_params.use_page_cache;
     _reader_context.sequence_id_idx = _sequence_col_idx;
     _reader_context.batch_size = _batch_size;
+    _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
 
     *valid_rs_readers = *rs_readers;
 
@@ -262,8 +262,6 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     }
 
     _init_seek_columns();
-
-    _collect_iter.init(this);
 
     if (_tablet->tablet_schema().has_sequence_col()) {
         auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();

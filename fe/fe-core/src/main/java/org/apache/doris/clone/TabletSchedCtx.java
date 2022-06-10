@@ -695,8 +695,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // forever, because the replica in the DECOMMISSION state will not receive the load task.
             chosenReplica.setWatermarkTxnId(-1);
             chosenReplica.setState(ReplicaState.NORMAL);
-            LOG.info("choose replica {} on backend {} of tablet {} as dest replica for version incomplete," +
-                    " and change state from DECOMMISSION to NORMAL", chosenReplica.getId(), chosenReplica.getBackendId(), tabletId);
+            LOG.info("choose replica {} on backend {} of tablet {} as dest replica for version incomplete,"
+                    + " and change state from DECOMMISSION to NORMAL",
+                    chosenReplica.getId(), chosenReplica.getBackendId(), tabletId);
         }
         setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
     }
@@ -1074,7 +1075,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             failedSchedCounter = 0;
             if (originDynamicPriority != dynamicPriority) {
                 LOG.debug("downgrade dynamic priority from {} to {}, origin: {}, tablet: {}",
-                    originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
+                        originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
                 stat.counterTabletPrioDowngraded.incrementAndGet();
                 return true;
             }
@@ -1083,7 +1084,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // no need to set lastSchedTime, lastSchedTime is set each time we schedule this tablet
             if (originDynamicPriority != dynamicPriority) {
                 LOG.debug("upgrade dynamic priority from {} to {}, origin: {}, tablet: {}",
-                    originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
+                        originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
                 stat.counterTabletPrioUpgraded.incrementAndGet();
                 return true;
             }

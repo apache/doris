@@ -615,8 +615,8 @@ public class DistributedPlanner {
         //1 the left table has more than one partition or left table is not a stable colocate table
         if (leftScanNode.getSelectedPartitionIds().size() != 1) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
-            if (!leftTable.isColocateTable() ||
-                    colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId()))) {
+            if (!leftTable.isColocateTable()
+                    || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId()))) {
                 return false;
             }
         }
@@ -1108,7 +1108,7 @@ public class DistributedPlanner {
             DataPartition mergePartition =
                     partitionExprs == null ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
             // Convert the existing node to a preaggregation.
-            AggregationNode preaggNode = (AggregationNode)node.getChild(0);
+            AggregationNode preaggNode = (AggregationNode) node.getChild(0);
 
             preaggNode.setIsPreagg(ctx);
 

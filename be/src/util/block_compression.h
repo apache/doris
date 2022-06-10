@@ -30,6 +30,9 @@ namespace doris {
 // This class only used to compress a block data, which means all data
 // should given when call compress or decompress. This class don't handle
 // stream compression.
+//
+// NOTICE!! BlockCompressionCodec is NOT thread safe, it should NOT be shared by threads
+//
 class BlockCompressionCodec {
 public:
     virtual ~BlockCompressionCodec() {}
@@ -59,7 +62,9 @@ public:
 // Get a BlockCompressionCodec through type.
 // Return Status::OK if a valid codec is found. If codec is null, it means it is
 // NO_COMPRESSION. If codec is not null, user can use it to compress/decompress
-// data. And client doesn't have to release the codec.
+// data.
+//
+// NOTICE!! BlockCompressionCodec is NOT thread safe, it should NOT be shared by threads
 //
 // Return not OK, if error happens.
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,

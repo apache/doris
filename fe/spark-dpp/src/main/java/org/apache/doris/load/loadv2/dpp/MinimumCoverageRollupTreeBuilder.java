@@ -84,7 +84,7 @@ public class MinimumCoverageRollupTreeBuilder implements RollupTreeBuilder {
                     valueColumns.add(column.columnName);
                 }
             }
-            if(!insertIndex(root, indexMetas.get(i), keyColumns, valueColumns)) {
+            if (!insertIndex(root, indexMetas.get(i), keyColumns, valueColumns)) {
                 throw new RuntimeException(String.format("can't find a parent rollup for rollup %s, rollup tree is %s", indexMetas.get(i).toString(),
                         root.toString()));
             }
@@ -100,7 +100,7 @@ public class MinimumCoverageRollupTreeBuilder implements RollupTreeBuilder {
         // find suitable parent rollup from current node's children
         if (root.children != null) {
             for (int i = root.children.size() - 1; i >= 0; i--) {
-                if(insertIndex(root.children.get(i), indexMeta, keyColumns, valueColumns)){
+                if (insertIndex(root.children.get(i), indexMeta, keyColumns, valueColumns)) {
                     return true;
                 }
             }

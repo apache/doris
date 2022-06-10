@@ -423,7 +423,8 @@ public class SmallFileMgr implements Writable {
             outputStream.close();
 
             if (!checkMd5(file, smallFile.md5)) {
-                throw new DdlException("write file " + fileName +" failed. md5 is invalid. expected: " + smallFile.md5);
+                throw new DdlException("write file " + fileName
+                        + " failed. md5 is invalid. expected: " + smallFile.md5);
             }
         } catch (IOException e) {
             LOG.warn("failed to write file: {}", fileName, e);

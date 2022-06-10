@@ -248,21 +248,21 @@ public class FunctionCallExpr extends Expr {
         }
         int len = children.size();
         List<String> result = Lists.newArrayList();
-        if (fnName.getFunction().equalsIgnoreCase("json_array") ||
-                fnName.getFunction().equalsIgnoreCase("json_object")) {
+        if (fnName.getFunction().equalsIgnoreCase("json_array")
+                || fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
         }
-        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
-                fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
-                fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
-                fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
             len = len - 1;
         }
         for (int i = 0; i < len; ++i) {
-            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
-                    fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
-                    fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
-                    fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else {
                 result.add(children.get(i).toSql());
@@ -283,9 +283,9 @@ public class FunctionCallExpr extends Expr {
         StringBuilder sb = new StringBuilder();
         sb.append(((FunctionCallExpr) expr).fnName);
         sb.append(paramsToSql());
-        if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
-            fnName.getFunction().equalsIgnoreCase("json_array") ||
-            fnName.getFunction().equalsIgnoreCase("json_object")) {
+        if (fnName.getFunction().equalsIgnoreCase("json_quote")
+                || fnName.getFunction().equalsIgnoreCase("json_array")
+                || fnName.getFunction().equalsIgnoreCase("json_object")) {
             return forJSON(sb.toString());
         }
         return sb.toString();
@@ -303,21 +303,21 @@ public class FunctionCallExpr extends Expr {
         }
         int len = children.size();
         List<String> result = Lists.newArrayList();
-        if (fnName.getFunction().equalsIgnoreCase("json_array") ||
-                fnName.getFunction().equalsIgnoreCase("json_object")) {
+        if (fnName.getFunction().equalsIgnoreCase("json_array")
+                || fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
         }
-        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
-                fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
-                fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
-                fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
             len = len - 1;
         }
         for (int i = 0; i < len; ++i) {
-            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
-                    fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
-                    fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
-                    fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else {
                 result.add(children.get(i).toDigest());
@@ -338,9 +338,9 @@ public class FunctionCallExpr extends Expr {
         StringBuilder sb = new StringBuilder();
         sb.append(((FunctionCallExpr) expr).fnName);
         sb.append(paramsToDigest());
-        if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
-                fnName.getFunction().equalsIgnoreCase("json_array") ||
-                fnName.getFunction().equalsIgnoreCase("json_object")) {
+        if (fnName.getFunction().equalsIgnoreCase("json_quote")
+                || fnName.getFunction().equalsIgnoreCase("json_array")
+                || fnName.getFunction().equalsIgnoreCase("json_object")) {
             return forJSON(sb.toString());
         }
         return sb.toString();
@@ -560,8 +560,8 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT)) {
             if (children.size() <= 2) {
-                throw new AnalysisException("intersect_count(bitmap_column, column_to_filter, filter_values) " +
-                        "function requires at least three parameters");
+                throw new AnalysisException("intersect_count(bitmap_column, column_to_filter, filter_values) "
+                        + "function requires at least three parameters");
             }
 
             Type inputType = getChild(0).getType();
@@ -778,6 +778,23 @@ public class FunctionCallExpr extends Expr {
                 fnName, fnParams.isStar() ? "*" : Joiner.on(", ").join(argTypesSql));
     }
 
+    /**
+     * This analyzeImp used for DefaultValueExprDef
+     * to generate a builtinFunction.
+     * @throws AnalysisException
+     */
+    public void analyzeImplForDefaultValue() throws AnalysisException {
+        fn = getBuiltinFunction(null, fnName.getFunction(), new Type[0],
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        type = fn.getReturnType();
+        for (int i = 0; i < children.size(); ++i) {
+            if (getChild(i).getType().isNull()) {
+                uncheckedCastChild(Type.BOOLEAN, i);
+            }
+        }
+        return;
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (isMergeAggFn) {
@@ -868,7 +885,13 @@ public class FunctionCallExpr extends Expr {
                 }
                 childTypes[i] = children.get(i).type;
             }
-
+            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("if")) {
+            Type[] childTypes = collectChildReturnTypes();
+            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
+            childTypes[1] = assignmentCompatibleType;
+            childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {

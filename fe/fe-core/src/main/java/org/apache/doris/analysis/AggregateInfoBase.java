@@ -129,8 +129,8 @@ public abstract class AggregateInfoBase {
         int aggregateExprStartIndex = groupingExprs.size();
         // if agg is grouping set, so we should set all groupingExpr unless last groupingExpr
         // must set be be nullable
-        boolean isGroupingSet = !groupingExprs.isEmpty() &&
-                groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
+        boolean isGroupingSet = !groupingExprs.isEmpty()
+                && groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
 
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
@@ -150,7 +150,7 @@ public abstract class AggregateInfoBase {
                 }
             } else {
                 Preconditions.checkArgument(expr instanceof FunctionCallExpr);
-                FunctionCallExpr aggExpr = (FunctionCallExpr)expr;
+                FunctionCallExpr aggExpr = (FunctionCallExpr) expr;
                 if (aggExpr.isMergeAggFn()) {
                     slotDesc.setLabel(aggExpr.getChild(0).toSql());
                     slotDesc.setSourceExpr(aggExpr.getChild(0));
@@ -159,13 +159,13 @@ public abstract class AggregateInfoBase {
                     slotDesc.setSourceExpr(aggExpr);
                 }
 
-                if (isOutputTuple && aggExpr.getFn().getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT) &&
-                        groupingExprs.size() == 0) {
+                if (isOutputTuple && aggExpr.getFn().getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)
+                        && groupingExprs.size() == 0) {
                     slotDesc.setIsNullable(true);
                 }
 
                 if (!isOutputTuple) {
-                    Type intermediateType = ((AggregateFunction)aggExpr.fn).getIntermediateType();
+                    Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
                     if (intermediateType != null) {
                         // Use the output type as intermediate if the function has a wildcard decimal.
                         if (!intermediateType.isWildcardDecimal()) {
@@ -193,12 +193,30 @@ public abstract class AggregateInfoBase {
     public abstract void materializeRequiredSlots(Analyzer analyzer,
                                                   ExprSubstitutionMap smap);
 
-    public ArrayList<Expr> getGroupingExprs() { return groupingExprs; }
-    public ArrayList<FunctionCallExpr> getAggregateExprs() { return aggregateExprs; }
-    public TupleDescriptor getOutputTupleDesc() { return outputTupleDesc; }
-    public TupleDescriptor getIntermediateTupleDesc() { return intermediateTupleDesc; }
-    public TupleId getIntermediateTupleId() { return intermediateTupleDesc.getId(); }
-    public TupleId getOutputTupleId() { return outputTupleDesc.getId(); }
+    public ArrayList<Expr> getGroupingExprs() {
+        return groupingExprs;
+    }
+
+    public ArrayList<FunctionCallExpr> getAggregateExprs() {
+        return aggregateExprs;
+    }
+
+    public TupleDescriptor getOutputTupleDesc() {
+        return outputTupleDesc;
+    }
+
+    public TupleDescriptor getIntermediateTupleDesc() {
+        return intermediateTupleDesc;
+    }
+
+    public TupleId getIntermediateTupleId() {
+        return intermediateTupleDesc.getId();
+    }
+
+    public TupleId getOutputTupleId() {
+        return outputTupleDesc.getId();
+    }
+
     public boolean requiresIntermediateTuple() {
         Preconditions.checkNotNull(intermediateTupleDesc);
         Preconditions.checkNotNull(outputTupleDesc);
@@ -211,7 +229,7 @@ public abstract class AggregateInfoBase {
      * its output type.
      */
     public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs) {
-        for (Expr aggExpr: aggExprs) {
+        for (Expr aggExpr : aggExprs) {
             Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
             if (intermediateType != null) {
                 return true;
@@ -225,7 +243,7 @@ public abstract class AggregateInfoBase {
      * is depend on argument
      */
     public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs, boolean noGrouping) {
-        for (Expr aggExpr: aggExprs) {
+        for (Expr aggExpr : aggExprs) {
             Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
             if (intermediateType != null) {
                 return true;

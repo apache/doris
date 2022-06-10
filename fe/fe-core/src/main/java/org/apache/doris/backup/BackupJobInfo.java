@@ -521,7 +521,7 @@ public class BackupJobInfo implements Writable {
                         partitionInfo.indexes.put(olapTbl.getIndexNameById(index.getId()), idxInfo);
                         // tablets
                         if (content == BackupContent.METADATA_ONLY) {
-                            for (Tablet tablet: index.getTablets()) {
+                            for (Tablet tablet : index.getTablets()) {
                                 idxInfo.tablets.put(tablet.getId(), Lists.newArrayList());
                             }
                         } else {

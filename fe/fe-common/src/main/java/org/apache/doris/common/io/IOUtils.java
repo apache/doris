@@ -100,6 +100,7 @@ public class IOUtils {
                         try {
                             Thread.sleep(sleepTime);
                         } catch (InterruptedException ie) {
+                            // CHECKSTYLE IGNORE THIS LINE
                         }
                     }
                 }
@@ -250,6 +251,7 @@ public class IOUtils {
             try {
                 sock.close();
             } catch (IOException ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
         }
     }

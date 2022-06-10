@@ -62,8 +62,7 @@ public abstract class Predicate extends Expr {
      * This will pick up something like "col = 5", but not "2 * col = 10", which is
      * what we want.
      */
-    public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef,
-      Reference<Integer> idxRef) {
+    public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef, Reference<Integer> idxRef) {
         // find slotref
         SlotRef slotRef = null;
         int i = 0;

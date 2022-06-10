@@ -101,6 +101,8 @@ static TFileFormatType::type parse_format(const std::string& format_str,
         }
     } else if (iequal(format_str, "PARQUET")) {
         format_type = TFileFormatType::FORMAT_PARQUET;
+    } else if (iequal(format_str, "ORC")) {
+        format_type = TFileFormatType::FORMAT_ORC;
     }
     return format_type;
 }

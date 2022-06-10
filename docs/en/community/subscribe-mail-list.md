@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Subscribe to mailing lists",
+    "title": "Subscribe Mailing Lists",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Subscribe to mailing lists
+# Subscribe Mailing Lists
 
 Mail List is the most recognized form of communication in Apache community. Generally speaking, open source community questions and answers, technical discussions, transaction decisions are carried through mailing lists. The asynchronous and broadcasting features of mailing lists are also very suitable for communication in open source communities. So how do you subscribe to Apache Doris (incubating) mailing lists? It mainly includes the following five steps.
 

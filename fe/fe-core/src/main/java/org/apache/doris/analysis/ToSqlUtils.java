@@ -48,7 +48,7 @@ public class ToSqlUtils {
 
     public static List<String> getIdentSqlList(List<String> identList) {
         List<String> identSqlList = Lists.newArrayList();
-        for (String ident: identList) {
+        for (String ident : identList) {
             identSqlList.add(getIdentSql(ident));
         }
         return identSqlList;

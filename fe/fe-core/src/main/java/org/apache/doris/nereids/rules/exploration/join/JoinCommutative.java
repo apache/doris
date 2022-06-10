@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
  * rule factory for exchange inner join's children.
@@ -50,8 +50,10 @@ public class JoinCommutative extends OneExplorationRuleFactory {
 
     @Override
     public Rule<Plan> build() {
-        return innerLogicalJoin().then(join -> {
-            return new LogicalJoin(join.getJoinType().swap(), join.getOnClause(), join.right(), join.left());
-        }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
+        return innerLogicalJoin().then(join -> plan(
+            new LogicalJoin(join.operator.getJoinType().swap(), join.operator.getOnClause()),
+            join.right(),
+            join.left()
+        )).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 }

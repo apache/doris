@@ -30,6 +30,9 @@ import com.google.common.base.Preconditions;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Derive OlapScanNode Statistics.
+ */
 public class OlapScanStatsDerive extends BaseStatsDerive {
     // Currently, due to the structure of doris,
     // the selected materialized view is not determined when calculating the statistical information of scan,
@@ -45,12 +48,12 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
     public void init(PlanNode node) throws UserException {
         Preconditions.checkState(node instanceof OlapScanNode);
         super.init(node);
-        buildStructure((OlapScanNode)node);
+        buildStructure((OlapScanNode) node);
     }
 
     @Override
     public StatsDeriveResult deriveStats() {
-        /**
+        /*
          * Compute InAccurate cardinality before mv selector and tablet pruning.
          * - Accurate statistical information relies on the selector of materialized views and bucket reduction.
          * - However, Those both processes occur after the reorder algorithm is completed.
@@ -68,11 +71,18 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
         return new StatsDeriveResult(deriveRowCount(), slotIdToDataSize, slotIdToNdv);
     }
 
+    /**
+     * Desc: Build OlapScaNode infrastructure.
+     *
+     * @param: node
+     * @return: void
+     */
     public void buildStructure(OlapScanNode node) {
         slotIdToDataSize = new HashMap<>();
         slotIdToNdv = new HashMap<>();
+        slotIdToTableIdAndColumnName = new HashMap<>();
         if (node.getTupleDesc() != null
-            && node.getTupleDesc().getTable() != null) {
+                && node.getTupleDesc().getTable() != null) {
             long tableId = node.getTupleDesc().getTable().getId();
             inputRowCount = Catalog.getCurrentCatalog().getStatisticsManager()
                     .getStatistics().getTableStats(tableId).getRowCount();
@@ -90,6 +100,12 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
 
     //TODO:Implement the getStatistics interface
     //now there is nothing in statistics, need to wait for collection finished
+    /**
+     * Desc: Get ndv and dataSize from statistics.
+     *
+     * @param pair TableId and ColumnName
+     * @return {@link Pair}
+     */
     public Pair<Long, Float> getNdvAndDataSizeFromStatistics(Pair<Long, String> pair) {
         long ndv = -1;
         float dataSize = -1;

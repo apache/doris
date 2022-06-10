@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
 import org.apache.doris.nereids.trees.BinaryNode;
 
 import java.util.List;
@@ -25,10 +26,11 @@ import java.util.List;
  * interface for all plan that have two children.
  */
 public interface BinaryPlan<
-            PLAN_TYPE extends BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            PLAN_TYPE extends BinaryPlan<PLAN_TYPE, OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            OP_TYPE extends BinaryPlanOperator,
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends Plan<PLAN_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends Plan<PLAN_TYPE, OP_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     @Override
     List<Plan> children();

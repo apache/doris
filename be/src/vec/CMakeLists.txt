@@ -77,6 +77,7 @@ set(VEC_FILES
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   exec/vaggregation_node.cpp
+  exec/varrow_scanner.cpp
   exec/ves_http_scan_node.cpp
   exec/ves_http_scanner.cpp
   exec/volap_scan_node.cpp
@@ -103,6 +104,7 @@ set(VEC_FILES
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp
   exec/vparquet_scanner.cpp
+  exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
@@ -123,6 +125,7 @@ set(VEC_FILES
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
+  functions/array/function_array_size.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -188,9 +191,11 @@ set(VEC_FILES
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
+  sink/vresult_file_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
+  runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp)

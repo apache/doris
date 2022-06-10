@@ -419,7 +419,8 @@ public class InsertStmt extends DdlStmt {
             // hll column mush in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
                 if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
-                    throw new AnalysisException (" object-stored column " + col.getName() + " mush in insert into columns");
+                    throw new AnalysisException(" object-stored column " + col.getName()
+                            + " mush in insert into columns");
                 }
             }
         }
@@ -483,7 +484,7 @@ public class InsertStmt extends DdlStmt {
         }
 
         // Check if all columns mentioned is enough
-        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
+        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {
@@ -686,10 +687,15 @@ public class InsertStmt extends DdlStmt {
                      */
                     Preconditions.checkState(col.isAllowNull());
                     resultExprs.add(NullLiteral.create(col.getType()));
-                }
-                else {
-                    StringLiteral defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                    resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+
+                } else {
+                    if (col.getDefaultValueExprDef() != null) {
+                        resultExprs.add(col.getDefaultValueExpr());
+                    } else {
+                        StringLiteral defaultValueExpr;
+                        defaultValueExpr = new StringLiteral(col.getDefaultValue());
+                        resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                    }
                 }
             }
         }

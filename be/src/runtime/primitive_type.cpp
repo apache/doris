@@ -21,8 +21,169 @@
 
 #include "gen_cpp/Types_types.h"
 #include "runtime/collection_value.h"
+#include "runtime/string_value.h"
 
 namespace doris {
+
+PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
+    switch (type) {
+    case FunctionContext::Type::INVALID_TYPE:
+        return PrimitiveType::INVALID_TYPE;
+    case FunctionContext::Type::TYPE_DOUBLE:
+        return PrimitiveType::TYPE_DOUBLE;
+    case FunctionContext::Type::TYPE_NULL:
+        return PrimitiveType::TYPE_NULL;
+    case FunctionContext::Type::TYPE_CHAR:
+        return PrimitiveType::TYPE_CHAR;
+    case FunctionContext::Type::TYPE_VARCHAR:
+        return PrimitiveType::TYPE_VARCHAR;
+    case FunctionContext::Type::TYPE_STRING:
+        return PrimitiveType::TYPE_STRING;
+    case FunctionContext::Type::TYPE_DATETIME:
+        return PrimitiveType::TYPE_DATETIME;
+    case FunctionContext::Type::TYPE_DECIMALV2:
+        return PrimitiveType::TYPE_DECIMALV2;
+    case FunctionContext::Type::TYPE_BOOLEAN:
+        return PrimitiveType::TYPE_BOOLEAN;
+    case FunctionContext::Type::TYPE_ARRAY:
+        return PrimitiveType::TYPE_ARRAY;
+    case FunctionContext::Type::TYPE_OBJECT:
+        return PrimitiveType::TYPE_OBJECT;
+    case FunctionContext::Type::TYPE_HLL:
+        return PrimitiveType::TYPE_HLL;
+    case FunctionContext::Type::TYPE_QUANTILE_STATE:
+        return PrimitiveType::TYPE_QUANTILE_STATE;
+    case FunctionContext::Type::TYPE_TINYINT:
+        return PrimitiveType::TYPE_TINYINT;
+    case FunctionContext::Type::TYPE_SMALLINT:
+        return PrimitiveType::TYPE_SMALLINT;
+    case FunctionContext::Type::TYPE_INT:
+        return PrimitiveType::TYPE_INT;
+    case FunctionContext::Type::TYPE_BIGINT:
+        return PrimitiveType::TYPE_BIGINT;
+    case FunctionContext::Type::TYPE_LARGEINT:
+        return PrimitiveType::TYPE_LARGEINT;
+    case FunctionContext::Type::TYPE_DATE:
+        return PrimitiveType::TYPE_DATE;
+    default:
+        DCHECK(false);
+    }
+
+    return PrimitiveType::INVALID_TYPE;
+}
+
+bool is_enumeration_type(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+    case TYPE_NULL:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+    case TYPE_DATETIME:
+    case TYPE_DECIMALV2:
+    case TYPE_BOOLEAN:
+    case TYPE_ARRAY:
+    case TYPE_HLL:
+        return false;
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_LARGEINT:
+    case TYPE_DATE:
+        return true;
+
+    case INVALID_TYPE:
+    default:
+        DCHECK(false);
+    }
+
+    return false;
+}
+
+bool is_date_type(PrimitiveType type) {
+    return type == TYPE_DATETIME || type == TYPE_DATE;
+}
+
+bool is_string_type(PrimitiveType type) {
+    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
+}
+
+bool has_variable_type(PrimitiveType type) {
+    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT ||
+           type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
+}
+
+// Returns the byte size of 'type'  Returns 0 for variable length types.
+int get_byte_size(PrimitiveType type) {
+    switch (type) {
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+    case TYPE_OBJECT:
+    case TYPE_HLL:
+    case TYPE_QUANTILE_STATE:
+    case TYPE_ARRAY:
+    case TYPE_MAP:
+        return 0;
+
+    case TYPE_NULL:
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+        return 1;
+
+    case TYPE_SMALLINT:
+        return 2;
+
+    case TYPE_INT:
+    case TYPE_FLOAT:
+        return 4;
+
+    case TYPE_BIGINT:
+    case TYPE_DOUBLE:
+    case TYPE_TIME:
+        return 8;
+
+    case TYPE_DATETIME:
+    case TYPE_DATE:
+    case TYPE_LARGEINT:
+    case TYPE_DECIMALV2:
+        return 16;
+
+    case INVALID_TYPE:
+    default:
+        DCHECK(false);
+    }
+
+    return 0;
+}
+
+bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
+    if (lhs == TYPE_VARCHAR) {
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT ||
+               rhs == TYPE_QUANTILE_STATE || rhs == TYPE_STRING;
+    }
+
+    if (lhs == TYPE_OBJECT) {
+        return rhs == TYPE_VARCHAR || rhs == TYPE_OBJECT || rhs == TYPE_STRING;
+    }
+
+    if (lhs == TYPE_CHAR || lhs == TYPE_HLL) {
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_STRING;
+    }
+
+    if (lhs == TYPE_STRING) {
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT ||
+               rhs == TYPE_STRING;
+    }
+
+    if (lhs == TYPE_QUANTILE_STATE) {
+        return rhs == TYPE_VARCHAR || rhs == TYPE_QUANTILE_STATE || rhs == TYPE_STRING;
+    }
+
+    return lhs == rhs;
+}
+
 //to_tcolumn_type_thrift only test
 TColumnType to_tcolumn_type_thrift(TPrimitiveType::type ttype) {
     TColumnType t;
@@ -355,12 +516,12 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name)
 
 int get_slot_size(PrimitiveType type) {
     switch (type) {
-    case TYPE_OBJECT:
-    case TYPE_HLL:
-    case TYPE_QUANTILE_STATE:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
+    case TYPE_OBJECT:
+    case TYPE_HLL:
+    case TYPE_QUANTILE_STATE:
         return sizeof(StringValue);
     case TYPE_ARRAY:
         return sizeof(CollectionValue);
@@ -379,6 +540,7 @@ int get_slot_size(PrimitiveType type) {
 
     case TYPE_BIGINT:
     case TYPE_DOUBLE:
+    case TYPE_TIME:
         return 8;
 
     case TYPE_LARGEINT:
@@ -387,7 +549,7 @@ int get_slot_size(PrimitiveType type) {
     case TYPE_DATE:
     case TYPE_DATETIME:
         // This is the size of the slot, the actual size of the data is 12.
-        return 16;
+        return sizeof(DateTimeValue);
 
     case TYPE_DECIMALV2:
         return 16;

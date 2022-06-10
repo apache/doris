@@ -19,8 +19,8 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.ha.BDBStateChangeListener;
 import org.apache.doris.ha.BDBHA;
+import org.apache.doris.ha.BDBStateChangeListener;
 import org.apache.doris.ha.HAProtocol;
 
 import com.sleepycat.je.Database;
@@ -386,7 +386,7 @@ public class BDBEnvironment {
         }
     }
 
-        // Close environment
+    // Close environment
     public void closeReplicatedEnvironment() {
         if (replicatedEnvironment != null) {
             try {
@@ -398,7 +398,8 @@ public class BDBEnvironment {
             }
         }
     }
-        // open environment
+
+    // open environment
     public void openReplicatedEnvironment(File envHome) {
         for (int i = 0; i < RETRY_TIME; i++) {
             try {

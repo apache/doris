@@ -27,11 +27,11 @@
 
 #include "common/object_pool.h"
 #include "exec/broker_scan_node.h"
-#include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
 #include "exprs/decimalv2_operators.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/local_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"

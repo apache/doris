@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -82,16 +83,31 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId;
 
-    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
-        super(id, tupleId.asList(), planNodeName);
-        setOpResultExprs = Lists.newArrayList();
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        this.setOpResultExprs = Lists.newArrayList();
         this.tupleId = tupleId;
-        isInSubplan = false;
+        this.isInSubplan = false;
+    }
+
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
+                               List<Expr> setOpResultExprs, boolean isInSubplan, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        this.setOpResultExprs = setOpResultExprs;
+        this.tupleId = tupleId;
+        this.isInSubplan = isInSubplan;
+    }
+
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        this.setOpResultExprs = Lists.newArrayList();
+        this.tupleId = tupleId;
+        this.isInSubplan = false;
     }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
                                List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId.asList(), planNodeName);
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
         this.setOpResultExprs = setOpResultExprs;
         this.tupleId = tupleId;
         this.isInSubplan = isInSubplan;
@@ -181,7 +197,7 @@ public abstract class SetOperationNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
@@ -224,8 +240,8 @@ public abstract class SetOperationNode extends PlanNode {
         List<TupleId> childTupleIds = childNode.getTupleIds();
         // Check that if the child outputs a single tuple, then it's not nullable. Tuple
         // nullability can be considered to be part of the physical row layout.
-        Preconditions.checkState(childTupleIds.size() != 1 ||
-                !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
+        Preconditions.checkState(childTupleIds.size() != 1
+                || !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
         // If the Union node is inside a subplan, passthrough should be disabled to avoid
         // performance issues by forcing tiny batches.
         // TODO: Remove this as part of IMPALA-4179.
@@ -267,8 +283,14 @@ public abstract class SetOperationNode extends PlanNode {
             if (childSlotRef == null) {
                 return false;
             }
-            if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
-                return false;
+            if (VectorizedUtil.isVectorized()) {
+                if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                    return false;
+                }
+            } else {
+                if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
+                    return false;
+                }
             }
         }
         return true;
@@ -314,14 +336,14 @@ public abstract class SetOperationNode extends PlanNode {
      * been evaluated during registration to set analyzer.hasEmptyResultSet_.
      */
     @Override
-    public void init(Analyzer analyzer) {
+    public void init(Analyzer analyzer) throws UserException {
         Preconditions.checkState(conjuncts.isEmpty());
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
     }
 
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {
-        Preconditions.checkState( materializedResultExprLists.size() == children.size());
+        Preconditions.checkState(materializedResultExprLists.size() == children.size());
         List<List<TExpr>> texprLists = Lists.newArrayList();
         for (List<Expr> exprList : materializedResultExprLists) {
             texprLists.add(Expr.treesToThrift(exprList));
@@ -375,7 +397,7 @@ public abstract class SetOperationNode extends PlanNode {
         if (detailLevel == TExplainLevel.VERBOSE) {
             if (CollectionUtils.isNotEmpty(materializedResultExprLists)) {
                 output.append(prefix).append("child exprs: ").append("\n");
-                for(List<Expr> exprs : materializedResultExprLists) {
+                for (List<Expr> exprs : materializedResultExprLists) {
                     output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
                             .collect(Collectors.joining(" | "))).append("\n");
                 }

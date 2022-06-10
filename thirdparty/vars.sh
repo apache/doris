@@ -152,6 +152,18 @@ RE2_NAME=re2-2021-02-02.tar.gz
 RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
 
+# hyperscan
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.0
+HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+
+# ragel (dependency for hyperscan)
+RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"
+RAGEL_NAME=ragel-6.10.tar.gz
+RAGEL_SOURCE=ragel-6.10
+RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
+
 # boost
 BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
 BOOST_NAME=boost_1_73_0.tar.gz
@@ -365,14 +377,6 @@ BENCHMARK_NAME=benchmark-1.5.6.tar.gz
 BENCHMARK_SOURCE=benchmark-1.5.6
 BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
 
-# breakpad
-# breakpad has no release version, the source is from commit@38ee0be,
-# and also add lss files. See README.md in it.
-BREAKPAD_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/breakpad-src-38ee0be-with-lss.tar.gz"
-BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
-BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
-BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
-
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
 XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz"
@@ -409,6 +413,8 @@ BZIP
 LZO2
 CURL
 RE2
+HYPERSCAN
+RAGEL
 BOOST
 MYSQL
 ODBC
@@ -444,7 +450,6 @@ HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
-BREAKPAD
 XSIMD
 SIMDJSON
 LIBBACKTRACE"

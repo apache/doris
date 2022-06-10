@@ -26,7 +26,7 @@ namespace doris {
 class ColumnPB;
 class MemPool;
 class Status;
-struct CollectionValue;
+class CollectionValue;
 
 class ArrayUtils {
 public:

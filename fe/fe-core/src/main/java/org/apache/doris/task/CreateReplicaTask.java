@@ -25,6 +25,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
@@ -54,6 +55,7 @@ public class CreateReplicaTask extends AgentTask {
     private KeysType keysType;
     private TStorageType storageType;
     private TStorageMedium storageMedium;
+    private TCompressionType compressionType;
 
     private List<Column> columns;
 
@@ -93,7 +95,7 @@ public class CreateReplicaTask extends AgentTask {
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
                              List<Index> indexes,
                              boolean isInMemory,
-                             TTabletType tabletType) {
+                             TTabletType tabletType, TCompressionType compressionType) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -104,6 +106,7 @@ public class CreateReplicaTask extends AgentTask {
         this.keysType = keysType;
         this.storageType = storageType;
         this.storageMedium = storageMedium;
+        this.compressionType = compressionType;
 
         this.columns = columns;
 
@@ -125,7 +128,8 @@ public class CreateReplicaTask extends AgentTask {
                              List<Index> indexes,
                              boolean isInMemory,
                              TTabletType tabletType,
-                             DataSortInfo dataSortInfo) {
+                             DataSortInfo dataSortInfo,
+                             TCompressionType compressionType) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -136,6 +140,7 @@ public class CreateReplicaTask extends AgentTask {
         this.keysType = keysType;
         this.storageType = storageType;
         this.storageMedium = storageMedium;
+        this.compressionType = compressionType;
 
         this.columns = columns;
 
@@ -217,7 +222,7 @@ public class CreateReplicaTask extends AgentTask {
             }
             // when doing schema change, some modified column has a prefix in name.
             // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-            if(column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
                 tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
             }
             tColumn.setVisible(column.isVisible());
@@ -267,6 +272,7 @@ public class CreateReplicaTask extends AgentTask {
         }
 
         createTabletReq.setTabletType(tabletType);
+        createTabletReq.setCompressionType(compressionType);
         return createTabletReq;
     }
 }

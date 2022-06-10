@@ -366,17 +366,17 @@ BigIntVal BitmapFunctions::bitmap_min(FunctionContext* ctx, const StringVal& src
 
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
                                      const doris_udf::StringVal& src) {
-    if (src.is_null) {
-        return StringVal::null();
-    }
-    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-    uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
-            reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
-    if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-        return StringVal::null();
-    }
     BitmapValue bitmap;
-    bitmap.add(int_value);
+
+    if (!src.is_null) {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+        if (parse_result == StringParser::PARSE_SUCCESS) {
+            bitmap.add(int_value);
+        }
+    }
+
     return serialize(ctx, &bitmap);
 }
 
@@ -393,7 +393,8 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
-        return src;
+        // bitmap functions should never return nullable value
+        return serialize(ctx, nullptr);
     }
 
     auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);

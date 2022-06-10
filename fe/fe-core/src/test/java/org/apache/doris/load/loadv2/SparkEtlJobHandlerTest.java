@@ -70,50 +70,50 @@ public class SparkEtlJobHandlerTest {
     private String remoteArchivePath;
     private SparkRepository.SparkArchive archive;
 
-    private final String runningReport = "Application Report :\n" +
-            "Application-Id : application_15888888888_0088\n" +
-            "Application-Name : label0\n" +
-            "Application-Type : SPARK-2.4.1\n" +
-            "User : test\n" +
-            "Queue : test-queue\n" +
-            "Start-Time : 1597654469958\n" +
-            "Finish-Time : 0\n" +
-            "Progress : 50%\n" +
-            "State : RUNNING\n" +
-            "Final-State : UNDEFINED\n" +
-            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
-            "RPC Port : 40236\n" +
-            "AM Host : host-name";
+    private final String runningReport = "Application Report :\n"
+            + "Application-Id : application_15888888888_0088\n"
+            + "Application-Name : label0\n"
+            + "Application-Type : SPARK-2.4.1\n"
+            + "User : test\n"
+            + "Queue : test-queue\n"
+            + "Start-Time : 1597654469958\n"
+            + "Finish-Time : 0\n"
+            + "Progress : 50%\n"
+            + "State : RUNNING\n"
+            + "Final-State : UNDEFINED\n"
+            + "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n"
+            + "RPC Port : 40236\n"
+            + "AM Host : host-name";
 
-    private final String failedReport = "Application Report :\n" +
-            "Application-Id : application_15888888888_0088\n" +
-            "Application-Name : label0\n" +
-            "Application-Type : SPARK-2.4.1\n" +
-            "User : test\n" +
-            "Queue : test-queue\n" +
-            "Start-Time : 1597654469958\n" +
-            "Finish-Time : 1597654801939\n" +
-            "Progress : 100%\n" +
-            "State : FINISHED\n" +
-            "Final-State : FAILED\n" +
-            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
-            "RPC Port : 40236\n" +
-            "AM Host : host-name";
+    private final String failedReport = "Application Report :\n"
+            + "Application-Id : application_15888888888_0088\n"
+            + "Application-Name : label0\n"
+            + "Application-Type : SPARK-2.4.1\n"
+            + "User : test\n"
+            + "Queue : test-queue\n"
+            + "Start-Time : 1597654469958\n"
+            + "Finish-Time : 1597654801939\n"
+            + "Progress : 100%\n"
+            + "State : FINISHED\n"
+            + "Final-State : FAILED\n"
+            + "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n"
+            + "RPC Port : 40236\n"
+            + "AM Host : host-name";
 
-    private final String finishReport = "Application Report :\n" +
-            "Application-Id : application_15888888888_0088\n" +
-            "Application-Name : label0\n" +
-            "Application-Type : SPARK-2.4.1\n" +
-            "User : test\n" +
-            "Queue : test-queue\n" +
-            "Start-Time : 1597654469958\n" +
-            "Finish-Time : 1597654801939\n" +
-            "Progress : 100%\n" +
-            "State : FINISHED\n" +
-            "Final-State : SUCCEEDED\n" +
-            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
-            "RPC Port : 40236\n" +
-            "AM Host : host-name";
+    private final String finishReport = "Application Report :\n"
+            + "Application-Id : application_15888888888_0088\n"
+            + "Application-Name : label0\n"
+            + "Application-Type : SPARK-2.4.1\n"
+            + "User : test\n"
+            + "Queue : test-queue\n"
+            + "Start-Time : 1597654469958\n"
+            + "Finish-Time : 1597654801939\n"
+            + "Progress : 100%\n"
+            + "State : FINISHED\n"
+            + "Final-State : SUCCEEDED\n"
+            + "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n"
+            + "RPC Port : 40236\n"
+            + "AM Host : host-name";
 
 
     @Before
@@ -137,8 +137,11 @@ public class SparkEtlJobHandlerTest {
     }
 
     @Test
-    public void testSubmitEtlJob(@Mocked BrokerUtil brokerUtil, @Mocked SparkLauncher launcher, @Injectable Process process,
-                                 @Mocked SparkLoadAppHandle handle ) throws IOException, LoadException {
+    public void testSubmitEtlJob(
+            @Mocked BrokerUtil brokerUtil,
+            @Mocked SparkLauncher launcher,
+            @Injectable Process process,
+            @Mocked SparkLoadAppHandle handle) throws IOException, LoadException {
         new Expectations() {
             {
                 launcher.launch();

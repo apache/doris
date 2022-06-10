@@ -67,8 +67,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * This class is deprecated.
- * If you want to start a FE server in unit test, please let your test
+ * @deprecated If you want to start a FE server in unit test, please let your test
  * class extend {@link TestWithFeService}.
  */
 @Deprecated
@@ -241,6 +240,7 @@ public class UtFrameUtils {
         try {
             FileUtils.deleteDirectory(new File(baseDir));
         } catch (IOException e) {
+            // ignore
         }
     }
 
@@ -312,5 +312,11 @@ public class UtFrameUtils {
         QueryStmt queryStmt = (QueryStmt) statementBase;
         String digest = queryStmt.toDigest();
         return DigestUtils.md5Hex(digest);
+    }
+
+    public static boolean checkPlanResultContainsNode(String planResult, int idx, String nodeName) {
+        String realNodeName = idx + ":" + nodeName;
+        String realVNodeName = idx + ":V" + nodeName;
+        return planResult.contains(realNodeName) || planResult.contains(realVNodeName);
     }
 }

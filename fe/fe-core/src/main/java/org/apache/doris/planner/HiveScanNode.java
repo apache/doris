@@ -115,7 +115,7 @@ public class HiveScanNode extends BrokerScanNode {
 
         HiveTable hiveTable = (HiveTable) desc.getTable();
         fileGroups = Lists.newArrayList(
-                new BrokerFileGroup(hiveTable,
+                new BrokerFileGroup(hiveTable.getId(),
                         getColumnSeparator(),
                         getLineDelimiter(),
                         getPath(),
@@ -131,10 +131,10 @@ public class HiveScanNode extends BrokerScanNode {
         this.fileFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(remoteHiveTable.getSd().getInputFormat());
 
         Map<String, String> serDeInfoParams = remoteHiveTable.getSd().getSerdeInfo().getParameters();
-        this.columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim")) ?
-                HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
-        this.lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim")) ?
-                HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
+        this.columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
+                ? HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
+        this.lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim"))
+                ? HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
         this.path = remoteHiveTable.getSd().getLocation();
         for (FieldSchema fieldSchema : remoteHiveTable.getPartitionKeys()) {
             this.partitionKeys.add(fieldSchema.getName());

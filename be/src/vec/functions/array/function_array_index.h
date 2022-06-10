@@ -22,8 +22,8 @@
 #include <string_view>
 
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 

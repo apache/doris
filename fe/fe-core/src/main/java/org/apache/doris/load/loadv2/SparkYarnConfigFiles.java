@@ -232,7 +232,7 @@ public class SparkYarnConfigFiles {
         private Node appendNode(Node parent, String tag, String content) {
             Element child = null;
             if (parent instanceof  Document) {
-                child = ((Document)parent).createElement(tag);
+                child = ((Document) parent).createElement(tag);
             } else {
                 child = parent.getOwnerDocument().createElement(tag);
             }

@@ -613,6 +613,15 @@ void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t
     }
 }
 
+Block Block::copy_block(const std::vector<int>& column_offset) const {
+    ColumnsWithTypeAndName columns_with_type_and_name;
+    for (auto offset : column_offset) {
+        DCHECK(offset < data.size());
+        columns_with_type_and_name.emplace_back(data[offset]);
+    }
+    return columns_with_type_and_name;
+}
+
 Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
     ColumnPtr filter_column = block->get_by_position(filter_column_id).column;
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
@@ -669,7 +678,16 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
-    allocated_buf->resize(content_uncompressed_size);
+    try {
+        allocated_buf->resize(content_uncompressed_size);
+    } catch (...) {
+        std::exception_ptr p = std::current_exception();
+        std::string msg = fmt::format("Try to alloc {} bytes for allocated_buf failed. reason {}",
+                                      content_uncompressed_size,
+                                      p ? p.__cxa_exception_type()->name() : "null");
+        LOG(WARNING) << msg;
+        return Status::BufferAllocFailed(msg);
+    }
     char* buf = allocated_buf->data();
     for (const auto& c : *this) {
         buf = c.type->serialize(*(c.column), buf);
@@ -678,12 +696,21 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
     // compress
     if (config::compress_rowbatches && content_uncompressed_size > 0) {
-        // Try compressing the content to compression_scratch,
-        // swap if compressed data is smaller
+        size_t max_compressed_size = snappy::MaxCompressedLength(content_uncompressed_size);
         std::string compression_scratch;
-        uint32_t max_compressed_size = snappy::MaxCompressedLength(content_uncompressed_size);
-        compression_scratch.resize(max_compressed_size);
-
+        try {
+            // Try compressing the content to compression_scratch,
+            // swap if compressed data is smaller
+            // Allocation of extra-long contiguous memory may fail, and data compression cannot be used if it fails
+            compression_scratch.resize(max_compressed_size);
+        } catch (...) {
+            std::exception_ptr p = std::current_exception();
+            std::string msg =
+                    fmt::format("Try to alloc {} bytes for compression scratch failed. reason {}",
+                                max_compressed_size, p ? p.__cxa_exception_type()->name() : "null");
+            LOG(WARNING) << msg;
+            return Status::BufferAllocFailed(msg);
+        }
         size_t compressed_size = 0;
         char* compressed_output = compression_scratch.data();
         snappy::RawCompress(allocated_buf->data(), content_uncompressed_size, compressed_output,
@@ -701,7 +728,10 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     }
-
+    if (*compressed_bytes >= std::numeric_limits<int32_t>::max()) {
+        return Status::InternalError(fmt::format(
+                "The block is large than 2GB({}), can not send by Protobuf.", *compressed_bytes));
+    }
     return Status::OK();
 }
 
@@ -782,20 +812,38 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
         }
         auto item_column = array_column->get_data_ptr().get();
         auto offset = array_column->get_offsets()[row - 1];
+        auto iterator = collection_value->iterator(item_type_desc.type);
         for (int i = 0; i < collection_value->length(); ++i) {
-            char* item_dst = reinterpret_cast<char*>(collection_value->mutable_data()) +
-                             i * item_type_desc.get_slot_size();
             if (array[i].is_null()) {
                 const auto& null_value = doris_udf::AnyVal(true);
-                collection_value->set(i, item_type_desc.type, &null_value);
+                iterator.set(&null_value);
             } else {
                 auto item_offset = offset + i;
                 const auto& data_ref = item_type_desc.type != TYPE_ARRAY
                                                ? item_column->get_data_at(item_offset)
                                                : StringRef();
-                deep_copy_slot(item_dst, pool, item_type_desc, data_ref, item_column, item_offset,
-                               padding_char);
+                if (item_type_desc.is_date_type()) {
+                    // In CollectionValue, date type data is stored as either uint24_t or uint64_t.
+                    DateTimeValue datetime_value;
+                    deep_copy_slot(&datetime_value, pool, item_type_desc, data_ref, item_column,
+                                   item_offset, padding_char);
+                    DateTimeVal datetime_val;
+                    datetime_value.to_datetime_val(&datetime_val);
+                    iterator.set(&datetime_val);
+                } else if (item_type_desc.is_decimal_type()) {
+                    // In CollectionValue, decimal type data is stored as decimal12_t.
+                    DecimalV2Value decimal_value;
+                    deep_copy_slot(&decimal_value, pool, item_type_desc, data_ref, item_column,
+                                   item_offset, padding_char);
+                    DecimalV2Val decimal_val;
+                    decimal_value.to_decimal_val(&decimal_val);
+                    iterator.set(&decimal_val);
+                } else {
+                    deep_copy_slot(iterator.get(), pool, item_type_desc, data_ref, item_column,
+                                   item_offset, padding_char);
+                }
             }
+            iterator.next();
         }
     } else if (type_desc.is_date_type()) {
         VecDateTimeValue ts =
@@ -858,6 +906,17 @@ size_t MutableBlock::rows() const {
     }
 
     return 0;
+}
+
+void MutableBlock::swap(MutableBlock& another) noexcept {
+    _columns.swap(another._columns);
+    _data_types.swap(another._data_types);
+}
+
+void MutableBlock::swap(MutableBlock&& another) noexcept {
+    clear();
+    _columns = std::move(another._columns);
+    _data_types = std::move(another._data_types);
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
@@ -985,6 +1044,14 @@ size_t MutableBlock::allocated_bytes() const {
     }
 
     return res;
+}
+
+void MutableBlock::clear_column_data() noexcept {
+    for (auto& col : _columns) {
+        if (col) {
+            col->clear();
+        }
+    }
 }
 
 } // namespace doris::vectorized

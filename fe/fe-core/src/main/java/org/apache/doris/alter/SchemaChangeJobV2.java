@@ -253,7 +253,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     originKeysType, TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
                                     tbl.isInMemory(),
-                                    tbl.getPartitionInfo().getTabletType(partitionId));
+                                    tbl.getPartitionInfo().getTabletType(partitionId),
+                                    tbl.getCompressionType());
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
@@ -273,7 +274,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);
             long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum,
-                Config.max_create_table_timeout_second * 1000L);
+                    Config.max_create_table_timeout_second * 1000L);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);

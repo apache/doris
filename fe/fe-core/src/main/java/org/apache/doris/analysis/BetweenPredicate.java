@@ -49,13 +49,6 @@ public class BetweenPredicate extends Predicate {
         isNotBetween = other.isNotBetween;
     }
 
-//    @Override
-//    public Expr reset() {
-//      super.reset();
-//      originalChildren = Expr.resetList(originalChildren);
-//      return this;
-//    }
-
     @Override
     public Expr clone() {
         return new BetweenPredicate(this);
@@ -68,10 +61,10 @@ public class BetweenPredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        if (children.get(0) instanceof Subquery &&
-                (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
-            throw new AnalysisException("Comparison between subqueries is not " +
-                    "supported in a BETWEEN predicate: " + toSql());
+        if (children.get(0) instanceof Subquery
+                && (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
+            throw new AnalysisException("Comparison between subqueries is not "
+                    + "supported in a BETWEEN predicate: " + toSql());
         }
         // if children has subquery, it will be written and reanalyzed in the future.
         if (children.get(0) instanceof Subquery
@@ -82,10 +75,10 @@ public class BetweenPredicate extends Predicate {
         analyzer.castAllToCompatibleType(children);
     }
 
-   @Override
-   public boolean isVectorized() {
-       return false;
-   }
+    @Override
+    public boolean isVectorized() {
+        return false;
+    }
 
     @Override
     protected void toThrift(TExprNode msg) {
@@ -96,19 +89,21 @@ public class BetweenPredicate extends Predicate {
     @Override
     public String toSqlImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
-        return children.get(0).toSql() + " " + notStr + "BETWEEN " +
-                children.get(1).toSql() + " AND " + children.get(2).toSql();
+        return children.get(0).toSql() + " " + notStr + "BETWEEN "
+                + children.get(1).toSql() + " AND " + children.get(2).toSql();
     }
 
     @Override
     public String toDigestImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
-        return children.get(0).toDigest() + " " + notStr + "BETWEEN " +
-                children.get(1).toDigest() + " AND " + children.get(2).toDigest();
+        return children.get(0).toDigest() + " " + notStr + "BETWEEN "
+                + children.get(1).toDigest() + " AND " + children.get(2).toDigest();
     }
 
     @Override
-    public Expr clone(ExprSubstitutionMap sMap) { return new BetweenPredicate(this); }
+    public Expr clone(ExprSubstitutionMap sMap) {
+        return new BetweenPredicate(this);
+    }
 
     @Override
     public boolean equals(Object o) {

@@ -145,7 +145,7 @@ public class S3ResourceTest {
     }
 
     @Test
-    public void testSerialization() throws Exception{
+    public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();

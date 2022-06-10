@@ -22,11 +22,13 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
+    arrow/arrow_reader.cpp
+    arrow/orc_reader.cpp
+    arrow/parquet_reader.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
-    broker_reader.cpp
-    buffered_reader.cpp
+        ../io/buffered_reader.cpp
     base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
@@ -39,9 +41,7 @@ set(EXEC_FILES
     exchange_node.cpp
     hash_join_node.cpp
     hash_table.cpp
-    local_file_reader.cpp
     merge_node.cpp
-    merge_join_node.cpp
     scan_node.cpp
     select_node.cpp
     text_converter.cpp
@@ -91,25 +91,28 @@ set(EXEC_FILES
     partitioned_hash_table.cc
     partitioned_aggregation_node.cc
     odbc_scan_node.cpp
-    local_file_writer.cpp
-    broker_writer.cpp
     parquet_scanner.cpp
-    parquet_reader.cpp
     parquet_writer.cpp
     orc_scanner.cpp
     odbc_connector.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp
-    s3_reader.cpp
-    s3_writer.cpp
-    hdfs_reader_writer.cpp
+
+        ../io/local_file_reader.cpp
+        ../io/local_file_writer.cpp
+        ../io/broker_reader.cpp
+        ../io/broker_writer.cpp
+        ../io/s3_reader.cpp
+        ../io/s3_writer.cpp
+        ../io/hdfs_reader_writer.cpp
+        ../io/file_factory.cpp
 )
 
 if (ARCH_AMD64)
     set(EXEC_FILES
         ${EXEC_FILES}
-        hdfs_file_reader.cpp
-        hdfs_writer.cpp
+            ../io/hdfs_file_reader.cpp
+            ../io/hdfs_writer.cpp
         )
 endif()
 

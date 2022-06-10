@@ -25,7 +25,6 @@
 #include <string>
 #include <vector>
 
-#include "exprs/anyval_util.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/field.h"
@@ -36,9 +35,11 @@
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
+#include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 #include "testutil/array_utils.h"
 #include "testutil/desc_tbl_builder.h"
@@ -78,16 +79,40 @@ std::unique_ptr<Field> create_field(const ColumnPB& column_pb) {
 
 TypeDescriptor get_scalar_type_desc(const TypeInfo* type_info) {
     switch (type_info->type()) {
+    case OLAP_FIELD_TYPE_BOOL:
+        return TypeDescriptor(TYPE_BOOLEAN);
+    case OLAP_FIELD_TYPE_TINYINT:
+        return TypeDescriptor(TYPE_TINYINT);
+    case OLAP_FIELD_TYPE_SMALLINT:
+        return TypeDescriptor(TYPE_SMALLINT);
     case OLAP_FIELD_TYPE_INT:
         return TypeDescriptor(TYPE_INT);
+    case OLAP_FIELD_TYPE_BIGINT:
+        return TypeDescriptor(TYPE_BIGINT);
+    case OLAP_FIELD_TYPE_LARGEINT:
+        return TypeDescriptor(TYPE_LARGEINT);
+    case OLAP_FIELD_TYPE_FLOAT:
+        return TypeDescriptor(TYPE_FLOAT);
+    case OLAP_FIELD_TYPE_DOUBLE:
+        return TypeDescriptor(TYPE_DOUBLE);
+    case OLAP_FIELD_TYPE_CHAR:
+        return TypeDescriptor::create_char_type(TypeDescriptor::MAX_CHAR_LENGTH);
     case OLAP_FIELD_TYPE_VARCHAR:
         return TypeDescriptor::create_varchar_type(TypeDescriptor::MAX_VARCHAR_LENGTH);
+    case OLAP_FIELD_TYPE_STRING:
+        return TypeDescriptor::create_string_type();
+    case OLAP_FIELD_TYPE_DATE:
+        return TypeDescriptor(TYPE_DATE);
+    case OLAP_FIELD_TYPE_DATETIME:
+        return TypeDescriptor(TYPE_DATETIME);
+    case OLAP_FIELD_TYPE_DECIMAL:
+        return TypeDescriptor(TYPE_DECIMALV2);
     default:
-        return TypeDescriptor();
+        DCHECK(false) << "Failed to get the scalar type descriptor.";
     }
 }
 
-TupleDescriptor* get_tuple_descriptor(ObjectPool& object_pool, const TypeInfo* type_info) {
+const TupleDescriptor* get_tuple_descriptor(ObjectPool& object_pool, const TypeInfo* type_info) {
     DescriptorTblBuilder builder(&object_pool);
     auto& tuple_desc_builder = builder.declare_tuple();
     if (type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
@@ -127,6 +152,28 @@ public:
             : _mem_tracker(new MemTracker(MAX_MEMORY_BYTES, "ArrayTest")),
               _mem_pool(new MemPool(_mem_tracker.get())) {}
 
+    template <segment_v2::EncodingTypePB array_encoding, segment_v2::EncodingTypePB item_encoding>
+    void test(const ColumnPB& column_pb, const std::vector<std::string>& literal_arrays) {
+        auto field = create_field(column_pb);
+        const auto* type_info = field->type_info();
+        const auto* tuple_desc = get_tuple_descriptor(_object_pool, type_info);
+        EXPECT_EQ(tuple_desc->slots().size(), 1);
+
+        FunctionContext context;
+        ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
+
+        std::vector<const CollectionValue*> arrays;
+        for (const auto& literal_array : literal_arrays) {
+            arrays.push_back(parse(*_mem_pool, context, literal_array, column_pb));
+        }
+
+        for (auto array : arrays) {
+            test_array<array_encoding, item_encoding>(column_pb, field.get(), tuple_desc, array);
+        }
+        test_direct_copy_array(field.get(), arrays);
+        test_write_and_read_column<array_encoding, item_encoding>(column_pb, field.get(), arrays);
+    }
+
 protected:
     void SetUp() override {
         if (FileUtils::check_exist(TEST_DIR)) {
@@ -145,8 +192,8 @@ private:
     void test_copy_array(const TupleDescriptor* tuple_desc, const Field* field,
                          const CollectionValue* array) {
         auto slot_desc = tuple_desc->slots().front();
-        auto type_desc = slot_desc->type();
-        auto total_size = tuple_desc->byte_size() + array->get_byte_size(type_desc);
+        const auto& item_type_desc = slot_desc->type().children[0];
+        auto total_size = tuple_desc->byte_size() + array->get_byte_size(item_type_desc);
 
         auto src = allocate_tuple(total_size);
         EXPECT_NE(src, nullptr);
@@ -169,7 +216,8 @@ private:
         EXPECT_EQ(total_size, offset);
         EXPECT_EQ(total_size, serialized_data - reinterpret_cast<char*>(dst));
         dst_cv = reinterpret_cast<CollectionValue*>(dst->get_slot(slot_desc->tuple_offset()));
-        CollectionValue::deserialize_collection(dst_cv, reinterpret_cast<char*>(dst), type_desc);
+        CollectionValue::deserialize_collection(dst_cv, reinterpret_cast<char*>(dst),
+                                                item_type_desc);
         validate(field, src_cv, dst_cv);
     }
 
@@ -381,138 +429,261 @@ private:
 
 const std::string ArrayTest::TEST_DIR = "./ut_dir/array_test";
 
-TEST_F(ArrayTest, TestSimpleIntArrays) {
-    auto column_pb = create_column_pb("ARRAY", "INT");
-    auto type_info = get_type_info(column_pb);
-    auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-    EXPECT_EQ(tuple_desc->slots().size(), 1);
-    FunctionContext context;
-    ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
-
-    std::vector<const CollectionValue*> arrays = {
-            parse(*_mem_pool, context, "[]", column_pb),
-            parse(*_mem_pool, context, "[null]", column_pb),
-            parse(*_mem_pool, context, "[1, 2, 3]", column_pb),
-            parse(*_mem_pool, context, "[1, null, 3]", column_pb),
-            parse(*_mem_pool, context, "[1, null, null]", column_pb),
-            parse(*_mem_pool, context, "[null, null, 3]", column_pb),
-            parse(*_mem_pool, context, "[null, null, null]", column_pb),
+TEST_F(ArrayTest, TestBoolean) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", "BOOLEAN");
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[null]",
+            "[true, false, false]",
+            "[true, null, false]",
+            "[false, null, null]",
+            "[null, null, true]",
+            "[null, null, null]",
     };
-    for (auto array : arrays) {
-        test_array<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, field.get(),
-                                                                          tuple_desc, array);
-    }
-    test_direct_copy_array(field.get(), arrays);
-    test_write_and_read_column<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(
-            column_pb, field.get(), arrays);
-}
+    test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, literal_arrays);
 
-TEST_F(ArrayTest, TestNestedIntArrays) {
     // depth 2
-    auto column_pb = create_column_pb("ARRAY", "ARRAY", "INT");
-    auto type_info = get_type_info(column_pb);
-    auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-    EXPECT_EQ(tuple_desc->slots().size(), 1);
-    auto context = std::make_unique<FunctionContext>();
-    ArrayUtils::prepare_context(*context, *_mem_pool, column_pb);
-
-    std::vector<const CollectionValue*> arrays = {
-            parse(*_mem_pool, *context, "[]", column_pb),
-            parse(*_mem_pool, *context, "[[]]", column_pb),
-            parse(*_mem_pool, *context, "[[1, 2, 3], [4, 5, 6]]", column_pb),
-            parse(*_mem_pool, *context, "[[1, 2, 3], null, [4, 5, 6]]", column_pb),
-            parse(*_mem_pool, *context, "[[1, 2, null], null, [4, null, 6], null, [null, 8, 9]]",
-                  column_pb),
+    column_pb = create_column_pb("ARRAY", "ARRAY", "BOOLEAN");
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[false, true, false], [true, false, true]]",
+            "[[false, true, false], null, [true, false, true]]",
+            "[[false, true, null], null, [true, null, false], null, [null, false, false]]",
     };
-    for (auto array : arrays) {
-        test_array<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, field.get(),
-                                                                          tuple_desc, array);
-    }
-    test_direct_copy_array(field.get(), arrays);
-    test_write_and_read_column<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(
-            column_pb, field.get(), arrays);
+    test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, literal_arrays);
 
     // depth 3
-    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "INT");
-    type_info = get_type_info(column_pb);
-    field = create_field(column_pb);
-    tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-    EXPECT_EQ(tuple_desc->slots().size(), 1);
-    arrays.clear();
-    EXPECT_EQ(arrays.size(), 0);
-    context.reset(new FunctionContext);
-    ArrayUtils::prepare_context(*context, *_mem_pool, column_pb);
-
-    arrays = {
-            parse(*_mem_pool, *context, "[]", column_pb),
-            parse(*_mem_pool, *context, "[[]]", column_pb),
-            parse(*_mem_pool, *context, "[[[]]]", column_pb),
-            parse(*_mem_pool, *context, "[[[null]], [[1], [2, 3]], [[4, 5, 6], null, null]]",
-                  column_pb),
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "BOOLEAN");
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[[]]]",
+            "[[[null]], [[false], [true, false]], [[false, true, false], null, null]]",
     };
-    for (auto array : arrays) {
-        test_array<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, field.get(),
-                                                                          tuple_desc, array);
-    }
-    test_direct_copy_array(field.get(), arrays);
-    test_write_and_read_column<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(
-            column_pb, field.get(), arrays);
+    test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, literal_arrays);
 }
 
-TEST_F(ArrayTest, TestSimpleStringArrays) {
-    auto column_pb = create_column_pb("ARRAY", "VARCHAR");
-    auto type_info = get_type_info(column_pb);
-    auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-    EXPECT_EQ(tuple_desc->slots().size(), 1);
-    FunctionContext context;
-    ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
-
-    std::vector<const CollectionValue*> arrays = {
-            parse(*_mem_pool, context, "[]", column_pb),
-            parse(*_mem_pool, context, "[null]", column_pb),
-            parse(*_mem_pool, context, "[\"a\", \"b\", \"c\"]", column_pb),
-            parse(*_mem_pool, context, "[null, \"b\", \"c\"]", column_pb),
-            parse(*_mem_pool, context, "[\"a\", null, \"c\"]", column_pb),
-            parse(*_mem_pool, context, "[\"a\", \"b\", null]", column_pb),
-            parse(*_mem_pool, context, "[null, \"b\", null]", column_pb),
-            parse(*_mem_pool, context, "[null, null, null]", column_pb),
+void test_integer(const std::string& type, ArrayTest& test_suite) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[null]",
+            "[1, 2, 3]",
+            "[1, null, 3]",
+            "[1, null, null]",
+            "[null, null, 3]",
+            "[null, null, null]",
     };
-    for (auto array : arrays) {
-        test_array<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(column_pb, field.get(),
-                                                                            tuple_desc, array);
-    }
-    test_direct_copy_array(field.get(), arrays);
-    test_write_and_read_column<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(
-            column_pb, field.get(), arrays);
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 2
+    column_pb = create_column_pb("ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[1, 2, 3], [4, 5, 6]]",
+            "[[1, 2, 3], null, [4, 5, 6]]",
+            "[[1, 2, null], null, [4, null, 6], null, [null, 8, 9]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 3
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[[]]]",
+            "[[[null]], [[1], [2, 3]], [[4, 5, 6], null, null]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
 }
 
-TEST_F(ArrayTest, TestNestedStringArrays) {
-    auto column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "VARCHAR");
-    auto type_info = get_type_info(column_pb);
-    auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-    EXPECT_EQ(tuple_desc->slots().size(), 1);
-    FunctionContext context;
-    ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
+TEST_F(ArrayTest, TestInteger) {
+    test_integer("TINYINT", *this);
+    test_integer("SMALLINT", *this);
+    test_integer("INT", *this);
+    test_integer("BIGINT", *this);
+    test_integer("LARGEINT", *this);
+}
 
-    std::vector<const CollectionValue*> arrays = {
-            parse(*_mem_pool, context, "[]", column_pb),
-            parse(*_mem_pool, context, "[[]]", column_pb),
-            parse(*_mem_pool, context, "[[[]]]", column_pb),
-            parse(*_mem_pool, context, "[null, [null], [[null]]]", column_pb),
-            parse(*_mem_pool, context,
-                  "[[[\"a\", null, \"c\"], [\"d\", \"e\", \"f\"]], null, [[\"g\"]]]", column_pb),
+void test_float(const std::string& type, ArrayTest& test_suite) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[null]",
+            "[1.5, 2.5, 3.5]",
+            "[1.5, null, 3.5]",
+            "[1.5, null, null]",
+            "[null, null, 3.5]",
+            "[null, null, null]",
     };
-    for (auto array : arrays) {
-        test_array<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(column_pb, field.get(),
-                                                                            tuple_desc, array);
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+    // depth 2
+    column_pb = create_column_pb("ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[1.5, 2.5, 3.5], [4.5, 5.5, 6.5]]",
+            "[[1.5, 2.5, 3.5], null, [4.5, 5.5, 6.5]]",
+            "[[1.5, 2.5, null], null, [4.5, null, 6.5], null, [null, 8.5, 9.5]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 3
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[[]]]",
+            "[[[null]], [[1.5], [2.5, 3.5]], [[4.5, 5.5, 6.5], null, null]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+}
+
+TEST_F(ArrayTest, TestFloat) {
+    test_float("FLOAT", *this);
+    test_float("DOUBLE", *this);
+}
+
+void test_string(const std::string& type, ArrayTest& test_suite) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[null]",
+            "[\"a\", \"b\", \"c\"]",
+            "[null, \"b\", \"c\"]",
+            "[\"a\", null, \"c\"]",
+            "[\"a\", \"b\", null]",
+            "[null, \"b\", null]",
+            "[null, null, null]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(column_pb,
+                                                                             literal_arrays);
+
+    // more depths
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[[]]]",
+            "[null, [null], [[null]]]",
+            "[[[\"a\", null, \"c\"], [\"d\", \"e\", \"f\"]], null, [[\"g\"]]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(column_pb,
+                                                                             literal_arrays);
+}
+
+TEST_F(ArrayTest, TestString) {
+    test_string("CHAR", *this);
+    test_string("VARCHAR", *this);
+    test_string("STRING", *this);
+}
+
+void test_datetime(const std::string& type, ArrayTest& test_suite) {
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays;
+    if (type == "DATE") {
+        literal_arrays = {
+                "[]",
+                "[null]",
+                "[\"2022-04-01\", \"2022-04-02\", \"2022-04-03\"]",
+                "[\"2022-04-01\", null, \"2022-04-03\"]",
+                "[\"2022-04-01\", null, null]",
+                "[null, null, \"2022-04-03\"]",
+                "[null, null, null]",
+        };
+    } else {
+        literal_arrays = {
+                "[]",
+                "[null]",
+                "[\"2022-04-01 19:30:40\", \"2022-04-02 19:30:40 \", \"2022-04-03 19:30:40\"]",
+                "[\"2022-04-01 19:30:40\", null, \"2022-04-03 19:30:40\"]",
+                "[\"2022-04-01 19:30:40\", null, null]",
+                "[null, null, \"2022-04-03 19:30:40\"]",
+                "[null, null, null]",
+        };
     }
-    test_direct_copy_array(field.get(), arrays);
-    test_write_and_read_column<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(
-            column_pb, field.get(), arrays);
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+    // depth 2
+    column_pb = create_column_pb("ARRAY", "ARRAY", type);
+    if (type == "DATE") {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[\"2022-04-01\", \"2022-04-02\", \"2022-04-03\"], [\"2022-04-04\", "
+                "\"2022-04-05\", "
+                "\"2022-04-06\"]]",
+                "[[\"2022-04-01\", \"2022-04-02\", \"2022-04-03\"], null, [\"2022-04-04\", "
+                "\"2022-04-05\", \"2022-04-06\"]]",
+                "[[\"2022-04-01\", \"2022-04-02\", null], null, [\"2022-04-04\", null, "
+                "\"2022-04-06\"], null, [null, \"2022-04-08\", \"2022-04-09\"]]",
+        };
+    } else {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[\"2022-04-01 19:30:40\", \"2022-04-02 19:30:40\", \"2022-04-03 19:30:40\"], "
+                "[\"2022-04-04 19:30:40\", "
+                "\"2022-04-05\", "
+                "\"2022-04-06\"]]",
+                "[[\"2022-04-01 19:30:40\", \"2022-04-02 19:30:40\", \"2022-04-03 19:30:40\"], "
+                "null, [\"2022-04-04 19:30:40\", "
+                "\"2022-04-05\", \"2022-04-06\"]]",
+                "[[\"2022-04-01 19:30:40\", \"2022-04-02 19:30:40\", null], null, [\"2022-04-04 "
+                "19:30:40\", null, "
+                "\"2022-04-06 19:30:40\"], null, [null, \"2022-04-08 19:30:40\", \"2022-04-09 "
+                "19:30:40\"]]",
+        };
+    }
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 3
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    if (type == "DATE") {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[[]]]",
+                "[[[null]], [[\"2022-04-01\"], [\"2022-04-02\", \"2022-04-03\"]], "
+                "[[\"2022-04-04\", "
+                "\"2022-04-05\", \"2022-04-06\"], null, null]]",
+        };
+    } else {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[[]]]",
+                "[[[null]], [[\"2022-04-01 19:30:40\"], [\"2022-04-02 19:30:40\", \"2022-04-03 "
+                "19:30:40\"]], "
+                "[[\"2022-04-04 19:30:40\", "
+                "\"2022-04-05 19:30:40\", \"2022-04-06 19:30:40\"], null, null]]",
+        };
+    }
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+}
+
+TEST_F(ArrayTest, TestDateTime) {
+    test_datetime("DATE", *this);
+    test_datetime("DATETIME", *this);
+}
+
+TEST_F(ArrayTest, TestDecimal) {
+    test_integer("DECIMAL", *this);
+    test_float("DECIMAL", *this);
 }
 
 } // namespace doris

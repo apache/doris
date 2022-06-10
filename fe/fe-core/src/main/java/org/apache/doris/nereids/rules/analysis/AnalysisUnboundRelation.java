@@ -20,10 +20,10 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -39,19 +39,20 @@ public class AnalysisUnboundRelation extends OneAnalysisRuleFactory {
         // fixme, just for example now
         return unboundRelation().thenApply(ctx -> {
             ConnectContext connectContext = ctx.plannerContext.getConnectContext();
-            List<String> nameParts = ctx.root.getNameParts();
+            List<String> nameParts = ctx.root.operator.getNameParts();
             switch (nameParts.size()) {
                 case 1: {
                     List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
                     Table table = getTable(qualifier, connectContext.getCatalog());
-                    return new LogicalRelation(table, qualifier);
+                    return plan(new LogicalRelation(table, qualifier));
                 }
                 case 2: {
                     Table table = getTable(nameParts, connectContext.getCatalog());
-                    return new LogicalRelation(table, nameParts);
+                    return plan(new LogicalRelation(table, nameParts));
                 }
                 default:
-                    throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
+                    throw new IllegalStateException("Table name ["
+                            + ctx.root.operator.getTableName() + "] is invalid.");
             }
         }).toRule(RuleType.BINDING_UNBOUND_RELATION_RULE);
     }

@@ -84,7 +84,7 @@ public class UpdatePlannerTest {
         fullSchema.add(v1);
         fullSchema.add(shadowV1);
 
-        new Expectations(){
+        new Expectations() {
             {
                 targetTable.getFullSchema();
                 result = fullSchema;
@@ -146,7 +146,7 @@ public class UpdatePlannerTest {
         fullSchema.add(v1);
         fullSchema.add(newV2);
 
-        new Expectations(){
+        new Expectations() {
             {
                 targetTable.getFullSchema();
                 result = fullSchema;

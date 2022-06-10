@@ -15,6 +15,7 @@
 
 #include "olap/olap_common.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "util/metrics.h"
 #include "util/slice.h"
 
@@ -52,11 +53,10 @@ enum LRUCacheType {
     NUMBER // The capacity of cache is based on the number of cache entry.
 };
 
-// Create a new cache with a specified name and a fixed SIZE capacity.
+// Create a new cache with a specified name and capacity.
 // This implementation of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity);
-
-extern Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type);
+extern Cache* new_lru_cache(const std::string& name, size_t capacity,
+                            LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16);
 
 class CacheKey {
 public:
@@ -236,6 +236,7 @@ typedef struct LRUHandle {
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
+    MemTracker* mem_tracker;
     char key_data[1]; // Beginning of key
 
     CacheKey key() const {
@@ -250,6 +251,9 @@ typedef struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
+        if (mem_tracker)
+            mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(),
+                                     total_size);
         ::free(this);
     }
 
@@ -308,7 +312,8 @@ public:
     // Like Cache methods, but with an extra "hash" parameter.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL,
+                          MemTracker* tracker = nullptr);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
@@ -350,12 +355,10 @@ private:
     uint64_t _hit_count = 0;    // 命中cache的总次数
 };
 
-static const int kNumShardBits = 4;
-static const int kNumShards = 1 << kNumShardBits;
-
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
@@ -375,10 +378,14 @@ private:
 
 private:
     static uint32_t _hash_slice(const CacheKey& s);
-    static uint32_t _shard(uint32_t hash);
+    uint32_t _shard(uint32_t hash) {
+        return _num_shard_bits > 0 ? (hash >> (32 - _num_shard_bits)) : 0;
+    }
 
     std::string _name;
-    LRUCache* _shards[kNumShards];
+    const int _num_shard_bits;
+    const uint32_t _num_shards;
+    LRUCache** _shards;
     std::atomic<uint64_t> _last_id;
 
     std::shared_ptr<MemTracker> _mem_tracker;

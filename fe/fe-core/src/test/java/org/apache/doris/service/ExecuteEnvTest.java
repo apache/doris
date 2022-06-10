@@ -30,7 +30,7 @@ public class ExecuteEnvTest {
     @Test
     public void testGetInstance() {
         Set<Thread> tds = new HashSet<Thread>();
-        for (int i = 0 ;i < threadMaxNum; i++) {
+        for (int i = 0; i < threadMaxNum; i++) {
             Thread td = new Thread(new MyTest(i, oids));
             tds.add(td);
             td.start();
@@ -44,7 +44,7 @@ public class ExecuteEnvTest {
             }
         }
         for (int i = 1; i < threadMaxNum; i++) {
-            Assert.assertEquals(oids[i-1], oids[i]);
+            Assert.assertEquals(oids[i - 1], oids[i]);
         }
     }
 }

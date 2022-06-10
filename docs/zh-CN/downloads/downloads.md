@@ -26,13 +26,13 @@ under the License.
 
 # 下载
 
-## Doris 主代码
+## Apache Doris
 
-您可以通过以下链接下载对应版本的 Doris 源码进行编译和部署。
+您可以通过以下链接下载版本的 Doris 源码进行编译和部署，1.0版本之后可以下载二进制版本直接安装部署。
 
-| 版本 | 发布日期 | 源码下载 | 二进制下载 |
+| 版本 | 发布日期 | 源码下载 | 二进制版本 |
 |---|---|---| --- |
-| 1.0.0 | 2022-04-18 | [Source](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-src.tar.gz) ([Signature](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-src.tar.gz.asc) [SHA512](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-src.tar.gz.sha512))| [Binary [362MB]](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz) ([Signature](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz.asc) [SHA512](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz.sha512))
+| 1.0.0 | 2022-04-18 | [Source](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-src.tar.gz) ([Signature](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-src.tar.gz.asc) [SHA512](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-src.tar.gz.sha512))| [Binary [362MB]](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz) ([Signature](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz.asc) [SHA512](https://www.apache.org/dyn/closer.cgi/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz.sha512))|
 | 0.15.0 | 2021-11-29 | [Source](http://archive.apache.org/dist/incubator/doris/0.15.0-incubating/apache-doris-0.15.0-incubating-src.tar.gz) ([Signature](http://archive.apache.org/dist/incubator/doris/0.15.0-incubating/apache-doris-0.15.0-incubating-src.tar.gz.asc) [SHA512](http://archive.apache.org/dist/incubator/doris/0.15.0-incubating/apache-doris-0.15.0-incubating-src.tar.gz.sha512))||
 | 0.14.0 | 2021-05-26 | [Source](https://archive.apache.org/dist/incubator/doris/0.14.0-incubating/apache-doris-0.14.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.14.0-incubating/apache-doris-0.14.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.14.0-incubating/apache-doris-0.14.0-incubating-src.tar.gz.sha512))||
 | 0.13.0 | 2020-10-24 | [Source](https://archive.apache.org/dist/incubator/doris/0.13.0-incubating/apache-doris-0.13.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.13.0-incubating/apache-doris-0.13.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.13.0-incubating/apache-doris-0.13.0-incubating-src.tar.gz.sha512))||
@@ -40,7 +40,7 @@ under the License.
 | 0.11.0 | 2019-11-29 | [Source](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.11.0-incubating/apache-doris-0.11.0-incubating-src.tar.gz.sha512)) ||
 | 0.10.0 | 2019-07-02 | [Source](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.sha512)) ||
 | 0.9.0 | 2019-02-18 | [Source](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz) ([Signature](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.asc) [SHA512](https://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.sha512)) ||
- 
+
 
 ## Flink Doris Connector
 

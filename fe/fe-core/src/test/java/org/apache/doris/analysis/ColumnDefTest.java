@@ -25,8 +25,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,6 +38,7 @@ public class ColumnDefTest {
     private TypeDef stringCol;
     private TypeDef floatCol;
     private TypeDef booleanCol;
+    private ConnectContext ctx;
 
     @Before
     public void setUp() {
@@ -43,6 +46,14 @@ public class ColumnDefTest {
         stringCol = new TypeDef(ScalarType.createChar(10));
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
         booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
+
+        ctx = new ConnectContext(null);
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
+            }
+        };
     }
 
     @Test
@@ -73,20 +84,20 @@ public class ColumnDefTest {
 
     @Test
     public void testReplaceIfNotNull() throws AnalysisException {
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             // not allow null
             ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, DefaultValue.NOT_SET, "");
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
             Assert.assertEquals("`col` int(11) REPLACE_IF_NOT_NULL NULL DEFAULT \"null\" COMMENT \"\"", column.toSql());
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             // not allow null
             ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, new DefaultValue(true, "10"), "");
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
             Assert.assertEquals("`col` int(11) REPLACE_IF_NOT_NULL NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
 
     @Test(expected = AnalysisException.class)
@@ -103,7 +114,7 @@ public class ColumnDefTest {
     }
 
     @Test
-    public void testBooleanDefaultValue() throws AnalysisException{
+    public void testBooleanDefaultValue() throws AnalysisException {
         ColumnDef column1 = new ColumnDef("col", booleanCol, true, null, true, new DefaultValue(true, "1"), "");
         column1.analyze(true);
         Assert.assertEquals("1", column1.getDefaultValue());
@@ -122,7 +133,7 @@ public class ColumnDefTest {
 
     @Test
     public void testArray() throws AnalysisException {
-        Config.enable_complex_type_support = true;
+        ctx.getSessionVariable().setEnableArrayType(true);
         TypeDef typeDef = new TypeDef(new ArrayType(Type.INT));
         ColumnDef columnDef = new ColumnDef("array", typeDef, false, null, true, DefaultValue.NOT_SET, "");
         Column column = columnDef.toColumn();

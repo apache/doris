@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_CONTEXT_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_CONTEXT_H
+#pragma once
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
 namespace doris {
@@ -42,6 +43,27 @@ struct RowsetWriterContext {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
+
+    static RowsetWriterContext create(const Version& version, TabletSharedPtr new_tablet,
+                                      RowsetTypePB new_rowset_type,
+                                      SegmentsOverlapPB segments_overlap) {
+        RowsetWriterContext context;
+        context.rowset_id = StorageEngine::instance()->next_rowset_id();
+        context.tablet_uid = new_tablet->tablet_uid();
+        context.tablet_id = new_tablet->tablet_id();
+        context.partition_id = new_tablet->partition_id();
+        context.tablet_schema_hash = new_tablet->schema_hash();
+        context.rowset_type = new_rowset_type;
+        context.path_desc = new_tablet->tablet_path_desc();
+        context.tablet_schema = &(new_tablet->tablet_schema());
+        context.data_dir = new_tablet->data_dir();
+        context.rowset_state = VISIBLE;
+        context.version = version;
+        context.segments_overlap = segments_overlap;
+
+        return context;
+    }
+
     RowsetId rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
@@ -74,5 +96,3 @@ struct RowsetWriterContext {
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_CONTEXT_H

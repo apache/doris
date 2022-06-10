@@ -20,8 +20,11 @@
 #include <vector>
 
 #include "gen_cpp/olap_file.pb.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace vectorized {
@@ -61,9 +64,11 @@ public:
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
+    vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
+                                                            std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
-    bool visible() { return _visible; }
+    bool visible() const { return _visible; }
     // Add a sub column.
     void add_sub_column(TabletColumn& sub_column);
 
@@ -145,9 +150,12 @@ public:
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
+
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
+    vectorized::Block create_block() const;
 
 private:
     // Only for unit test.
@@ -168,6 +176,7 @@ private:
     size_t _num_short_key_columns = 0;
     size_t _num_rows_per_row_block = 0;
     CompressKind _compress_kind = COMPRESS_NONE;
+    segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     size_t _next_column_unique_id = 0;
 
     bool _has_bf_fpp = false;

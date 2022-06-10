@@ -17,17 +17,35 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Abstract class for all physical plan that have no child.
  */
-public abstract class PhysicalLeaf<PLAN_TYPE extends PhysicalLeaf<PLAN_TYPE>>
-        extends AbstractPhysicalPlan<PLAN_TYPE>
-        implements LeafPlan<PLAN_TYPE> {
+public class PhysicalLeaf<OP_TYPE extends PhysicalLeafOperator>
+        extends AbstractPhysicalPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE>
+        implements LeafPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE> {
 
-    public PhysicalLeaf(NodeType type) {
-        super(type);
+    public PhysicalLeaf(OP_TYPE operator, LogicalProperties logicalProperties) {
+        super(NodeType.PHYSICAL, operator, logicalProperties);
+    }
+
+    public PhysicalLeaf(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public PhysicalLeaf newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return new PhysicalLeaf(operator, groupExpression, logicalProperties);
     }
 }

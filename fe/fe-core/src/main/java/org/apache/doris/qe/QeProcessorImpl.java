@@ -94,8 +94,8 @@ public final class QeProcessorImpl implements QeProcessor {
             throw new UserException("query not exists in coordinatorMap:" + DebugUtil.printId(queryId));
         }
         QueryInfo queryInfo = coordinatorMap.get(queryId);
-        if (queryInfo.getConnectContext() != null &&
-                !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+        if (queryInfo.getConnectContext() != null
+                && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
         ) {
             String user = queryInfo.getConnectContext().getQualifiedUser();
             long maxQueryInstances = queryInfo.getConnectContext().getCatalog().getAuth().getMaxQueryInstances(user);
@@ -126,8 +126,8 @@ public final class QeProcessorImpl implements QeProcessor {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("deregister query id {}", DebugUtil.printId(queryId));
             }
-            if (queryInfo.getConnectContext() != null &&
-                    !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+            if (queryInfo.getConnectContext() != null
+                    && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
                 Integer num = queryToInstancesNum.remove(queryId);
                 if (num != null) {

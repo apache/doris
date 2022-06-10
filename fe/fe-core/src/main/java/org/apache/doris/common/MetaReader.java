@@ -79,7 +79,7 @@ public class MetaReader {
             checksum = Catalog.getCurrentSystemInfo().loadBackends(dis, checksum);
             checksum = catalog.loadDb(dis, checksum);
             // ATTN: this should be done after load Db, and before loadAlterJob
-            catalog.recreateTabletInvertIndex();
+            catalog.getInternalDataSource().recreateTabletInvertIndex();
             // rebuild es state state
             catalog.getEsRepository().loadTableFromCatalog();
             checksum = catalog.loadLoadJob(dis, checksum);
@@ -90,7 +90,7 @@ public class MetaReader {
             checksum = catalog.loadBrokers(dis, checksum);
             checksum = catalog.loadResources(dis, checksum);
             checksum = catalog.loadExportJob(dis, checksum);
-            checksum = catalog.loadSyncJobs(dis,checksum);
+            checksum = catalog.loadSyncJobs(dis, checksum);
             checksum = catalog.loadBackupHandler(dis, checksum);
             checksum = catalog.loadPaloAuth(dis, checksum);
             // global transaction must be replayed before load jobs v2

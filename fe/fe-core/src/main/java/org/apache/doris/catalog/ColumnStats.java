@@ -163,35 +163,35 @@ public class ColumnStats implements Writable {
      * the slot they occupy), sets avgSerializedSize and maxSize to their slot size.
      */
     public ColumnStats(PrimitiveType colType) {
-      avgSerializedSize = -1;
-      maxSize = -1;
-      numDistinctValues = -1;
-      numNulls = -1;
-      if (colType.isNumericType() || colType.isDateType()) {
-        avgSerializedSize = colType.getSlotSize();
-        maxSize = colType.getSlotSize();
-      }
+        avgSerializedSize = -1;
+        maxSize = -1;
+        numDistinctValues = -1;
+        numNulls = -1;
+        if (colType.isNumericType() || colType.isDateType()) {
+            avgSerializedSize = colType.getSlotSize();
+            maxSize = colType.getSlotSize();
+        }
     }
     /**
      * Creates ColumnStats from the given expr. Sets numDistinctValues and if the expr
      * is a SlotRef also numNulls.
      */
     public static ColumnStats fromExpr(Expr expr) {
-      Preconditions.checkNotNull(expr);
-      Preconditions.checkState(expr.getType().isValid());
-      ColumnStats stats = new ColumnStats(expr.getType().getPrimitiveType());
-      stats.setNumDistinctValues(expr.getNumDistinctValues());
-      SlotRef slotRef = expr.unwrapSlotRef();
-      if (slotRef == null) {
-          return stats;
-      }
-      ColumnStats slotStats = slotRef.getDesc().getStats();
-      if (slotStats == null) {
-          return stats;
-      }
-      stats.numNulls = slotStats.getNumNulls();
-      stats.avgSerializedSize = slotStats.getAvgSerializedSize();
-      stats.maxSize = slotStats.getMaxSize();
-      return stats;
+        Preconditions.checkNotNull(expr);
+        Preconditions.checkState(expr.getType().isValid());
+        ColumnStats stats = new ColumnStats(expr.getType().getPrimitiveType());
+        stats.setNumDistinctValues(expr.getNumDistinctValues());
+        SlotRef slotRef = expr.unwrapSlotRef();
+        if (slotRef == null) {
+            return stats;
+        }
+        ColumnStats slotStats = slotRef.getDesc().getStats();
+        if (slotStats == null) {
+            return stats;
+        }
+        stats.numNulls = slotStats.getNumNulls();
+        stats.avgSerializedSize = slotStats.getAvgSerializedSize();
+        stats.maxSize = slotStats.getMaxSize();
+        return stats;
     }
 }

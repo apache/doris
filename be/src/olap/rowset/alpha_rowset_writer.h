@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H
+#pragma once
 
 #include <vector>
 
@@ -31,7 +30,7 @@ enum WriterState { WRITER_CREATED, WRITER_INITED, WRITER_FLUSHED };
 class AlphaRowsetWriter : public RowsetWriter {
 public:
     AlphaRowsetWriter();
-    virtual ~AlphaRowsetWriter();
+    ~AlphaRowsetWriter() override;
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
@@ -51,7 +50,7 @@ public:
 
     Version version() override { return _rowset_writer_context.version; }
 
-    int64_t num_rows() override { return _num_rows_written; }
+    int64_t num_rows() const override { return _num_rows_written; }
 
     RowsetId rowset_id() override { return _rowset_writer_context.rowset_id; }
 
@@ -84,5 +83,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H

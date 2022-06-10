@@ -88,7 +88,7 @@ public class RollupProcDir implements ProcDirInterface {
         List<List<Comparable>> jobInfos = Lists.newArrayList();
 
         //where
-        if (filter == null || filter.size() == 0){
+        if (filter == null || filter.size() == 0) {
             jobInfos = rollupJobInfos;
         } else {
             jobInfos = Lists.newArrayList();
@@ -126,7 +126,7 @@ public class RollupProcDir implements ProcDirInterface {
             if (endIndex > jobInfos.size()) {
                 endIndex = jobInfos.size();
             }
-            jobInfos = jobInfos.subList(beginIndex,endIndex);
+            jobInfos = jobInfos.subList(beginIndex, endIndex);
         }
 
         BaseProcResult result = new BaseProcResult();

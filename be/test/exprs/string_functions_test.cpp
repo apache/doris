@@ -24,9 +24,9 @@
 #include <string>
 
 #include "exprs/anyval_util.h"
+#include "runtime/large_int_value.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
-#include "util/logging.h"
 #include "util/simd/vstring_function.h"
 
 namespace doris {

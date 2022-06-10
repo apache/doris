@@ -59,8 +59,8 @@ public class CreatePolicyStmt extends DdlStmt {
     /**
      * Use for cup.
      **/
-    public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName, String filterType,
-                            UserIdentity user, Expr wherePredicate) {
+    public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName,
+                            String filterType, UserIdentity user, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;

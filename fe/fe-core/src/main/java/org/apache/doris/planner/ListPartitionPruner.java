@@ -190,7 +190,6 @@ public class ListPartitionPruner implements PartitionPruner {
             BoundType upperType = filter.upperBoundInclusive ? BoundType.CLOSED : BoundType.OPEN;
             boolean isPushMin = false;
             boolean isPushMax = false;
-            int lastColumnId = partitionColumns.size() - 1;
             if (filter.lowerBound != null) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
             } else {

@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "exec/file_reader.h"
+#include "io/file_reader.h"
 #include "librdkafka/rdkafka.h"
 #include "runtime/message_body_sink.h"
 #include "runtime/stream_load/stream_load_pipe.h"

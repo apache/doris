@@ -29,52 +29,52 @@ public class ListPartitionPrunerTest extends PartitionPruneTestBase {
         createDatabase("test");
 
         String createSinglePartColWithSinglePartKey =
-            "create table test.t1\n"
-                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1)\n"
-                + "(\n"
-                + "partition p1 values in (\"1\"),\n"
-                + "partition p2 values in (\"2\")\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t1\n"
+                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1)\n"
+                        + "(\n"
+                        + "partition p1 values in (\"1\"),\n"
+                        + "partition p2 values in (\"2\")\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
         String createSinglePartColWithMultiPartKey =
-            "create table test.t2\n"
-                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1)\n"
-                + "(\n"
-                + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
-                + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
-                + "partition p3 values in (\"7\", \"8\")\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t2\n"
+                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1)\n"
+                        + "(\n"
+                        + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
+                        + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
+                        + "partition p3 values in (\"7\", \"8\")\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
         String createMultiPartColWithSinglePartKey =
-            "create table test.t3\n"
-                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1, k2)\n"
-                + "(\n"
-                + "partition p1 values in ((\"1\", \"beijing\")),\n"
-                + "partition p2 values in ((\"2\", \"beijing\"))\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t3\n"
+                        + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1, k2)\n"
+                        + "(\n"
+                        + "partition p1 values in ((\"1\", \"beijing\")),\n"
+                        + "partition p2 values in ((\"2\", \"beijing\"))\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
         String createMultiPartColWithMultiPartKey =
-            "create table test.t4\n"
-                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1, k2)\n"
-                + "(\n"
-                + "partition p1 values in ((\"1\", \"beijing\"), (\"2\", \"shanghai\")),\n"
-                + "partition p2 values in ((\"2\", \"beijing\")),\n"
-                + "partition p3 values in ((\"3\", \"tianjin\"), (\"1\", \"shanghai\"))\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t4\n"
+                        + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1, k2)\n"
+                        + "(\n"
+                        + "partition p1 values in ((\"1\", \"beijing\"), (\"2\", \"shanghai\")),\n"
+                        + "partition p2 values in ((\"2\", \"beijing\")),\n"
+                        + "partition p3 values in ((\"3\", \"tianjin\"), (\"1\", \"shanghai\"))\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
 
         createTables(createSinglePartColWithSinglePartKey,
-            createSinglePartColWithMultiPartKey,
-            createMultiPartColWithSinglePartKey,
-            createMultiPartColWithMultiPartKey);
+                createSinglePartColWithMultiPartKey,
+                createMultiPartColWithSinglePartKey,
+                createMultiPartColWithMultiPartKey);
     }
 
     private void initTestCases() {

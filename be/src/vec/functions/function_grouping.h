@@ -17,11 +17,8 @@
 
 #pragma once
 
-#include "vec/columns/column_nullable.h"
-#include "vec/data_types/get_least_supertype.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 
 namespace doris::vectorized {
 

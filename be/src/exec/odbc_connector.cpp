@@ -22,9 +22,9 @@
 #include <codecvt>
 
 #include "common/config.h"
-#include "common/logging.h"
 #include "exprs/expr.h"
 #include "runtime/primitive_type.h"
+#include "util/mysql_global.h"
 #include "util/types.h"
 
 #define ODBC_DISPOSE(h, ht, x, op)                                                        \

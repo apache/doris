@@ -52,7 +52,13 @@ public:
 
     inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    void insert(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    void insert(const vectorized::Block* block, const std::vector<int>& row_idxs);
+
+    void shrink_memtable_by_agg();
+
+    bool is_flush() const;
+
+    bool need_to_agg();
 
     /// Flush
     Status flush();
@@ -66,7 +72,7 @@ private:
     class RowCursorComparator : public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
-        int operator()(const char* left, const char* right) const;
+        int operator()(const char* left, const char* right) const override;
 
     private:
         const Schema* _schema;
@@ -115,9 +121,9 @@ private:
     };
 
 private:
-    typedef SkipList<char*, RowComparator> Table;
-    typedef Table::key_type TableKey;
-    typedef SkipList<RowInBlock*, RowInBlockComparator> VecTable;
+    using Table = SkipList<char*, RowComparator>;
+    using TableKey = Table::key_type;
+    using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
 
 public:
     /// The iterator of memtable, so that the data in this memtable
@@ -179,6 +185,9 @@ private:
 
     std::unique_ptr<VecTable> _vec_skip_list;
     VecTable::Hint _vec_hint;
+    void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
+                                            const TupleDescriptor* tuple_desc);
+    std::vector<int> _column_offset;
 
     RowsetWriter* _rowset_writer;
 
@@ -195,7 +204,9 @@ private:
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
-    vectorized::Block _collect_vskiplist_results();
+
+    template <bool is_final>
+    void _collect_vskiplist_results();
     bool _is_first_insertion;
 
     void _init_agg_functions(const vectorized::Block* block);

@@ -22,14 +22,15 @@
 #include <time.h>
 
 #include "common/logging.h"
-#include "exec/file_writer.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
+#include "io/file_writer.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
+#include "util/mysql_global.h"
 #include "util/thrift_util.h"
 #include "util/types.h"
 

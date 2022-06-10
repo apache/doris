@@ -57,7 +57,7 @@ public enum PrimitiveType {
 
     ARRAY("ARRAY", 24, TPrimitiveType.ARRAY),
     MAP("MAP", 24, TPrimitiveType.MAP),
-    STRUCT("MAP", 24, TPrimitiveType.STRUCT),
+    STRUCT("STRUCT", 24, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
@@ -297,7 +297,7 @@ public enum PrimitiveType {
         // QUANTILE_STATE
         builder.put(QUANTILE_STATE, QUANTILE_STATE);
 
-        //TIME
+        // TIME
         builder.put(TIME, TIME);
         builder.put(TIME, DOUBLE);
 
@@ -715,7 +715,7 @@ public enum PrimitiveType {
         return (this == DATE || this == DATETIME);
     }
 
-    public boolean isArrayType(){
+    public boolean isArrayType() {
         return this == ARRAY;
     }
 

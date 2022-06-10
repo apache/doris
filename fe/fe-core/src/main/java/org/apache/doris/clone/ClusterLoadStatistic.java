@@ -182,7 +182,7 @@ public class ClusterLoadStatistic {
             }
         }
 
-        LOG.info("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
+        LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
                 medium, avgLoadScore, lowCounter, midCounter, highCounter);
     }
 
@@ -280,10 +280,13 @@ public class ClusterLoadStatistic {
                 List<String> pathStat = Lists.newArrayList();
                 pathStat.add(pathStatistic.getPath());
                 pathStat.add(String.valueOf(pathStatistic.getPathHash()));
+                pathStat.add(pathStatistic.getStorageMedium().name());
                 pathStat.add(String.valueOf(pathStatistic.getUsedCapacityB()));
                 pathStat.add(String.valueOf(pathStatistic.getCapacityB()));
                 pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(pathStatistic.getUsedCapacityB() * 100
                         / (double) pathStatistic.getCapacityB())));
+                pathStat.add(pathStatistic.getClazz().name());
+                pathStat.add(pathStatistic.getDiskState().name());
                 statistics.add(pathStat);
             }
             break;

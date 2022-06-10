@@ -143,8 +143,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     private void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond, int minLoadTimeOutSecond) throws AnalysisException {
-        if (timeoutSecond > maxLoadTimeoutSecond ||
-                timeoutSecond < minLoadTimeOutSecond) {
+        if (timeoutSecond > maxLoadTimeoutSecond || timeoutSecond < minLoadTimeOutSecond) {
             throw new AnalysisException("Invalid timeout: " + timeoutSecond + ". Timeout should between "
                     + minLoadTimeOutSecond + " and " + maxLoadTimeoutSecond
                     + " seconds");
@@ -278,8 +277,8 @@ public class GlobalTransactionMgr implements Writable {
             MetaLockUtils.writeUnlockTables(tableList);
         }
         stopWatch.stop();
-        LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms." +
-                " data will be visable later.", transactionId, stopWatch.getTime());
+        LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms."
+                + " data will be visable later.", transactionId, stopWatch.getTime());
     }
 
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
@@ -588,7 +587,7 @@ public class GlobalTransactionMgr implements Writable {
         long dbId = request.getDbId();
         int commitTimeoutSec = Config.commit_timeout_second;
         for (int i = 0; i < commitTimeoutSec; ++i) {
-            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+            Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
             TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
             statusResult.status = new TStatus();
             TransactionStatus txnStatus = null;

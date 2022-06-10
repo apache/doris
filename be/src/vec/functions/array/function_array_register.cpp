@@ -24,10 +24,12 @@ namespace doris::vectorized {
 
 void register_function_array_element(SimpleFunctionFactory&);
 void register_function_array_index(SimpleFunctionFactory&);
+void register_function_array_size(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_element(factory);
     register_function_array_index(factory);
+    register_function_array_size(factory);
 }
 
 } // namespace doris::vectorized

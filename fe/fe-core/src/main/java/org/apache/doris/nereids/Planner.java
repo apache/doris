@@ -19,12 +19,11 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
-import org.apache.doris.nereids.jobs.scheduler.JobStack;
-import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
+import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -49,21 +48,22 @@ public class Planner {
             LogicalPlan plan,
             PhysicalProperties outputProperties,
             ConnectContext connectContext) throws AnalysisException {
-        OptimizerContext optimizerContext = new OptimizerContext(
-                new Memo(),
-                new RuleSet(),
-                new JobStack(),
-                new SimpleJobScheduler()
-        );
+        Memo<Plan> memo = new Memo<>();
+        memo.initialize(plan);
+
+        OptimizerContext<Plan> optimizerContext = new OptimizerContext<>(memo);
         plannerContext = new PlannerContext(optimizerContext, connectContext, outputProperties);
-        plannerContext.getOptimizerContext().getMemo().initialize(plan);
-        plannerContext.getOptimizerContext().pushTask(new OptimizeGroupJob(getRoot(), plannerContext));
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobStack(plannerContext);
+
+        plannerContext.getOptimizerContext().pushJob(
+                new RewriteBottomUpJob(getRoot(), optimizerContext.getRuleSet().getAnalysisRules(), plannerContext));
+
+        plannerContext.getOptimizerContext().pushJob(new OptimizeGroupJob(getRoot(), plannerContext));
+        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
         return getBestPlan();
     }
 
     public Group getRoot() {
-        return plannerContext.getOptimizerContext().getMemo().getRootSet();
+        return plannerContext.getOptimizerContext().getMemo().getRoot();
     }
 
     private PhysicalPlan getBestPlan() {

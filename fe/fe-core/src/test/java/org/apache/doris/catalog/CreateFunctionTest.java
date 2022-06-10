@@ -89,13 +89,13 @@ public class CreateFunctionTest {
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
 
-        String createFuncStr = "create function db1.my_add(VARCHAR(1024)) RETURNS BOOLEAN properties\n" +
-                "(\n" +
-                "\"symbol\" =  \"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_9StringValE\",\n" +
-                "\"prepare_fn\" = \"_ZN9doris_udf13AddUdfPrepareEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
-                "\"close_fn\" = \"_ZN9doris_udf11AddUdfCloseEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
-                "\"object_file\" = \"http://127.0.0.1:8008/libcmy_udf.so\"\n" +
-                ");";
+        String createFuncStr = "create function db1.my_add(VARCHAR(1024)) RETURNS BOOLEAN properties\n"
+                + "(\n"
+                + "\"symbol\" =  \"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_9StringValE\",\n"
+                + "\"prepare_fn\" = \"_ZN9doris_udf13AddUdfPrepareEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n"
+                + "\"close_fn\" = \"_ZN9doris_udf11AddUdfCloseEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n"
+                + "\"object_file\" = \"http://127.0.0.1:8008/libcmy_udf.so\"\n"
+                + ");";
 
         CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
@@ -113,7 +113,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        UnionNode unionNode =  (UnionNode)fragment.getPlanRoot();
+        UnionNode unionNode =  (UnionNode) fragment.getPlanRoot();
         List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
@@ -136,7 +136,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode =  (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
@@ -147,8 +147,8 @@ public class CreateFunctionTest {
 
         // create alias function with cast
         // cast any type to decimal with specific precision and scale
-        createFuncStr = "create alias function db1.decimal(all, int, int) with parameter(col, precision, scale)" +
-                " as cast(col as decimal(precision, scale));";
+        createFuncStr = "create alias function db1.decimal(all, int, int) with parameter(col, precision, scale)"
+                + " as cast(col as decimal(precision, scale));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
@@ -164,7 +164,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode =  (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         System.out.println(constExprLists.get(0).get(0));
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
@@ -173,8 +173,8 @@ public class CreateFunctionTest {
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4,1))"));
 
         // cast any type to varchar with fixed length
-        createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as " +
-                "cast(text as varchar(length));";
+        createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as "
+                + "cast(text as varchar(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
@@ -190,7 +190,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode =  (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
@@ -200,8 +200,8 @@ public class CreateFunctionTest {
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
 
         // cast any type to char with fixed length
-        createFuncStr = "create alias function db1.char(all, int) with parameter(text, length) as " +
-                "cast(text as char(length));";
+        createFuncStr = "create alias function db1.char(all, int) with parameter(text, length) as "
+                + "cast(text as char(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
@@ -217,7 +217,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode =  (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());

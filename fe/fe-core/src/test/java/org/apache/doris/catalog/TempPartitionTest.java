@@ -208,15 +208,15 @@ public class TempPartitionTest {
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
         // create table tbl2
-        String createTblStmtStr1 = "create table db2.tbl2 (k1 int, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                "partition p1 values less than('10'),\n" +
-                "partition p2 values less than('20'),\n" +
-                "partition p3 values less than('30')\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 1\n" +
-                "properties('replication_num' = '1');";
+        String createTblStmtStr1 = "create table db2.tbl2 (k1 int, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + "partition p1 values less than('10'),\n"
+                + "partition p2 values less than('20'),\n"
+                + "partition p3 values less than('30')\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
@@ -338,7 +338,7 @@ public class TempPartitionTest {
         checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p1"), originPartitionTabletIds2.get("p2")), false);
 
         String truncateStr = "truncate table db2.tbl2 partition (p3);";
-        TruncateTableStmt truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
+        TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db2.tbl2", true, 1);
         checkShowPartitionsResultNum("db2.tbl2", false, 3);
@@ -495,20 +495,19 @@ public class TempPartitionTest {
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
         // create table tbl3
-        String createTblStmtStr1 = "create table db3.tbl3 (k1 int, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                "partition p1 values less than('10'),\n" +
-                "partition p2 values less than('20'),\n" +
-                "partition p3 values less than('30')\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 1\n" +
-                "properties('replication_num' = '1');";
+        String createTblStmtStr1 = "create table db3.tbl3 (k1 int, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + "partition p1 values less than('10'),\n"
+                + "partition p2 values less than('20'),\n"
+                + "partition p3 values less than('30')\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db3 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db3");
-        OlapTable tbl3 = (OlapTable) db3.getTableOrAnalysisException("tbl3");
+        Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db3");
 
         // base range is [min, 10), [10, 20), [20, 30)
 
@@ -571,15 +570,15 @@ public class TempPartitionTest {
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
         // create table tbl4
-        String createTblStmtStr1 = "create table db4.tbl4 (k1 int not null, k2 int)\n" +
-                "partition by list(k1)\n" +
-                "(\n" +
-                "partition p1 values in ('1', '2', '3'),\n" +
-                "partition p2 values in ('4', '5', '6'),\n" +
-                "partition p3 values in ('7', '8', '9')\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 1\n" +
-                "properties('replication_num' = '1');";
+        String createTblStmtStr1 = "create table db4.tbl4 (k1 int not null, k2 int)\n"
+                + "partition by list(k1)\n"
+                + "(\n"
+                + "partition p1 values in ('1', '2', '3'),\n"
+                + "partition p2 values in ('4', '5', '6'),\n"
+                + "partition p3 values in ('7', '8', '9')\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
@@ -694,14 +693,14 @@ public class TempPartitionTest {
         stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp1, tp2) properties('use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db4.tbl4", true, 1); // tp3
-        checkShowPartitionsResultNum("db4.tbl4", false, 3);// tp1, tp2, p3
+        checkShowPartitionsResultNum("db4.tbl4", false, 3); // tp1, tp2, p3
 
         checkTabletExists(tempPartitionTabletIds2.values(), true);
         checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p3")), true);
         checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p1"), originPartitionTabletIds2.get("p2")), false);
 
         String truncateStr = "truncate table db4.tbl4 partition (p3);";
-        TruncateTableStmt truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
+        TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db4.tbl4", true, 1);
         checkShowPartitionsResultNum("db4.tbl4", false, 3);
@@ -909,15 +908,15 @@ public class TempPartitionTest {
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
         // create table tbl5
-        String createTblStmtStr1 = "create table db5.tbl5 (k1 int not null, k2 varchar not null)\n" +
-                "partition by list(k1, k2)\n" +
-                "(\n" +
-                "partition p1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\")),\n" +
-                "partition p2 values in ((\"2\",\"beijing\"), (\"2\", \"shanghai\")),\n" +
-                "partition p3 values in ((\"3\",\"beijing\"), (\"3\", \"shanghai\"))\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 1\n" +
-                "properties('replication_num' = '1');";
+        String createTblStmtStr1 = "create table db5.tbl5 (k1 int not null, k2 varchar not null)\n"
+                + "partition by list(k1, k2)\n"
+                + "(\n"
+                + "partition p1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\")),\n"
+                + "partition p2 values in ((\"2\",\"beijing\"), (\"2\", \"shanghai\")),\n"
+                + "partition p3 values in ((\"3\",\"beijing\"), (\"3\", \"shanghai\"))\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
@@ -1032,14 +1031,14 @@ public class TempPartitionTest {
         stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp1, tp2) properties('use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db5.tbl5", true, 1); // tp3
-        checkShowPartitionsResultNum("db5.tbl5", false, 3);// tp1, tp2, p3
+        checkShowPartitionsResultNum("db5.tbl5", false, 3); // tp1, tp2, p3
 
         checkTabletExists(tempPartitionTabletIds2.values(), true);
         checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p3")), true);
         checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p1"), originPartitionTabletIds2.get("p2")), false);
 
         String truncateStr = "truncate table db5.tbl5 partition (p3);";
-        TruncateTableStmt truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
+        TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db5.tbl5", true, 1);
         checkShowPartitionsResultNum("db5.tbl5", false, 3);

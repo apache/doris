@@ -460,8 +460,8 @@ public class TableRef implements ParseNode, Writable {
                             + " (in" + " \"" + this.toSql() + "\")");
                 }
                 if (desc.getTable().getColumn(colName) == null) {
-                    throw new AnalysisException("Unknown column " + colName + " for alias " + getAlias() + " (in \"" +
-                            this.toSql() + "\")");
+                    throw new AnalysisException("Unknown column " + colName + " for alias " + getAlias() + " (in \""
+                            + this.toSql() + "\")");
                 }
 
                 // create predicate "<left>.colName = <right>.colName"
@@ -475,11 +475,6 @@ public class TableRef implements ParseNode, Writable {
                 }
             }
         }
-
-        // at this point, both 'this' and leftTblRef have been analyzed
-        // and registered
-        boolean lhsIsNullable = false;
-        boolean rhsIsNullable = false;
 
         //
         if (leftTblRef != null) {
@@ -607,8 +602,6 @@ public class TableRef implements ParseNode, Writable {
                 return "FULL OUTER JOIN";
             case CROSS_JOIN:
                 return "CROSS JOIN";
-            case MERGE_JOIN:
-                return "MERGE JOIN";
             default:
                 return "bad join op: " + joinOp.toString();
         }
