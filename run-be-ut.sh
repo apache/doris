@@ -105,7 +105,7 @@ echo "Build Backend UT"
 
 . ${DORIS_HOME}/env.sh
 
-CMAKE_BUILD_DIR=${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
+CMAKE_BUILD_DIR=${DORIS_HOME}/be_build/ut_build_${CMAKE_BUILD_TYPE}
 if [ ${CLEAN} -eq 1 ]; then
     rm ${CMAKE_BUILD_DIR} -rf
     rm ${DORIS_HOME}/be/output/ -rf
@@ -138,7 +138,7 @@ ${CMAKE_CMD} -G "${GENERATOR}" \
     -DWITH_MYSQL=OFF \
     -DUSE_DWARF=${USE_DWARF} \
     -DUSE_MEM_TRACKER=ON \
-    ${CMAKE_USE_CCACHE} ../
+    ${CMAKE_USE_CCACHE} ${DORIS_HOME}/be/
 ${BUILD_SYSTEM} -j ${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then

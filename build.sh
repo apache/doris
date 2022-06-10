@@ -84,7 +84,7 @@ clean_be() {
     # "build.sh --clean" just cleans and exits, however CMAKE_BUILD_DIR is set
     # while building be.
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
-    CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
+    CMAKE_BUILD_DIR=${DORIS_HOME}/be_build/build_${CMAKE_BUILD_TYPE}
 
     rm -rf $CMAKE_BUILD_DIR
     rm -rf ${DORIS_HOME}/be/output/
@@ -277,7 +277,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     if [ -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then rm -f ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ; fi
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
-    CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
+    CMAKE_BUILD_DIR=${DORIS_HOME}/be_build/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
         clean_be
     fi
@@ -301,7 +301,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_DWARF=${USE_DWARF} \
             -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
             -DUSE_AVX2=${USE_AVX2} \
-            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
+            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}

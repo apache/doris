@@ -405,6 +405,14 @@ LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
 LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 
+# sse2noen
+SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.5.1.tar.gz"
+SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
+SSE2NEON_SOURCE=sse2neon-1.5.1
+SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
+
+
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -463,4 +471,5 @@ SIMDJSON
 NLOHMANN_JSON
 OPENTELEMETRY_PROTO
 OPENTELEMETRY
-LIBBACKTRACE"
+LIBBACKTRACE
+SSE2NEON"
