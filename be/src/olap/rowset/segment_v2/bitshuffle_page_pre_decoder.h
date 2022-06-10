@@ -32,18 +32,17 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
      * the input may be data of BinaryDictPage, if its encoding type is plain,
      * it is no need to decode.
      *
+     * @param page unique_ptr to hold page data, maybe be replaced by decoded data
      * @param page_slice data to decode
-     * @param footer footer info
-     * @param footer_size size of footer (including 4 bytes at the end of page)
+     * @param size_of_tail including size of footer and null map
      * @return Status
      */
-    virtual Status decode(Slice* page_slice, PageFooterPB* footer, uint32_t footer_size) override {
+    virtual Status decode(std::unique_ptr<char[]>* page, Slice* page_slice,
+                          size_t size_of_tail) override {
         size_t num_elements, compressed_size, num_element_after_padding;
         int size_of_element;
 
         size_t size_of_dict_header = 0;
-        size_t size_of_nullmap = footer->data_page_footer().nullmap_size();
-        size_t size_of_tail = size_of_nullmap + footer_size + 4;
         Slice data(page_slice->data, page_slice->size - size_of_tail);
         if constexpr (USED_IN_DICT_ENCODING) {
             auto type = decode_fixed32_le((const uint8_t*)&data.data[0]);
@@ -90,7 +89,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
                page_slice->data + page_slice->size - size_of_tail, size_of_tail);
 
         *page_slice = decoded_slice;
-        decoded_page.release();
+        *page = std::move(decoded_page);
         return Status::OK();
     }
 };

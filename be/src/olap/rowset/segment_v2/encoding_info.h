@@ -37,7 +37,8 @@ struct PageDecoderOptions;
 // For better performance, some encodings (like BitShuffle) need to be decoded before being added to the PageCache.
 class DataPagePreDecoder {
 public:
-    virtual Status decode(Slice* page_slice, PageFooterPB* footer, uint32_t footer_size) = 0;
+    virtual Status decode(std::unique_ptr<char[]>* page, Slice* page_slice,
+                          size_t size_of_tail) = 0;
     virtual ~DataPagePreDecoder() = default;
 };
 
