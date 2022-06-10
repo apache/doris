@@ -20,7 +20,7 @@
 #include <map>
 #include <string>
 
-#include "file_reader.h"
+#include "io/file_reader.h"
 #include "util/s3_uri.h"
 
 namespace Aws {

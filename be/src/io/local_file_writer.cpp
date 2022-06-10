@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "local_file_writer.h"
+#include "io/local_file_writer.h"
 
 #include "service/backend_options.h"
 #include "util/error_util.h"
