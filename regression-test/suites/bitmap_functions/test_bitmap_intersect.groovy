@@ -27,21 +27,62 @@ suite("test_bitmap_intersect", "bitmap_function") {
     sql """ insert into ${tbName} values('B', to_bitmap(1)); """
     sql """ insert into ${tbName} values('B', to_bitmap(2)); """
 
-    for (i in 0..9) {
-        qt_sql  """ select
-            bitmap_to_string(bitmap_intersect(user_ids))
-            from
-            (
-                select
-                  tag,
-                  bitmap_union(user_ids) user_ids
-                from
-                  ${tbName}
-                group by
-                  tag
-            ) t
-            """
-    }
+
+   qt_sql  """ select
+       bitmap_to_string(bitmap_intersect(user_ids))
+       from
+       (
+           select
+             tag,
+             bitmap_union(user_ids) user_ids
+           from
+             ${tbName}
+           group by
+             tag 
+       ) t
+       """
+   qt_sql  """ select
+       bitmap_to_string(bitmap_intersect(user_ids))
+       from
+       (
+           select
+             tag,
+             bitmap_union(user_ids) user_ids
+           from
+             ${tbName}
+           group by
+             tag having tag not in ("A","B")
+       ) t
+       """
+
+    sql """ SET enable_vectorized_engine = true; """
+    qt_sql  """ select
+       bitmap_to_string(bitmap_intersect(user_ids))
+       from
+       (
+           select
+             tag,
+             bitmap_union(user_ids) user_ids
+           from
+             ${tbName}
+           group by
+             tag 
+       ) t
+       """
+    qt_sql  """ select
+       bitmap_to_string(bitmap_intersect(user_ids))
+       from
+       (
+           select
+             tag,
+             bitmap_union(user_ids) user_ids
+           from
+             ${tbName}
+           group by
+             tag having tag not in ("A","B")
+       ) t
+       """
+
 
     sql """ DROP TABLE  ${tbName} """
 }
