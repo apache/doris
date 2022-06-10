@@ -102,6 +102,18 @@ mysql> desc duplicate_table;
 | k4 | BIGINT | Yes | true | N/A | |
 +-------+--------+------+------+---------+-------+
 ````
+```sql
+create table duplicate_table(
+	k1 int null,
+	k2 int null,
+	k3 bigint null,
+	k4 bigint null
+)
+duplicate key (k1,k2,k3,k4)
+distributed BY hash(k4) buckets 3
+properties("replication_num" = "1");
+```
+attention：The partition and distributed columns  must be key column in mv
 
 1. Create a materialized view that contains only the columns of the original table (k1, k2)
 
