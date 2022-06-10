@@ -29,6 +29,7 @@
 #include "util/to_string.h"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scanner.h"
+#include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
@@ -86,6 +87,8 @@ Status VOlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
                                                                         &runtime_filter));
 
         _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
+        _runtime_filter_ready_flag[i] = false;
+        _rf_locks.push_back(std::make_unique<std::mutex>());
     }
 
     return Status::OK();
@@ -389,29 +392,73 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
-    std::vector<ExprContext*> contexts;
+    std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
     for (size_t i = 0; i < scanner_filter_apply_marks.size(); i++) {
         if (!scanner_filter_apply_marks[i] && !_runtime_filter_ctxs[i].apply_mark) {
+            /// When runtime filters are ready during running, we should use them to filter data
+            /// in VOlapScanner.
+            /// New arrival rf will be processed as below:
+            /// 1. convert these runtime filters to vectorized expressions
+            /// 2. if this is the first scanner thread to receive this rf, construct a new
+            /// VExprContext and update `_vconjunct_ctx_ptr` in scan node. Notice that we use
+            /// `_runtime_filter_ready_flag` to ensure `_vconjunct_ctx_ptr` will be updated only
+            /// once after any runtime_filters are ready.
+            /// 3. finally, just copy this new VExprContext to scanner and use it to filter data.
             IRuntimeFilter* runtime_filter = nullptr;
             state->runtime_filter_mgr()->get_consume_filter(_runtime_filter_descs[i].filter_id,
                                                             &runtime_filter);
             DCHECK(runtime_filter != nullptr);
             bool ready = runtime_filter->is_ready();
             if (ready) {
-                runtime_filter->get_prepared_context(&contexts, row_desc(), _expr_mem_tracker);
+                runtime_filter->get_prepared_vexprs(&vexprs, row_desc(), _expr_mem_tracker);
                 scanner_filter_apply_marks[i] = true;
+                if (!_runtime_filter_ready_flag[i]) {
+                    std::unique_lock<std::mutex> l(*(_rf_locks[i]));
+                    if (!_runtime_filter_ready_flag[i]) {
+                        // Use all conjuncts and new arrival runtime filters to construct a new
+                        // expression tree here.
+                        auto last_expr =
+                                _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
+                        for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
+                            TExprNode texpr_node;
+                            texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+                            texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+                            texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
+                            VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
+                            new_node->add_child(last_expr);
+                            new_node->add_child(vexprs[j]);
+                            last_expr = new_node;
+                        }
+                        auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
+                        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc(),
+                                                                          expr_mem_tracker());
+                        // If error occurs in `prepare` or `open` phase, discard these runtime
+                        // filters directly.
+                        if (UNLIKELY(!expr_status.OK())) {
+                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
+                            vexprs.clear();
+                            break;
+                        }
+                        expr_status = new_vconjunct_ctx_ptr->open(state);
+                        if (UNLIKELY(!expr_status.OK())) {
+                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
+                            vexprs.clear();
+                            break;
+                        }
+                        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+                        *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+                        _runtime_filter_ready_flag[i] = true;
+                    }
+                }
             }
         }
     }
 
-    if (!contexts.empty()) {
-        std::vector<ExprContext*> new_contexts;
-        auto& scanner_conjunct_ctxs = *scanner->conjunct_ctxs();
-        Expr::clone_if_not_exists(contexts, state, &new_contexts);
-        scanner_conjunct_ctxs.insert(scanner_conjunct_ctxs.end(), new_contexts.begin(),
-                                     new_contexts.end());
+    if (!vexprs.empty()) {
+        WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
+                      "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
     }
 
