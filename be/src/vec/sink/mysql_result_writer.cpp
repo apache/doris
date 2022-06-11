@@ -145,8 +145,8 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             _buffer.close_dynamic_mode();
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
-    } else if (type == TYPE_DECIMALV2 && config::enable_execution_decimalv3) {
-        WhichDataType which(nested_type_ptr->get_type_id());
+    } else if (type == TYPE_DECIMALV2) {
+        WhichDataType which(nested_type_ptr);
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -161,15 +161,24 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 }
             }
             std::string decimal_str;
-            if (which.is_decimal32()) {
-                decimal_str = typeid_cast<const DataTypeDecimal<Decimal32>*>(nested_type_ptr.get())
-                                      ->to_string(*column, i);
-            } else if (which.is_decimal64()) {
-                decimal_str = typeid_cast<const DataTypeDecimal<Decimal64>*>(nested_type_ptr.get())
-                                      ->to_string(*column, i);
-            } else if (which.is_decimal128()) {
-                decimal_str = typeid_cast<const DataTypeDecimal<Decimal128>*>(nested_type_ptr.get())
-                                      ->to_string(*column, i);
+            if (config::enable_execution_decimalv3) {
+                if (which.is_decimal32()) {
+                    decimal_str =
+                            assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type_ptr.get())
+                                    ->to_string(*column, i);
+                } else if (which.is_decimal64()) {
+                    decimal_str =
+                            assert_cast<const DataTypeDecimal<Decimal64>*>(nested_type_ptr.get())
+                                    ->to_string(*column, i);
+                } else if (which.is_decimal128()) {
+                    decimal_str =
+                            assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type_ptr.get())
+                                    ->to_string(*column, i);
+                }
+            } else {
+                DecimalV2Value decimal_val(
+                        assert_cast<const ColumnDecimal<Decimal128>&>(*column).get_element(i));
+                decimal_str = decimal_val.to_string();
             }
             buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
@@ -229,11 +238,6 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 // TODO(zhaochun), this function has core risk
                 char* pos = time_val.to_string(buf);
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
-            }
-            if constexpr (type == TYPE_DECIMALV2) {
-                DecimalV2Value decimal_val(data[i]);
-                auto decimal_str = decimal_val.to_string();
-                buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             }
 
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
