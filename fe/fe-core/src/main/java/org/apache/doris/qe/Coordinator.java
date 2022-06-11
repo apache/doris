@@ -1850,9 +1850,19 @@ public class Coordinator {
         private void computeScanRangeAssignmentByBucket(
                 final OlapScanNode scanNode, ImmutableMap<Long, Backend> idToBackend, Map<TNetworkAddress, Long> addressToBackendID) throws Exception {
             if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
-                // The bucket shuffle join only hit when the partition is one. so the totalTabletsNum is all tablet of
-                // one hit partition. can be the right bucket num in bucket shuffle join
-                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), (int)scanNode.getTotalTabletsNum());
+                // In bucket shuffle join, we have 2 situation.
+                // 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
+                //    because when table turn on dynamic partition, the bucket number in default distribution info
+                //    is not correct.
+                // 2. Table is colocated: in this case, table could have more than one partition, but all partition's
+                //    bucket number must be same, so we use default bucket num is ok.
+                int bucketNum = 0;
+                if (scanNode.getOlapTable().isColocateTable()) {
+                    bucketNum = scanNode.getOlapTable().getDefaultDistributionInfo().getBucketNum();
+                } else {
+                    bucketNum = (int) (scanNode.getTotalTabletsNum());
+                }
+                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), bucketNum);
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashedMap());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
                 fragmentIdToBuckendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
