@@ -719,7 +719,7 @@ public class OlapScanNode extends ScanNode {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
             output.append(String.format(", tabletList=%s ...", Joiner.on(",").join(firstTenTabletIds)));
         } else {
-            output.append(String.format("tabletList=%s", Joiner.on(",").join(scanTabletIds)));
+            output.append(String.format(", tabletList=%s", Joiner.on(",").join(scanTabletIds)));
         }
         output.append("\n");
 
