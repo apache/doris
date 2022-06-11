@@ -41,7 +41,7 @@ public:
                        ::google::protobuf::Closure* done) override;
 
     void transmit_data_by_http(::google::protobuf::RpcController* controller,
-                               const ::doris::PEchoRequest* request,
+                               const ::doris::PEmptyRequest* request,
                                ::doris::PTransmitDataResult* response,
                                ::google::protobuf::Closure* done) override;
 
@@ -79,7 +79,7 @@ public:
                                  google::protobuf::Closure* done) override;
 
     void tablet_writer_add_batch_by_http(google::protobuf::RpcController* controller,
-                                         const ::doris::PEchoRequest* request,
+                                         const ::doris::PEmptyRequest* request,
                                          PTabletWriterAddBatchResult* response,
                                          google::protobuf::Closure* done) override;
 
@@ -89,7 +89,7 @@ public:
                                  google::protobuf::Closure* done) override;
 
     void tablet_writer_add_block_by_http(google::protobuf::RpcController* controller,
-                                         const ::doris::PEchoRequest* request,
+                                         const ::doris::PEmptyRequest* request,
                                          PTabletWriterAddBlockResult* response,
                                          google::protobuf::Closure* done) override;
 
@@ -125,7 +125,7 @@ public:
                         ::doris::PTransmitDataResult* response,
                         ::google::protobuf::Closure* done) override;
     void transmit_block_by_http(::google::protobuf::RpcController* controller,
-                                const ::doris::PEchoRequest* request,
+                                const ::doris::PEmptyRequest* request,
                                 ::doris::PTransmitDataResult* response,
                                 ::google::protobuf::Closure* done) override;
 

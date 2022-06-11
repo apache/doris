@@ -96,7 +96,7 @@ void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_b
 }
 
 void PInternalServiceImpl::transmit_data_by_http(google::protobuf::RpcController* cntl_base,
-                                                 const PEchoRequest* request,
+                                                 const PEmptyRequest* request,
                                                  PTransmitDataResult* response,
                                                  google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();
@@ -208,7 +208,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
 }
 
 void PInternalServiceImpl::tablet_writer_add_block_by_http(
-        google::protobuf::RpcController* cntl_base, const ::doris::PEchoRequest* request,
+        google::protobuf::RpcController* cntl_base, const ::doris::PEmptyRequest* request,
         PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
     PTabletWriterAddBlockRequest* request_raw = new PTabletWriterAddBlockRequest();
     google::protobuf::Closure* done_raw =
@@ -262,7 +262,7 @@ void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcControll
 }
 
 void PInternalServiceImpl::tablet_writer_add_batch_by_http(
-        google::protobuf::RpcController* cntl_base, const ::doris::PEchoRequest* request,
+        google::protobuf::RpcController* cntl_base, const ::doris::PEmptyRequest* request,
         PTabletWriterAddBatchResult* response, google::protobuf::Closure* done) {
     PTabletWriterAddBatchRequest* request_raw = new PTabletWriterAddBatchRequest();
     google::protobuf::Closure* done_raw =
@@ -615,7 +615,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* cntl_
 }
 
 void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* cntl_base,
-                                                  const PEchoRequest* request,
+                                                  const PEmptyRequest* request,
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();

@@ -86,7 +86,9 @@ public:
         } else {
             options.protocol = protocol;
         }
-        if (connect_type != "") options.connection_type = connect_type;
+        if (connect_type != "") {
+            options.connection_type = connect_type;
+        }
         std::unique_ptr<brpc::Channel> channel(new brpc::Channel());
         int ret_code = 0;
         if (host_port.find("://") == std::string::npos) {
