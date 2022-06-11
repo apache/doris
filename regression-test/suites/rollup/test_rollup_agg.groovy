@@ -71,7 +71,7 @@ suite("test_rollup_agg", "rollup") {
     sql "insert into ${tbName} values(2, 1, 'test2', 100,100,100);"
     explain {
         sql("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode")
-        contains("rollup: rollup_city")
+        contains("(rollup_city)")
     }
     qt_sql "SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode"
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_city"
