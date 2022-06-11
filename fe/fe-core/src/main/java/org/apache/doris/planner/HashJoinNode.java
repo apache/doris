@@ -701,7 +701,7 @@ public class HashJoinNode extends PlanNode {
         }
         StringBuilder output =
                 new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
-                        .append(distrModeStr).append(")\n");
+                        .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
