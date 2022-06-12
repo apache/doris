@@ -316,12 +316,38 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         char buf[64];
         char* pos = datetime.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
-    } else if (which.is_decimal128()) {
-        auto& column_data =
-                static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
-        DecimalV2Value decimal_val(column_data[row_idx]);
-        auto decimal_str = decimal_val.to_string();
+    } else if (which.is_decimal32()) {
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type.get())
+                                   ->to_string(*column, row_idx);
         return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+    } else if (which.is_decimal64()) {
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal64>*>(nested_type.get())
+                                   ->to_string(*column, row_idx);
+        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+    } else if (which.is_decimal128()) {
+        if (config::enable_execution_decimalv3) {
+            DataTypePtr nested_type = type;
+            if (type->is_nullable()) {
+                nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+            }
+            auto decimal_str = assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type.get())
+                                       ->to_string(*column, row_idx);
+            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+        } else {
+            auto& column_data =
+                    static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
+            DecimalV2Value decimal_val(column_data[row_idx]);
+            auto decimal_str = decimal_val.to_string();
+            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+        }
     } else if (which.is_array()) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
