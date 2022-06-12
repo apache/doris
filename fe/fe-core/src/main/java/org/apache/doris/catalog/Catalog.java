@@ -4671,7 +4671,7 @@ public class Catalog {
 
         db.dropTable(table.getName());
         if (!isForceDrop) {
-            Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
+            Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay);
         } else {
             if (table.getType() == TableType.OLAP) {
                 Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, isReplay);
