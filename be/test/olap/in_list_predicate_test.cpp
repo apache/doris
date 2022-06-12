@@ -161,7 +161,7 @@ public:
         values.insert(4);                                                                         \
         values.insert(5);                                                                         \
         values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values));                  \
+        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values), true);            \
         pred->evaluate(_vectorized_batch);                                                        \
         EXPECT_EQ(_vectorized_batch->size(), 3);                                                  \
         uint16_t* sel = _vectorized_batch->selected();                                            \
@@ -208,7 +208,7 @@ TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
         values.insert(4);                                                                         \
         values.insert(5);                                                                         \
         values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values));                  \
+        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values), true);            \
         uint16_t sel[10];                                                                         \
         for (int i = 0; i < 10; ++i) {                                                            \
             sel[i] = i;                                                                           \
@@ -273,7 +273,7 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     values.insert(4.1);
     values.insert(5.1);
     values.insert(6.1);
-    ColumnPredicate* pred = new InListPredicate<float>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<float>(0, std::move(values), true);
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -358,7 +358,7 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     values.insert(5.1);
     values.insert(6.1);
 
-    ColumnPredicate* pred = new InListPredicate<double>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<double>(0, std::move(values), true);
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -447,7 +447,7 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     decimal12_t value3 = {6, 6};
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<decimal12_t>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<decimal12_t>(0, std::move(values), true);
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -550,7 +550,7 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     value3.len = 5;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values), true);
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -678,7 +678,7 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     value3.len = 3;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values), true);
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -793,7 +793,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
 
     uint24_t value3 = datetime::timestamp_from_date("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred = new InListPredicate<uint24_t>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<uint24_t>(0, std::move(values), true);
 
     // for VectorizedBatch no nulls
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -903,7 +903,7 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     uint64_t value3 = datetime::timestamp_from_datetime("2017-09-11 01:01:00");
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<uint64_t>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<uint64_t>(0, std::move(values), true);
 
     // for VectorizedBatch no nulls
     InitVectorizedBatch(&tablet_schema, return_columns, size);

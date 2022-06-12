@@ -622,9 +622,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<int8_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int8_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<int8_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int8_t>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -636,9 +636,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<int16_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int16_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<int16_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int16_t>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -650,9 +650,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<int32_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int32_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<int32_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int32_t>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -664,9 +664,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<int64_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int64_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<int64_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int64_t>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -680,9 +680,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<int128_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int128_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<int128_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<int128_t>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -694,9 +694,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<decimal12_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<decimal12_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<decimal12_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<decimal12_t>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -713,9 +713,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<StringValue>(index, std::move(values), opposite);
+                predicate = new InListPredicate<StringValue>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<StringValue>(index, std::move(values), opposite);
+                predicate = new InListPredicate<StringValue>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -732,9 +732,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<StringValue>(index, std::move(values), opposite);
+                predicate = new InListPredicate<StringValue>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<StringValue>(index, std::move(values), opposite);
+                predicate = new InListPredicate<StringValue>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -745,9 +745,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<uint24_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<uint24_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<uint24_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<uint24_t>(index, std::move(values), false, opposite);
             }
             break;
         }
@@ -758,9 +758,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 values.insert(value);
             }
             if (condition.condition_op == "*=") {
-                predicate = new InListPredicate<uint64_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<uint64_t>(index, std::move(values), true, opposite);
             } else {
-                predicate = new NotInListPredicate<uint64_t>(index, std::move(values), opposite);
+                predicate = new InListPredicate<uint64_t>(index, std::move(values), false, opposite);
             }
             break;
         }
