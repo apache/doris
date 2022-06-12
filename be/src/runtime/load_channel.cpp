@@ -34,7 +34,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t load_mem_limit, int64_
           _sender_ip(sender_ip),
           _is_vec(is_vec) {
     _mem_tracker = MemTracker::create_tracker(
-            channel_mem_limit, "LoadChannel:senderIp=" + sender_ip,
+            channel_mem_limit, "LoadChannel#senderIp=" + sender_ip,
             ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->register_load_mem_tracker(
                     _load_id.to_string(), load_mem_limit),
             MemTrackerLevel::TASK);

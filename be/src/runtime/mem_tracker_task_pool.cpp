@@ -41,7 +41,7 @@ std::shared_ptr<MemTracker> MemTrackerTaskPool::register_query_mem_tracker(
     VLOG_FILE << "Register Query memory tracker, query id: " << query_id
               << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
     return register_task_mem_tracker_impl(query_id, mem_limit,
-                                          fmt::format("Query&queryId={}", query_id),
+                                          fmt::format("Query#queryId={}", query_id),
                                           ExecEnv::GetInstance()->query_pool_mem_tracker());
 }
 
@@ -51,7 +51,7 @@ std::shared_ptr<MemTracker> MemTrackerTaskPool::register_load_mem_tracker(
     VLOG_FILE << "Register Load memory tracker, load id: " << load_id
               << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
     return register_task_mem_tracker_impl(load_id, mem_limit,
-                                          fmt::format("Load&loadId={}", load_id),
+                                          fmt::format("Load#loadId={}", load_id),
                                           ExecEnv::GetInstance()->load_pool_mem_tracker());
 }
 
@@ -108,9 +108,12 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
         // The only known case: after an load task ends all fragments on a BE,`tablet_writer_open` is still
         // called to create a channel, and the load task tracker will be re-registered in the channel open.
         // https://github.com/apache/incubator-doris/issues/9905
-        if (_task_mem_trackers[tid].use_count() == 1) {
+        if (!_task_mem_trackers[tid]) {
             _task_mem_trackers.erase(tid);
-            VLOG_FILE << "Deregister task memory tracker, task id: " << tid;
+            VLOG_FILE << "Deregister null task mem tracker, task id: " << tid;
+        } else if (_task_mem_trackers[tid].use_count() == 1) {
+            _task_mem_trackers.erase(tid);
+            VLOG_FILE << "Deregister not used task mem tracker, task id: " << tid;
         }
     }
 }

@@ -124,7 +124,7 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker_impl(
     std::string reset_label;
     MemTracker* task_parent_tracker = reset_parent->parent_task_mem_tracker();
     if (task_parent_tracker) {
-        reset_label = fmt::format("{}&{}", label, split(task_parent_tracker->label(), "&")[1]);
+        reset_label = fmt::format("{}#{}", label, split(task_parent_tracker->label(), "#")[1]);
     } else {
         reset_label = label;
     }
