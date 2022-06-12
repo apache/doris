@@ -462,7 +462,7 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bo
 // Drop specified tablet.
 Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id,
                                             bool keep_files) {
-    LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id;
+    LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
     // Fetch tablet which need to be dropped
@@ -472,8 +472,10 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
                      << "tablet_id=" << tablet_id;
         return Status::OK();
     }
+    // We should compare replica id to avoid dropping new cloned tablet.
+    // Iff request replica id is 0, FE may be an older release, then we drop this tablet as before.
     if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
-        LOG(WARNING) << "fail to drop tablet because replica_id not match. "
+        LOG(WARNING) << "fail to drop tablet because replica id not match. "
                      << "tablet_id=" << tablet_id << ", replica_id=" << to_drop_tablet->replica_id()
                      << ", request replica_id=" << replica_id;
         return Status::OK();

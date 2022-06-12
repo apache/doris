@@ -383,6 +383,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.row_count = 0;
             tablet_info.data_size = 0;
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+            tablet_info.__set_replica_id(tablet->replica_id());
             finish_tablet_infos.push_back(tablet_info);
         }
 

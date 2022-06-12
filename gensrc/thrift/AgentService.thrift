@@ -206,7 +206,7 @@ struct TCloneReq {
     8: optional i64 src_path_hash;
     9: optional i64 dest_path_hash;
     10: optional i32 timeout_s;
-    11: optional Types.TReplicaId replica_id
+    11: optional Types.TReplicaId replica_id = 0
 }
 
 struct TCompactionReq {
