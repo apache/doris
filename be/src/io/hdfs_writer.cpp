@@ -23,18 +23,15 @@
 #include "service/backend_options.h"
 
 namespace doris {
-const static std::string FS_KEY = "fs.defaultFS";
-const static std::string USER = "hadoop.username";
-const static std::string KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-const static std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-const static std::string TOKEN = "token";
 
-HDFSWriter::HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path)
+HDFSWriter::HDFSWriter(const std::map<std::string, std::string>& properties,
+                       const std::string& path)
         : _properties(properties),
           _path(path),
           _hdfs_fs(nullptr),
-          _hdfs_params(_parse_properties(_properties)),
-          _builder(createHDFSBuilder(_hdfs_params)) {}
+          _builder(createHDFSBuilder(_properties)) {
+    _parse_properties(_properties);
+}
 
 HDFSWriter::~HDFSWriter() {
     close();
@@ -86,7 +83,7 @@ Status HDFSWriter::open() {
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    LOG(INFO) << "open file. namenode:" << _namenode << " path:" << _path;
+    LOG(INFO) << "open file. namenode:" << _namenode << ", path:" << _path;
     return Status::OK();
 }
 
@@ -153,34 +150,11 @@ Status HDFSWriter::_connect() {
     return Status::OK();
 }
 
-THdfsParams HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
-    std::map<std::string, std::string>::iterator iter;
-    std::vector<THdfsConf> hdfs_configs;
-    THdfsParams hdfsParams;
-    for (iter = prop.begin(); iter != prop.end();) {
-        if (iter->first.compare(FS_KEY) == 0) {
-            _namenode = iter->second;
-            hdfsParams.__set_fs_name(_namenode);
-            iter = prop.erase(iter);
-        } else if (iter->first.compare(USER) == 0) {
-            hdfsParams.__set_user(iter->second);
-            iter = prop.erase(iter);
-        } else if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
-            hdfsParams.__set_hdfs_kerberos_principal(iter->second);
-            iter = prop.erase(iter);
-        } else if (iter->first.compare(KERBEROS_KEYTAB) == 0) {
-            hdfsParams.__set_hdfs_kerberos_keytab(iter->second);
-            iter = prop.erase(iter);
-        } else {
-            THdfsConf item;
-            item.key = iter->first;
-            item.value = iter->second;
-            hdfs_configs.push_back(item);
-            iter = prop.erase(iter);
-        }
+void HDFSWriter::_parse_properties(const std::map<std::string, std::string>& prop) {
+    auto iter = prop.find(FS_KEY);
+    if (iter != prop.end()) {
+        _namenode = iter->second;
     }
-    hdfsParams.__set_hdfs_conf(hdfs_configs);
-    return hdfsParams;
 }
 
 } // end namespace doris

@@ -36,8 +36,26 @@ HdfsFileReader::HdfsFileReader(const THdfsParams& hdfs_params, const std::string
     _namenode = _hdfs_params.fs_name;
 }
 
+HdfsFileReader::HdfsFileReader(const std::map<std::string, std::string>& properties,
+                               const std::string& path, int64_t start_offset)
+        : _path(path),
+          _current_offset(start_offset),
+          _file_size(-1),
+          _hdfs_fs(nullptr),
+          _hdfs_file(nullptr),
+          _builder(createHDFSBuilder(properties)) {
+    _parse_properties(properties);
+}
+
 HdfsFileReader::~HdfsFileReader() {
     close();
+}
+
+void HdfsFileReader::_parse_properties(const std::map<std::string, std::string>& prop) {
+    auto iter = prop.find(FS_KEY);
+    if (iter != prop.end()) {
+        _namenode = iter->second;
+    }
 }
 
 Status HdfsFileReader::connect() {
@@ -55,6 +73,16 @@ Status HdfsFileReader::connect() {
 }
 
 Status HdfsFileReader::open() {
+    if (_namenode.empty()) {
+        LOG(WARNING) << "hdfs properties is incorrect.";
+        return Status::InternalError("hdfs properties is incorrect");
+    }
+    // if the format of _path is hdfs://ip:port/path, replace it to /path.
+    // path like hdfs://ip:port/path can't be used by libhdfs3.
+    if (_path.find(_namenode) != _path.npos) {
+        _path = _path.substr(_namenode.size());
+    }
+
     if (!closed()) {
         close();
     }
@@ -63,12 +91,11 @@ Status HdfsFileReader::open() {
     if (_hdfs_file == nullptr) {
         std::stringstream ss;
         ss << "open file failed. "
-           << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
-           << ", err: " << strerror(errno);
-        ;
+           << "(BE: " << BackendOptions::get_localhost() << ")"
+           << " namenode:" << _namenode << ", path:" << _path << ", err: " << strerror(errno);
         return Status::InternalError(ss.str());
     }
-    LOG(INFO) << "open file. " << _namenode << _path;
+    LOG(INFO) << "open file, namenode:" << _namenode << ", path:" << _path;
     return seek(_current_offset);
 }
 
@@ -92,7 +119,7 @@ void HdfsFileReader::close() {
 }
 
 bool HdfsFileReader::closed() {
-    return _hdfs_file == nullptr || _hdfs_fs == nullptr;
+    return _hdfs_file == nullptr && _hdfs_fs == nullptr;
 }
 
 // Read all bytes
@@ -103,7 +130,7 @@ Status HdfsFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t
         *length = 0;
         return Status::OK();
     }
-    bool eof;
+    bool eof = false;
     buf->reset(new uint8_t[file_size]);
     read(buf->get(), file_size, length, &eof);
     return Status::OK();

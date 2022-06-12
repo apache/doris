@@ -1243,10 +1243,10 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
         std::unique_ptr<SnapshotLoader> loader = nullptr;
-        if (upload_request.__isset.storage_backend &&
-            upload_request.storage_backend == TStorageBackendType::S3) {
+        if (upload_request.__isset.storage_backend) {
             loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature,
-                                            upload_request.broker_prop));
+                                            upload_request.broker_prop,
+                                            upload_request.storage_backend));
         } else {
             loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature,
                                             upload_request.broker_addr,
@@ -1310,10 +1310,10 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         std::vector<int64_t> downloaded_tablet_ids;
 
         std::unique_ptr<SnapshotLoader> loader = nullptr;
-        if (download_request.__isset.storage_backend &&
-            download_request.storage_backend == TStorageBackendType::S3) {
+        if (download_request.__isset.storage_backend) {
             loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature,
-                                            download_request.broker_prop));
+                                            download_request.broker_prop,
+                                            download_request.storage_backend));
         } else {
             loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature,
                                             download_request.broker_addr,

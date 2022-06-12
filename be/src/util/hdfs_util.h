@@ -17,38 +17,27 @@
 
 #pragma once
 
+#include <hdfs/hdfs.h>
+
 #include <map>
+#include <memory>
 #include <string>
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "io/file_writer.h"
+#include "common/status.h"
 #include "io/hdfs_builder.h"
 
 namespace doris {
-class HDFSWriter : public FileWriter {
+
+class HDFSHandle {
 public:
-    HDFSWriter(const std::map<std::string, std::string>& properties, const std::string& path);
-    ~HDFSWriter();
-    Status open() override;
+    ~HDFSHandle() {}
 
-    // Writes up to count bytes from the buffer pointed buf to the file.
-    // NOTE: the number of bytes written may be less than count if.
-    Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
+    static HDFSHandle& instance();
 
-    Status close() override;
+    hdfsFS create_hdfs_fs(HDFSCommonBuilder& builder);
 
 private:
-    Status _connect();
-    void _parse_properties(const std::map<std::string, std::string>& prop);
-
-private:
-    std::map<std::string, std::string> _properties;
-    std::string _namenode = "";
-    std::string _path = "";
-    hdfsFS _hdfs_fs = nullptr;
-    hdfsFile _hdfs_file = nullptr;
-    bool _closed = false;
-    HDFSCommonBuilder _builder;
+    HDFSHandle() {}
 };
 
 } // namespace doris
