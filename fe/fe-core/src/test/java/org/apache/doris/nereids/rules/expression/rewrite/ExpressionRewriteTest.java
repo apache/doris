@@ -54,15 +54,6 @@ public class ExpressionRewriteTest {
         assertRewrite("2 < x", "x > 2");
         assertRewrite("2 <= x", "x >= 2");
         assertRewrite("2 = x", "x = 2");
-        /*
-        assertRewrite("a = 1", "a = 1");
-        assertRewrite("a = 1 and 1 = a", "a = 1");
-        assertRewrite("a = 1 and b > 2 and a = 1", "a = 1 and b > 2");
-        assertRewrite("a = 1 and a = 1 and b > 2 and a = 1 and a = 1", "a = 1 and b > 2");
-
-        assertRewrite("a = 1 or a = 1", "a = 1");
-        assertRewrite("a = 1 or a = 1 or b >= 1", "a = 1 or b >= 1");
-        */
     }
 
     private void assertRewrite(String expression, String expected) {

@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
-
-import com.google.common.collect.Lists;
 
 /**
  * Expression rewrite helper class.
@@ -30,28 +26,6 @@ public class RewriteHelper {
 
     public static boolean isConstant(Expression expr) {
         return expr.isConstant();
-    }
-
-    public static Expression convertLiteralToSlot(Expression expr) {
-        ExpressionRewriter rewriter = new ExpressionRewriter(ConvertLiteralToSlotRule.INSTANCE);
-        return rewriter.rewrite(expr);
-    }
-
-    /**
-     * For test.
-     * convert literal to slot
-     */
-    private static class ConvertLiteralToSlotRule extends AbstractExpressionRewriteRule {
-
-        public static final ConvertLiteralToSlotRule INSTANCE = new ConvertLiteralToSlotRule();
-
-        @Override
-        public Expression visitLiteral(Literal expr, ExpressionRewriteContext context) {
-            if (expr.getValue() instanceof String) {
-                return new UnboundSlot(Lists.newArrayList(expr.toString()));
-            }
-            return expr;
-        }
     }
 
 }
