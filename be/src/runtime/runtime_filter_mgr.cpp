@@ -239,7 +239,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             has_attachment = true;
         }
 
-        // TODO: async send publish rpc
         std::vector<TRuntimeFilterTargetParams>& targets = cntVal->target_info;
         for (size_t i = 0; i < targets.size(); i++) {
             rpc_contexts.emplace_back(new PPublishFilterRpcContext);
@@ -249,6 +248,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             if (has_attachment) {
                 rpc_contexts[i]->cntl.request_attachment().append(request_attachment);
             }
+            rpc_contexts[i]->cid = rpc_contexts[i]->cntl.call_id();
 
             // set fragment-id
             auto request_fragment_id = rpc_contexts[i]->request.mutable_fragment_id();
@@ -267,9 +267,16 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 continue;
             }
             stub->apply_filter(&rpc_contexts[i]->cntl, &rpc_contexts[i]->request,
-                               &rpc_contexts[i]->response, nullptr);
+                               &rpc_contexts[i]->response, brpc::DoNothing());
         }
-        /// TODO: use async and join rpc
+        for (auto& rpc_context : rpc_contexts) {
+            brpc::Join(rpc_context->cid);
+            if (rpc_context->cntl.Failed()) {
+                LOG(WARNING) << "runtimefilter rpc err:" << rpc_context->cntl.ErrorText();
+                ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                        rpc_context->cntl.remote_side());
+            }
+        }
     }
     return Status::OK();
 }
