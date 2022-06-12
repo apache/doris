@@ -440,25 +440,10 @@ Status VFileResultWriter::_fill_result_block() {
             INSERT_TO_COLUMN;
             break;
         }
-        case TYPE_LARGEINT: {
-            auto column = ColumnVector<int128_t>::create();
-            INSERT_TO_COLUMN;
-            break;
-        }
-        case TYPE_SMALLINT: {
-            auto column = ColumnVector<int16_t>::create();
-            INSERT_TO_COLUMN;
-            break;
-        }
-        case TYPE_TINYINT: {
-            auto column = ColumnVector<int8_t>::create();
-            INSERT_TO_COLUMN;
-            break;
-        }
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {
-            auto column = ColumnVector<int8_t>::create();
+            auto column = ColumnString::create();
             INSERT_TO_COLUMN;
             break;
         }
