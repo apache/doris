@@ -90,6 +90,7 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
     case OLAP_FIELD_TYPE_ARRAY:
         DCHECK(col_desc.get_sub_field_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(*col_desc.get_sub_field(0)));
+        break;
     default:
         DCHECK(false) << "Invalid FieldType:" << (int)col_desc.type();
         nested = nullptr;
