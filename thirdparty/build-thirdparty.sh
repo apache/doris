@@ -509,6 +509,7 @@ build_re2() {
 build_hyperscan() {
     check_if_source_exist $RAGEL_SOURCE
     cd $TP_SOURCE_DIR/$RAGEL_SOURCE
+    CFLAGS="-static -g -O2" CXXFLAGS="-static -g -O2" \
     ./configure --prefix=$TP_INSTALL_DIR && make install
 
     check_if_source_exist $HYPERSCAN_SOURCE
