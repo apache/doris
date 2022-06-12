@@ -33,6 +33,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     Operator getOperator();
 
+    // cache GroupExpression for fast exit from Memo.copyIn
     Optional<GroupExpression> getGroupExpression();
 
     NodeType getType();
