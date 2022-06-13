@@ -1935,6 +1935,10 @@ public class Analyzer {
         return globalState.context.getConnectionId();
     }
 
+    public String getDefaultCatalog() {
+        return globalState.context.getDefaultCatalog();
+    }
+
     public String getDefaultDb() {
         return globalState.context.getDatabase();
     }
