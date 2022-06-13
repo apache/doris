@@ -24,7 +24,6 @@
 #include <unordered_set>
 
 #include "olap/bloom_filter_predicate.h"
-#include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
@@ -263,8 +262,6 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     }
 
     _init_seek_columns();
-
-    _collect_iter.init(this);
 
     if (_tablet->tablet_schema().has_sequence_col()) {
         auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();

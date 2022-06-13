@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "s3_reader.h"
+#include "io/s3_reader.h"
 
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>

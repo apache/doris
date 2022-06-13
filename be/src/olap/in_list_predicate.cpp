@@ -49,13 +49,13 @@ namespace doris {
                 for (uint16_t j = 0; j != n; ++j) {                                              \
                     uint16_t i = sel[j];                                                         \
                     sel[new_size] = i;                                                           \
-                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);  \
+                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not); \
                 }                                                                                \
                 batch->set_size(new_size);                                                       \
             } else {                                                                             \
                 for (uint16_t i = 0; i != n; ++i) {                                              \
                     sel[new_size] = i;                                                           \
-                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);  \
+                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not); \
                 }                                                                                \
                 if (new_size < n) {                                                              \
                     batch->set_size(new_size);                                                   \
@@ -69,7 +69,7 @@ namespace doris {
                     uint16_t i = sel[j];                                                         \
                     sel[new_size] = i;                                                           \
                     new_size += (!is_null[i] &&                                                  \
-                            (_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);       \
+                            (_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);      \
                 }                                                                                \
                 batch->set_size(new_size);                                                       \
             } else {                                                                             \
@@ -77,7 +77,7 @@ namespace doris {
                     sel[new_size] = i;                                                           \
                     new_size += (!is_null[i]                                                     \
                                  && (_values.find(col_vector[i]) OP _values.end())               \
-                                 ^ !_in_or_not);                                                  \
+                                 ^ !_in_or_not);                                                 \
                 }                                                                                \
                 if (new_size < n) {                                                              \
                     batch->set_size(new_size);                                                   \
@@ -101,7 +101,7 @@ IN_LIST_PRED_EVALUATE(InListPredicate, !=)
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
                 auto result = (!block->cell(idx).is_null()                                     \
                                && (_values.find(*cell_value) OP _values.end())                 \
-                               ^ !_in_or_not);                                                  \
+                               ^ !_in_or_not);                                                 \
                 new_size += _opposite ? !result : result;                                      \
             }                                                                                  \
         } else {                                                                               \
@@ -109,7 +109,7 @@ IN_LIST_PRED_EVALUATE(InListPredicate, !=)
                 uint16_t idx = sel[i];                                                         \
                 sel[new_size] = idx;                                                           \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;       \
+                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;      \
                 new_size += _opposite ? !result : result;                                      \
             }                                                                                  \
         }                                                                                      \
@@ -120,76 +120,77 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
 // IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 
 // todo(zeno) define interface in IColumn to simplify code
+
 // #define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)                  
-    template <class T>
-    void InListPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
-        uint16_t new_size = 0;
-        if (column.is_nullable()) {
-            auto* nullable_col =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                        nullable_col->get_null_map_column())
-                                        .get_data();
-            auto& nested_col = nullable_col->get_nested_column();
-            if (nested_col.is_column_dictionary()) {
-                if constexpr (std::is_same_v<T, StringValue>) {
-                    auto* nested_col_ptr = vectorized::check_and_get_column<
-                            vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
-                    auto& data_array = nested_col_ptr->get_data();
-                    std::vector<bool> selected;
-                    nested_col_ptr->find_codes(_values, selected);
-                    for (uint16_t i = 0; i < *size; i++) {
-                        uint16_t idx = sel[i];
-                        sel[new_size] = idx;
-                        const auto& cell_value = data_array[idx];
-                        DCHECK(cell_value < selected.size());
-                        bool ret = !null_bitmap[idx] && (selected[cell_value] ^ !_in_or_not);
-                        new_size += _opposite ? !ret : ret;
-                    }
-                }
-            } else {
-                auto* nested_col_ptr =
-                        vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(
-                                nested_col);
-                auto& data_array = nested_col_ptr->get_data();
-                for (uint16_t i = 0; i < *size; i++) {
-                    uint16_t idx = sel[i];
-                    sel[new_size] = idx;
-                    const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);
-                    bool ret = !null_bitmap[idx] && ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
-                    new_size += _opposite ? !ret : ret;
-                }
-            }
-        } else if (column.is_column_dictionary()) {
+template <class T>
+void InListPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
+    uint16_t new_size = 0;
+    if (column.is_nullable()) {
+        auto* nullable_col =
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+        auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                    nullable_col->get_null_map_column())
+                                    .get_data();
+        auto& nested_col = nullable_col->get_nested_column();
+        if (nested_col.is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringValue>) {
-                auto& dict_col =
-                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(
-                                column);
-                auto& data_array = dict_col.get_data();
+                auto* nested_col_ptr = vectorized::check_and_get_column<
+                        vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+                auto& data_array = nested_col_ptr->get_data();
                 std::vector<bool> selected;
-                dict_col.find_codes(_values, selected);
+                nested_col_ptr->find_codes(_values, selected);
                 for (uint16_t i = 0; i < *size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     const auto& cell_value = data_array[idx];
                     DCHECK(cell_value < selected.size());
-                    auto result = (selected[cell_value] ^ !_in_or_not);
-                    new_size += result;
+                    bool ret = !null_bitmap[idx] && (selected[cell_value] ^ !_in_or_not);
+                    new_size += _opposite ? !ret : ret;
                 }
             }
         } else {
-            auto& number_column = reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);
-            auto& data_array = number_column.get_data();
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(
+                            nested_col);
+            auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);
-                auto result = ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
+                bool ret = !null_bitmap[idx] && ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
+                new_size += _opposite ? !ret : ret;
+            }
+        }
+    } else if (column.is_column_dictionary()) {
+        if constexpr (std::is_same_v<T, StringValue>) {
+            auto& dict_col =
+                    reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(
+                            column);
+            auto& data_array = dict_col.get_data();
+            std::vector<bool> selected;
+            dict_col.find_codes(_values, selected);
+            for (uint16_t i = 0; i < *size; i++) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+                const auto& cell_value = data_array[idx];
+                DCHECK(cell_value < selected.size());
+                auto result = (selected[cell_value] ^ !_in_or_not);
                 new_size += result;
             }
         }
-        *size = new_size;
+    } else {
+        auto& number_column = reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);
+        auto& data_array = number_column.get_data();
+        for (uint16_t i = 0; i < *size; i++) {
+            uint16_t idx = sel[i];
+            sel[new_size] = idx;
+            const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);
+            auto result = ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
+            new_size += result;
+        }
     }
+    *size = new_size;
+}
 
 // IN_LIST_PRED_COLUMN_EVALUATE(InListPredicate, !=)
 // IN_LIST_PRED_COLUMN_EVALUATE(NotInListPredicate, ==)

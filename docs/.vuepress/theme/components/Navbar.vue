@@ -33,7 +33,7 @@ under the License.
         v-if="$siteTitle">{{ $siteTitle }}</span>
     </router-link>
 
-    <div class="dropdown-box" v-show="showVersionNav()">
+    <div class="dropdown-box">
       <Dropdown />
     </div>
 
@@ -67,12 +67,7 @@ import NavLink from './NavLink.vue'
 export default defineComponent({
   components: { SidebarButton, NavLinks, SearchBox, AlgoliaSearchBox, Mode, Dropdown, NavLink },
   methods: {
-    showVersionNav () {
-      const versions = this.$themeLocaleConfig.versions
-      if (!versions) return false
-      const versionKeys = versions.items.map(v => v.text === 'master' ? 'docs' : v.text)
-      return versionKeys.some(v => this.$route.path.indexOf(v) > -1)
-    }
+    
   },
   setup (props, ctx) {
     const instance = useInstance()

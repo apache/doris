@@ -108,8 +108,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_ARRAY:
         DCHECK(col_desc.children.size() == 1);
-        nested =
-                std::make_shared<vectorized::DataTypeArray>(create_data_type(col_desc.children[0]));
+        nested = std::make_shared<vectorized::DataTypeArray>(
+                create_data_type(col_desc.children[0], col_desc.contains_null));
         break;
     case INVALID_TYPE:
     default:
