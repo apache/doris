@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
@@ -71,8 +72,16 @@ public:
         EXPECT_EQ(src[size - 1], last_value);
 
         segment_v2::PageDecoderOptions decoder_options;
-        PageDecoderType page_decoder(s.slice(), decoder_options);
-        Status status = page_decoder.init();
+        PageDecoderType page_decoder_(s.slice(), decoder_options);
+        Status status = page_decoder_.init();
+        EXPECT_FALSE(status.ok());
+
+        segment_v2::BitShufflePagePreDecoder<false> pre_decoder;
+        Slice page_slice = s.slice();
+        std::unique_ptr<char[]> auto_release;
+        pre_decoder.decode(&auto_release, &page_slice, 0);
+        PageDecoderType page_decoder(page_slice, decoder_options);
+        status = page_decoder.init();
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(0, page_decoder.current_index());
 
@@ -121,8 +130,16 @@ public:
         OwnedSlice s = page_builder.finish();
 
         segment_v2::PageDecoderOptions decoder_options;
-        PageDecoderType page_decoder(s.slice(), decoder_options);
-        Status status = page_decoder.init();
+        PageDecoderType page_decoder_(s.slice(), decoder_options);
+        Status status = page_decoder_.init();
+        EXPECT_FALSE(status.ok());
+
+        segment_v2::BitShufflePagePreDecoder<false> pre_decoder;
+        Slice page_slice = s.slice();
+        std::unique_ptr<char[]> auto_release;
+        pre_decoder.decode(&auto_release, &page_slice, 0);
+        PageDecoderType page_decoder(page_slice, decoder_options);
+        status = page_decoder.init();
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(0, page_decoder.current_index());
 

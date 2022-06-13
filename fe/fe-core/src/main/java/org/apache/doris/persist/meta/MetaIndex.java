@@ -15,34 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.persist.meta;
+
+import org.apache.doris.common.io.Text;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.charset.Charset;
 
-public class MetaMagicNumber {
-    public static final String MAGIC_STR = FeConstants.meta_format.getMagicString();
-    public static final byte[] MAGIC = MAGIC_STR.getBytes(Charset.forName("ASCII"));
-    private byte[] bytes;
+public class MetaIndex {
+    public String name;
+    public long offset;
 
-    public static MetaMagicNumber read(RandomAccessFile raf) throws IOException {
-        MetaMagicNumber metaMagicNumber = new MetaMagicNumber();
-        byte[] magicBytes = new byte[MAGIC_STR.length()];
-        raf.readFully(magicBytes);
-        metaMagicNumber.setBytes(magicBytes);
-        return metaMagicNumber;
+    public MetaIndex() {
     }
 
-    public static void write(RandomAccessFile raf) throws IOException {
-        raf.write(MAGIC);
+    public MetaIndex(String name, long offset) {
+        this.name = name;
+        this.offset = offset;
     }
 
-    public byte[] getBytes() {
-        return bytes;
+    public static MetaIndex read(RandomAccessFile raf) throws IOException {
+        MetaIndex metaIndex = new MetaIndex();
+        metaIndex.name = Text.readString(raf);
+        metaIndex.offset = raf.readLong();
+        return metaIndex;
     }
 
-    public void setBytes(byte[] bytes) {
-        this.bytes = bytes;
+    public static void write(RandomAccessFile raf, MetaIndex metaIndex) throws IOException {
+        Text.writeString(raf, metaIndex.name);
+        raf.writeLong(metaIndex.offset);
+    }
+
+    @Override
+    public String toString() {
+        return name + ":" + offset;
     }
 }

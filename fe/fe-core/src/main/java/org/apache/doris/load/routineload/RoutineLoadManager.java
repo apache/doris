@@ -508,7 +508,7 @@ public class RoutineLoadManager implements Writable {
     private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {
         try {
             Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-            OlapTable tbl = db.getTableOrMetaException(tblId, Table.TableType.OLAP);
+            OlapTable tbl = (OlapTable) db.getTableOrMetaException(tblId, Table.TableType.OLAP);
             tbl.readLock();
             try {
                 PartitionInfo partitionInfo = tbl.getPartitionInfo();

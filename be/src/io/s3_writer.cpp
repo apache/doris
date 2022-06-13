@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "s3_writer.h"
+#include "io/s3_writer.h"
 
 #include <aws/core/utils/FileSystemUtils.h>
 #include <aws/s3/S3Client.h>

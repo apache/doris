@@ -831,7 +831,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = catalog.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
             for (Partition partition : olapTable.getPartitions()) {
@@ -878,7 +878,7 @@ public class MaterializedViewHandler extends AlterHandler {
     private void changeTableStatus(long dbId, long tableId, OlapTableState olapTableState) {
         try {
             Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-            OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
             olapTable.writeLockOrMetaException();
             try {
                 if (olapTable.getState() == olapTableState) {
@@ -1035,7 +1035,7 @@ public class MaterializedViewHandler extends AlterHandler {
         List<AlterJobV2> rollupJobV2List = new ArrayList<>();
         OlapTable olapTable;
         try {
-            olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+            olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }

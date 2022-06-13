@@ -1014,7 +1014,7 @@ public class AlterTest {
         createTable(createOlapTblStmt);
 
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
-        MysqlTable mysqlTable = db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
+        MysqlTable mysqlTable = (MysqlTable) db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
 
         String alterEngineStmt = "alter table test.mysql_table modify engine to odbc";
         alterTable(alterEngineStmt, true);

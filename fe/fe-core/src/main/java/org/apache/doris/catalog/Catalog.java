@@ -98,10 +98,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.MetaHeader;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.MetaReader;
-import org.apache.doris.common.MetaWriter;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -187,6 +184,9 @@ import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.persist.meta.MetaHeader;
+import org.apache.doris.persist.meta.MetaReader;
+import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -237,7 +237,6 @@ import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -1631,6 +1630,10 @@ public class Catalog {
         return newChecksum;
     }
 
+    public long loadBackends(DataInputStream dis, long checksum) throws IOException {
+        return systemInfo.loadBackends(dis, checksum);
+    }
+
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
         return getInternalDataSource().loadDb(dis, checksum);
     }
@@ -1938,6 +1941,10 @@ public class Catalog {
         }
 
         return checksum;
+    }
+
+    public long saveBackends(CountingDataOutputStream dos, long checksum) throws IOException {
+        return systemInfo.saveBackends(dos, checksum);
     }
 
     public long saveDb(CountingDataOutputStream dos, long checksum) throws IOException {
@@ -3793,7 +3800,7 @@ public class Catalog {
         Map<String, String> properties = info.getPropertyMap();
 
         Database db = this.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             modifyTableColocate(db, olapTable, properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH), true,
@@ -3853,7 +3860,7 @@ public class Catalog {
         String newRollupName = tableInfo.getNewRollupName();
 
         Database db = this.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             String rollupName = olapTable.getIndexNameById(indexId);
@@ -3914,7 +3921,7 @@ public class Catalog {
         String newPartitionName = tableInfo.getNewPartitionName();
 
         Database db = this.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);
@@ -4056,7 +4063,7 @@ public class Catalog {
         Map<String, String> properties = info.getProperties();
 
         Database db = this.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             TableProperty tableProperty = olapTable.getTableProperty();
@@ -4131,7 +4138,7 @@ public class Catalog {
         int bucketNum = info.getBucketNum();
 
         Database db = this.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
@@ -4606,7 +4613,7 @@ public class Catalog {
 
     public void replayConvertDistributionType(TableInfo info) throws MetaNotFoundException {
         Database db = this.getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             olapTable.convertHashDistributionToRandomDistribution();
@@ -4650,7 +4657,7 @@ public class Catalog {
         long dbId = replaceTempPartitionLog.getDbId();
         long tableId = replaceTempPartitionLog.getTblId();
         Database db = this.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
@@ -4668,7 +4675,7 @@ public class Catalog {
         pluginMgr.installPlugin(stmt);
     }
 
-    public long savePlugins(DataOutputStream dos, long checksum) throws IOException {
+    public long savePlugins(CountingDataOutputStream dos, long checksum) throws IOException {
         Catalog.getCurrentPluginMgr().write(dos);
         return checksum;
     }

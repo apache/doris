@@ -197,7 +197,7 @@ public abstract class AlterHandler extends MasterDaemon {
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
 
-        OlapTable tbl = db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLockOrMetaException();
         try {
             Partition partition = tbl.getPartition(task.getPartitionId());
