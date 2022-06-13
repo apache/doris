@@ -27,9 +27,10 @@
 namespace doris {
 
 // #define IN_LIST_PRED_CONSTRUCTOR(CLASS)
-    template <class T>
-    InListPredicate<T>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool in_or_not, bool opposite)
-            : ColumnPredicate(column_id, opposite), _values(std::move(values)), _in_or_not(in_or_not) {}
+template <class T>
+InListPredicate<T>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<T>&& values,
+                                    bool in_or_not, bool opposite)
+        : ColumnPredicate(column_id, opposite), _values(std::move(values)), _in_or_not(in_or_not) {}
 
 // IN_LIST_PRED_CONSTRUCTOR(InListPredicate)
 // IN_LIST_PRED_CONSTRUCTOR(NotInListPredicate)
@@ -49,13 +50,13 @@ namespace doris {
                 for (uint16_t j = 0; j != n; ++j) {                                              \
                     uint16_t i = sel[j];                                                         \
                     sel[new_size] = i;                                                           \
-                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not); \
+                    new_size += ((_values.find(col_vector[i]) OP _values.end()) ^ !_in_or_not);  \
                 }                                                                                \
                 batch->set_size(new_size);                                                       \
             } else {                                                                             \
                 for (uint16_t i = 0; i != n; ++i) {                                              \
                     sel[new_size] = i;                                                           \
-                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not); \
+                    new_size += ((_values.find(col_vector[i]) OP _values.end()) ^ !_in_or_not);  \
                 }                                                                                \
                 if (new_size < n) {                                                              \
                     batch->set_size(new_size);                                                   \
@@ -69,15 +70,14 @@ namespace doris {
                     uint16_t i = sel[j];                                                         \
                     sel[new_size] = i;                                                           \
                     new_size += (!is_null[i] &&                                                  \
-                            (_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);      \
+                                 (_values.find(col_vector[i]) OP _values.end()) ^ !_in_or_not);  \
                 }                                                                                \
                 batch->set_size(new_size);                                                       \
             } else {                                                                             \
                 for (int i = 0; i != n; ++i) {                                                   \
                     sel[new_size] = i;                                                           \
-                    new_size += (!is_null[i]                                                     \
-                                 && (_values.find(col_vector[i]) OP _values.end())               \
-                                 ^ !_in_or_not);                                                 \
+                    new_size += (!is_null[i] &&                                                  \
+                                 (_values.find(col_vector[i]) OP _values.end()) ^ !_in_or_not);  \
                 }                                                                                \
                 if (new_size < n) {                                                              \
                     batch->set_size(new_size);                                                   \
@@ -99,9 +99,8 @@ IN_LIST_PRED_EVALUATE(InListPredicate, !=)
                 uint16_t idx = sel[i];                                                         \
                 sel[new_size] = idx;                                                           \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (!block->cell(idx).is_null()                                     \
-                               && (_values.find(*cell_value) OP _values.end())                 \
-                               ^ !_in_or_not);                                                 \
+                auto result = (!block->cell(idx).is_null() &&                                  \
+                               (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not);    \
                 new_size += _opposite ? !result : result;                                      \
             }                                                                                  \
         } else {                                                                               \
@@ -121,13 +120,13 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
 
 // todo(zeno) define interface in IColumn to simplify code
 
-// #define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)                  
+// #define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)
 template <class T>
-void InListPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
+void InListPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
+                                  uint16_t* size) const {
     uint16_t new_size = 0;
     if (column.is_nullable()) {
-        auto* nullable_col =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+        auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
         auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
                                     nullable_col->get_null_map_column())
                                     .get_data();
@@ -157,15 +156,15 @@ void InListPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, ui
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);
-                bool ret = !null_bitmap[idx] && ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
+                bool ret = !null_bitmap[idx] &&
+                           ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
                 new_size += _opposite ? !ret : ret;
             }
         }
     } else if (column.is_column_dictionary()) {
         if constexpr (std::is_same_v<T, StringValue>) {
             auto& dict_col =
-                    reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(
-                            column);
+                    reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(column);
             auto& data_array = dict_col.get_data();
             std::vector<bool> selected;
             dict_col.find_codes(_values, selected);
@@ -204,9 +203,8 @@ void InListPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, ui
                 if (flags[i]) continue;                                                        \
                 uint16_t idx = sel[i];                                                         \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (!block->cell(idx).is_null()                                     \
-                               && (_values.find(*cell_value) OP _values.end())                 \
-                               ^ !_in_or_not);                                                  \
+                auto result = (!block->cell(idx).is_null() &&                                  \
+                               (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not);    \
                 flags[i] |= _opposite ? !result : result;                                      \
             }                                                                                  \
         } else {                                                                               \
@@ -214,7 +212,7 @@ void InListPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, ui
                 if (flags[i]) continue;                                                        \
                 uint16_t idx = sel[i];                                                         \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;       \
+                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;      \
                 flags[i] |= _opposite ? !result : result;                                      \
             }                                                                                  \
         }                                                                                      \
@@ -232,9 +230,8 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(InListPredicate, !=)
                 if (!flags[i]) continue;                                                       \
                 uint16_t idx = sel[i];                                                         \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (!block->cell(idx).is_null()                                     \
-                              && (_values.find(*cell_value) OP _values.end())                  \
-                              ^ !_in_or_not);                                                   \
+                auto result = (!block->cell(idx).is_null() &&                                  \
+                               (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not);    \
                 flags[i] &= _opposite ? !result : result;                                      \
             }                                                                                  \
         } else {                                                                               \
@@ -242,7 +239,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(InListPredicate, !=)
                 if (!flags[i]) continue;                                                       \
                 uint16_t idx = sel[i];                                                         \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;       \
+                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;      \
                 flags[i] &= _opposite ? !result : result;                                      \
             }                                                                                  \
         }                                                                                      \
@@ -281,39 +278,50 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(InListPredicate, !=)
                 }                                                                   \
             }                                                                       \
         }                                                                           \
-        if (_in_or_not) *result &= indices;                                         \
-        else *result -= indices;                                                    \
+        if (_in_or_not)                                                             \
+            *result &= indices;                                                     \
+        else                                                                        \
+            *result -= indices;                                                     \
         return Status::OK();                                                        \
     }
 
 IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, &=)
 // IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
-// #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                
-template InListPredicate<int8_t>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values,  
-                                bool in_or_not, bool opposite);
-template InListPredicate<int16_t>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<int16_t>&& values,
-                                bool in_or_not, bool opposite);
-template InListPredicate<int32_t>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<int32_t>&& values,
-                                bool in_or_not, bool opposite);
-template InListPredicate<int64_t>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<int64_t>&& values,
-                                bool in_or_not, bool opposite);
-template InListPredicate<int128_t>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<int128_t>&& values,
-                                bool in_or_not, bool opposite);
-template InListPredicate<float>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<float>&& values,
-                                bool in_or_not, bool opposite);
-template InListPredicate<double>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<double>&& values,
-                                bool in_or_not, bool opposite);
+// #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)
+template InListPredicate<int8_t>::InListPredicate(uint32_t column_id,
+                                                  phmap::flat_hash_set<int8_t>&& values,
+                                                  bool in_or_not, bool opposite);
+template InListPredicate<int16_t>::InListPredicate(uint32_t column_id,
+                                                   phmap::flat_hash_set<int16_t>&& values,
+                                                   bool in_or_not, bool opposite);
+template InListPredicate<int32_t>::InListPredicate(uint32_t column_id,
+                                                   phmap::flat_hash_set<int32_t>&& values,
+                                                   bool in_or_not, bool opposite);
+template InListPredicate<int64_t>::InListPredicate(uint32_t column_id,
+                                                   phmap::flat_hash_set<int64_t>&& values,
+                                                   bool in_or_not, bool opposite);
+template InListPredicate<int128_t>::InListPredicate(uint32_t column_id,
+                                                    phmap::flat_hash_set<int128_t>&& values,
+                                                    bool in_or_not, bool opposite);
+template InListPredicate<float>::InListPredicate(uint32_t column_id,
+                                                 phmap::flat_hash_set<float>&& values,
+                                                 bool in_or_not, bool opposite);
+template InListPredicate<double>::InListPredicate(uint32_t column_id,
+                                                  phmap::flat_hash_set<double>&& values,
+                                                  bool in_or_not, bool opposite);
 template InListPredicate<decimal12_t>::InListPredicate(uint32_t column_id,
-                                    phmap::flat_hash_set<decimal12_t>&& values,
-                                    bool in_or_not, bool opposite);
+                                                       phmap::flat_hash_set<decimal12_t>&& values,
+                                                       bool in_or_not, bool opposite);
 template InListPredicate<StringValue>::InListPredicate(uint32_t column_id,
-                                    phmap::flat_hash_set<StringValue>&& values,
-                                    bool in_or_not, bool opposite);
-template InListPredicate<uint24_t>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<uint24_t>&& values,
-                                bool in_or_not, bool opposite);
-template InListPredicate<uint64_t>::InListPredicate(uint32_t column_id, phmap::flat_hash_set<uint64_t>&& values,
-                                bool in_or_not, bool opposite);
+                                                       phmap::flat_hash_set<StringValue>&& values,
+                                                       bool in_or_not, bool opposite);
+template InListPredicate<uint24_t>::InListPredicate(uint32_t column_id,
+                                                    phmap::flat_hash_set<uint24_t>&& values,
+                                                    bool in_or_not, bool opposite);
+template InListPredicate<uint64_t>::InListPredicate(uint32_t column_id,
+                                                    phmap::flat_hash_set<uint64_t>&& values,
+                                                    bool in_or_not, bool opposite);
 
 // IN_LIST_PRED_CONSTRUCTOR_DECLARATION(InListPredicate)
 // IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
