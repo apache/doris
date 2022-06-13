@@ -115,23 +115,21 @@ struct AggregateFunction {
     template <typename T>
     using Function = typename Derived::template TypeTraits<T>::Function;
 
-    static auto create(const DataTypePtr& data_type) -> AggregateFunctionPtr {
-        DataTypes data_types = {data_type};
-        AggregateFunctionPtr function;
-
-        if (data_type->is_nullable()) {
-            const auto& nested_data_type =
-                    static_cast<const DataTypeNullable&>(*data_type).get_nested_type();
-            auto nested_function = create(nested_data_type);
-            function.reset(new AggregateFunctionNullUnary<true>(nested_function, data_types, {}));
+    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
+        DataTypes data_types = {remove_nullable(data_type_ptr)};
+        auto& data_type = *data_types.front();
+        AggregateFunctionPtr nested_function;
+        if (is_decimal(data_types.front())) {
+            nested_function = AggregateFunctionPtr(
+                    create_with_decimal_type<Function>(data_type, data_type, data_types));
         } else {
-            if (is_decimal(data_type)) {
-                function.reset(
-                        create_with_decimal_type<Function>(*data_type, *data_type, data_types));
-            } else {
-                function.reset(create_with_numeric_type<Function>(*data_type, data_types));
-            }
+            nested_function =
+                    AggregateFunctionPtr(create_with_numeric_type<Function>(data_type, data_types));
         }
+
+        AggregateFunctionPtr function;
+        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
+                                                            {make_nullable(data_type_ptr)}, {}));
         return function;
     }
 };
@@ -188,17 +186,18 @@ struct ArrayAggregateImpl {
 
         ColumnPtr res_column;
         if constexpr (IsDecimalNumber<Element>) {
-            res_column = (ColVecResultType::create(offsets.size(), column->get_scale()));
+            res_column = ColVecResultType::create(0, column->get_scale());
         } else {
-            res_column = (ColVecResultType::create(offsets.size()));
+            res_column = ColVecResultType::create();
         }
         res_column = make_nullable(res_column);
-        static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).clear();
+        static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
         auto function = Function::create(type);
         auto guard = AggregateFunctionGuard(function.get());
         Arena arena;
-        const IColumn* columns[] = {data};
+        auto nullable_column = make_nullable(data->get_ptr());
+        const IColumn* columns[] = {nullable_column.get()};
         for (int64_t i = 0; i < offsets.size(); ++i) {
             auto start = offsets[i - 1]; // -1 is ok.
             auto end = offsets[i];
@@ -210,11 +209,7 @@ struct ArrayAggregateImpl {
             function->reset(guard.data());
             function->add_batch_range(start, end - 1, guard.data(), columns, &arena,
                                       data->is_nullable());
-            function->insert_result_into(
-                    guard.data(), !data->is_nullable() ? static_cast<ColumnNullable&>(
-                                                                 res_column->assume_mutable_ref())
-                                                                 .get_nested_column()
-                                                       : res_column->assume_mutable_ref());
+            function->insert_result_into(guard.data(), res_column->assume_mutable_ref());
         }
         res_ptr = std::move(res_column);
         return true;
@@ -227,15 +222,15 @@ struct NameArrayMin {
 
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
-    static auto create(const DataTypePtr& data_type) -> AggregateFunctionPtr {
-        if (data_type->is_nullable()) {
-            AggregateFunctionPtr function;
-            function.reset(new AggregateFunctionNullUnary<true>(
-                    create(static_cast<const DataTypeNullable&>(*data_type).get_nested_type()),
-                    {data_type}, {}));
-            return function;
-        }
-        return create_aggregate_function_min(NameArrayMin::name, {data_type}, {}, false);
+    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
+        DataTypes data_types = {remove_nullable(data_type_ptr)};
+        auto nested_function = AggregateFunctionPtr(
+                create_aggregate_function_min(NameArrayMin::name, data_types, {}, false));
+
+        AggregateFunctionPtr function;
+        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
+                                                            {make_nullable(data_type_ptr)}, {}));
+        return function;
     }
 };
 
@@ -245,15 +240,15 @@ struct NameArrayMax {
 
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
-    static auto create(const DataTypePtr& data_type) -> AggregateFunctionPtr {
-        if (data_type->is_nullable()) {
-            AggregateFunctionPtr function;
-            function.reset(new AggregateFunctionNullUnary<true>(
-                    create(static_cast<const DataTypeNullable&>(*data_type).get_nested_type()),
-                    {data_type}, {}));
-            return function;
-        }
-        return create_aggregate_function_max(NameArrayMin::name, {data_type}, {}, false);
+    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
+        DataTypes data_types = {remove_nullable(data_type_ptr)};
+        auto nested_function = AggregateFunctionPtr(
+                create_aggregate_function_max(NameArrayMax::name, data_types, {}, false));
+
+        AggregateFunctionPtr function;
+        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
+                                                            {make_nullable(data_type_ptr)}, {}));
+        return function;
     }
 };
 
