@@ -721,7 +721,7 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
 }
 
 Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
-                        std::string* allocated_buf) const {
+                        bool allow_transfer_large_data) const {
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
@@ -733,8 +733,20 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
-    allocated_buf->resize(content_uncompressed_size);
-    char* buf = allocated_buf->data();
+    std::string* column_values = nullptr;
+    try {
+        column_values = pblock->mutable_column_values();
+        column_values->resize(content_uncompressed_size);
+    } catch (...) {
+        std::exception_ptr p = std::current_exception();
+        std::string msg = fmt::format(
+                "Try to alloc {} bytes for pblock column values failed. reason {}",
+                content_uncompressed_size, p ? p.__cxa_exception_type()->name() : "null");
+        LOG(WARNING) << msg;
+        return Status::BufferAllocFailed(msg);
+    }
+    char* buf = column_values->data();
+
     for (const auto& c : *this) {
         buf = c.type->serialize(*(c.column), buf);
     }
@@ -750,12 +762,12 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
         size_t compressed_size = 0;
         char* compressed_output = compression_scratch.data();
-        snappy::RawCompress(allocated_buf->data(), content_uncompressed_size, compressed_output,
+        snappy::RawCompress(column_values->data(), content_uncompressed_size, compressed_output,
                             &compressed_size);
 
         if (LIKELY(compressed_size < content_uncompressed_size)) {
             compression_scratch.resize(compressed_size);
-            allocated_buf->swap(compression_scratch);
+            column_values->swap(compression_scratch);
             pblock->set_compressed(true);
             *compressed_bytes = compressed_size;
         } else {
@@ -765,7 +777,10 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     }
-
+    if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
+        return Status::InternalError(fmt::format(
+                "The block is large than 2GB({}), can not send by Protobuf.", *compressed_bytes));
+    }
     return Status::OK();
 }
 

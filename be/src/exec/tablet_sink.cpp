@@ -46,9 +46,6 @@ namespace stream_load {
 
 NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id)
         : _parent(parent), _index_channel(index_channel), _node_id(node_id) {
-    if (_parent->_transfer_data_by_brpc_attachment) {
-        _tuple_data_buffer_ptr = &_tuple_data_buffer;
-    }
 }
 
 NodeChannel::~NodeChannel() noexcept {
@@ -71,6 +68,7 @@ NodeChannel::~NodeChannel() noexcept {
 // returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
     _tuple_desc = _parent->_output_tuple_desc;
+    _state = state;
     auto node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
         std::stringstream ss;
@@ -495,7 +493,7 @@ void NodeChannel::try_send_batch() {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
-                                         &compressed_bytes, _tuple_data_buffer_ptr);
+                                         &compressed_bytes, _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             _add_batch_closure->clear_in_flight();
@@ -539,14 +537,31 @@ void NodeChannel::try_send_batch() {
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
     }
 
-    if (_parent->_transfer_data_by_brpc_attachment && request.has_row_batch()) {
-        request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
-                                              ReusableClosure<PTabletWriterAddBatchResult>>(
-                &request, _tuple_data_buffer, _add_batch_closure);
+    if (_parent->_transfer_large_data_by_brpc && request.has_row_batch() &&
+        request.row_batch().has_tuple_data() && request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
+        Status st = request_embed_attachment_contain_tuple<
+                PTabletWriterAddBatchRequest, ReusableClosure<PTabletWriterAddBatchResult>>(
+                &request, _add_batch_closure);
+        if (!st.ok()) {
+            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            _add_batch_closure->clear_in_flight();
+            return;
+        }
+        std::string brpc_url = fmt::format("http://{}:{}", _node_info.host, _node_info.brpc_port);
+        std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
+                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
+                                                                                          "http");
+        _add_batch_closure->cntl.http_request().uri() =
+                brpc_url + "/PInternalServiceImpl/tablet_writer_add_batch_by_http";
+        _add_batch_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
+        _add_batch_closure->cntl.http_request().set_content_type("application/json");
+        _brpc_http_stub->tablet_writer_add_batch_by_http(
+                &_add_batch_closure->cntl, NULL, &_add_batch_closure->result, _add_batch_closure);
+    } else {
+        _add_batch_closure->cntl.http_request().Clear();
+        _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
+                                       &_add_batch_closure->result, _add_batch_closure);
     }
-    _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
-                                   _add_batch_closure);
-
     _next_packet_seq++;
 }
 
@@ -690,7 +705,7 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
     _name = "OlapTableSink";
-    _transfer_data_by_brpc_attachment = config::transfer_data_by_brpc_attachment;
+    _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
 OlapTableSink::~OlapTableSink() {

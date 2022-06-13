@@ -17,6 +17,8 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include "util/brpc_client_cache.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/doris_metrics.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"

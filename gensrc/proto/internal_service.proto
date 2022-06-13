@@ -46,6 +46,7 @@ message PTransmitDataParams {
     optional PBlock block = 9;
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
+    optional PUniqueId query_id = 11;
 };
 
 message PTransmitDataResult {
@@ -431,8 +432,11 @@ message PResetRPCChannelResponse {
     repeated string channels = 2;
 };
 
+message PEmptyRequest {};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
+    rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
@@ -442,6 +446,7 @@ service PBackendService {
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
+    rpc tablet_writer_add_batch_by_http(PEmptyRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
     rpc get_info(PProxyRequest) returns (PProxyResult); 
     rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);
@@ -454,6 +459,7 @@ service PBackendService {
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
     rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
+    rpc transmit_block_by_http(PEmptyRequest) returns (PTransmitDataResult);
     rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
     rpc reset_rpc_channel(PResetRPCChannelRequest) returns (PResetRPCChannelResponse);
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);

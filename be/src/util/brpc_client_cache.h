@@ -71,9 +71,23 @@ public:
         }
 
         // new one stub and insert into map
+        auto stub = get_new_client_no_cache(host_port);
+        _stub_map.try_emplace_l(
+                host_port, [&stub](typename StubMap<T>::mapped_type& v) { stub = v; }, stub);
+        return stub;
+    }
+
+    std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,
+                                               const std::string& protocol = "baidu_std",
+                                               const std::string& connect_type = "") {
         brpc::ChannelOptions options;
         if constexpr (std::is_same_v<T, PFunctionService_Stub>) {
             options.protocol = config::function_service_protocol;
+        } else {
+            options.protocol = protocol;
+        }
+        if (connect_type != "") {
+            options.connection_type = connect_type;
         }
         std::unique_ptr<brpc::Channel> channel(new brpc::Channel());
         int ret_code = 0;
@@ -86,12 +100,7 @@ public:
         if (ret_code) {
             return nullptr;
         }
-        auto stub = std::make_shared<T>(channel.release(),
-                                        google::protobuf::Service::STUB_OWNS_CHANNEL);
-        _stub_map.try_emplace_l(host_port,
-                                [&stub](typename StubMap<T>::mapped_type& v) { stub = v; },
-                                stub);
-        return stub;
+        return std::make_shared<T>(channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
     }
 
     inline size_t size() { return _stub_map.size(); }
