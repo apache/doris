@@ -110,7 +110,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                     ColumnWriter::create(item_options, &item_column, _wblock, &item_writer));
 
             // create length writer
-            FieldType length_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
+            FieldType length_type = FieldType::OLAP_FIELD_TYPE_BIGINT;
 
             ColumnWriterOptions length_options;
             length_options.meta = opts.meta->add_children_columns();
@@ -119,7 +119,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.meta->set_type(length_type);
             length_options.meta->set_is_nullable(false);
             length_options.meta->set_length(
-                    get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>()->size());
+                    get_scalar_type_info<OLAP_FIELD_TYPE_BIGINT>()->size());
             length_options.meta->set_encoding(DEFAULT_ENCODING);
             length_options.meta->set_compression(opts.meta->compression());
 

@@ -550,7 +550,7 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
         auto nested_col = (*column_array->get_data_ptr()).assume_mutable();
 
         auto& offsets_col = column_array->get_offsets();
-        int64_t offset = offsets_col.back();
+        auto offset = offsets_col.back();
         for (int64_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
                 int64_t row_idx = j + start;

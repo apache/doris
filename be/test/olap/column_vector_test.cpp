@@ -95,8 +95,8 @@ void test_read_write_array_column_vector(const TypeInfo* array_type_info, size_t
 
     // first write
     for (size_t i = 0; i < array_init_size; ++i) {
-        uint32_t len = result[i].length();
-        memcpy(offset_cvb->mutable_cell_ptr(1 + i), &len, sizeof(uint32_t));
+        int64_t len = result[i].length();
+        memcpy(offset_cvb->mutable_cell_ptr(1 + i), &len, sizeof(int64_t));
     }
     array_cvb->set_null_bits(0, array_init_size, false);
     array_cvb->get_offset_by_length(0, array_init_size);
@@ -114,8 +114,8 @@ void test_read_write_array_column_vector(const TypeInfo* array_type_info, size_t
     // second write
     EXPECT_TRUE(array_cvb->resize(array_size).ok());
     for (int i = array_init_size; i < array_size; ++i) {
-        uint32_t len = result[i].length();
-        memcpy(offset_cvb->mutable_cell_ptr(i + 1), &len, sizeof(uint32_t));
+        int64_t len = result[i].length();
+        memcpy(offset_cvb->mutable_cell_ptr(i + 1), &len, sizeof(int64_t));
     }
     array_cvb->set_null_bits(array_init_size, array_size - array_init_size, false);
     array_cvb->get_offset_by_length(array_init_size, array_size - array_init_size);
@@ -170,7 +170,7 @@ TEST_F(ColumnVectorTest, array_column_vector_test) {
 
         auto* item_val = new uint8_t[num_item];
         memset(null_signs, 0, sizeof(bool) * 3);
-        for (int i = 0; i < num_item; ++i) {
+        for (size_t i = 0; i < num_item; ++i) {
             item_val[i] = i;
             if (i % 3 == 0) {
                 size_t array_index = i / 3;

@@ -55,7 +55,8 @@ public enum PrimitiveType {
     BITMAP("BITMAP", 16, TPrimitiveType.OBJECT),
     QUANTILE_STATE("QUANTILE_STATE", 16, TPrimitiveType.QUANTILE_STATE),
 
-    ARRAY("ARRAY", 24, TPrimitiveType.ARRAY),
+    // sizeof(CollectionValue)
+    ARRAY("ARRAY", 32, TPrimitiveType.ARRAY),
     MAP("MAP", 24, TPrimitiveType.MAP),
     STRUCT("STRUCT", 24, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),

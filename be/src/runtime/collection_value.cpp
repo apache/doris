@@ -186,7 +186,7 @@ struct ArrayIteratorFunctionsForString : public GenericArrayIteratorFunctions<ty
     static void deserialize(void* item, const char* tuple_data, const TypeDescriptor& type_desc) {
         auto* string_value = static_cast<CppType*>(item);
         if (string_value->len) {
-            int offset = convert_to<int>(string_value->ptr);
+            int64_t offset = convert_to<int64_t>(string_value->ptr);
             string_value->ptr = convert_to<char*>(tuple_data + offset);
         }
     }
@@ -448,7 +448,7 @@ size_t CollectionValue::get_byte_size(const TypeDescriptor& item_type) const {
     return result;
 }
 
-Status CollectionValue::init_collection(ObjectPool* pool, uint32_t size, PrimitiveType child_type,
+Status CollectionValue::init_collection(ObjectPool* pool, int64_t size, PrimitiveType child_type,
                                         CollectionValue* value) {
     return init_collection(
             value, [pool](size_t size) -> uint8_t* { return pool->add_array(new uint8_t[size]); },
@@ -456,7 +456,7 @@ Status CollectionValue::init_collection(ObjectPool* pool, uint32_t size, Primiti
 }
 
 Status CollectionValue::init_collection(CollectionValue* value, const AllocateMemFunc& allocate,
-                                        uint32_t size, PrimitiveType child_type) {
+                                        int64_t size, PrimitiveType child_type) {
     if (value == nullptr) {
         return Status::InvalidArgument("collection value is null");
     }
@@ -477,13 +477,13 @@ Status CollectionValue::init_collection(CollectionValue* value, const AllocateMe
     return Status::OK();
 }
 
-Status CollectionValue::init_collection(MemPool* pool, uint32_t size, PrimitiveType child_type,
+Status CollectionValue::init_collection(MemPool* pool, int64_t size, PrimitiveType child_type,
                                         CollectionValue* value) {
     return init_collection(
             value, [pool](size_t size) { return pool->allocate(size); }, size, child_type);
 }
 
-Status CollectionValue::init_collection(FunctionContext* context, uint32_t size,
+Status CollectionValue::init_collection(FunctionContext* context, int64_t size,
                                         PrimitiveType child_type, CollectionValue* value) {
     return init_collection(
             value, [context](size_t size) { return context->allocate(size); }, size, child_type);
@@ -506,8 +506,8 @@ void CollectionValue::deep_copy_collection(CollectionValue* shallow_copied_cv,
     }
 
     auto iterator = cv->iterator(item_type.type);
-    int coll_byte_size = cv->length() * iterator.type_size();
-    int nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
+    int64_t coll_byte_size = cv->length() * iterator.type_size();
+    int64_t nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
 
     MemFootprint footprint = gen_mem_footprint(coll_byte_size + nulls_size);
     int64_t offset = footprint.first;
@@ -544,10 +544,10 @@ void CollectionValue::deserialize_collection(CollectionValue* cv, const char* tu
         return;
     }
     // assgin data and null_sign pointer position in tuple_data
-    int data_offset = convert_to<int>(cv->data());
+    int64_t data_offset = convert_to<int64_t>(cv->data());
     cv->set_data(convert_to<char*>(tuple_data + data_offset));
     if (cv->has_null()) {
-        int null_offset = convert_to<int>(cv->null_signs());
+        int64_t null_offset = convert_to<int64_t>(cv->null_signs());
         cv->set_null_signs(convert_to<bool*>(tuple_data + null_offset));
     }
     auto iterator = cv->iterator(item_type.type);
