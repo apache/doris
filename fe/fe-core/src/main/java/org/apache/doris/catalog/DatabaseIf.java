@@ -48,8 +48,7 @@ public interface DatabaseIf {
 
     boolean writeLockIfExist();
 
-    <E extends Exception>
-    void writeLockOrException(E e) throws E;
+    <E extends Exception> void writeLockOrException(E e) throws E;
 
     void writeLockOrDdlException() throws DdlException;
 
@@ -79,23 +78,21 @@ public interface DatabaseIf {
 
     Optional<Table> getTable(long tableId);
 
-    <E extends Exception>
-    Table getTableOrException(String tableName, java.util.function.Function<String, E> e) throws E;
+    <E extends Exception> Table getTableOrException(String tableName, java.util.function.Function<String, E> e)
+            throws E;
 
-    <E extends Exception>
-    Table getTableOrException(long tableId, java.util.function.Function<Long, E> e) throws E;
+    <E extends Exception> Table getTableOrException(long tableId, java.util.function.Function<Long, E> e) throws E;
 
     Table getTableOrMetaException(String tableName) throws MetaNotFoundException;
 
     Table getTableOrMetaException(long tableId) throws MetaNotFoundException;
 
     @SuppressWarnings("unchecked")
-    <T extends Table>
-    T getTableOrMetaException(String tableName, Table.TableType tableType) throws MetaNotFoundException;
+    <T extends Table> T getTableOrMetaException(String tableName, Table.TableType tableType)
+            throws MetaNotFoundException;
 
     @SuppressWarnings("unchecked")
-    <T extends Table>
-    T getTableOrMetaException(long tableId, Table.TableType tableType) throws MetaNotFoundException;
+    <T extends Table> T getTableOrMetaException(long tableId, Table.TableType tableType) throws MetaNotFoundException;
 
     Table getTableOrDdlException(String tableName) throws DdlException;
 

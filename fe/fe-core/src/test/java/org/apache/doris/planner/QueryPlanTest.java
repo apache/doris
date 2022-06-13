@@ -46,6 +46,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.TestWithFeService;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -423,22 +424,22 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Test
     public void testBitmapInsertInto() throws Exception {
-        assertSQLPlanOrErrorMsgContains(
-                "INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));",
-                "OLAP TABLE SINK");
+        String sql = "INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));";
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
 
-        assertSQLPlanOrErrorMsgContains(
-                "insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;",
-                "OLAP TABLE SINK",
-                "bitmap_union",
-                "1:AGGREGATE",
-                "0:OlapScanNode");
+        sql = "insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;";
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
+        Assert.assertTrue(explainString.contains("bitmap_union"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "AGGREGATE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
-        assertSQLPlanOrErrorMsgContains(
-                "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;",
-                "OLAP TABLE SINK",
-                "OUTPUT EXPRS:`id` | `id2`",
-                "0:OlapScanNode");
+        sql = "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;";
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | `id2`"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
         assertSQLPlanOrErrorMsgContains("insert into test.bitmap_table select id, id from test.bitmap_table_2;",
                 "bitmap column require the function return type is BITMAP");
@@ -1184,12 +1185,12 @@ public class QueryPlanTest extends TestWithFeService {
         String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1231,12 +1232,12 @@ public class QueryPlanTest extends TestWithFeService {
         String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2, odbc_mysql t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1318,7 +1319,6 @@ public class QueryPlanTest extends TestWithFeService {
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("EnableTransaction: true"));
     }
-
 
     @Test
     public void testPreferBroadcastJoin() throws Exception {
@@ -1926,7 +1926,7 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
-        Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
     }
 

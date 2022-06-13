@@ -28,8 +28,6 @@ set(EXEC_FILES
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
-    broker_reader.cpp
-    buffered_reader.cpp
     base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
@@ -42,7 +40,6 @@ set(EXEC_FILES
     exchange_node.cpp
     hash_join_node.cpp
     hash_table.cpp
-    local_file_reader.cpp
     merge_node.cpp
     scan_node.cpp
     select_node.cpp
@@ -93,27 +90,14 @@ set(EXEC_FILES
     partitioned_hash_table.cc
     partitioned_aggregation_node.cc
     odbc_scan_node.cpp
-    local_file_writer.cpp
-    broker_writer.cpp
     parquet_scanner.cpp
     parquet_writer.cpp
     orc_scanner.cpp
     odbc_connector.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp
-    s3_reader.cpp
-    s3_writer.cpp
-    hdfs_reader_writer.cpp
+
 )
-
-if (ARCH_AMD64)
-    set(EXEC_FILES
-        ${EXEC_FILES}
-        hdfs_file_reader.cpp
-        hdfs_writer.cpp
-        )
-endif()
-
 if (WITH_MYSQL)
     set(EXEC_FILES
         ${EXEC_FILES}

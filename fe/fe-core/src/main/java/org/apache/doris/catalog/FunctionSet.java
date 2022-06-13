@@ -36,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -2347,6 +2348,9 @@ public class FunctionSet<T> {
                 prefix + "17count_star_updateEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
                 null, null));
+        //ntile, we use rewrite sql for ntile, actually we don't really need this.
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("ntile",
+                Collections.singletonList(Type.BIGINT), Type.BIGINT, Type.BIGINT, null, null, null, null, null));
 
         //vec Rank
         addBuiltin(AggregateFunction.createAnalyticBuiltin("rank",
@@ -2371,6 +2375,9 @@ public class FunctionSet<T> {
                 prefix + "17count_star_updateEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
                 null, null, true));
+        //vec ntile
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("ntile",
+                Collections.singletonList(Type.BIGINT), Type.BIGINT, Type.BIGINT, null, null, null, null, null, true));
 
         for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {

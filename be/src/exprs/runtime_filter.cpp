@@ -976,15 +976,14 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
     DCHECK(is_consumer());
     std::lock_guard<std::mutex> guard(_inner_mutex);
 
-    if (!_push_down_ctxs.empty()) {
-        push_expr_ctxs->insert(push_expr_ctxs->end(), _push_down_ctxs.begin(),
-                               _push_down_ctxs.end());
-        return Status::OK();
+    if (_push_down_ctxs.empty()) {
+        RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
+        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc, tracker));
+        RETURN_IF_ERROR(Expr::open(_push_down_ctxs, _state));
     }
     // push expr
-    RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
-    RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc, tracker));
-    return Expr::open(_push_down_ctxs, _state);
+    push_expr_ctxs->insert(push_expr_ctxs->end(), _push_down_ctxs.begin(), _push_down_ctxs.end());
+    return Status::OK();
 }
 
 bool IRuntimeFilter::await() {

@@ -30,7 +30,6 @@
 #include <vector>
 
 #include "exprs/bloomfilter_predicate.h"
-#include "olap/collect_iterator.h"
 #include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
@@ -217,7 +216,6 @@ protected:
     bool _direct_mode = false;
     int _batch_size = 1024;
 
-    CollectIterator _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 

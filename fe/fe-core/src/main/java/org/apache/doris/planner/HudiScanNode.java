@@ -299,13 +299,13 @@ public class HudiScanNode extends BrokerScanNode {
         hdfsParams.setFsName(fsName);
         Log.debug("Hudi path's host is " + fsName);
 
-        TFileFormatType formatType = null;
-        if (this.inputFormatName.toUpperCase(Locale.ROOT).contains("parquet")) {
-            formatType = TFileFormatType.FORMAT_PARQUET;
-        } else if (this.inputFormatName.toUpperCase(Locale.ROOT).contains("orc")) {
-            formatType = TFileFormatType.FORMAT_ORC;
+        TFileFormatType fileFormatType = null;
+        if (this.inputFormatName.toLowerCase().contains("parquet")) {
+            fileFormatType = TFileFormatType.FORMAT_PARQUET;
+        } else if (this.inputFormatName.toLowerCase(Locale.ROOT).contains("orc")) {
+            fileFormatType = TFileFormatType.FORMAT_ORC;
         } else {
-            throw new UserException("unsupported hudi table type [" + this.inputFormatName + "].");
+            throw new UserException("Unsupported hudi table format [" + this.inputFormatName + "].");
         }
 
         ParamCreateContext context = getParamCreateContexts().get(0);
@@ -317,7 +317,7 @@ public class HudiScanNode extends BrokerScanNode {
                     getPartitionKeys());
             int numberOfColumnsFromFile = context.slotDescByName.size() - partitionValuesFromPath.size();
 
-            TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(fileSplit, formatType,
+            TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(fileSplit, fileFormatType,
                     partitionValuesFromPath, numberOfColumnsFromFile, brokerDesc);
             rangeDesc.setHdfsParams(hdfsParams);
             rangeDesc.setReadByColumnDef(true);
