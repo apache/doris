@@ -105,7 +105,7 @@ echo "Build Backend UT"
 
 . ${DORIS_HOME}/env.sh
 
-CMAKE_BUILD_DIR=${DORIS_HOME}/build/be/ut_build_${CMAKE_BUILD_TYPE}
+CMAKE_BUILD_DIR=${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
 if [ ${CLEAN} -eq 1 ]; then
     rm ${CMAKE_BUILD_DIR} -rf
     rm ${DORIS_HOME}/be/output/ -rf

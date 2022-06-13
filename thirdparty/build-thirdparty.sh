@@ -1049,7 +1049,7 @@ build_snappy
 build_gperftools
 build_curl
 build_re2
-build_hyperscan
+# build_hyperscan
 build_thrift
 build_leveldb
 build_brpc
