@@ -1646,8 +1646,6 @@ public class Config extends ConfigBase {
      * Should be removed when this feature is ready.
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_catalog = false; // 1 min
+    public static boolean enable_multi_catalog = false;
 
-    @ConfField(mutable = true)
-    public static boolean enable_external_file_scan = true;
 }
