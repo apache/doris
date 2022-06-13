@@ -35,7 +35,7 @@ class RuntimeProfile;
 // according to the sort parameters in _sort_exec_exprs. (It is assumed that the rows
 // received from the senders themselves are sorted.)
 // If _is_merging is true, the exchange node creates a DataStreamRecvr with the
-// _is_merging flag and retrieves retrieves rows from the receiver via calls to
+// _is_merging flag and retrieves rows from the receiver via calls to
 // DataStreamRecvr::GetNext(). It also prepares, opens and closes the ordering exprs in
 // its SortExecExprs member that are used to compare rows.
 // If _is_merging is false, the exchange node directly retrieves batches from the row
