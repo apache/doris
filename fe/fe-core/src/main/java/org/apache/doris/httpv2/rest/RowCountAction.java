@@ -68,7 +68,7 @@ public class RowCountAction extends RestBaseController {
         OlapTable olapTable;
         try {
             Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
-            olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+            olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
