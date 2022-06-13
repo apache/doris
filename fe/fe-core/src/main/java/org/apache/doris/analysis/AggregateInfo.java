@@ -858,6 +858,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         return partitionExprs != null ? partitionExprs : groupingExprs;
     }
 
+    // Used by new optimizer
     public static AggregateInfo create(
         ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
         TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {

@@ -141,6 +141,7 @@ public class HashJoinNode extends PlanNode {
         }
     }
 
+    // Used by new optimizer
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp, List<Expr> eqJoinConjuncts,
             List<Expr> otherJoinConjuncts) {
         super(id, "HASH JOIN", NodeType.HASH_JOIN_NODE);
