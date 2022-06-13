@@ -29,7 +29,8 @@ from
         where l_orderkey = o_orderkey
         and o_orderdate < date '1995-03-15'
         and l_shipdate > date '1995-03-15'
-    ) t1 join customer c on c.c_custkey = t1.o_custkey
+    ) t1 join customer c 
+    on c.c_custkey = t1.o_custkey
     where c_mktsegment = 'BUILDING'
 group by
     l_orderkey,
