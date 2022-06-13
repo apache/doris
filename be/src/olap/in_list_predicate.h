@@ -79,52 +79,25 @@ class VectorizedRowBatch;
 template <class T>
 class InListPredicate : public ColumnPredicate {
 public:
-    InListPredicate(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool in_or_not, bool is_opposite = false);
+    InListPredicate(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool in_or_not,
+                    bool is_opposite = false);
     PredicateType type() const override { return PredicateType::IN_LIST; }
     virtual void evaluate(VectorizedRowBatch* batch) const override;
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                        bool* flags) const override;
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                        bool* flags) const override;
+    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;
+    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;
     virtual Status evaluate(const Schema& schema,
-                            const std::vector<BitmapIndexIterator*>& iterators,
-                            uint32_t num_rows, roaring::Roaring* bitmap) const override;
+                            const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
+                            roaring::Roaring* bitmap) const override;
     void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
     void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
-                        bool* flags) const override {}
+                      bool* flags) const override {}
     void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
-                        bool* flags) const override {}
+                     bool* flags) const override {}
 
 private:
     phmap::flat_hash_set<T> _values;
     bool _in_or_not; //true for in(...), false for not in (...)
 };
-
-// template <class T>
-// class NotInListPredicate : public ColumnPredicate {
-// public:
-//     NotInListPredicate(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool is_opposite = false);
-//     PredicateType type() const override { return PredicateType::NOT_IN_LIST; }
-//     virtual void evaluate(VectorizedRowBatch* batch) const override;
-//     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
-//     void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-//                         bool* flags) const override;
-//     void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-//                         bool* flags) const override;
-//     virtual Status evaluate(const Schema& schema,
-//                             const std::vector<BitmapIndexIterator*>& iterators,
-//                             uint32_t num_rows, roaring::Roaring* bitmap) const override;
-//     void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
-//     void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
-//                         bool* flags) const override {}
-//     void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
-//                         bool* flags) const override {}
-
-// private:
-//     phmap::flat_hash_set<T> _values;
-// };
-
-
 
 } //namespace doris
