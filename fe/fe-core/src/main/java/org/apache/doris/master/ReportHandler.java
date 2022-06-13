@@ -892,7 +892,7 @@ public class ReportHandler extends Daemon {
         long rowCount = backendTabletInfo.getRowCount();
 
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLockOrMetaException();
         try {
             Partition partition = olapTable.getPartition(partitionId);

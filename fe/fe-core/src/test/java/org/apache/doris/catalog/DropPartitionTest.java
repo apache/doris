@@ -81,7 +81,7 @@ public class DropPartitionTest {
     @Test
     public void testNormalDropPartition() throws Exception {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        OlapTable table = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         Partition partition = table.getPartition("p20210201");
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropPartitionSql = " alter table test.tbl1 drop partition p20210201;";
@@ -101,7 +101,7 @@ public class DropPartitionTest {
     @Test
     public void testForceDropPartition() throws Exception {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        OlapTable table = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         Partition partition = table.getPartition("p20210202");
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropPartitionSql = " alter table test.tbl1 drop partition p20210202 force;";
@@ -120,7 +120,7 @@ public class DropPartitionTest {
     @Test
     public void testDropPartitionAndReserveTablets() throws Exception {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        OlapTable table = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         Partition partition = table.getPartition("p20210203");
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         table.dropPartitionAndReserveTablet("p20210203");
