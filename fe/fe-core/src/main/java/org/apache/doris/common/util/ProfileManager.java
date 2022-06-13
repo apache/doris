@@ -278,10 +278,24 @@ public class ProfileManager {
         try {
             ProfileElement element = queryIdToProfileMap.get(jobId);
             if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get task ids. err: "
-                        + (element == null ? "not found" : element.errMsg));
+                throw new AnalysisException(
+                        "failed to get task ids. err: " + (element == null ? "not found" : element.errMsg));
             }
             return element.builder;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public String getQueryIdByTraceId(String traceId) {
+        readLock.lock();
+        try {
+            for (Map.Entry<String, ProfileElement> entry : queryIdToProfileMap.entrySet()) {
+                if (entry.getValue().infoStrings.getOrDefault(TRACE_ID, "").equals(traceId)) {
+                    return entry.getKey();
+                }
+            }
+            return "";
         } finally {
             readLock.unlock();
         }

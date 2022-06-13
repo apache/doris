@@ -243,28 +243,62 @@ public class QueryProfileAction extends RestBaseController {
         }
     }
 
-    // Returns the fragments and instances for the specified query id.
-    // [
-    //   {
-    //     "fragment_id":"",
-    //     "time":"",
-    //     "instance_id":[
-    //       ""
-    //     ]
-    //   }
-    // ]
+    /**
+     * Get query id by trace id
+     *
+     * @param request
+     * @param response
+     * @param traceId
+     * @param isAllNode
+     * @return
+     */
+    @RequestMapping(path = "/trace_id/{trace_id}", method = RequestMethod.GET)
+    public Object getQueryIdByTraceId(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable("trace_id") String traceId,
+            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        if (isAllNode) {
+            String httpPath = "/rest/v2/manager/query/trace_id" + traceId;
+            ImmutableMap<String, String> arguments =
+                    ImmutableMap.<String, String>builder().put(IS_ALL_NODE_PARA, "false").build();
+            List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
+            ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
+                    .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
+            for (Pair<String, Integer> ipPort : frontends) {
+                String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
+                try {
+                    String responseJson = HttpUtils.doGet(url, header);
+                    int code = JsonParser.parseString(responseJson).getAsJsonObject().get("code").getAsInt();
+                    if (code == HttpUtils.REQUEST_SUCCESS_CODE) {
+                        return responseJson;
+                    }
+                } catch (Exception e) {
+                    LOG.warn(e);
+                }
+            }
+        } else {
+            String queryId = ProfileManager.getInstance().getQueryIdByTraceId(traceId);
+            if (Strings.isNullOrEmpty(queryId)) {
+                return ResponseEntityBuilder.badRequest("Not found");
+            }
+            return ResponseEntityBuilder.ok(queryId);
+        }
+        return ResponseEntityBuilder.badRequest("not found query id");
+    }
+
     @RequestMapping(path = "/profile/fragments/{query_id}", method = RequestMethod.GET)
     public Object fragments(HttpServletRequest request, HttpServletResponse response,
-                            @PathVariable("query_id") String queryId,
-                            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                    boolean isAllNode) {
+            @PathVariable("query_id") String queryId,
+            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         if (isAllNode) {
             String httpPath = "/rest/v2/manager/query/profile/fragments/" + queryId;
-            ImmutableMap<String, String> arguments = ImmutableMap.<String, String>builder()
-                    .put(IS_ALL_NODE_PARA, "false").build();
+            ImmutableMap<String, String> arguments =
+                    ImmutableMap.<String, String>builder().put(IS_ALL_NODE_PARA, "false").build();
             List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
             ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
                     .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
