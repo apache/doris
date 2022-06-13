@@ -460,16 +460,10 @@ void NumBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 }
 
 void CumulativeCompactionPolicy::pick_candidate_rowsets(
-        int64_t skip_window_sec,
         const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
         int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets) {
-    int64_t now = UnixSeconds();
     for (auto& it : rs_version_map) {
-        // find all rowset version greater than cumulative_point and skip the create time in skip_window_sec
-        if (it.first.first >= cumulative_point &&
-            ((it.second->creation_time() + skip_window_sec < now)
-             // this case means a rowset has been compacted before which is not a new published rowset, so it should participate compaction
-             || (it.first.first != it.first.second))) {
+        if (it.first.first >= cumulative_point) {
             candidate_rowsets->push_back(it.second);
         }
     }

@@ -1044,13 +1044,13 @@ TabletInfo Tablet::get_tablet_info() const {
 }
 
 void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets) {
+        std::vector<RowsetSharedPtr>* candidate_rowsets) {
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
     std::shared_lock rdlock(_meta_lock);
-    _cumulative_compaction_policy->pick_candidate_rowsets(skip_window_sec, _rs_version_map,
-                                                          _cumulative_point, candidate_rowsets);
+    _cumulative_compaction_policy->pick_candidate_rowsets(_rs_version_map, _cumulative_point,
+                                                          candidate_rowsets);
 }
 
 void Tablet::find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const {

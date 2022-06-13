@@ -95,16 +95,12 @@ Status CumulativeCompaction::execute_compact_impl() {
 Status CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(
-            config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
+    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
         return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);
     }
 
-    // candidate_rowsets may not be continuous. Because some rowset may not be selected
-    // because the protection time has not expired(config::cumulative_compaction_skip_window_seconds).
-    // So we need to choose the longest continuous path from it.
     std::vector<Version> missing_versions;
     RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
     if (!missing_versions.empty()) {
