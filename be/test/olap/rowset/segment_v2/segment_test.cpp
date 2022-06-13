@@ -1128,7 +1128,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             values.insert(10);
             values.insert(20);
             std::unique_ptr<ColumnPredicate> predicate(
-                    new InListPredicate<int32_t>(0, std::move(values)), false, true);
+                    new InListPredicate<int32_t>(0, std::move(values), false, true));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;

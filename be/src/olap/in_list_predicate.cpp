@@ -49,13 +49,13 @@ namespace doris {
                 for (uint16_t j = 0; j != n; ++j) {                                              \
                     uint16_t i = sel[j];                                                         \
                     sel[new_size] = i;                                                           \
-                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ _in_or_not);  \
+                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);  \
                 }                                                                                \
                 batch->set_size(new_size);                                                       \
             } else {                                                                             \
                 for (uint16_t i = 0; i != n; ++i) {                                              \
                     sel[new_size] = i;                                                           \
-                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ _in_or_not);  \
+                    new_size += ((_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);  \
                 }                                                                                \
                 if (new_size < n) {                                                              \
                     batch->set_size(new_size);                                                   \
@@ -69,7 +69,7 @@ namespace doris {
                     uint16_t i = sel[j];                                                         \
                     sel[new_size] = i;                                                           \
                     new_size += (!is_null[i] &&                                                  \
-                            (_values.find(col_vector[i]) OP _values.end())  ^ _in_or_not);       \
+                            (_values.find(col_vector[i]) OP _values.end())  ^ !_in_or_not);       \
                 }                                                                                \
                 batch->set_size(new_size);                                                       \
             } else {                                                                             \
@@ -77,7 +77,7 @@ namespace doris {
                     sel[new_size] = i;                                                           \
                     new_size += (!is_null[i]                                                     \
                                  && (_values.find(col_vector[i]) OP _values.end())               \
-                                 ^ _in_or_not);                                                  \
+                                 ^ !_in_or_not);                                                  \
                 }                                                                                \
                 if (new_size < n) {                                                              \
                     batch->set_size(new_size);                                                   \
@@ -101,7 +101,7 @@ IN_LIST_PRED_EVALUATE(InListPredicate, !=)
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
                 auto result = (!block->cell(idx).is_null()                                     \
                                && (_values.find(*cell_value) OP _values.end())                 \
-                               ^ _in_or_not);                                                  \
+                               ^ !_in_or_not);                                                  \
                 new_size += _opposite ? !result : result;                                      \
             }                                                                                  \
         } else {                                                                               \
@@ -109,7 +109,7 @@ IN_LIST_PRED_EVALUATE(InListPredicate, !=)
                 uint16_t idx = sel[i];                                                         \
                 sel[new_size] = idx;                                                           \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (_values.find(*cell_value) OP _values.end()) ^ _in_or_not;       \
+                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;       \
                 new_size += _opposite ? !result : result;                                      \
             }                                                                                  \
         }                                                                                      \
@@ -143,7 +143,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
                         sel[new_size] = idx;
                         const auto& cell_value = data_array[idx];
                         DCHECK(cell_value < selected.size());
-                        bool ret = !null_bitmap[idx] && (selected[cell_value] ^ _in_or_not);
+                        bool ret = !null_bitmap[idx] && (selected[cell_value] ^ !_in_or_not);
                         new_size += _opposite ? !ret : ret;
                     }
                 }
@@ -156,7 +156,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);
-                    bool ret = !null_bitmap[idx] && ((_values.find(cell_value) != _values.end()) ^ _in_or_not);
+                    bool ret = !null_bitmap[idx] && ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
                     new_size += _opposite ? !ret : ret;
                 }
             }
@@ -173,7 +173,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
                     sel[new_size] = idx;
                     const auto& cell_value = data_array[idx];
                     DCHECK(cell_value < selected.size());
-                    auto result = (selected[cell_value] ^ _in_or_not);
+                    auto result = (selected[cell_value] ^ !_in_or_not);
                     new_size += result;
                 }
             }
@@ -184,7 +184,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);
-                auto result = ((_values.find(cell_value) != _values.end()) ^ _in_or_not);
+                auto result = ((_values.find(cell_value) != _values.end()) ^ !_in_or_not);
                 new_size += result;
             }
         }
@@ -205,7 +205,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
                 auto result = (!block->cell(idx).is_null()                                     \
                                && (_values.find(*cell_value) OP _values.end())                 \
-                               ^ _in_or_not);                                                  \
+                               ^ !_in_or_not);                                                  \
                 flags[i] |= _opposite ? !result : result;                                      \
             }                                                                                  \
         } else {                                                                               \
@@ -213,7 +213,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
                 if (flags[i]) continue;                                                        \
                 uint16_t idx = sel[i];                                                         \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (_values.find(*cell_value) OP _values.end()) ^ _in_or_not;       \
+                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;       \
                 flags[i] |= _opposite ? !result : result;                                      \
             }                                                                                  \
         }                                                                                      \
@@ -233,7 +233,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(InListPredicate, !=)
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
                 auto result = (!block->cell(idx).is_null()                                     \
                               && (_values.find(*cell_value) OP _values.end())                  \
-                              ^ _in_or_not);                                                   \
+                              ^ !_in_or_not);                                                   \
                 flags[i] &= _opposite ? !result : result;                                      \
             }                                                                                  \
         } else {                                                                               \
@@ -241,7 +241,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(InListPredicate, !=)
                 if (!flags[i]) continue;                                                       \
                 uint16_t idx = sel[i];                                                         \
                 const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
-                auto result = (_values.find(*cell_value) OP _values.end()) ^ _in_or_not;       \
+                auto result = (_values.find(*cell_value) OP _values.end()) ^ !_in_or_not;       \
                 flags[i] &= _opposite ? !result : result;                                      \
             }                                                                                  \
         }                                                                                      \
