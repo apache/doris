@@ -39,6 +39,9 @@ import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
+import org.json.simple.JSONObject;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -195,8 +198,9 @@ public class QueryProfileAction extends RestBaseController {
                 }
             }
         } else {
-            List<List<String>> queries = ProfileManager.getInstance().getAllQueries().stream()
-                    .filter(query -> query.get(0).equals(queryId)).collect(Collectors.toList());
+            List<List<String>> queries =
+                    ProfileManager.getInstance().getAllQueries().stream().filter(query -> query.get(0).equals(queryId))
+                            .collect(Collectors.toList());
             if (!queries.isEmpty()) {
                 querySql.put("sql", queries.get(0).get(3));
             }
@@ -204,38 +208,39 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.ok(querySql);
     }
 
-    // Returns the text profile for the specified query id.
-    @RequestMapping(path = "/profile/text/{query_id}", method = RequestMethod.GET)
+    /**
+     * Returns the text profile for the specified query id.
+     * There are 3 formats:
+     * 1. Text: return the entire profile of the specified query id
+     * eg: {"profile": "text_xxx"}
+     * <p>
+     * 2. Graph: return the profile in ascii graph. If fragmentId and instanceId are specified, it will
+     * return the instance profile, otherwise, it will return the fragment profile.
+     * eg: {"profile" : "graph_xxx"}
+     * <p>
+     * 3. Json: return the profile in json. If fragmentId and instanceId are specified, it will
+     * return the instance profile, otherwise, it will return the fragment profile.
+     * Json format is mainly used for front-end UI drawing.
+     * eg: {"profile" : "json_xxx"}
+     */
+    @RequestMapping(path = "/profile/{format}/{query_id}", method = RequestMethod.GET)
     public Object queryProfileText(HttpServletRequest request, HttpServletResponse response,
-                                   @PathVariable("query_id") String queryId,
-                                   @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                           boolean isAllNode) {
+            @PathVariable("format") String format, @PathVariable("query_id") String queryId,
+            @RequestParam(value = FRAGMENT_ID, required = false) String fragmentId,
+            @RequestParam(value = INSTANCE_ID, required = false) String instanceId,
+            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        Map<String, String> profileMap = Maps.newHashMap();
-        if (isAllNode) {
-            String httpPath = "/rest/v2/manager/query/profile/text/" + queryId;
-            ImmutableMap<String, String> arguments = ImmutableMap.<String, String>builder()
-                    .put(IS_ALL_NODE_PARA, "false").build();
-            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION));
-            if (!dataList.isEmpty()) {
-                try {
-                    String profile =
-                            JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("profile").getAsString();
-                    profileMap.put("profile", profile);
-                    return ResponseEntityBuilder.ok(profileMap);
-                } catch (Exception e) {
-                    LOG.warn("parse profile text error: {}", dataList.get(0), e);
-                }
-            }
+        if (format.equals("text")) {
+            return getTextProfile(request, queryId, isAllNode);
+        } else if (format.equals("graph")) {
+            return getGraphProfile(request, queryId, fragmentId, instanceId, isAllNode);
+        } else if (format.equals("json")) {
+            return getJsonProfile(request, queryId, fragmentId, instanceId, isAllNode);
         } else {
-            String profile = ProfileManager.getInstance().getProfile(queryId);
-            if (!Strings.isNullOrEmpty(profile)) {
-                profileMap.put("profile", profile);
-            }
+            return ResponseEntityBuilder.badRequest("Invalid profile format: " + format);
         }
-        return ResponseEntityBuilder.ok(profileMap);
     }
 
     // Returns the fragments and instances for the specified query id.
@@ -285,37 +290,27 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.badRequest("not found query id");
     }
 
-    // Returns the graph profile for the specified query id.
-    @RequestMapping(path = "/profile/graph/{query_id}", method = RequestMethod.GET)
-    public Object queryProfileGraph(HttpServletRequest request, HttpServletResponse response,
-                                    @PathVariable("query_id") String queryId,
-                                    @RequestParam(value = FRAGMENT_ID, required = false) String fragmentId,
-                                    @RequestParam(value = INSTANCE_ID, required = false) String instanceId,
-                                    @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                            boolean isAllNode) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+    @NotNull
+    private ResponseEntity getTextProfile(HttpServletRequest request, String queryId, boolean isAllNode) {
+        Map<String, String> profileMap = Maps.newHashMap();
+        if (isAllNode) {
+            return getProfileFromAllFrontends(request, "text", queryId, "", "");
+        } else {
+            String profile = ProfileManager.getInstance().getProfile(queryId);
+            if (!Strings.isNullOrEmpty(profile)) {
+                profileMap.put("profile", profile);
+            }
+        }
+        return ResponseEntityBuilder.ok(profileMap);
+    }
 
+    @NotNull
+    private ResponseEntity getGraphProfile(HttpServletRequest request, String queryId, String fragmentId,
+            String instanceId, boolean isAllNode) {
         Map<String, String> graph = Maps.newHashMap();
         List<String> results;
-
         if (isAllNode) {
-            String httpPath = "/rest/v2/manager/query/profile/graph/" + queryId;
-            Map<String, String> arguments = Maps.newHashMap();
-            arguments.put(FRAGMENT_ID, fragmentId);
-            arguments.put(INSTANCE_ID, instanceId);
-            arguments.put(IS_ALL_NODE_PARA, "false");
-            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION));
-            if (!dataList.isEmpty()) {
-                try {
-                    String profileGraph =
-                            JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("graph").getAsString();
-                    graph.put("graph", profileGraph);
-                    return ResponseEntityBuilder.ok(graph);
-                } catch (Exception e) {
-                    LOG.warn("parse profile graph error: {}", dataList.get(0), e);
-                }
-            }
+            return getProfileFromAllFrontends(request, "graph", queryId, fragmentId, instanceId);
         } else {
             try {
                 if (Strings.isNullOrEmpty(fragmentId) || Strings.isNullOrEmpty(instanceId)) {
@@ -328,10 +323,61 @@ public class QueryProfileAction extends RestBaseController {
                 }
                 graph.put("graph", results.get(0));
             } catch (Exception e) {
-                LOG.warn("get profile graph error, queryId:{}, fragementId:{}, instanceId:{}",
-                        queryId, fragmentId, instanceId, e);
+                LOG.warn("get profile graph error, queryId:{}, fragementId:{}, instanceId:{}", queryId, fragmentId,
+                        instanceId, e);
             }
         }
         return ResponseEntityBuilder.ok(graph);
+    }
+
+    @NotNull
+    private ResponseEntity getJsonProfile(HttpServletRequest request, String queryId, String fragmentId,
+            String instanceId, boolean isAllNode) {
+        Map<String, String> graph = Maps.newHashMap();
+        if (isAllNode) {
+            return getProfileFromAllFrontends(request, "json", queryId, fragmentId, instanceId);
+        } else {
+            try {
+                JSONObject json;
+                if (Strings.isNullOrEmpty(fragmentId) || Strings.isNullOrEmpty(instanceId)) {
+                    ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(queryId, queryId);
+                    json = ProfileTreePrinter.printFragmentTreeInJson(treeRoot);
+                } else {
+                    ProfileTreeNode treeRoot = ProfileManager.getInstance()
+                            .getInstanceProfileTree(queryId, queryId, fragmentId, instanceId);
+                    json = ProfileTreePrinter.printFragmentTreeInJson(treeRoot);
+                }
+                graph.put("profile", json.toJSONString());
+            } catch (Exception e) {
+                LOG.warn("get profile graph error, queryId:{}, fragementId:{}, instanceId:{}", queryId, fragmentId,
+                        instanceId, e);
+            }
+        }
+        return ResponseEntityBuilder.ok(graph);
+    }
+
+    @NotNull
+    private ResponseEntity getProfileFromAllFrontends(HttpServletRequest request, String format, String queryId,
+            String fragmentId, String instanceId) {
+        String httpPath = "/rest/v2/manager/query/profile/" + format + "/" + queryId;
+        ImmutableMap.Builder<String, String> builder =
+                ImmutableMap.<String, String>builder().put(IS_ALL_NODE_PARA, "false");
+        if (!Strings.isNullOrEmpty(fragmentId)) {
+            builder.put(FRAGMENT_ID, fragmentId);
+        }
+        if (!Strings.isNullOrEmpty(instanceId)) {
+            builder.put(INSTANCE_ID, instanceId);
+        }
+        List<String> dataList = requestAllFe(httpPath, builder.build(), request.getHeader(NodeAction.AUTHORIZATION));
+        Map<String, String> result = Maps.newHashMap();
+        if (!dataList.isEmpty()) {
+            try {
+                String profile = JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("profile").getAsString();
+                result.put("profile", profile);
+            } catch (Exception e) {
+                return ResponseEntityBuilder.badRequest(e.getMessage());
+            }
+        }
+        return ResponseEntityBuilder.ok(result);
     }
 }

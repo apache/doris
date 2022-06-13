@@ -20,12 +20,12 @@ package org.apache.doris.common.profile;
 import hu.webarticum.treeprinter.BorderTreeNodeDecorator;
 import hu.webarticum.treeprinter.SimpleTreeNode;
 import hu.webarticum.treeprinter.TraditionalTreePrinter;
+import org.json.simple.JSONObject;
 
 public class ProfileTreePrinter {
 
-    public static enum PrintLevel {
-        FRAGMENT,
-        INSTANCE
+    public enum PrintLevel {
+        FRAGMENT, INSTANCE
     }
 
     // Fragment tree only print the entire query plan tree with node name
@@ -51,5 +51,11 @@ public class ProfileTreePrinter {
             node.addChild(buildNode(child, level));
         }
         return node;
+    }
+
+    public static JSONObject printFragmentTreeInJson(ProfileTreeNode root) {
+        JSONObject object = new JSONObject();
+        // TODO
+        return object;
     }
 }

@@ -230,6 +230,7 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
             summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
             summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
+            summaryProfile.addInfoString(ProfileManager.TRACE_ID, context.getSessionVariable().getTraceId());
 
             plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
             summaryProfile.addChild(plannerRuntimeProfile);
