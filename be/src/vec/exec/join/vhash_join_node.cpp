@@ -1371,8 +1371,9 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
-                mutable_columns[i]->insert_range_from(
-                        *origin_block->get_by_position(result_column_id).column, 0, rows);
+                auto column_ptr = origin_block->get_by_position(result_column_id)
+                                          .column->convert_to_full_column_if_const();
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
             }
         }
 

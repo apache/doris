@@ -651,7 +651,7 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
         bool ret = const_column->get_bool(0);
         if (!ret) {
             for (size_t i = 0; i < column_to_keep; ++i) {
-                std::move(*block->get_by_position(i).column).mutate()->clear();
+                std::move(*block->get_by_position(i).column).assume_mutable()->clear();
             }
         }
     } else {
