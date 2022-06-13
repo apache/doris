@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.FoldConstantsRule;
@@ -246,12 +245,8 @@ public class QueryStmtTest {
             constMap = getConstantExprMap(exprsMap, analyzer);
             Assert.assertEquals(4, constMap.size());
         } else {
-            try {
                 UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
                 Assert.fail();
-            } catch (VecNotImplException e) {
-                Assert.assertTrue(e.getMessage().contains("could not be changed to nullable"));
-            }
         }
     }
 
