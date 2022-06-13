@@ -2838,10 +2838,6 @@ show_param ::=
     {:
         RESULT = new ShowFrontendsStmt();
     :}
-    | KW_USER
-    {:
-        RESULT = new ShowUserStmt();
-    :}
     | KW_REPOSITORIES
     {:
        RESULT = new ShowRepositoriesStmt();
