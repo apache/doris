@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.persist.meta;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.CountingDataOutputStream;
 
 import com.google.common.collect.Lists;
@@ -28,6 +29,7 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 
 /**
@@ -100,42 +102,32 @@ public class MetaWriter {
         long startPosition = MetaHeader.write(imageFile);
         List<MetaIndex> metaIndices = Lists.newArrayList();
         FileOutputStream imageFileOut = new FileOutputStream(imageFile, true);
-        try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(
-                imageFileOut), startPosition)) {
+        try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(imageFileOut),
+                startPosition)) {
             writer.setDelegate(dos, metaIndices);
             long replayedJournalId = catalog.getReplayedJournalId();
-            checksum.setRef(writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
-            checksum.setRef(writer.doWork("masterInfo", () -> catalog.saveMasterInfo(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("frontends", () -> catalog.saveFrontends(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("backends", () -> Catalog.getCurrentSystemInfo().saveBackends(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("db", () -> catalog.saveDb(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("loadJob", () -> catalog.saveLoadJob(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("alterJob", () -> catalog.saveAlterJob(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("recycleBin", () -> catalog.saveRecycleBin(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("globalVariable", () -> catalog.saveGlobalVariable(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("cluster", () -> catalog.saveCluster(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("broker", () -> catalog.saveBrokers(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("resources", () -> catalog.saveResources(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("exportJob", () -> catalog.saveExportJob(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("syncJob", () -> catalog.saveSyncJobs(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("backupHandler", () -> catalog.saveBackupHandler(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("paloAuth", () -> catalog.savePaloAuth(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("transactionState", () -> catalog.saveTransactionState(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("colocateTableIndex", () -> catalog.saveColocateTableIndex(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("routineLoadJobs", () -> catalog.saveRoutineLoadJobs(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("loadJobV2", () -> catalog.saveLoadJobsV2(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("smallFiles", () -> catalog.saveSmallFiles(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("policy", () -> catalog.savePolicy(dos, checksum.getRef())));
+            // 1. write header first
+            checksum.setRef(
+                    writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
+            // 2. write other modules
+            for (MetaPersistMethod m : PersistMetaModules.MODULES_IN_ORDER) {
+                checksum.setRef(writer.doWork(m.name, () -> {
+                    try {
+                        return (long) m.writeMethod.invoke(catalog, dos, checksum.getRef());
+                    } catch (IllegalAccessException | InvocationTargetException e) {
+                        LOG.warn("failed to write meta module: {}", m.name, e);
+                        throw new RuntimeException(e);
+                    }
+                }));
+            }
+            // 3. force sync to disk
             imageFileOut.getChannel().force(true);
         }
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 
         long saveImageEndTime = System.currentTimeMillis();
-        LOG.info("finished save image {} in {} ms. checksum is {}",
-                imageFile.getAbsolutePath(), (saveImageEndTime - saveImageStartTime), checksum.getRef());
+        LOG.info("finished save image {} in {} ms. checksum is {}", imageFile.getAbsolutePath(),
+                (saveImageEndTime - saveImageStartTime), checksum.getRef());
     }
 
 }

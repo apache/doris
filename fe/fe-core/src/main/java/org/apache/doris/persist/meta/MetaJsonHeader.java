@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.persist.meta;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 
 import org.codehaus.jackson.map.ObjectMapper;

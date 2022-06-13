@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "broker_writer.h"
+#include "io/broker_writer.h"
 
 #include <sstream>
 

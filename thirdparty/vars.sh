@@ -32,9 +32,6 @@ export TP_SOURCE_DIR=$TP_DIR/src
 # thirdparties will be installed to here
 export TP_INSTALL_DIR=$TP_DIR/installed
 
-# libhdfs3-with-kerberos will be installed to here
-export HDFS3_KRB5_INSTALL_DIR=$TP_INSTALL_DIR/libhdfs_with_kerberos
-
 # patches for all thirdparties
 export TP_PATCH_DIR=$TP_DIR/patches
 
@@ -336,16 +333,10 @@ IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
-GSASL_NAME="libgsasl-1.10.0.tar.gz"
-GSASL_SOURCE="libgsasl-1.10.0"
-GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
-
-# gsasl 1.8.0 is only used for libhdfs3 with kerberos
-GSASL2_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
-GSASL2_NAME="libgsasl-1.8.0.tar.gz"
-GSASL2_SOURCE="libgsasl-1.8.0"
-GSASL2_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
+GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_NAME="libgsasl-1.8.0.tar.gz"
+GSASL_SOURCE="libgsasl-1.8.0"
+GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
 
 # krb5
 KRB5_DOWNLOAD="https://kerberos.org/dist/krb5/1.19/krb5-1.19.tar.gz"
@@ -354,10 +345,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libhdfs3-master.zip"
-HDFS3_NAME="libhdfs3-master.zip"
-HDFS3_SOURCE="libhdfs3-master"
-HDFS3_MD5SUM="8c071fd2e7b0b1ccc1ec9c0d073d4146"
+HDFS3_DOWNLOAD="https://github.com/yangzhg/libhdfs3/archive/refs/tags/v2.3.0.tar.gz"
+HDFS3_NAME="libhdfs3-2.3.0.tar.gz"
+HDFS3_SOURCE="libhdfs3-2.3.0"
+HDFS3_MD5SUM="f647975fb7ad03bf25a14f530b1a5c06"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -389,6 +380,24 @@ SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2
 SIMDJSON_NAME=simdjson-1.0.2.tar.gz
 SIMDJSON_SOURCE=simdjson-1.0.2
 SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
+
+# nlohmann_json
+NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
+NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
+NLOHMANN_JSON_SOURCE=json-3.10.1
+NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# opentelemetry-proto
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
+OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+
+# opentelemetry
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
+OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -444,7 +453,6 @@ LZMA
 XML2
 IDN
 GSASL
-GSASL2
 KRB5
 HDFS3
 LIBDIVIDE
@@ -452,4 +460,7 @@ PDQSORT
 BENCHMARK
 XSIMD
 SIMDJSON
+NLOHMANN_JSON
+OPENTELEMETRY_PROTO
+OPENTELEMETRY
 LIBBACKTRACE"

@@ -21,26 +21,20 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
-set(EXEC_FILES
-     buffered_reader.cpp
-     local_file_reader.cpp
-     local_file_writer.cpp
+set(IO_FILES
      broker_reader.cpp
      broker_writer.cpp
+     buffered_reader.cpp
+     file_factory.cpp
+     hdfs_file_reader.cpp
+     hdfs_reader_writer.cpp
+     hdfs_writer.cpp
+     local_file_reader.cpp
+     local_file_writer.cpp
      s3_reader.cpp
      s3_writer.cpp
-     hdfs_reader_writer.cpp
-     file_factory.cpp
 )
 
-if (ARCH_AMD64)
-    set(EXEC_FILES
-        ${EXEC_FILES}
-        hdfs_file_reader.cpp
-        hdfs_writer.cpp
-        )
-endif()
-
 add_library(IO STATIC
-    ${EXEC_FILES}
+    ${IO_FILES}
 )

@@ -23,9 +23,9 @@
 #include <string>
 
 #include "common/status.h"
-#include "file_writer.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/file_writer.h"
 
 namespace doris {
 

@@ -57,11 +57,14 @@ struct TypeDescriptor {
     /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
     static const int MAX_DECIMAL8_PRECISION = 18;
 
-    /// Empty for scalar types
+    // Empty for scalar types
     std::vector<TypeDescriptor> children;
 
-    /// Only set if type == TYPE_STRUCT. The field name of each child.
+    // Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
+
+    // Used for complex types only.
+    bool contains_null = true;
 
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
