@@ -25,6 +25,10 @@ import org.apache.doris.thrift.TFileFormatType;
 
 import java.util.Map;
 
+/**
+ * A file scan provider for hudi.
+ * HudiProvier is extended with hive since they both use input format interface to get the spilt.
+ */
 public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
 
     public ExternalHudiScanProvider(org.apache.doris.catalog.Table catalogTable) {

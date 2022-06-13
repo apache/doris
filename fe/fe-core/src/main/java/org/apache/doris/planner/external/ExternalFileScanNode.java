@@ -17,10 +17,6 @@
 
 package org.apache.doris.planner.external;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
@@ -41,7 +37,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.mysql.privilege.UserProperty;
-import org.apache.doris.planner.HiveScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
@@ -61,6 +56,11 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileSplit;
@@ -83,6 +83,10 @@ import java.util.Set;
  */
 public class ExternalFileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(ExternalFileScanNode.class);
+
+    private static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
+
+    private static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";
 
     private static class ParamCreateContext {
         public TBrokerScanRangeParams params;
@@ -124,6 +128,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             Random random = new Random(System.currentTimeMillis());
             Collections.shuffle(backends, random);
         }
+
         public Backend getNextBe() {
             Backend selectedBackend = backends.get(nextBe++);
             nextBe = nextBe % backends.size();
@@ -149,6 +154,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     private ExternalFileScanProvider scanProvider;
 
+    /**
+     * External file scan node for hms table.
+     */
     public ExternalFileScanNode(
             PlanNodeId id,
             TupleDescriptor desc,
@@ -168,6 +176,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
             case HIVE:
                 this.scanProvider = new ExternalHiveScanProvider(this.catalogTable);
                 break;
+            default:
+                LOG.warn("Unknown table for dla.");
         }
     }
 
@@ -180,8 +190,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         } else if (this.catalogTable instanceof IcebergTable) {
             return DLAType.ICE_BERG;
         }
-        if (remoteHiveTable.getParameters().containsKey("table_type") &&
-            remoteHiveTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG")){
+        if (remoteHiveTable.getParameters().containsKey("table_type")
+                && remoteHiveTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG")) {
             return DLAType.ICE_BERG;
         } else if (remoteHiveTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
             return DLAType.HUDI;
@@ -206,9 +216,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
         if (scanProvider.getTableFormatType().equals(TFileFormatType.FORMAT_CSV_PLAIN)) {
             Map<String, String> serDeInfoParams = remoteHiveTable.getSd().getSerdeInfo().getParameters();
             String columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
-                ? HiveScanNode.HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
+                    ? HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
             String lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim"))
-                ? HiveScanNode.HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
+                    ? HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
             context.params.setColumnSeparator(columnSeparator.getBytes(StandardCharsets.UTF_8)[0]);
             context.params.setLineDelimiter(lineDelimiter.getBytes(StandardCharsets.UTF_8)[0]);
             context.params.setColumnSeparatorStr(columnSeparator);
@@ -287,8 +297,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params) {
-        Backend selectedBackend = backendPolicy.getNextBe();
-
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
         brokerScanRange.setParams(params);
@@ -303,6 +311,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         locations.setScanRange(scanRange);
 
         TScanRangeLocation location = new TScanRangeLocation();
+        Backend selectedBackend = backendPolicy.getNextBe();
         location.setBackendId(selectedBackend.getId());
         location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
         locations.addToLocations(location);

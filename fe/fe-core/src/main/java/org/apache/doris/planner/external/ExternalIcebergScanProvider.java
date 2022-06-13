@@ -41,12 +41,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * A file scan provider for iceberg.
+ */
 public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
     private final org.apache.doris.catalog.Table catalogTable;
 
     public ExternalIcebergScanProvider(org.apache.doris.catalog.Table catalogTable) {
         this.catalogTable = catalogTable;
     }
+
     @Override
     public TFileFormatType getTableFormatType() throws DdlException {
         TFileFormatType type;
@@ -83,7 +87,7 @@ public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
             }
         }
 
-        org.apache.iceberg.Table table = ((IcebergTable)catalogTable).getTable();
+        org.apache.iceberg.Table table = ((IcebergTable) catalogTable).getTable();
         TableScan scan = table.newScan();
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
@@ -91,8 +95,9 @@ public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
         List<FileSplit> splits = new ArrayList<>();
 
         for (FileScanTask task : scan.planFiles()) {
-            for (FileScanTask spitTask: task.split(128 * 1024 * 1024)) {
-                splits.add(new FileSplit(new Path(spitTask.file().path().toString()), spitTask.start(), spitTask.length(), new String[0]));
+            for (FileScanTask spitTask : task.split(128 * 1024 * 1024)) {
+                splits.add(new FileSplit(new Path(spitTask.file().path().toString()),
+                        spitTask.start(), spitTask.length(), new String[0]));
             }
         }
         return splits.toArray(new InputSplit[0]);
@@ -100,8 +105,8 @@ public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
 
     @Override
     public Table getRemoteHiveTable() throws DdlException {
-        String dbName =((IcebergTable) catalogTable).getIcebergDb();
-        String tableName =((IcebergTable) catalogTable).getIcebergTbl();
+        String dbName = ((IcebergTable) catalogTable).getIcebergDb();
+        String tableName = ((IcebergTable) catalogTable).getIcebergTbl();
         return HiveMetaStoreClientHelper.getTable(dbName, tableName, getMetaStoreUrl());
     }
 

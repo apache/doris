@@ -85,14 +85,14 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
             throws IOException, UserException {
         String splitsPath = getRemoteHiveTable().getSd().getLocation();
         List<String> partitionKeys = getRemoteHiveTable().getPartitionKeys()
-            .stream().map(FieldSchema::getName).collect(Collectors.toList());
+                .stream().map(FieldSchema::getName).collect(Collectors.toList());
 
         if (partitionKeys.size() > 0) {
             ExprNodeGenericFuncDesc hivePartitionPredicate = extractHivePartitionPredicate(exprs, partitionKeys);
 
             String metaStoreUris = getMetaStoreUrl();
             List<Partition> hivePartitions = HiveMetaStoreClientHelper.getHivePartitions(
-                metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate);
+                    metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate);
             if (!hivePartitions.isEmpty()) {
                 splitsPath = hivePartitions.stream().map(x -> x.getSd().getLocation())
                         .collect(Collectors.joining(","));
@@ -110,12 +110,12 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
 
 
     private ExprNodeGenericFuncDesc extractHivePartitionPredicate(List<Expr> conjuncts, List<String> partitionKeys)
-        throws DdlException {
+            throws DdlException {
         ExprNodeGenericFuncDesc hivePartitionPredicate;
         List<ExprNodeDesc> exprNodeDescs = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            ExprNodeGenericFuncDesc hiveExpr =
-                HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct, partitionKeys, catalogTable.getName());
+            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    conjunct, partitionKeys, catalogTable.getName());
             if (hiveExpr != null) {
                 exprNodeDescs.add(hiveExpr);
             }
