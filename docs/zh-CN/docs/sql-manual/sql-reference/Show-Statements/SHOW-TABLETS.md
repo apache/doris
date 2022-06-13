@@ -42,7 +42,7 @@ SHOW TABLETS FROM (db.)table
 
 ### Example
 
-1.  列出指定Table的所有tablets
+1.  列出指定table的所有tablets
 
    ```sql
    SHOW TABLETS FROM example_db.test_tbl;
