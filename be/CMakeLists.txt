@@ -85,7 +85,6 @@ set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/../")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed/")
-set(HDFS3_KRB5_INSTALL_DIR "$ENV{DORIS_THIRDPARTY}/installed/libhdfs_with_kerberos/")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
@@ -98,7 +97,6 @@ else()
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
-option(WITH_KERBEROS "Enable or disable Kereberos support" ${WITH_KERBEROS})
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -330,43 +328,32 @@ set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
-if (WITH_KERBEROS)
-    # kerberos lib for libhdfs3 
-    add_library(gsasl STATIC IMPORTED)
-    set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libgsasl.a)
+add_library(xml2 STATIC IMPORTED)
+set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
 
-    add_library(krb5support STATIC IMPORTED)
-    set_target_properties(krb5support PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libkrb5support.a)
-    
-    add_library(krb5 STATIC IMPORTED)
-    set_target_properties(krb5 PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libkrb5.a)
+add_library(lzma STATIC IMPORTED)
+set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
 
-    add_library(com_err STATIC IMPORTED)
-    set_target_properties(com_err PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libcom_err.a)
+add_library(gsasl STATIC IMPORTED)
+set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgsasl.a)
 
-    add_library(k5crypto STATIC IMPORTED)
-    set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libk5crypto.a)
+add_library(krb5support STATIC IMPORTED)
+set_target_properties(krb5support PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5support.a)
 
-    add_library(gssapi_krb5 STATIC IMPORTED)
-    set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libgssapi_krb5.a)
+add_library(krb5 STATIC IMPORTED)
+set_target_properties(krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5.a)
 
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libhdfs3.a)
-else()
-    add_library(gsasl STATIC IMPORTED)
-    set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+add_library(com_err STATIC IMPORTED)
+set_target_properties(com_err PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcom_err.a)
 
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
-endif()
+add_library(k5crypto STATIC IMPORTED)
+set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libk5crypto.a)
 
-if (ARCH_AMD64)
-    add_library(xml2 STATIC IMPORTED)
-    set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+add_library(gssapi_krb5 STATIC IMPORTED)
+set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgssapi_krb5.a)
 
-    add_library(lzma STATIC IMPORTED)
-    set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
-endif()
+add_library(hdfs3 STATIC IMPORTED)
+set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -570,6 +557,7 @@ set(DORIS_LINK_LIBS
     Exec
     Exprs
     Gutil
+    IO
     Olap
     Rowset
     OlapFs
@@ -632,6 +620,9 @@ set(COMMON_THIRDPARTY
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp
     librdkafka
+    hdfs3
+    xml2
+    lzma
 )
 
 if (${MAKE_TEST} STREQUAL "ON")
@@ -641,28 +632,12 @@ if (${MAKE_TEST} STREQUAL "ON")
     )
 endif()
 
-# thirdparties dependescies that can only run on X86 platform
-set(X86_DEPENDENCIES
+set(DORIS_DEPENDENCIES
+    ${DORIS_DEPENDENCIES}
+    ${WL_START_GROUP}
     ${COMMON_THIRDPARTY}
-    hdfs3
-    xml2
-    lzma
+    ${KRB5_LIBS}
 )
-
-if(ARCH_AARCH64)
-    # Set thirdparty libraries
-    set(DORIS_DEPENDENCIES
-        ${DORIS_DEPENDENCIES}
-        ${WL_START_GROUP}
-        ${COMMON_THIRDPARTY}
-    )
-else()
-    set(DORIS_DEPENDENCIES
-        ${DORIS_DEPENDENCIES}
-        ${WL_START_GROUP}
-        ${X86_DEPENDENCIES}
-    )
-endif()
 
 if(WITH_LZO)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
@@ -673,12 +648,6 @@ endif()
 if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
         mysql
-        )
-endif()
-
-if (WITH_KERBEROS)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-    	${KRB5_LIBS}
         )
 endif()
 
@@ -755,6 +724,7 @@ add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
+add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/olap)

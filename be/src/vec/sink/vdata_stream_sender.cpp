@@ -290,6 +290,41 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
     _name = "VDataStreamSender";
 }
 
+VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
+                                     const std::vector<TPlanFragmentDestination>& destinations,
+                                     int per_channel_buffer_size,
+                                     bool send_query_statistics_with_every_batch)
+        : _sender_id(sender_id),
+          _pool(pool),
+          _row_desc(row_desc),
+          _current_channel_idx(0),
+          _ignore_not_found(true),
+          _cur_pb_block(&_pb_block1),
+          _profile(nullptr),
+          _serialize_batch_timer(nullptr),
+          _bytes_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr),
+          _dest_node_id(0) {
+    _name = "VDataStreamSender";
+}
+
+VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc,
+                                     int per_channel_buffer_size,
+                                     bool send_query_statistics_with_every_batch)
+        : _sender_id(0),
+          _pool(pool),
+          _row_desc(row_desc),
+          _current_channel_idx(0),
+          _ignore_not_found(true),
+          _cur_pb_block(&_pb_block1),
+          _profile(nullptr),
+          _serialize_batch_timer(nullptr),
+          _bytes_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr),
+          _dest_node_id(0) {
+    _name = "VDataStreamSender";
+}
+
 VDataStreamSender::~VDataStreamSender() {
     _channel_shared_ptrs.clear();
 }

@@ -359,7 +359,7 @@ COMMENT "OLAP"
 DISTRIBUTED BY HASH(`id`) BUCKETS 8;
 
 -- enable batch delete
-ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
+ALTER TABLE target_test ENABLE FEATURE "BATCH_DELETE";
 ```
 **！！Doris表结构和Mysql表结构字段顺序必须保持一致！！**
 

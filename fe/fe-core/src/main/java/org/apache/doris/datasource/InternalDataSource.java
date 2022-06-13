@@ -923,7 +923,7 @@ public class InternalDataSource implements DataSourceIf {
 
         db.dropTable(table.getName());
         if (!isForceDrop) {
-            Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
+            Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay);
         } else {
             if (table.getType() == TableType.OLAP) {
                 Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, isReplay);
@@ -992,7 +992,7 @@ public class InternalDataSource implements DataSourceIf {
 
     public void replayAddReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             unprotectAddReplica(olapTable, info);
@@ -1003,7 +1003,7 @@ public class InternalDataSource implements DataSourceIf {
 
     public void replayUpdateReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             unprotectUpdateReplica(olapTable, info);
@@ -1021,7 +1021,7 @@ public class InternalDataSource implements DataSourceIf {
 
     public void replayDeleteReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             unprotectDeleteReplica(olapTable, info);
@@ -1451,7 +1451,7 @@ public class InternalDataSource implements DataSourceIf {
 
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             Partition partition = info.getPartition();
@@ -1550,7 +1550,7 @@ public class InternalDataSource implements DataSourceIf {
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             if (info.isTempPartition()) {
@@ -1569,7 +1569,7 @@ public class InternalDataSource implements DataSourceIf {
 
     public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             Catalog.getCurrentRecycleBin().replayRecoverPartition(olapTable, info.getPartitionId());
@@ -2470,7 +2470,7 @@ public class InternalDataSource implements DataSourceIf {
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTblId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTblId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable());
@@ -3208,6 +3208,10 @@ public class InternalDataSource implements DataSourceIf {
             }
             Catalog.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
         }
+        // ATTN: this should be done after load Db, and before loadAlterJob
+        recreateTabletInvertIndex();
+        // rebuild es state state
+        getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
     }

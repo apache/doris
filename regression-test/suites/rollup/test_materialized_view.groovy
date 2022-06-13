@@ -106,8 +106,8 @@ suite("test_materialized_view", "rollup") {
     }
     sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
 
-    sql "DROP TABLE ${tbName1}"
-    sql "DROP TABLE ${tbName2}"
+    sql "DROP TABLE ${tbName1} FORCE;"
+    sql "DROP TABLE ${tbName2} FORCE;"
 
 }
 
