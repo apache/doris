@@ -36,34 +36,18 @@ namespace vectorized {
 template <typename T>
 struct AggregateFunctionProductData {
     T product {};
-    bool has_data = false;
 
-    void add(T value) {
-        has_data = true;
-        product *= value;
-    }
+    void add(T value) { product *= value; }
 
-    void merge(const AggregateFunctionProductData& other) {
-        has_data = true;
-        product *= other.product;
-    }
+    void merge(const AggregateFunctionProductData& other) { product *= other.product; }
 
-    void write(BufferWritable& buffer) const {
-        write_binary(product, buffer);
-        write_binary(has_data, buffer);
-    }
+    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
 
-    void read(BufferReadable& buffer) {
-        read_binary(product, buffer);
-        read_binary(has_data, buffer);
-    }
+    void read(BufferReadable& buffer) { read_binary(product, buffer); }
 
-    T get() const { return has_data ? product : T {}; }
+    T get() const { return product; }
 
-    void reset(T value) {
-        product = std::move(value);
-        has_data = false;
-    }
+    void reset(T value) { product = std::move(value); }
 };
 
 template <typename T, typename TResult, typename Data>

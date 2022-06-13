@@ -73,6 +73,8 @@ struct ArrayAggregateResultImpl<Element, AggregateOperation::SUM> {
 template <typename Element, AggregateOperation operation>
 using ArrayAggregateResult = typename ArrayAggregateResultImpl<Element, operation>::Result;
 
+// For MIN/MAX, the type of result is the same as the type of elements, we can omit the
+// template specialization.
 template <AggregateOperation operation>
 struct AggregateFunctionImpl;
 
@@ -90,18 +92,8 @@ template <>
 struct AggregateFunctionImpl<AggregateOperation::AVERAGE> {
     template <typename Element>
     struct TypeTraits {
-        struct AggregateDataType : public AggregateFunctionAvgData<Element> {
-            using AggregateFunctionAvgData<Element>::count;
-            using AggregateFunctionAvgData<Element>::sum;
-
-            template <typename ResultT>
-            ResultT result() const {
-                return count ? AggregateFunctionAvgData<Element>::template result<ResultT>()
-                             : static_cast<ResultT>(sum);
-            }
-        };
-
         using ResultType = ArrayAggregateResult<Element, AggregateOperation::AVERAGE>;
+        using AggregateDataType = AggregateFunctionAvgData<ResultType>;
         using Function = AggregateFunctionAvg<Element, AggregateDataType>;
         static_assert(std::is_same_v<ResultType, typename Function::ResultType>,
                       "ResultType doesn't match.");
@@ -196,11 +188,11 @@ struct ArrayAggregateImpl {
 
         ColumnPtr res_column;
         if constexpr (IsDecimalNumber<Element>) {
-            res_column =
-                    make_nullable(ColVecResultType::create(offsets.size(), column->get_scale()));
+            res_column = (ColVecResultType::create(offsets.size(), column->get_scale()));
         } else {
-            res_column = make_nullable(ColVecResultType::create(offsets.size()));
+            res_column = (ColVecResultType::create(offsets.size()));
         }
+        res_column = make_nullable(res_column);
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).clear();
 
         auto function = Function::create(type);
