@@ -128,7 +128,7 @@ public class StoragePolicy extends Policy {
             this.cooldownTtl = props.get(COOLDOWN_TTL);
         }
         if (hasCooldownDatetime && hasCooldownTtl) {
-            throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together");
+            throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
         }
         if (!hasCooldownDatetime && !hasCooldownTtl) {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
