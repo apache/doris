@@ -30,7 +30,9 @@ under the License.
         <p class="sum">Modern, high-performance MPP analytical database</p> 
         <div class="bannerHref">
           <a href="/en/docs/get-starting/get-starting.html" class="button1">GET STARTED</a> 
-          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
+          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2 black"><i class="doris doris-github-fill"></i>GITHUB</a>
+          <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-18u6vjopj-Th15vTVfmCzVfhhL5rz26A" target="_blank" class="button2 white">
+          <i><img style="width: 20px; position: relative; left: 4px; top: 2px; margin: 0;" src="/images/slack.png" alt="Slack" /></i>SLACK</a>
         </div>
       </div> 
       <div class="bImg">
