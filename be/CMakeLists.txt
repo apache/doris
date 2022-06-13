@@ -407,7 +407,7 @@ endif ()
 # We need to avoid using SYS_getrandom system calls
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2 -mpopcnt")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
     if (USE_AVX2)
         set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
     endif()
