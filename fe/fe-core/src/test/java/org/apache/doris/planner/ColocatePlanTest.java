@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.UUID;
 
 public class ColocatePlanTest {
-    private static final String COLOCATE_ENABLE = "colocate: true";
+    public static final String COLOCATE_ENABLE = "COLOCATE";
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 

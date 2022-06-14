@@ -293,10 +293,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public String getExplainString(TExplainLevel explainLevel) {
         StringBuilder str = new StringBuilder();
         Preconditions.checkState(dataPartition != null);
-        str.append(" OUTPUT EXPRS:");
         if (CollectionUtils.isNotEmpty(outputExprs)) {
-            str.append(outputExprs.stream().map(Expr::toSql)
-                    .collect(Collectors.joining(" | ")));
+            str.append("  OUTPUT EXPRS:");
+            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining(" | ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
