@@ -18,12 +18,12 @@
 
 #pragma once
 
+#include <fmt/format.h>
+
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
-
-#include <fmt/format.h>
 
 namespace doris {
 template <typename T>
@@ -62,7 +62,7 @@ std::string to_string(const std::vector<T>& t) {
 
 template <typename K, typename V>
 std::string to_string(const std::map<K, V>& m) {
-    return "{" +  to_string(m.begin(), m.end()) + "}";
+    return "{" + to_string(m.begin(), m.end()) + "}";
 }
 
 template <typename T>
