@@ -19,6 +19,11 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Less than expression: a < b.
@@ -43,5 +48,11 @@ public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
     @Override
     public String toString() {
         return "(" + left() + " < " + right() + ")";
+    }
+
+    @Override
+    public LessThan newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new LessThan((Expression) children.get(0), (Expression) children.get(1));
     }
 }
