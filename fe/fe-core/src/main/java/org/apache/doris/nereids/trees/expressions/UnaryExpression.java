@@ -27,6 +27,6 @@ public interface UnaryExpression<CHILD_TYPE extends Expression>
 
     @Override
     default CHILD_TYPE child() {
-        return child(0);
+        return (CHILD_TYPE) child(0);
     }
 }

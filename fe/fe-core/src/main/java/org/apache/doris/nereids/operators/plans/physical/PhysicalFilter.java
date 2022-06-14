@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import java.util.Objects;
 
@@ -50,8 +53,7 @@ public class PhysicalFilter extends PhysicalUnaryOperator {
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalFilter((PhysicalPlan<? extends PhysicalPlan, PhysicalFilter>) plan,
-                context);
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalFilter((PhysicalUnaryPlan<PhysicalFilter, Plan>) plan, context);
     }
 }

@@ -52,7 +52,7 @@ public abstract class AbstractOperator implements Operator {
      *                 (PhysicalPlan<? extends PhysicalPlan, PhysicalOlapScan>) plan, context);
      * </code>
      */
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
         return null;
     }
 

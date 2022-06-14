@@ -29,12 +29,12 @@ public interface BinaryExpression<
 
     @Override
     default LEFT_CHILD_TYPE left() {
-        return child(0);
+        return (LEFT_CHILD_TYPE) child(0);
     }
 
     @Override
     default RIGHT_CHILD_TYPE right() {
-        return child(1);
+        return (RIGHT_CHILD_TYPE) child(1);
     }
 
 }

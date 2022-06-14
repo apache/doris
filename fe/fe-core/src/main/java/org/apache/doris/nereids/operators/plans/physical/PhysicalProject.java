@@ -21,9 +21,9 @@ import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import java.util.List;
 import java.util.Objects;
@@ -50,8 +50,7 @@ public class PhysicalProject extends PhysicalUnaryOperator {
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalProject(
-                (PhysicalPlan<? extends PhysicalPlan, PhysicalProject>) plan, context);
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalProject(((PhysicalUnaryPlan<PhysicalProject, Plan>) plan), context);
     }
 }
