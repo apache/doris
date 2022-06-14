@@ -22,7 +22,7 @@
 #include <map>
 #include <string>
 
-#include "file_writer.h"
+#include "io/file_writer.h"
 
 namespace doris {
 class HDFSWriter : public FileWriter {

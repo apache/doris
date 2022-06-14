@@ -63,7 +63,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 ## Testing FE Metadata Compatibility
 
 0. **Important! Exceptional metadata compatibility is likely to cause data cannot be restored!!**
-1. Deploy a test FE process (such as your own local developer) using the new version alone.
+1. Deploy a test FE process (It is recommended to use your own local development machine, or BE node. If it is on the Follower or Observer node, you need to stop the started process, but it is not recommended to test on the Follower or Observer node) using the new version alone.
 2. Modify the FE configuration file fe.conf for testing and set all ports to **different from online**.
 3. Add configuration in fe.conf: cluster_id=123456
 4. Add the configuration in fe.conf: metadatafailure_recovery=true

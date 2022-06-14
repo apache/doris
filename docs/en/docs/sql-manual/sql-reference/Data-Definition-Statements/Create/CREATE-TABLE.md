@@ -113,12 +113,33 @@ distribution_info
             BITMAP_UNION: The aggregation mode of BIMTAP type columns, which performs the union aggregation of bitmaps.
             ```
 
+        * `default_value`
+
+            Default value of the column. If the load data does not specify a value for this column, the system will assign a default value to this column.
+            
+            The syntax is: `default default_value`。
+            
+            Currently, the default value supports two forms:
+
+            1. The user specifies a fixed value, such as:
+
+            ```SQL
+            	k1 INT DEFAULT '1',
+                k2 CHAR(10) DEFAULT 'aaaa'
+            ```
+            2. Keywords are provided by the system. Currently, the following keywords are supported: 
+            
+            ```SQL
+                // This keyword is used only for DATETIME type. If the value is missing, the system assigns the current timestamp.
+                dt DATETIME DEFAULT CURRENT_TIMESTAMP
+            ```
+
         Example:
 
             ```
             k1 TINYINT,
             k2 DECIMAL(10,2) DEFAULT "10.5",
-            k4 BIGINT NULL DEFAULT VALUE "1000" COMMENT "This is column k4",
+            k4 BIGINT NULL DEFAULT "1000" COMMENT "This is column k4",
             v1 VARCHAR(10) REPLACE NOT NULL,
             v2 BITMAP BITMAP_UNION,
             v3 HLL HLL_UNION,

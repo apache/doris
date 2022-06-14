@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.persist.meta;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.io.IOUtils;
@@ -29,6 +30,7 @@ import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 
 /**
  * Image Format:
@@ -69,48 +71,36 @@ public class MetaReader {
         LOG.info("start load image from {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
         long loadImageStartTime = System.currentTimeMillis();
         MetaHeader metaHeader = MetaHeader.read(imageFile);
+        MetaFooter metaFooter = MetaFooter.read(imageFile);
 
         long checksum = 0;
         try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(imageFile)))) {
+            // 1. Skip image file header
             IOUtils.skipFully(dis, metaHeader.getEnd());
+            // 2. Read meta header first
             checksum = catalog.loadHeader(dis, metaHeader, checksum);
-            checksum = catalog.loadMasterInfo(dis, checksum);
-            checksum = catalog.loadFrontends(dis, checksum);
-            checksum = Catalog.getCurrentSystemInfo().loadBackends(dis, checksum);
-            checksum = catalog.loadDb(dis, checksum);
-            // ATTN: this should be done after load Db, and before loadAlterJob
-            catalog.getInternalDataSource().recreateTabletInvertIndex();
-            // rebuild es state state
-            catalog.getEsRepository().loadTableFromCatalog();
-            checksum = catalog.loadLoadJob(dis, checksum);
-            checksum = catalog.loadAlterJob(dis, checksum);
-            checksum = catalog.loadRecycleBin(dis, checksum);
-            checksum = catalog.loadGlobalVariable(dis, checksum);
-            checksum = catalog.loadCluster(dis, checksum);
-            checksum = catalog.loadBrokers(dis, checksum);
-            checksum = catalog.loadResources(dis, checksum);
-            checksum = catalog.loadExportJob(dis, checksum);
-            checksum = catalog.loadSyncJobs(dis, checksum);
-            checksum = catalog.loadBackupHandler(dis, checksum);
-            checksum = catalog.loadPaloAuth(dis, checksum);
-            // global transaction must be replayed before load jobs v2
-            checksum = catalog.loadTransactionState(dis, checksum);
-            checksum = catalog.loadColocateTableIndex(dis, checksum);
-            checksum = catalog.loadRoutineLoadJobs(dis, checksum);
-            checksum = catalog.loadLoadJobsV2(dis, checksum);
-            checksum = catalog.loadSmallFiles(dis, checksum);
-            checksum = catalog.loadPlugins(dis, checksum);
-            checksum = catalog.loadDeleteHandler(dis, checksum);
-            checksum = catalog.loadSqlBlockRule(dis, checksum);
-            checksum = catalog.loadPolicy(dis, checksum);
+            // 3. Read other meta modules
+            // Modules must be read in the order in which the metadata was written
+            for (MetaIndex metaIndex : metaFooter.metaIndices) {
+                if (metaIndex.name.equals("header")) {
+                    // skip meta header, which has been read before.
+                    continue;
+                }
+                MetaPersistMethod persistMethod = PersistMetaModules.MODULES_MAP.get(metaIndex.name);
+                if (persistMethod == null) {
+                    throw new IOException("Unknown meta module: " + metaIndex.name + ". Known moduels: "
+                            + PersistMetaModules.MODULE_NAMES);
+                }
+                checksum = (long) persistMethod.readMethod.invoke(catalog, dis, checksum);
+            }
+        } catch (InvocationTargetException | IllegalAccessException e) {
+            throw new IOException(e);
         }
 
-        MetaFooter metaFooter = MetaFooter.read(imageFile);
         long remoteChecksum = metaFooter.checksum;
         Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
 
         long loadImageEndTime = System.currentTimeMillis();
         LOG.info("finished to load image in " + (loadImageEndTime - loadImageStartTime) + " ms");
     }
-
 }

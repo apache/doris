@@ -28,7 +28,6 @@ set(EXEC_FILES
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
-        ../io/buffered_reader.cpp
     base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
@@ -98,24 +97,7 @@ set(EXEC_FILES
     json_scanner.cpp
     assert_num_rows_node.cpp
 
-        ../io/local_file_reader.cpp
-        ../io/local_file_writer.cpp
-        ../io/broker_reader.cpp
-        ../io/broker_writer.cpp
-        ../io/s3_reader.cpp
-        ../io/s3_writer.cpp
-        ../io/hdfs_reader_writer.cpp
-        ../io/file_factory.cpp
 )
-
-if (ARCH_AMD64)
-    set(EXEC_FILES
-        ${EXEC_FILES}
-            ../io/hdfs_file_reader.cpp
-            ../io/hdfs_writer.cpp
-        )
-endif()
-
 if (WITH_MYSQL)
     set(EXEC_FILES
         ${EXEC_FILES}

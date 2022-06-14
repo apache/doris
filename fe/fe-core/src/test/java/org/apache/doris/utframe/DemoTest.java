@@ -66,7 +66,7 @@ public class DemoTest extends TestWithFeService {
 
         // 4. get and test the created db and table
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:db1");
-        OlapTable tbl = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
             Assertions.assertNotNull(tbl);
@@ -94,7 +94,7 @@ public class DemoTest extends TestWithFeService {
             Assertions.assertEquals(JobState.FINISHED, alterJobV2.getJobState());
         }
 
-        OlapTable tbl1 = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
+        OlapTable tbl1 = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl1.readLock();
         try {
             Assertions.assertEquals(2, tbl1.getBaseSchema().size());

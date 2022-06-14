@@ -63,6 +63,7 @@ import java.util.Objects;
  */
 public class AnalyticExpr extends Expr {
     private final static Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
+    private static String NTILE = "NTILE";
 
     private FunctionCallExpr fnCall;
     private final List<Expr> partitionExprs;
@@ -236,7 +237,8 @@ public class AnalyticExpr extends Expr {
 
         return fn.functionName().equalsIgnoreCase(RANK)
                || fn.functionName().equalsIgnoreCase(DENSERANK)
-               || fn.functionName().equalsIgnoreCase(ROWNUMBER);
+               || fn.functionName().equalsIgnoreCase(ROWNUMBER)
+               || fn.functionName().equalsIgnoreCase(NTILE);
     }
 
     static private boolean isHllAggFn(Function fn) {
@@ -245,6 +247,110 @@ public class AnalyticExpr extends Expr {
         }
 
         return fn.functionName().equalsIgnoreCase(HLL_UNION_AGG);
+    }
+
+    private static boolean isNTileFn(Function fn) {
+        if (!isAnalyticFn(fn)) {
+            return false;
+        }
+
+        return fn.functionName().equalsIgnoreCase(NTILE);
+    }
+
+    /**
+     * Rewrite the following analytic functions: ntile().
+     * Returns a new Expr if the analytic expr is rewritten, returns null if it's not one
+     * that we want to equal.
+     */
+    public static Expr rewrite(AnalyticExpr analyticExpr) {
+        Function fn = analyticExpr.getFnCall().getFn();
+        // TODO(zc)
+        // if (AnalyticExpr.isPercentRankFn(fn)) {
+        //     return createPercentRank(analyticExpr);
+        // } else if (AnalyticExpr.isCumeDistFn(fn)) {
+        //     return createCumeDist(analyticExpr);
+        // } else if (AnalyticExpr.isNtileFn(fn)) {
+        //     return createNtile(analyticExpr);
+        // }
+        if (isNTileFn(fn) && !VectorizedUtil.isVectorized()) {
+            return createNTile(analyticExpr);
+        }
+        return null;
+    }
+
+    /**
+     * Rewrite ntile().
+     * The logic is translated from be class WindowFunctionNTile.
+     * count = bigBucketNum * (smallBucketSize + 1) + smallBucketNum * smallBucketSize
+     * bigBucketNum + smallBucketNum = bucketNum
+     */
+    private static Expr createNTile(AnalyticExpr analyticExpr) {
+        Preconditions.checkState(AnalyticExpr.isNTileFn(analyticExpr.getFnCall().getFn()));
+        Expr bucketNum = analyticExpr.getChild(0);
+        AnalyticExpr rowNum = create("row_number", analyticExpr, true, false);
+        AnalyticExpr count = create("count", analyticExpr, false, false);
+
+        IntLiteral one = new IntLiteral(1);
+        ArithmeticExpr smallBucketSize = new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                count, bucketNum);
+        ArithmeticExpr bigBucketNum = new ArithmeticExpr(ArithmeticExpr.Operator.MOD,
+                count, bucketNum);
+        ArithmeticExpr firstSmallBucketRowIndex = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY,
+                bigBucketNum,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                        smallBucketSize, one));
+        ArithmeticExpr rowIndex = new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT,
+                rowNum, one);
+
+
+        List<Expr> ifParams = new ArrayList<>();
+        ifParams.add(
+            new BinaryPredicate(BinaryPredicate.Operator.GE, rowIndex, firstSmallBucketRowIndex));
+
+        ArithmeticExpr rowInSmallBucket = new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                        bigBucketNum, one),
+                new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT,
+                                rowIndex, firstSmallBucketRowIndex),
+                        smallBucketSize));
+        ArithmeticExpr rowInBigBucket = new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                        rowIndex,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                                smallBucketSize, one)),
+                one);
+        ifParams.add(rowInSmallBucket);
+        ifParams.add(rowInBigBucket);
+
+        return new FunctionCallExpr("if", ifParams);
+    }
+
+    /**
+     * Create a new Analytic Expr and associate it with a new function.
+     * Takes a reference analytic expression and clones the partition expressions and the
+     * order by expressions if 'copyOrderBy' is set and optionally reverses it if
+     * 'reverseOrderBy' is set. The new function that it will be associated with is
+     * specified by fnName.
+     */
+    private static AnalyticExpr create(String fnName,
+                                       AnalyticExpr referenceExpr, boolean copyOrderBy, boolean reverseOrderBy) {
+        FunctionCallExpr fnExpr = new FunctionCallExpr(fnName, new ArrayList<>());
+        fnExpr.setIsAnalyticFnCall(true);
+        List<OrderByElement> orderByElements = null;
+        if (copyOrderBy) {
+            if (reverseOrderBy) {
+                orderByElements = OrderByElement.reverse(referenceExpr.getOrderByElements());
+            } else {
+                orderByElements = new ArrayList<>();
+                for (OrderByElement elem : referenceExpr.getOrderByElements()) {
+                    orderByElements.add(elem.clone());
+                }
+            }
+        }
+        AnalyticExpr analyticExpr = new AnalyticExpr(fnExpr,
+                Expr.cloneList(referenceExpr.getPartitionExprs()), orderByElements, null);
+        return analyticExpr;
     }
 
     /**
@@ -529,6 +635,24 @@ public class AnalyticExpr extends Expr {
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
                                         new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
                                         new Boundary(BoundaryType.CURRENT_ROW, null));
+            resetWindow = true;
+            return;
+        }
+
+        if (analyticFnName.getFunction().equalsIgnoreCase(NTILE)) {
+            Preconditions.checkState(window == null, "Unexpected window set for ntile()");
+
+            Expr bucketExpr = getFnCall().getFnParams().exprs().get(0);
+            if (bucketExpr instanceof LiteralExpr && bucketExpr.getType().getPrimitiveType().isIntegerType()) {
+                Preconditions.checkState(((LiteralExpr) bucketExpr).getLongValue() > 0,
+                        "Parameter n in ntile(n) should be positive.");
+            } else {
+                throw new AnalysisException("Parameter n in ntile(n) should be constant positive integer.");
+            }
+
+            window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
+                    new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
+                    new Boundary(BoundaryType.CURRENT_ROW, null));
             resetWindow = true;
             return;
         }

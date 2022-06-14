@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
@@ -79,11 +80,17 @@ public:
 
         // decode
         PageDecoderOptions decoder_options;
-        BinaryDictPageDecoder page_decoder(s.slice(), decoder_options);
+        BinaryDictPageDecoder page_decoder_(s.slice(), decoder_options);
+        status = page_decoder_.init();
+        EXPECT_FALSE(status.ok());
 
-        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
-
+        segment_v2::BitShufflePagePreDecoder<true> pre_decoder;
+        Slice page_slice = s.slice();
+        std::unique_ptr<char[]> auto_release;
+        pre_decoder.decode(&auto_release, &page_slice, 0);
+        BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
+        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(slices.size(), page_decoder.count());
 
@@ -178,9 +185,16 @@ public:
 
             // decode
             PageDecoderOptions decoder_options;
-            BinaryDictPageDecoder page_decoder(results[slice_index].slice(), decoder_options);
-            status = page_decoder.init();
+            Slice page_slice = results[slice_index].slice();
+            BinaryDictPageDecoder page_decoder_(page_slice, decoder_options);
+            status = page_decoder_.init();
+            EXPECT_FALSE(status.ok());
 
+            segment_v2::BitShufflePagePreDecoder<true> pre_decoder;
+            std::unique_ptr<char[]> auto_release;
+            pre_decoder.decode(&auto_release, &page_slice, 0);
+            BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
+            status = page_decoder.init();
             page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
             EXPECT_TRUE(status.ok());
 

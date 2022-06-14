@@ -113,13 +113,34 @@ distribution_info
             BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
             ```
             
+        * `default_value`
+
+            列默认值，当导入数据未指定该列的值时，系统将赋予该列default_value。
+            
+            语法为`default default_value`。
+            
+            当前default_value支持两种形式：
+
+            1. 用户指定固定值，如：
+
+            ```SQL
+            	k1 INT DEFAULT '1',
+                k2 CHAR(10) DEFAULT 'aaaa'
+            ```
+            2. 系统提供的关键字，目前支持以下关键字：
+            
+            ```SQL
+                // 只用于DATETIME类型，导入数据缺失该值时系统将赋予当前时间
+                dt DATETIME DEFAULT CURRENT_TIMESTAMP
+            ```
+
         
         示例：
         
         ```text
         k1 TINYINT,
         k2 DECIMAL(10,2) DEFAULT "10.5",
-        k4 BIGINT NULL DEFAULT VALUE "1000" COMMENT "This is column k4",
+        k4 BIGINT NULL DEFAULT "1000" COMMENT "This is column k4",
         v1 VARCHAR(10) REPLACE NOT NULL,
         v2 BITMAP BITMAP_UNION,
         v3 HLL HLL_UNION,

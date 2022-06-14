@@ -86,7 +86,7 @@ suite("test_bitmap_index", "index") {
             }
         }
     }
-    sql "DROP TABLE ${tbName1};"
+    sql "DROP TABLE ${tbName1} FORCE;"
 
 
     def tbName2 = "test_bitmap_index_agg"
@@ -161,7 +161,7 @@ suite("test_bitmap_index", "index") {
             }
         }
     }
-    sql "DROP TABLE ${tbName2};"
+    sql "DROP TABLE ${tbName2} FORCE;"
 
     def tbName3 = "test_bitmap_index_unique"
     sql "DROP TABLE IF EXISTS ${tbName3}"
@@ -232,5 +232,5 @@ suite("test_bitmap_index", "index") {
             }
         }
     }
-    sql "DROP TABLE ${tbName3};"
+    sql "DROP TABLE ${tbName3} FORCE;"
 }

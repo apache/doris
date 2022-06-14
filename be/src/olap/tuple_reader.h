@@ -86,6 +86,8 @@ private:
 
     Status (TupleReader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
                                           ObjectPool* agg_pool, bool* eof) = nullptr;
+
+    CollectIterator _collect_iter;
 };
 
 } // namespace doris
