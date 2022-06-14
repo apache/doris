@@ -19,40 +19,59 @@ package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
-import org.apache.commons.lang3.StringUtils;
-
 import java.util.List;
-import java.util.Objects;
 
 /**
- * Physical project plan operator.
+ * Physical sort plan operator.
  */
-public class PhysicalProject<INPUT_TYPE extends Plan>
-        extends PhysicalUnaryOperator<PhysicalProject<INPUT_TYPE>, INPUT_TYPE> {
+public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPlan> {
 
-    private final List<? extends NamedExpression> projects;
+    private final int offset;
 
-    public PhysicalProject(List<? extends NamedExpression> projects) {
-        super(OperatorType.PHYSICAL_PROJECT);
-        this.projects = Objects.requireNonNull(projects, "projects can not be null");
+    private final int limit;
+
+    private final List<OrderKey> orderList;
+
+    private final boolean useTopN;
+
+    /**
+     * Constructor of PhysicalHashJoinNode.
+     */
+    public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean useTopN) {
+        super(OperatorType.PHYSICAL_SORT);
+        this.offset = offset;
+        this.limit = limit;
+        this.orderList = orderList;
+        this.useTopN = useTopN;
     }
 
-    public List<? extends NamedExpression> getProjects() {
-        return projects;
+    public int getOffset() {
+        return offset;
     }
 
-    @Override
-    public String toString() {
-        return "Project (" + StringUtils.join(projects, ", ") + ")";
+    public int getLimit() {
+        return limit;
+    }
+
+    public List<OrderKey> getOrderList() {
+        return orderList;
+    }
+
+    public boolean isUseTopN() {
+        return useTopN;
+    }
+
+    public boolean hasLimit() {
+        return limit > -1;
     }
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalProject(
-                (PhysicalPlan<? extends PhysicalPlan, PhysicalProject>) plan, context);
+        return visitor.visitPhysicalSortPlan((PhysicalPlan<? extends PhysicalPlan, PhysicalSort>) plan,
+                context);
     }
 }

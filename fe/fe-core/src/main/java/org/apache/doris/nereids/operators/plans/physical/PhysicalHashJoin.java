@@ -19,40 +19,44 @@ package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.operators.plans.JoinType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
-import org.apache.commons.lang3.StringUtils;
-
-import java.util.List;
-import java.util.Objects;
-
 /**
- * Physical project plan operator.
+ * Physical hash join plan operator.
  */
-public class PhysicalProject<INPUT_TYPE extends Plan>
-        extends PhysicalUnaryOperator<PhysicalProject<INPUT_TYPE>, INPUT_TYPE> {
+public class PhysicalHashJoin extends PhysicalBinaryOperator<PhysicalHashJoin, PhysicalPlan, PhysicalPlan> {
 
-    private final List<? extends NamedExpression> projects;
+    private final JoinType joinType;
 
-    public PhysicalProject(List<? extends NamedExpression> projects) {
-        super(OperatorType.PHYSICAL_PROJECT);
-        this.projects = Objects.requireNonNull(projects, "projects can not be null");
+    private final Expression predicate;
+
+    /**
+     * Constructor of PhysicalHashJoinNode.
+     *
+     * @param joinType Which join type, left semi join, inner join...
+     * @param predicate join condition.
+     */
+    public PhysicalHashJoin(JoinType joinType, Expression predicate) {
+        super(OperatorType.PHYSICAL_HASH_JOIN);
+        this.joinType = joinType;
+        this.predicate = predicate;
     }
 
-    public List<? extends NamedExpression> getProjects() {
-        return projects;
+    public JoinType getJoinType() {
+        return joinType;
     }
 
-    @Override
-    public String toString() {
-        return "Project (" + StringUtils.join(projects, ", ") + ")";
+    public Expression getPredicate() {
+        return predicate;
     }
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalProject(
-                (PhysicalPlan<? extends PhysicalPlan, PhysicalProject>) plan, context);
+        return visitor.visitPhysicalHashJoinPlan(
+                (PhysicalPlan<? extends PhysicalPlan, PhysicalHashJoin>) plan, context);
     }
+
 }

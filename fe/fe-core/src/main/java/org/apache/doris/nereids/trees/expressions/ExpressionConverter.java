@@ -15,29 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.operators.OperatorType;
-
-import java.util.List;
-import java.util.Objects;
+import org.apache.doris.analysis.Expr;
 
 /**
- * Abstract class for all physical scan operator.
+ * Used to convert expression of new optimizer to stale expr.
  */
-public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>> extends PhysicalLeafOperator<TYPE> {
+public class ExpressionConverter {
 
+    public static ExpressionConverter converter = new ExpressionConverter();
 
-    protected final List<String> qualifier;
-
-    /**
-     * Constructor for PhysicalScan.
-     *
-     * @param type node type
-     * @param qualifier table's name
-     */
-    public PhysicalScan(OperatorType type, List<String> qualifier) {
-        super(type);
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+    // TODO: implement this, besides if expression is a slot, should set the slotId to
+    //       converted the org.apache.doris.analysis.Expr
+    public Expr convert(Expression expression) {
+        return null;
     }
 }
