@@ -30,6 +30,11 @@ public class OrderKey {
 
     private boolean nullFirst;
 
+    /**
+     * Constructor of OrderKey.
+     *
+     * @param nullFirst True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
+     */
     public OrderKey(Expression expr, boolean isAsc, boolean nullFirst) {
         this.expr = expr;
         this.isAsc = isAsc;

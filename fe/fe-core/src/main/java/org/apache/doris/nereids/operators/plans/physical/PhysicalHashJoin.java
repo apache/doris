@@ -20,13 +20,12 @@ package org.apache.doris.nereids.operators.plans.physical;
 import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 /**
- * Physical hash join plan operator
+ * Physical hash join plan operator.
  */
 public class PhysicalHashJoin extends PhysicalBinaryOperator<PhysicalHashJoin, PhysicalPlan, PhysicalPlan> {
 
@@ -34,7 +33,13 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator<PhysicalHashJoin, P
 
     private final Expression predicate;
 
-    public PhysicalHashJoin(JoinType joinType, ComparisonPredicate predicate) {
+    /**
+     * Constructor of PhysicalHashJoinNode.
+     *
+     * @param joinType Which join type, left semi join, inner join...
+     * @param predicate join condition.
+     */
+    public PhysicalHashJoin(JoinType joinType, Expression predicate) {
         super(OperatorType.PHYSICAL_HASH_JOIN);
         this.joinType = joinType;
         this.predicate = predicate;

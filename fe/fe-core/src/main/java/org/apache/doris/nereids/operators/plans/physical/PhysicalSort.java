@@ -38,6 +38,9 @@ public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPl
 
     private final boolean useTopN;
 
+    /**
+     * Constructor of PhysicalHashJoinNode.
+     */
     public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean useTopN) {
         super(OperatorType.PHYSICAL_SORT);
         this.offset = offset;

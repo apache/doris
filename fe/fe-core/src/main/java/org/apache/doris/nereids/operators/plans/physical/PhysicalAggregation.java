@@ -39,18 +39,23 @@ public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregati
 
     private final AggPhase aggPhase;
 
-    private final boolean needFinalize;
-
     private final boolean usingStream;
 
-    public PhysicalAggregation(OperatorType type, List<Expression> groupByExprList, List<Expression> aggExprList,
-            List<Expression> partitionExprList, AggPhase aggPhase, boolean needFinalize, boolean usingStream) {
+    /**
+     * Constructor of PhysicalAggNode.
+     *
+     * @param groupByExprList group by expr list.
+     * @param aggExprList agg expr list.
+     * @param partitionExprList  partition expr list, used for analytic agg.
+     * @param usingStream whether it's stream agg.
+     */
+    public PhysicalAggregation(List<Expression> groupByExprList, List<Expression> aggExprList,
+            List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
         super(OperatorType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.aggExprList = aggExprList;
         this.partitionExprList = partitionExprList;
         this.aggPhase = aggPhase;
-        this.needFinalize = needFinalize;
         this.usingStream = usingStream;
     }
 
@@ -64,10 +69,6 @@ public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregati
 
     public AggPhase getAggPhase() {
         return aggPhase;
-    }
-
-    public boolean isNeedFinalize() {
-        return needFinalize;
     }
 
     public boolean isUsingStream() {

@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.operators;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * interface for all concrete operator.

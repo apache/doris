@@ -36,6 +36,9 @@ public class FunctionCallExpression extends Expression<FunctionCallExpression> {
 
     private Function fn;
 
+    /**
+     * Constructor of FunctionCallExpression.
+     */
     public FunctionCallExpression(FunctionName functionName,
                                   Function fn, Expression... children) {
         super(NodeType.EXPRESSION, children);

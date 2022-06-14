@@ -29,6 +29,9 @@ import com.clearspring.analytics.util.Lists;
 
 import java.util.List;
 
+/**
+ * Context of physical plan.
+ */
 public class PlanContext {
     private List<PlanFragment> planFragmentList = Lists.newArrayList();
 

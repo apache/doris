@@ -24,6 +24,9 @@ import org.apache.doris.analysis.HashDistributionDesc;
  */
 public class HashDistributionSpec extends DistributionSpec {
 
+    /**
+     * Enums for concrete shuffle type.
+     */
     public enum ShuffleType {
         COLOCATE,
         BUCKET,

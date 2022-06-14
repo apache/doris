@@ -44,6 +44,14 @@ public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> impl
         return type;
     }
 
+    /**
+     * Child operator should overwrite this method.
+     * for example:
+     * <code>
+     *     visitor.visitPhysicalOlapScanPlan(
+     *                 (PhysicalPlan<? extends PhysicalPlan, PhysicalOlapScan>) plan, context);
+     * </code>
+     */
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
         return null;
     }
