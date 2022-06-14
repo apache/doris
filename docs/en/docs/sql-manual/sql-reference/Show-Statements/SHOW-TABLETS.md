@@ -38,15 +38,40 @@ This statement is used to list tablets of the specified table (only for administ
 grammar:
 
 ```sql
-SHOW TABLETS FROM (db.)table
+SHOW TABLETS FROM [database.]table [PARTITIONS(p1,p2)]
+[WHERE where_condition]
+[ORDER BY col_name]
+[LIMIT [offset,] row_count]
 ````
+
+1. **Syntax Description:**
+
+where_condition could be one of:
+```
+    Version = version
+    state = "NORMAL|ROLLUP|CLONE|DECOMMISSION"
+    BackendId = backend_id
+```
+or compound them with operator `AND`.
 
 ### Example
 
 1. list all tablets of the specified table
 
     ```sql
-    SHOW TABLETS FROM example_db.test_tbl;
+    SHOW TABLETS FROM example_db.table_name;
+    ````
+
+2. list all tablets of the specified partitions
+
+    ```sql
+    SHOW TABLETS FROM example_db.table_name PARTITIONS(p1, p2);
+    ````
+
+3. list all DECOMMISSION tablets on the specified backend
+
+    ```sql
+    SHOW TABLETS FROM example_db.table_name WHERE state="DECOMMISSION" AND BackendId=11003;
     ````
 
 ### Keywords
