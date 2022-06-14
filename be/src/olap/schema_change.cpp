@@ -1466,7 +1466,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
             reader_params.origin_return_columns = &reader_params.return_columns;
             reader_params.version = {0, end_version};
-            RETURN_NOT_OK(reader.init(reader_params));
+            // BlockReader::init will call base_tablet->get_header_lock(), but this lock we already get at outer layer, so we just call TabletReader::init
+            RETURN_NOT_OK(reader.TabletReader::init(reader_params));
 
             res = delete_handler.init(base_tablet->tablet_schema(),
                                       base_tablet->delete_predicates(), end_version, &reader);
@@ -1846,8 +1847,7 @@ Status SchemaChangeHandler::_parse_request(
             auto mvParam = materialized_function_map.find(column_name)->second;
             column_mapping->materialized_function = mvParam.mv_expr;
             column_mapping->expr = mvParam.expr;
-            std::string origin_column_name = mvParam.origin_column_name;
-            int32_t column_index = base_tablet->field_index(column_name);
+            int32_t column_index = base_tablet->field_index(mvParam.origin_column_name);
             if (column_index >= 0) {
                 column_mapping->ref_column = column_index;
                 continue;
