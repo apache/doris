@@ -17,38 +17,31 @@
 
 #pragma once
 
-#include <map>
-#include <string>
+#include <hdfs/hdfs.h>
 
 #include "gen_cpp/PlanNodes_types.h"
-#include "io/file_writer.h"
-#include "io/hdfs_builder.h"
+#include "io/file_reader.h"
 
 namespace doris {
-class HDFSWriter : public FileWriter {
+
+class HDFSCommonBuilder {
+    friend HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams);
+
 public:
-    HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path);
-    ~HDFSWriter();
-    Status open() override;
+    HDFSCommonBuilder() : hdfs_builder(hdfsNewBuilder()) {};
+    ~HDFSCommonBuilder() { hdfsFreeBuilder(hdfs_builder); };
 
-    // Writes up to count bytes from the buffer pointed buf to the file.
-    // NOTE: the number of bytes written may be less than count if.
-    Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
-
-    Status close() override;
+    hdfsBuilder* get() { return hdfs_builder; };
+    bool is_need_kinit() { return need_kinit; };
+    Status run_kinit();
 
 private:
-    Status _connect();
-    THdfsParams _parse_properties(std::map<std::string, std::string>& prop);
-
-    std::map<std::string, std::string> _properties;
-    std::string _namenode = "";
-    std::string _path = "";
-    hdfsFS _hdfs_fs = nullptr;
-    hdfsFile _hdfs_file = nullptr;
-    bool _closed = false;
-    THdfsParams _hdfs_params;
-    HDFSCommonBuilder _builder;
+    hdfsBuilder* hdfs_builder;
+    bool need_kinit {false};
+    std::string hdfs_kerberos_keytab;
+    std::string hdfs_kerberos_principal;
 };
+
+HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams);
 
 } // namespace doris
