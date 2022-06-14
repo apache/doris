@@ -138,7 +138,7 @@ ${CMAKE_CMD} -G "${GENERATOR}" \
     -DWITH_MYSQL=OFF \
     -DUSE_DWARF=${USE_DWARF} \
     -DUSE_MEM_TRACKER=ON \
-    ${CMAKE_USE_CCACHE} ../
+    ${CMAKE_USE_CCACHE} ${DORIS_HOME}/be/
 ${BUILD_SYSTEM} -j ${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
