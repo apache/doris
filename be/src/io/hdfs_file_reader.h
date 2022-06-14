@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <hdfs/hdfs.h>
-
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_reader.h"
+#include "io/hdfs_builder.h"
 
 namespace doris {
 
@@ -56,6 +55,7 @@ private:
     int64_t _file_size;
     hdfsFS _hdfs_fs;
     hdfsFile _hdfs_file;
+    HDFSCommonBuilder _builder;
 };
 
 } // namespace doris
