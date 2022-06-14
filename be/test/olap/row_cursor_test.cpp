@@ -26,6 +26,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/logging.h"
+#include "util/types.h"
 
 namespace doris {
 
@@ -498,9 +499,8 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
 
     agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = 0;
-    memcpy(&agg_value, row.cell_ptr(2), 16);
-    ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
+    int128_t agg_value = get_int128_from_unalign(row.cell_ptr(2));
+    EXPECT_TRUE(agg_value == ((int128_t)(1) << 101));
 
     double agg_double = *reinterpret_cast<double*>(row.cell_ptr(3));
     ASSERT_TRUE(agg_double == r_double);
@@ -559,9 +559,14 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 
     agg_update_row(&row, right, nullptr);
 
+<<<<<<< HEAD
     int128_t agg_value = 0;
     memcpy(&agg_value, row.cell_ptr(2), 16);
     ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
+=======
+    int128_t agg_value = get_int128_from_unalign(row.cell_ptr(2));
+    EXPECT_TRUE(agg_value == ((int128_t)(1) << 101));
+>>>>>>> 5d624dfe6 ([bugfix]fix segmentation fault at unalign address cast to int128 (#10094))
 
     bool is_null_double = left.is_null(3);
     ASSERT_TRUE(is_null_double);

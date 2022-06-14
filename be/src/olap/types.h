@@ -487,18 +487,27 @@ template <FieldType field_type>
 struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
+    static inline CppType get_cpp_type_value(const void* address) {
+        if constexpr (field_type == OLAP_FIELD_TYPE_LARGEINT) {
+            return get_int128_from_unalign(address);
+        }
+        return *reinterpret_cast<const CppType*>(address);
+    }
+
+    static inline void set_cpp_type_value(void* address, const CppType& value) {
+        memcpy(address, &value, sizeof(CppType));
+    }
+
     static inline bool equal(const void* left, const void* right) {
-        CppType l_value = *reinterpret_cast<const CppType*>(left);
-        CppType r_value = *reinterpret_cast<const CppType*>(right);
-        return l_value == r_value;
+        return get_cpp_type_value(left) == get_cpp_type_value(right);
     }
 
     static inline int cmp(const void* left, const void* right) {
-        CppType left_int = *reinterpret_cast<const CppType*>(left);
-        CppType right_int = *reinterpret_cast<const CppType*>(right);
-        if (left_int < right_int) {
+        CppType left_value = get_cpp_type_value(left);
+        CppType right_value = get_cpp_type_value(right);
+        if (left_value < right_value) {
             return -1;
-        } else if (left_int > right_int) {
+        } else if (left_value > right_value) {
             return 1;
         } else {
             return 0;
@@ -506,19 +515,19 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static inline void shallow_copy(void* dest, const void* src) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void copy_object(void* dest, const void* src, MemPool* mem_pool) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void direct_copy(void* dest, const void* src) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
@@ -529,11 +538,11 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static inline void set_to_max(void* buf) {
-        *reinterpret_cast<CppType*>(buf) = std::numeric_limits<CppType>::max();
+        set_cpp_type_value(buf, std::numeric_limits<CppType>::max());
     }
 
     static inline void set_to_min(void* buf) {
-        *reinterpret_cast<CppType*>(buf) = std::numeric_limits<CppType>::min();
+        set_cpp_type_value(buf, std::numeric_limits<CppType>::min());
     }
 
     static inline uint32_t hash_code(const void* data, uint32_t seed) {
@@ -541,7 +550,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static std::string to_string(const void* src) {
-        return std::to_string(*reinterpret_cast<const CppType*>(src));
+        return std::to_string(get_cpp_type_value(src));
     }
 
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
@@ -549,7 +558,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         if (scan_key.length() > 0) {
             value = static_cast<CppType>(strtol(scan_key.c_str(), nullptr, 10));
         }
-        *reinterpret_cast<CppType*>(buf) = value;
+        set_cpp_type_value(buf, value);
         return OLAP_SUCCESS;
     }
 };
@@ -1086,8 +1095,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         case OLAP_FIELD_TYPE_DOUBLE:
         case OLAP_FIELD_TYPE_DECIMAL: {
             auto result = src_type->to_string(src);
-            if (result.size() > variable_len)
-                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            if (result.size() > variable_len) return OLAP_ERR_INPUT_PARAMETER_ERROR;
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
