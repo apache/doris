@@ -60,8 +60,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -439,17 +441,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
-            for (SelectListItem item : selectList.getItems()) {
-                if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
-                    for (Expr expr : groupByClause.getGroupingExprs()) {
-                        if (item.getExpr().contains(expr)) {
-                            throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
-                                    + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
-                                    + " instead.");
-                        }
-                    }
-                }
-            }
+            checkSelectItemsForGroupingSet();
             groupingInfo = new GroupingInfo(analyzer, groupByClause);
             groupingInfo.substituteGroupingFn(resultExprs, analyzer);
         } else {
@@ -562,6 +554,35 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
+    public void checkSelectItemsForGroupingSet() throws AnalysisException {
+        for (SelectListItem item : selectList.getItems()) {
+            Expr selectExprRoot = item.getExpr();
+            List<Expr> aggFunctions = getAggFuncExprsFromChildren(selectExprRoot);
+            for (Expr aggFunction : aggFunctions) {
+                for (Expr groupingExpr : groupByClause.getGroupingExprs()) {
+                    if (aggFunction.contains(groupingExpr)) {
+                        throw new AnalysisException("column: " + groupingExpr.toSql() + " cannot both in select list and "
+                                + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
+                                + " instead.");
+                    }
+                }
+            }
+        }
+    }
+
+    public List<Expr> getAggFuncExprsFromChildren(Expr expr) {
+        List<Expr> aggFuncExprs = new LinkedList<>();
+        Queue<Expr> exprsQueue = new LinkedList<>();
+        exprsQueue.offer(expr);
+        while (!exprsQueue.isEmpty()) {
+            Expr exprChild = exprsQueue.poll();
+            if (exprChild instanceof FunctionCallExpr && exprChild.getFn() instanceof AggregateFunction) {
+                aggFuncExprs.add(exprChild);
+            }
+            exprsQueue.addAll(exprChild.getChildrenWithoutCast());
+        }
+        return aggFuncExprs;
+    }
     public List<TupleId> getTableRefIds() {
         List<TupleId> result = Lists.newArrayList();
 
