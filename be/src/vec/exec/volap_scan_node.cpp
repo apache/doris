@@ -594,14 +594,20 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
                     thread_slot_num = 1;
                 }
             } else {
-                std::lock_guard<std::mutex> l(_scan_blocks_lock);
-                if (_scan_blocks.empty()) {
-                    // Just for notify if _scan_blocks is empty and no running thread
-                    if (assigned_thread_num == 0) {
-                        thread_slot_num = 1;
-                        // NOTE: if olap_scanners_ is empty, scanner_done_ should be true
+                if (_scan_row_batches_bytes > _max_scanner_queue_size_bytes){
+                    //_scan_blocks is full, wait until transfer thread consume some blocks.
+                    thread_slot_num = 0;
+                }else{
+                    std::lock_guard<std::mutex> l(_scan_blocks_lock);
+                    if (_scan_blocks.empty()) {
+                        // Just for notify if _scan_blocks is empty and no running thread
+                        if (assigned_thread_num == 0) {
+                            thread_slot_num = 1;
+                            // NOTE: if olap_scanners_ is empty, scanner_done_ should be true
+                        }
                     }
                 }
+
             }
         }
 
