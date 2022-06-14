@@ -26,6 +26,7 @@ set(IO_FILES
      broker_writer.cpp
      buffered_reader.cpp
      file_factory.cpp
+     hdfs_builder.cpp
      hdfs_file_reader.cpp
      hdfs_reader_writer.cpp
      hdfs_writer.cpp

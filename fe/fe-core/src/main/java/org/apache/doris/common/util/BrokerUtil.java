@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -63,6 +64,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -81,27 +83,26 @@ import java.util.Map;
 public class BrokerUtil {
     private static final Logger LOG = LogManager.getLogger(BrokerUtil.class);
 
-    private static int READ_BUFFER_SIZE_B = 1024 * 1024;
-    private static String HDFS_FS_KEY = "fs.defaultFS";
-    private static String HDFS_USER_KEY = "hdfs_user";
-    private static String HDFS_KERB_PRINCIPAL = "kerb_principal";
-    private static String HDFS_KERB_TICKET_CACHE_PATH = "kerb_ticket_cache_path";
-    private static String HDFS_KERB_TOKEN = "kerb_token";
+    private static final int READ_BUFFER_SIZE_B = 1024 * 1024;
+    public static String HADOOP_FS_NAME = "fs.defaultFS";
+    // simple or kerberos
+    public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
+    public static String HADOOP_USER_NAME = "hadoop.username";
+    public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
+    public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 
     public static void generateHdfsParam(Map<String, String> properties, TBrokerRangeDesc rangeDesc) {
         rangeDesc.setHdfsParams(new THdfsParams());
         rangeDesc.hdfs_params.setHdfsConf(new ArrayList<>());
         for (Map.Entry<String, String> property : properties.entrySet()) {
-            if (property.getKey().equalsIgnoreCase(HDFS_FS_KEY)) {
+            if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
                 rangeDesc.hdfs_params.setFsName(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_USER_KEY)) {
+            } else if (property.getKey().equalsIgnoreCase(HADOOP_USER_NAME)) {
                 rangeDesc.hdfs_params.setUser(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_KERB_PRINCIPAL)) {
-                rangeDesc.hdfs_params.setKerbPrincipal(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_KERB_TICKET_CACHE_PATH)) {
-                rangeDesc.hdfs_params.setKerbTicketCachePath(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_KERB_TOKEN)) {
-                rangeDesc.hdfs_params.setToken(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_PRINCIPAL)) {
+                rangeDesc.hdfs_params.setHdfsKerberosPrincipal(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_KEYTAB)) {
+                rangeDesc.hdfs_params.setHdfsKerberosKeytab(property.getValue());
             } else {
                 THdfsConf hdfsConf = new THdfsConf();
                 hdfsConf.setKey(property.getKey());
@@ -170,27 +171,35 @@ public class BrokerUtil {
                 }
             }
         } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.HDFS) {
-            if (!brokerDesc.getProperties().containsKey(HDFS_FS_KEY)
-                    || !brokerDesc.getProperties().containsKey(HDFS_USER_KEY)) {
+            if (!brokerDesc.getProperties().containsKey(HADOOP_FS_NAME)
+                || !brokerDesc.getProperties().containsKey(HADOOP_USER_NAME)) {
                 throw new UserException(String.format(
-                        "The properties of hdfs is invalid. %s and %s are needed", HDFS_FS_KEY, HDFS_USER_KEY));
+                    "The properties of hdfs is invalid. %s and %s are needed", HADOOP_FS_NAME, HADOOP_USER_NAME));
             }
-            String hdfsFsName = brokerDesc.getProperties().get(HDFS_FS_KEY);
-            String user = brokerDesc.getProperties().get(HDFS_USER_KEY);
+            String fsName = brokerDesc.getProperties().get(HADOOP_FS_NAME);
+            String userName = brokerDesc.getProperties().get(HADOOP_USER_NAME);
             Configuration conf = new Configuration();
+            boolean isSecurityEnabled = false;
             for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
-                if (propEntry.getKey().equals(HDFS_FS_KEY) || propEntry.getKey().equals(HDFS_USER_KEY)) {
-                    continue;
-                }
                 conf.set(propEntry.getKey(), propEntry.getValue());
+                if (propEntry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
+                    && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
+                    isSecurityEnabled = true;
+                }
             }
             try {
-                FileSystem fs = FileSystem.get(new URI(hdfsFsName), conf, user);
+                if (isSecurityEnabled) {
+                    UserGroupInformation.setConfiguration(conf);
+                    UserGroupInformation.loginUserFromKeytab(
+                        brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
+                        brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
+                }
+                FileSystem fs = FileSystem.get(new URI(fsName), conf, userName);
                 FileStatus[] statusList = fs.globStatus(new Path(path));
                 for (FileStatus status : statusList) {
                     if (status.isFile()) {
                         fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
-                                status.isDirectory(), status.getLen(), status.isFile()));
+                            status.isDirectory(), status.getLen(), status.isFile()));
                     }
                 }
             } catch (IOException | InterruptedException | URISyntaxException e) {
