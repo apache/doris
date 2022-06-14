@@ -23,6 +23,8 @@
 #include <immintrin.h>
 #elif __SSE2__
 #include <emmintrin.h>
+#elif __aarch64__
+#include <sse2neon.h>
 #endif
 
 namespace doris {
@@ -35,7 +37,7 @@ inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
     auto zero32 = _mm256_setzero_si256();
     uint32_t mask = static_cast<uint32_t>(_mm256_movemask_epi8(
             _mm256_cmpgt_epi8(_mm256_loadu_si256(reinterpret_cast<const __m256i*>(data)), zero32)));
-#elif __SSE2__
+#elif defined(__SSE2__) || defined(__aarch64__)
     auto zero16 = _mm_setzero_si128();
     uint32_t mask =
             (static_cast<uint32_t>(_mm_movemask_epi8(_mm_cmpgt_epi8(
