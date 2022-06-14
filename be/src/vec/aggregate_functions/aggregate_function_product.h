@@ -84,7 +84,7 @@ public:
              Arena*) const override {
         const auto& column = static_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
-    };
+    }
 
     void reset(AggregateDataPtr place) const override {
         if constexpr (IsDecimalNumber<T>) {
@@ -97,21 +97,21 @@ public:
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
         this->data(place).merge(this->data(rhs));
-    };
+    }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
-    };
+    }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         this->data(place).read(buf);
-    };
+    }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).get());
-    };
+    }
 
 private:
     UInt32 scale;
