@@ -632,7 +632,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         res = tablet->add_inc_rowset(rowset);
         ASSERT_TRUE(res.ok());
     }
-    ASSERT_EQ(2, tablet->num_rows());
+    ASSERT_EQ(1, tablet->num_rows());
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
     ASSERT_TRUE(res.ok());
