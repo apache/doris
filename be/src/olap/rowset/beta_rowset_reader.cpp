@@ -79,10 +79,8 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                               read_context->predicates->begin(),
                                               read_context->predicates->end());
     }
-    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
-    // value column predicates can be pushdown on rowset [0-x] or [2-y]
-    if (_rowset->keys_type() == UNIQUE_KEYS &&
-        (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
+
+    if (_should_push_down_value_predicates()) {
         if (read_context->value_predicates != nullptr) {
             read_options.column_predicates.insert(read_options.column_predicates.end(),
                                                   read_context->value_predicates->begin(),
@@ -238,6 +236,14 @@ OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
     }
 
     return OLAP_SUCCESS;
+}
+
+bool BetaRowsetReader::_should_push_down_value_predicates() const {
+    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
+    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
+    return _rowset->keys_type() == UNIQUE_KEYS &&
+           (_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
+           !_rowset->_rowset_meta->is_segments_overlapping();
 }
 
 } // namespace doris
