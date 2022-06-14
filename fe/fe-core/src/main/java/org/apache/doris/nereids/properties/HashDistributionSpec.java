@@ -15,29 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.operators.OperatorType;
-
-import java.util.List;
-import java.util.Objects;
+import org.apache.doris.analysis.HashDistributionDesc;
 
 /**
- * Abstract class for all physical scan operator.
+ * Describe hash distribution.
  */
-public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>> extends PhysicalLeafOperator<TYPE> {
-
-
-    protected final List<String> qualifier;
+public class HashDistributionSpec extends DistributionSpec {
 
     /**
-     * Constructor for PhysicalScan.
-     *
-     * @param type node type
-     * @param qualifier table's name
+     * Enums for concrete shuffle type.
      */
-    public PhysicalScan(OperatorType type, List<String> qualifier) {
-        super(type);
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+    public enum ShuffleType {
+        COLOCATE,
+        BUCKET,
+        AGG,
+        NORMAL
     }
+
+    private ShuffleType shuffleType;
+
+    private HashDistributionDesc hashDistributionDesc;
+
 }

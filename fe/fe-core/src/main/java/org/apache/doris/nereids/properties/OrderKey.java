@@ -15,29 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.operators.OperatorType;
-
-import java.util.List;
-import java.util.Objects;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
- * Abstract class for all physical scan operator.
+ * Represents the order key of a statement.
  */
-public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>> extends PhysicalLeafOperator<TYPE> {
+public class OrderKey {
 
+    private Expression expr;
 
-    protected final List<String> qualifier;
+    private boolean isAsc;
+
+    private boolean nullFirst;
 
     /**
-     * Constructor for PhysicalScan.
+     * Constructor of OrderKey.
      *
-     * @param type node type
-     * @param qualifier table's name
+     * @param nullFirst True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
      */
-    public PhysicalScan(OperatorType type, List<String> qualifier) {
-        super(type);
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+    public OrderKey(Expression expr, boolean isAsc, boolean nullFirst) {
+        this.expr = expr;
+        this.isAsc = isAsc;
+        this.nullFirst = nullFirst;
+    }
+
+    public Expression getExpr() {
+        return expr;
+    }
+
+    public boolean isAsc() {
+        return isAsc;
+    }
+
+    public boolean isNullFirst() {
+        return nullFirst;
     }
 }

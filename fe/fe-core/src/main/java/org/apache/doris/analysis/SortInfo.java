@@ -74,6 +74,19 @@ public class SortInfo {
     }
 
     /**
+     * Used by new optimizer.
+     */
+    public SortInfo(List<Expr> orderingExprs,
+                    List<Boolean> isAscOrder,
+                    List<Boolean> nullsFirstParams,
+                    TupleDescriptor sortTupleDesc) {
+        this.orderingExprs = orderingExprs;
+        this.isAscOrder = isAscOrder;
+        this.nullsFirstParams = nullsFirstParams;
+        this.sortTupleDesc = sortTupleDesc;
+    }
+
+    /**
      * C'tor for cloning.
      */
     private SortInfo(SortInfo other) {

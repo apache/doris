@@ -15,29 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.operators.OperatorType;
-
-import java.util.List;
-import java.util.Objects;
+import org.apache.doris.planner.DataPartition;
 
 /**
- * Abstract class for all physical scan operator.
+ * Base class for data distribution.
  */
-public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>> extends PhysicalLeafOperator<TYPE> {
+public class DistributionSpec {
 
+    private DataPartition dataPartition;
 
-    protected final List<String> qualifier;
+    public DistributionSpec() {
+    }
 
-    /**
-     * Constructor for PhysicalScan.
-     *
-     * @param type node type
-     * @param qualifier table's name
-     */
-    public PhysicalScan(OperatorType type, List<String> qualifier) {
-        super(type);
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+    public DistributionSpec(DataPartition dataPartition) {
+        this.dataPartition = dataPartition;
+    }
+
+    public DataPartition getDataPartition() {
+        return dataPartition;
+    }
+
+    public void setDataPartition(DataPartition dataPartition) {
+        this.dataPartition = dataPartition;
     }
 }
