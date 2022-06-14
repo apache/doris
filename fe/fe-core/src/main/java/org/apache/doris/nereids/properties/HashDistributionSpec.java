@@ -19,6 +19,9 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.analysis.HashDistributionDesc;
 
+/**
+ * Describe hash distribution.
+ */
 public class HashDistributionSpec extends DistributionSpec {
 
     public enum ShuffleType {

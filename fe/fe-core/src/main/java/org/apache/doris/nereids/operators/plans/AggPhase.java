@@ -19,6 +19,10 @@ package org.apache.doris.nereids.operators.plans;
 
 import org.apache.doris.analysis.AggregateInfo;
 
+/**
+ * Represents different phase of agg and map it to the
+ * enum of agg phase definition of stale optimizer.
+ */
 public enum AggPhase {
     FIRST("FIRST", AggregateInfo.AggPhase.FIRST),
     FIRST_MERGE("FIRST_MERGE", AggregateInfo.AggPhase.FIRST_MERGE),

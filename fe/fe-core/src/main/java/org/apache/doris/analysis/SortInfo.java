@@ -73,6 +73,9 @@ public class SortInfo {
         materializedOrderingExprs = Lists.newArrayList();
     }
 
+    /**
+     * Used by new optimizer.
+     */
     public SortInfo(List<Expr> orderingExprs,
                     List<Boolean> isAscOrder,
                     List<Boolean> nullsFirstParams,

@@ -25,7 +25,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-// Temp define
+/**
+ * Temp definition of FunctionCallExpression.
+ */
 public class FunctionCallExpression extends Expression<FunctionCallExpression> {
 
     private FunctionName functionName;

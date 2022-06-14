@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.Expr;
 
+/**
+ * Used to convert expression of new optimizer to stale expr.
+ */
 public class ExpressionConverter {
 
     public static ExpressionConverter converter = new ExpressionConverter();

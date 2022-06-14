@@ -73,6 +73,9 @@ public class DescriptorTable {
         return result;
     }
 
+    /**
+     * Used by new optimizer.
+     */
     public SlotDescriptor addSlotDescriptor(TupleDescriptor d, int id) {
         SlotDescriptor result = new SlotDescriptor(new SlotId(id), d);
         d.addSlot(result);

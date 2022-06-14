@@ -19,6 +19,9 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.planner.DataPartition;
 
+/**
+ * Base class for data distribution.
+ */
 public class DistributionSpec {
 
     private DataPartition dataPartition;

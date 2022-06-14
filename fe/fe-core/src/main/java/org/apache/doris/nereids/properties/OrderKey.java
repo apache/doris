@@ -19,6 +19,9 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+/**
+ * Represents the order key of a statement.
+ */
 public class OrderKey {
 
     private Expression expr;

@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.properties;
 
+/**
+ * Describe random distribution.
+ */
 public class RandomDistributionDesc extends DistributionSpec {
 
 }

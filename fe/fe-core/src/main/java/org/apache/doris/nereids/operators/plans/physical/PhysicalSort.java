@@ -25,6 +25,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import java.util.List;
 
+/**
+ * Physical sort plan operator.
+ */
 public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPlan> {
 
     private final int offset;

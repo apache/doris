@@ -26,6 +26,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import java.util.List;
 
+/**
+ * Physical aggregation plan operator.
+ */
 public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregation, PhysicalPlan> {
 
     private final List<Expression> groupByExprList;
