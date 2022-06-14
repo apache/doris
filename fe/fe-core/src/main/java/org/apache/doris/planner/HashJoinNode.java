@@ -762,9 +762,6 @@ public class HashJoinNode extends PlanNode {
             return output.toString();
         }
 
-        output.append(detailPrefix).append("hash predicates:\n").append(detailPrefix).append("colocate: ")
-                .append(isColocate).append(isColocate ? "" : ", reason: " + colocateReason).append("\n");
-
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
         }
