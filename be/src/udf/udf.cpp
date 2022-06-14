@@ -553,10 +553,8 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     switch (scope) {
     case THREAD_LOCAL:
         return _impl->_thread_local_fn_state;
-        break;
     case FRAGMENT_LOCAL:
         return _impl->_fragment_local_fn_state;
-        break;
     default:
         // TODO: signal error somehow
         return nullptr;
