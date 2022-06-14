@@ -556,6 +556,12 @@ Default: 5000 （ms）
 
 The timeout period for connecting to ES via http, the default is 5 seconds.
 
+### `enable_stream_load_record`
+
+Default: false
+
+Whether to enable stream load record function, the default is false，Disable stream load record.
+
 ### `es_scroll_keepalive`
 
 Default: 5m
