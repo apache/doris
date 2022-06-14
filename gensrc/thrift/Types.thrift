@@ -74,6 +74,7 @@ enum TPrimitiveType {
   CHAR,
   LARGEINT,
   VARCHAR,
+  JSON,
   HLL,
   DECIMALV2,
   TIME,

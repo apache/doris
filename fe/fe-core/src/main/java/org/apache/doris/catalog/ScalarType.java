@@ -73,6 +73,8 @@ public class ScalarType extends Type {
     // so the max available length is 2GB - 4
     public static final int MAX_STRING_LENGTH = 0x7fffffff - 4;
 
+    public static final int MAX_JSON_LENGTH = 0x7fffffff - 4;
+
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
     public static final int MAX_DECIMAL32_PRECISION = 9;
@@ -120,9 +122,14 @@ public class ScalarType extends Type {
                 return createVarcharType(len);
             case STRING:
                 return createStringType();
+<<<<<<< HEAD
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+=======
+            case JSON:
+                return createJsonType();
+>>>>>>> c7da55afe (add FE support for JSON datatype and RPC definitions)
             case DECIMALV2:
                 return createDecimalType(precision, scale);
             default:
@@ -154,6 +161,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case VARCHAR:
                 return createVarcharType();
+            case JSON:
+                return createJsonType();
             case STRING:
                 return createStringType();
             case HLL:
@@ -217,6 +226,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case "VARCHAR":
                 return createVarcharType();
+            case "JSON":
+                return createJsonType();
             case "STRING":
             case "TEXT":
                 return createStringType();
@@ -468,6 +479,13 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createJsonType() {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.JSON);
+        type.len = MAX_JSON_LENGTH;
+        return type;
+    }
+
     public static ScalarType createVarchar(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -513,6 +531,8 @@ public class ScalarType extends Type {
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
             return "TEXT";
+        } else if (type == PrimitiveType.JSON) {
+            return "JSON";
         }
         return type.toString();
     }
@@ -583,6 +603,9 @@ public class ScalarType extends Type {
             case STRING:
                 stringBuilder.append("text");
                 break;
+            case JSON:
+                stringBuilder.append("json");
+                break;
             case ARRAY:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
@@ -613,7 +636,8 @@ public class ScalarType extends Type {
             case VARCHAR:
             case CHAR:
             case HLL:
-            case STRING: {
+            case STRING:
+            case JSON: {
                 scalarType.setLen(len);
                 break;
             }

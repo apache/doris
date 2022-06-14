@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.JsonLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -81,6 +82,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 literalExpr = new StringLiteral(value);
                 literalExpr.setType(type);
                 break;
+            case JSON:
+                literalExpr = new JsonLiteral(value);
+                break;
             case DATE:
             case DATETIME:
             case DATEV2:
@@ -120,6 +124,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             literalExpr = new DecimalLiteral(value);
         } else if (expr instanceof StringLiteral) {
             literalExpr = new StringLiteral(value);
+        } else if (expr instanceof JsonLiteral) {
+            literalExpr = new JsonLiteral(value);
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
         } else {
