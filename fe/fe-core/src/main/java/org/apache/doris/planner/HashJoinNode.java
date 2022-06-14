@@ -84,7 +84,9 @@ public class HashJoinNode extends PlanNode {
 
     private List<SlotId> hashOutputSlotIds;
 
-
+    /**
+     * Constructor of HashJoinNode.
+     */
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef, List<Expr> eqJoinConjuncts,
             List<Expr> otherJoinConjuncts) {
         super(id, "HASH JOIN", NodeType.HASH_JOIN_NODE);
