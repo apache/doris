@@ -497,7 +497,7 @@ public class TableFunctionPlanTest {
     public void testLateralViewWithWhere() throws Exception {
         String sql = "select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1 where k1 in (select k2 from db1.table_for_view);";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("join op: LEFT SEMI JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("join op: LEFT SEMI JOIN(BROADCAST)"));
         Assert.assertTrue(explainString.contains("equal join conjunct: `k1` = `k2`"));
         Assert.assertTrue(!explainString.contains("equal join conjunct: `k2` = `k2`"));
     }

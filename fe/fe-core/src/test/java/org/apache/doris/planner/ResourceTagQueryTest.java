@@ -209,7 +209,7 @@ public class ResourceTagQueryTest {
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tabletRatio=30/30"));
+        Assert.assertTrue(explainString.contains("tablets=30/30"));
 
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
@@ -247,7 +247,7 @@ public class ResourceTagQueryTest {
         queryStr = "explain select * from test.tbl1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tabletRatio=30/30"));
+        Assert.assertTrue(explainString.contains("tablets=30/30"));
 
         // for now, 3 backends with tag zone1, 2 with tag default, so table is not stable.
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
@@ -270,7 +270,7 @@ public class ResourceTagQueryTest {
         queryStr = "explain select * from test.tbl1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tabletRatio=30/30"));
+        Assert.assertTrue(explainString.contains("tablets=30/30"));
 
         // set user exec mem limit
         String setExecMemLimitStr = "set property for 'root' 'exec_mem_limit' = '1000000';";
