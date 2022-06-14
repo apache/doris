@@ -24,7 +24,7 @@ under the License.
 </template>
 
 <script>
-import { defineComponent, computed, onMounted } from 'vue-demi'
+import { defineComponent, computed, onMounted, onUpdated } from 'vue-demi'
 import Home from '@theme/components/Home'
 import HomeBlog from '@theme/components/HomeBlog'
 import Page from '@theme/components/Page'
@@ -53,16 +53,6 @@ function convertSidebar(list, path) {
 export default defineComponent({
   mixins: [moduleTransitonMixin],
   components: { HomeBlog, Home, Page, Common, Footer },
-  watch: {
-    $route: {
-      immediate: true,
-      handler () {
-        setTimeout((_) => {
-          document.title = "Apache Doris";
-        }, 0);
-      }
-    },
-  },
   data () {
     return {
       renderComponent: false

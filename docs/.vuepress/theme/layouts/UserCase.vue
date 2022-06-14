@@ -52,16 +52,6 @@ import Common from "@theme/components/Common";
 export default {
   name: 'CaseList',
   components: {Common},
-  watch: {
-    $route: {
-      immediate: true,
-      handler () {
-        setTimeout((_) => {
-          document.title = "Apache Doris";
-        }, 0);
-      }
-    },
-  },
   computed: {
     data() {
       const lang = this.$lang

@@ -113,7 +113,7 @@ under the License.
 <div class="apacheDoris">
   <div class="appleft">
     <div class="apptitle">
-      <p class="t wow fadeInUp">Data Import </p>
+      <p class="t wow fadeInUp">Ingestion</p>
       <p class="s wow fadeInUp">Apache Doris provides rich data ingestion methods and supports importing data from Local File, Socket, AWS S3, Apache Hadoop, Apache Flink, Apache Spark, Apache Kafka, Apache SeaTunnel(incubating) and other data sources or data processing components.</p>
       <div class="al wow fadeInUp"><a href="/en/docs/data-operate/import/load-manual.html">Learn More</a></div>
     </div>
