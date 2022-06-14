@@ -108,9 +108,9 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
             // 3 transfer result block when queue is not empty
             if (LIKELY(!_scan_blocks.empty())) {
                 blocks.swap(_scan_blocks);
-                for (auto b : blocks) {
-                    _scan_row_batches_bytes -= b->allocated_bytes();
-                }
+                // for (auto b : blocks) {
+                //     _scan_row_batches_bytes -= b->allocated_bytes();
+                // }
                 // delete scan_block if transfer thread should be stopped
                 // because scan_block wouldn't be useful anymore
                 if (UNLIKELY(_transfer_done)) {
@@ -313,6 +313,7 @@ Status VOlapScanNode::_add_blocks(std::vector<Block*>& block) {
         _materialized_blocks.insert(_materialized_blocks.end(), block.cbegin(), block.cend());
         for (auto b : block) {
             _materialized_row_batches_bytes += b->allocated_bytes();
+            _scan_row_batches_bytes -= b->allocated_bytes();
         }
     }
     // remove one block, notify main thread
