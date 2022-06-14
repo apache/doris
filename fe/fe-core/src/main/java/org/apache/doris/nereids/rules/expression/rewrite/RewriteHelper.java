@@ -15,38 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees;
+package org.apache.doris.nereids.rules.expression.rewrite;
+
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
- * Types for all TreeNode in Nereids, include Plan and Expression.
+ * Expression rewrite helper class.
  */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
+public class RewriteHelper {
 
-    // expressions
-    EXPRESSION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
+    public static boolean isConstant(Expression expr) {
+        return expr.isConstant();
+    }
 
-    // pattern
-    PATTERN,
-
-    // fixed
-    FIXED,
-    ;
 }

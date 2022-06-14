@@ -15,38 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees;
+package org.apache.doris.nereids.exceptions;
 
 /**
- * Types for all TreeNode in Nereids, include Plan and Expression.
+ * sql parsing exception.
  */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
+public class ParsingException extends RuntimeException {
 
-    // expressions
-    EXPRESSION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
+    public ParsingException(String message) {
+        super(message);
+    }
 
-    // pattern
-    PATTERN,
-
-    // fixed
-    FIXED,
-    ;
 }
