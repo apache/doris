@@ -580,7 +580,7 @@ Status VAnalyticEvalNode::_output_current_block(Block* block) {
     return Status::OK();
 }
 
-//now is execute for lead/lag row_number/rank/dense_rank functions
+//now is execute for lead/lag row_number/rank/dense_rank/ntile functions
 //sum min max count avg first_value last_value functions
 void VAnalyticEvalNode::_execute_for_win_func(BlockRowPos partition_start,
                                               BlockRowPos partition_end, BlockRowPos frame_start,

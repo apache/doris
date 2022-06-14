@@ -748,9 +748,15 @@ public class HashJoinNode extends PlanNode {
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
-        String distrModeStr = (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
-        StringBuilder output = new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString())
-                .append(distrModeStr).append("\n");
+        String distrModeStr = "";
+        if (isColocate) {
+            distrModeStr = "COLOCATE[" + colocateReason + "]";
+        } else {
+            distrModeStr = distrMode.toString();
+        }
+        StringBuilder output =
+                new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
+                        .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();

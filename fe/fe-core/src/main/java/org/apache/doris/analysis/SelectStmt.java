@@ -1277,6 +1277,17 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         ExprSubstitutionMap rewriteSmap = new ExprSubstitutionMap();
+        for (Expr expr : analyticExprs) {
+            AnalyticExpr toRewrite = (AnalyticExpr) expr;
+            Expr newExpr = AnalyticExpr.rewrite(toRewrite);
+            if (newExpr != null) {
+                newExpr.analyze(analyzer);
+                if (!rewriteSmap.containsMappingFor(toRewrite)) {
+                    rewriteSmap.put(toRewrite, newExpr);
+                }
+            }
+        }
+
         if (rewriteSmap.size() > 0) {
             // Substitute the exprs with their rewritten versions.
             ArrayList<Expr> updatedAnalyticExprs =

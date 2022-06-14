@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "file_reader.h"
-#include "file_writer.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/file_reader.h"
+#include "io/file_writer.h"
 
 namespace doris {
 

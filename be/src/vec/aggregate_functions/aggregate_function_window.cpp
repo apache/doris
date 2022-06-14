@@ -53,6 +53,15 @@ AggregateFunctionPtr create_aggregate_function_row_number(const std::string& nam
     return std::make_shared<WindowFunctionRowNumber>(argument_types);
 }
 
+AggregateFunctionPtr create_aggregate_function_ntile(const std::string& name,
+                                                     const DataTypes& argument_types,
+                                                     const Array& parameters,
+                                                     const bool result_is_nullable) {
+    assert_unary(name, argument_types);
+
+    return std::make_shared<WindowFunctionNTile>(argument_types, parameters);
+}
+
 template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_lag(const std::string& name,
                                                    const DataTypes& argument_types,
@@ -77,6 +86,7 @@ void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& fac
     factory.register_function("dense_rank", create_aggregate_function_dense_rank);
     factory.register_function("rank", create_aggregate_function_rank);
     factory.register_function("row_number", create_aggregate_function_row_number);
+    factory.register_function("ntile", create_aggregate_function_ntile);
 }
 
 void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory& factory) {

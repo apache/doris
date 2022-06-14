@@ -38,8 +38,12 @@ inline int cmp(T a, T b) {
 /// Results don't depend on the values inside uninitialized memory but Memory Sanitizer cannot see it.
 /// Disable optimized functions if compile with Memory Sanitizer.
 
-#if defined(__SSE2__) && !defined(MEMORY_SANITIZER)
+#if (defined(__SSE2__) || defined(__aarch64__)) && !defined(MEMORY_SANITIZER)
+#ifdef __SSE2__
 #include <emmintrin.h>
+#elif __aarch64__
+#include <sse2neon.h>
+#endif
 
 /** All functions works under the following assumptions:
   * - it's possible to read up to 15 excessive bytes after end of 'a' and 'b' region;

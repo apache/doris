@@ -431,6 +431,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
         keywordMap.put("||", new Integer(SqlParserSymbols.KW_PIPE));
+        keywordMap.put("current_timestamp", new Integer(SqlParserSymbols.KW_CURRENT_TIMESTAMP));
+        keywordMap.put("not_null", new Integer(SqlParserSymbols.KW_NOT_NULL));
    }
     
   // map from token id to token description
