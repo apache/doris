@@ -28,8 +28,12 @@
 #include "gutil/hash/hash128to64.h"
 #include "vec/core/types.h"
 
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__)
 #include <nmmintrin.h>
+#endif
+
+#if defined(__aarch64__)
+#include <sse2neon.h>
 #endif
 
 namespace doris::vectorized {
@@ -146,7 +150,7 @@ struct UInt128Hash {
     size_t operator()(UInt128 x) const { return Hash128to64({x.low, x.high}); }
 };
 
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__aarch64__)
 
 struct UInt128HashCRC32 {
     size_t operator()(UInt128 x) const {
