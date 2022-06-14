@@ -42,6 +42,10 @@
 #include <smmintrin.h>
 #endif
 
+#if defined(__aarch64__)
+#include <sse2neon.h>
+#endif
+
 /// The thing to avoid creating strings to find substrings in the hash table.
 struct StringRef {
     const char* data = nullptr;
@@ -73,7 +77,7 @@ struct StringRef {
 
 using StringRefs = std::vector<StringRef>;
 
-#if defined(__SSE2__)
+#if defined(__SSE2__) || defined(__aarch64__)
 
 /** Compare strings for equality.
   * The approach is controversial and does not win in all cases.
@@ -164,7 +168,7 @@ inline bool operator==(StringRef lhs, StringRef rhs) {
 
     if (lhs.size == 0) return true;
 
-#if defined(__SSE2__)
+#if defined(__SSE2__) || defined(__aarch64__)
     return memequalSSE2Wide(lhs.data, rhs.data, lhs.size);
 #else
     return 0 == memcmp(lhs.data, rhs.data, lhs.size);
@@ -197,7 +201,7 @@ struct StringRefHash64 {
     size_t operator()(StringRef x) const { return util_hash::CityHash64(x.data, x.size); }
 };
 
-#if defined(__SSE4_2__)
+#if defined(__SSE4_2__) || defined(__aarch64__)
 
 /// Parts are taken from CityHash.
 
