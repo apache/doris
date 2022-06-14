@@ -705,6 +705,9 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     //  _schema.column_ids() stands for storage layer block schema, so it contains delete columnid
     //  we just regard delete column as common pred column here.
     if (_schema.column_ids().size() > pred_column_ids.size()) {
+        if (pred_column_ids.size() > 0) {
+            _lazy_materialization_read = true;
+        }
         for (auto cid : _schema.column_ids()) {
             if (!_is_pred_column[cid]) {
                 _non_predicate_columns.push_back(cid);
