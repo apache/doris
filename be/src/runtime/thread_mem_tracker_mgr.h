@@ -28,18 +28,24 @@ typedef void (*ERRCALLBACK)();
 
 struct ConsumeErrCallBackInfo {
     std::string cancel_msg;
-    bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit
+    bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit.
     ERRCALLBACK cb_func;
+    bool log_limit_exceeded; // Whether to print log_usage of mem tracker when mem limit exceeded.
 
     ConsumeErrCallBackInfo() { init(); }
 
-    ConsumeErrCallBackInfo(const std::string& cancel_msg, bool cancel_task, ERRCALLBACK cb_func)
-            : cancel_msg(cancel_msg), cancel_task(cancel_task), cb_func(cb_func) {}
+    ConsumeErrCallBackInfo(const std::string& cancel_msg, bool cancel_task, ERRCALLBACK cb_func,
+                           bool log_limit_exceeded)
+            : cancel_msg(cancel_msg),
+              cancel_task(cancel_task),
+              cb_func(cb_func),
+              log_limit_exceeded(log_limit_exceeded) {}
 
     void init() {
         cancel_msg = "";
-        cancel_task = false;
+        cancel_task = true;
         cb_func = nullptr;
+        log_limit_exceeded = true;
     }
 };
 
@@ -94,11 +100,12 @@ public:
     void add_tracker(const std::shared_ptr<MemTracker>& mem_tracker);
 
     ConsumeErrCallBackInfo update_consume_err_cb(const std::string& cancel_msg, bool cancel_task,
-                                                 ERRCALLBACK cb_func) {
+                                                 ERRCALLBACK cb_func, bool log_limit_exceeded) {
         _temp_consume_err_cb = _consume_err_cb;
         _consume_err_cb.cancel_msg = cancel_msg;
         _consume_err_cb.cancel_task = cancel_task;
         _consume_err_cb.cb_func = cb_func;
+        _consume_err_cb.log_limit_exceeded = log_limit_exceeded;
         return _temp_consume_err_cb;
     }
 
