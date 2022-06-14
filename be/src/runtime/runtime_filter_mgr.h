@@ -44,13 +44,13 @@ class PMergeFilterRequest;
 /// get_filter(filter_id, &filter);
 /// filter->merge(origin_filter)
 
-/// comsumer:
+/// consumer:
 /// get_filter(filter_id, &filter)
 /// filter->wait
 /// if filter->ready().ok(), use filter
 
 // owned by RuntimeState
-// RuntimeFilterMgr will be destoryed when RuntimeState is destoryed
+// RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
 public:
     RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state);
