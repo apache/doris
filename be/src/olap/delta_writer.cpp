@@ -232,8 +232,12 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         RETURN_NOT_OK(_flush_memtable_async());
         _reset_mem_table();
     } else {
-        DCHECK(mem_consumption() > _mem_table->memory_usage());
         // this means there should be at least one memtable in flush queue.
+        // At this time, mem_consumption() > _mem_table->memory_usage(),
+        // but affected by the consumption order of mem tracker, the child tracker is consumed first,
+        // and then the parent tracker is consumed recursively. Therefore, when entering this judgment
+        // during the consumption process, the DeltaWriter tracker and the memtable tracker consume Inconsistent,
+        // mem_consumption() < _mem_table->memory_usage() may appear. This probability is small and will not matter.
     }
 
     if (need_wait) {
@@ -295,6 +299,11 @@ Status DeltaWriter::close_wait() {
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
 
+    _mem_table.reset();
+    // In allocate/free of mem_pool, the consume_cache of _mem_tracker will be called,
+    // and _untracked_mem must be flushed first.
+    MemTracker::memory_leak_check(_mem_tracker.get());
+
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
@@ -327,6 +336,7 @@ Status DeltaWriter::cancel() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
     }
+    MemTracker::memory_leak_check(_mem_tracker.get());
     _is_cancelled = true;
     return Status::OK();
 }

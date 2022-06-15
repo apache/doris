@@ -39,7 +39,9 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _tablet_schema(tablet_schema),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _mem_tracker(MemTracker::create_tracker(-1, "MemTable", parent_tracker)),
+          // The insert block needs to manually consume the mem tracker. Using the virtual tracker can avoid
+          // frequent recursive consumption of the parent tracker, thereby improving performance.
+          _mem_tracker(MemTracker::create_virtual_tracker(-1, "MemTable", parent_tracker)),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
@@ -103,6 +105,9 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 MemTable::~MemTable() {
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
+    _buffer_mem_pool->free_all();
+    _table_mem_pool->free_all();
+    MemTracker::memory_leak_check(_mem_tracker.get(), true);
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
