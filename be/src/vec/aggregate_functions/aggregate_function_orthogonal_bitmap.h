@@ -38,8 +38,6 @@ struct AggOrthBitmapBaseData {
 public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
-    static constexpr bool is_variadic = true;
-
     void add(const IColumn** columns, size_t row_num) {
         const auto& bitmap_col = static_cast<const ColumnBitmap&>(*columns[0]);
         const auto& data_col = static_cast<const ColVecData&>(*columns[1]);
@@ -179,9 +177,9 @@ template <typename T>
 struct OrthBitmapUnionCountData {
     static constexpr auto name = "orthogonal_bitmap_union_count";
 
-    static constexpr bool is_variadic = false;
-
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
+    // Here no need doing anything, so only given an function declaration
+    void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {}
 
     void add(const IColumn** columns, size_t row_num) {
         const auto& column = static_cast<const ColumnBitmap&>(*columns[0]);
@@ -221,9 +219,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        if constexpr (Impl::is_variadic) {
-            this->data(place).init_add_key(columns, row_num, _argument_size);
-        }
+        this->data(place).init_add_key(columns, row_num, _argument_size);
         this->data(place).add(columns, row_num);
     }
 
