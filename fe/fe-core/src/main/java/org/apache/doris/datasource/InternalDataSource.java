@@ -1638,9 +1638,10 @@ public class InternalDataSource implements DataSourceIf {
                 long tabletId = tablet.getId();
                 for (Replica replica : tablet.getReplicas()) {
                     long backendId = replica.getBackendId();
+                    long replicaId = replica.getId();
                     countDownLatch.addMark(backendId, tabletId);
                     CreateReplicaTask task =
-                            new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId, tabletId,
+                            new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId, tabletId, replicaId,
                                     shortKeyColumnCount, schemaHash, version, keysType, storageType, storageMedium,
                                     schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
                                     dataSortInfo, compressionType);

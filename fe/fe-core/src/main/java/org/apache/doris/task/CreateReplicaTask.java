@@ -47,6 +47,7 @@ import java.util.Set;
 public class CreateReplicaTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(CreateReplicaTask.class);
 
+    private long replicaId;
     private short shortKeyColumnCount;
     private int schemaHash;
 
@@ -89,7 +90,7 @@ public class CreateReplicaTask extends AgentTask {
     private DataSortInfo dataSortInfo;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             short shortKeyColumnCount, int schemaHash, long version,
+                             long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
@@ -98,6 +99,7 @@ public class CreateReplicaTask extends AgentTask {
                              TTabletType tabletType, TCompressionType compressionType) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
+        this.replicaId = replicaId;
         this.shortKeyColumnCount = shortKeyColumnCount;
         this.schemaHash = schemaHash;
 
@@ -121,7 +123,7 @@ public class CreateReplicaTask extends AgentTask {
     }
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             short shortKeyColumnCount, int schemaHash, long version,
+                             long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
@@ -132,6 +134,7 @@ public class CreateReplicaTask extends AgentTask {
                              TCompressionType compressionType) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
+        this.replicaId = replicaId;
         this.shortKeyColumnCount = shortKeyColumnCount;
         this.schemaHash = schemaHash;
 
@@ -261,6 +264,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         createTabletReq.setTableId(tableId);
         createTabletReq.setPartitionId(partitionId);
+        createTabletReq.setReplicaId(replicaId);
 
         if (baseTabletId != -1) {
             createTabletReq.setBaseTabletId(baseTabletId);
