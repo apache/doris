@@ -32,15 +32,16 @@ Doris provides a variety of data import solutions, and you can choose different 
 
 ### By scene
 
-| Data Source                          | Import Method                                                |
-| ------------------------------------ | ------------------------------------------------------------ |
-| Object Storage (s3), HDFS            | [Import data using Broker](./import-scenes/external-storage-load.md) |
-| Local file                           | [Import local data](./import-scenes/local-file-load.md)    |
-| Kafka                                | [Subscribe to Kafka data](./import-scenes/kafka-load.md)   |
+| Data Source                          | Import Method                                                          |
+|--------------------------------------|------------------------------------------------------------------------|
+| Object Storage (s3), HDFS            | [Import data using Broker](./import-scenes/external-storage-load.md)   |
+| Local file                           | [Import local data](./import-scenes/local-file-load.md)                |
+| Kafka                                | [Subscribe to Kafka data](./import-scenes/kafka-load.md)               |
+| Pulsar                               | [Subscribe to Pulsar data](./import-scenes/pulsar-load.md)             |
 | Mysql, PostgreSQL, Oracle, SQLServer | [Sync data via external table](./import-scenes/external-table-load.md) |
-| Import via JDBC                      | [Sync data using JDBC](./import-scenes/jdbc-load.md)       |
-| Import JSON format data              | [JSON format data import](./import-way/load-json-format.md) |
-| MySQL Binlog                         | [Binlog Load](./import-way/binlog-load-manual.md)          |
+| Import via JDBC                      | [Sync data using JDBC](./import-scenes/jdbc-load.md)                   |
+| Import JSON format data              | [JSON format data import](./import-way/load-json-format.md)            |
+| MySQL Binlog                         | [Binlog Load](./import-way/binlog-load-manual.md)                      |
 
 ### Divided by import method
 

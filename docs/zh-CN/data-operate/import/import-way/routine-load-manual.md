@@ -402,3 +402,6 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 ## 更多帮助
 
 关于 **Routine Load** 使用的更多详细语法，可以在Mysql客户端命令行下输入 `HELP ROUTINE LOAD` 获取更多帮助信息。
+
+## 通过KoP支持Pulsar数据接入
+[订阅Pulsar数据](../import-scenes/pulsar-load.md) 

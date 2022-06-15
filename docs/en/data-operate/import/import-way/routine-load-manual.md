@@ -334,3 +334,6 @@ Some system configuration parameters can affect the use of routine loads.
 
 For more detailed syntax used by **Routine load**,  you can enter `HELP ROUTINE LOAD` on the Mysql client command line for more help.
 
+## Pulsar Data Subscription
+
+[Pulsar Data Subscription By Kop](../import-scenes/pulsar-load.md) 

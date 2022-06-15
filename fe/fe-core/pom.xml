@@ -640,6 +640,11 @@ under the License.
             <artifactId>antlr4-runtime</artifactId>
             <version>${antlr4.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-common</artifactId>
+            <version>0.15-SNAPSHOT</version>
+        </dependency>
 
     </dependencies>
     <build>
