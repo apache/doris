@@ -45,7 +45,10 @@
 #include "testutil/desc_tbl_builder.h"
 #include "util/file_utils.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -289,10 +292,12 @@ private:
             auto col = block.column_block(0);
             int index = 0;
             size_t rows_read = 1024;
+            size_t num_rows = 0;
             do {
                 ColumnBlockView dst(&col);
                 st = iter->next_batch(&rows_read, &dst);
                 EXPECT_TRUE(st.ok());
+                num_rows += rows_read;
                 for (int i = 0; i < rows_read; ++i) {
                     validate(field, arrays[index++],
                              reinterpret_cast<const CollectionValue*>(col.cell_ptr(i)));
@@ -301,8 +306,43 @@ private:
             } while (rows_read >= 1024);
             auto type_info = get_type_info(column_pb);
             auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-            block.set_selected_size(rows_read);
+            block.set_selected_size(num_rows);
             test_convert_to_vec_block(block, tuple_desc, field, arrays);
+        }
+        {
+            auto type_info = get_type_info(column_pb);
+            auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+
+            auto reader = create_column_reader(path, meta, arrays.size());
+            EXPECT_NE(reader, nullptr);
+            auto rblock = create_readable_block(path);
+            EXPECT_NE(rblock, nullptr);
+            OlapReaderStatistics stats;
+            std::unique_ptr<segment_v2::ColumnIterator> iter(
+                    new_iterator(rblock.get(), &stats, reader.get()));
+            EXPECT_NE(iter, nullptr);
+            auto st = iter->seek_to_first();
+            EXPECT_TRUE(st.ok()) << st.to_string();
+
+            auto data_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+            auto column_ptr = data_type->create_column();
+            size_t rows_read = 1024;
+            column_ptr->reserve(rows_read);
+            do {
+                bool has_null = false;
+                st = iter->next_batch(&rows_read, column_ptr, &has_null);
+                EXPECT_TRUE(st.ok());
+                vectorized::Block vblock;
+                vblock.insert({const_cast<const vectorized::IColumn&>(*column_ptr).get_ptr(),
+                               data_type, ""});
+                for (int i = 0; i < arrays.size(); ++i) {
+                    auto tuple = vblock.deep_copy_tuple(*tuple_desc, _mem_pool.get(), i, 0, false);
+                    auto actual =
+                            tuple->get_collection_slot(tuple_desc->slots().front()->tuple_offset());
+                    validate(field, arrays[i], actual);
+                }
+            } while (rows_read >= 1024);
         }
     }
 
