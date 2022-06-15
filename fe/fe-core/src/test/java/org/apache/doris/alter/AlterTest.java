@@ -534,7 +534,8 @@ public class AlterTest {
         // alter storage_medium
         stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
         alterTable(stmt, false);
-        DataProperty dataProperty1 = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "remote_s3");
+        DataProperty dataProperty1 = new DataProperty(
+                TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "remote_s3");
         for (Partition partition : partitionList) {
             Assert.assertEquals(dataProperty1, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
         }

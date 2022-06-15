@@ -137,7 +137,30 @@ public class PolicyMgr implements Writable {
     }
 
     /**
-     * Get policy by type and name
+     * Check whether the policy exist.
+     *
+     * @param checkedPolicy policy condition to check
+     * @return exist or not
+     */
+    public boolean existPolicy(Policy checkedPolicy) {
+        List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
+        return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedPolicy));
+    }
+
+    /**
+     * CCheck whether the policy exist for the DropPolicyLog.
+     *
+     * @param checkedDropPolicy policy log condition to check
+     * @return exist or not
+     */
+    private boolean existPolicy(DropPolicyLog checkedDropPolicy) {
+        List<Policy> policies = getPoliciesByType(checkedDropPolicy.getType());
+        return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedDropPolicy));
+    }
+
+    /**
+     * Get policy by type and name.
+     *
      * @param checkedPolicy condition to get policy
      * @return Policy in typeToPolicyMap
      */
@@ -149,16 +172,6 @@ public class PolicyMgr implements Writable {
             }
         }
         return null;
-    }
-
-    public boolean existPolicy(Policy checkedPolicy) {
-        List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
-        return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedPolicy));
-    }
-
-    private boolean existPolicy(DropPolicyLog checkedDropPolicy) {
-        List<Policy> policies = getPoliciesByType(checkedDropPolicy.getType());
-        return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedDropPolicy));
     }
 
     private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
@@ -189,7 +202,6 @@ public class PolicyMgr implements Writable {
     }
 
     private void unprotectedDrop(DropPolicyLog log) {
-        long dbId = log.getDbId();
         List<Policy> policies = getPoliciesByType(log.getType());
         policies.removeIf(policy -> policy.matchPolicy(log));
         typeToPolicyMap.put(log.getType(), policies);

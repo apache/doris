@@ -60,10 +60,17 @@ public class DataProperty implements Writable {
         this.remoteStoragePolicy = "";
     }
 
+    /**
+     * DataProperty construction.
+     *
+     * @param medium storage medium for the init storage of the table
+     * @param cooldown cool down time for SSD->HDD
+     * @param remoteStoragePolicy remote storage policy for remote storage
+     */
     public DataProperty(TStorageMedium medium, long cooldown, String remoteStoragePolicy) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
-        this.remoteStoragePolicy = "";
+        this.remoteStoragePolicy = remoteStoragePolicy;
     }
 
     public TStorageMedium getStorageMedium() {

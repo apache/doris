@@ -1542,6 +1542,11 @@ public class OlapTable extends Table {
         tableProperty.buildDataSortInfo();
     }
 
+    /**
+     * set remote storage policy for table.
+     *
+     * @param remoteStoragePolicy remote storage policy name
+     */
     public void setRemoteStoragePolicy(String remoteStoragePolicy) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
@@ -1717,6 +1722,11 @@ public class OlapTable extends Table {
         return tableProperty.getDataSortInfo();
     }
 
+    /**
+     * get remote storage policy name.
+     *
+     * @return remote storage policy name for this table.
+     */
     public String getRemoteStoragePolicy() {
         if (tableProperty == null) {
             return "";

@@ -26,7 +26,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -53,8 +52,6 @@ import java.util.Map;
 import java.util.Set;
 
 public class PropertyAnalyzer {
-    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
-    private static final String COMMA_SEPARATOR = ",";
 
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
@@ -69,8 +66,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
-    private static final double MAX_FPP = 0.05;
-    private static final double MIN_FPP = 0.0001;
 
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
@@ -110,6 +105,11 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_DISABLE_QUERY = "disable_query";
 
     public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
+
+    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
+    private static final String COMMA_SEPARATOR = ",";
+    private static final double MAX_FPP = 0.05;
+    private static final double MIN_FPP = 0.0001;
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -196,7 +196,8 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Remote storage cool down time should later than now");
                 }
                 if (hasCooldown && (storagePolicy.getCooldownDatetime().getTime() <= cooldownTimeStamp)) {
-                    throw new AnalysisException("`remote_storage_cooldown_time` should later than `storage_cooldown_time`.");
+                    throw new AnalysisException("`remote_storage_cooldown_time`"
+                            + " should later than `storage_cooldown_time`.");
                 }
             }
         }
@@ -488,7 +489,13 @@ public class PropertyAnalyzer {
         return defaultVal;
     }
 
-    // analyze remote storage policy
+    /**
+     * analyze remote storage policy.
+     *
+     * @param properties property for table
+     * @return remote storage policy name
+     * @throws AnalysisException policy name doesn't exist
+     */
     public static String analyzeRemoteStoragePolicy(Map<String, String> properties) throws AnalysisException {
         String remoteStoragePolicy = "";
         if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_POLICY)) {
@@ -497,7 +504,7 @@ public class PropertyAnalyzer {
             StoragePolicy checkedStoragePolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
             Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedStoragePolicy);
             if (!(policy instanceof StoragePolicy)) {
-                throw new AnalysisException("StoragePolicy does not exist, name: " + remoteStoragePolicy);
+                throw new AnalysisException("StoragePolicy: " + remoteStoragePolicy + " does not exist.");
             }
         }
 
