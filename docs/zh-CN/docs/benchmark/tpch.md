@@ -40,8 +40,9 @@ TPC-H是一个决策支持基准（Decision Support Benchmark），它由一套�
 
 ## 1. 硬件环境
 
-| 机器数量 | 4 台腾讯云主机（1个FE，3个BE）       |
+| 硬件     | 配置说明                                                     |
 | -------- | ------------------------------------ |
+| 机器数量 | 4 台腾讯云主机（1个FE，3个BE）       |
 | CPU      | Intel Xeon(Cascade Lake) Platinum 8269CY  16核  (2.5 GHz/3.2 GHz) |
 | 内存     | 64G                                  |
 | 网络带宽  | 5Gbps                              |

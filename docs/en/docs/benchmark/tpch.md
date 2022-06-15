@@ -40,8 +40,9 @@ On 22 queries on the TPC-H standard test dataset, we tested the upcoming Doris 1
 
 ## 1. Hardware Environment
 
-| number of machines | 4 Alibaba Cloud hosts (1 FE, 3 BE) |
+| Hardware           | Configuration Instructions                                   |
 | -------- | ------------------------------------ |
+| number of machines | 4 Alibaba Cloud hosts (1 FE, 3 BE) |
 | CPU      | Intel Xeon(Cascade Lake) Platinum 8269CY  16C  (2.5 GHz/3.2 GHz) |
 | Memory | 64G                                  |
 | Network | 5Gbps                              |
