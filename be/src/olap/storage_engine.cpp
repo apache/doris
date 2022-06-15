@@ -157,8 +157,11 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(schema_change_mem_consumption);
     _clear();
 
-    if (_compaction_thread_pool) {
-        _compaction_thread_pool->shutdown();
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
+    }
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
     }
     if (_convert_rowset_thread_pool) {
         _convert_rowset_thread_pool->shutdown();

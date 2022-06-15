@@ -66,11 +66,11 @@ There are two ways to configure BE configuration items:
 
 ## Examples
 
-1. Modify `max_compaction_concurrency` statically
+1. Modify `max_base_compaction_concurrency` statically
 
      By adding in the `be.conf` file:
 
-     ```max_compaction_concurrency=5```
+     ```max_base_compaction_concurrency=5```
 
      Then restart the BE process to take effect the configuration.
 
@@ -736,10 +736,16 @@ Default: 10
 
 The maximum number of client caches per host. There are multiple client caches in BE, but currently we use the same cache size configuration. If necessary, use different configurations to set up different client-side caches
 
-### `max_compaction_threads`
+### `max_base_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in compaction thread pool.
+* Description: The maximum of thread number in base compaction thread pool.
+* Default value: 4
+
+### `max_cumu_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in cumulative compaction thread pool.
 * Default value: 10
 
 ### `max_consumer_num_per_group`
