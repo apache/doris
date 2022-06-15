@@ -178,7 +178,7 @@ private:
 class ArrayColumnVectorBatch : public ColumnVectorBatch {
 public:
     explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
-                                    ScalarColumnVectorBatch<int64_t>* offsets,
+                                    ScalarColumnVectorBatch<uint64_t>* offsets,
                                     ColumnVectorBatch* elements);
     ~ArrayColumnVectorBatch() override;
     Status resize(size_t new_cap) override;
@@ -249,7 +249,7 @@ private:
     std::unique_ptr<ColumnVectorBatch> _elements;
 
     // Stores each array's start offsets in _elements.
-    std::unique_ptr<ScalarColumnVectorBatch<int64_t>> _offsets;
+    std::unique_ptr<ScalarColumnVectorBatch<uint64_t>> _offsets;
 };
 
 } // namespace doris

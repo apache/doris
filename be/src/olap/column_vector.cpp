@@ -144,13 +144,13 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
                     array_type_info->item_type_info(), field->get_sub_field(0), &elements));
 
             std::unique_ptr<ColumnVectorBatch> offsets;
-            const auto* offsets_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_BIGINT>();
+            const auto* offsets_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>();
             RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false, offsets_type_info,
                                                       nullptr, &offsets));
 
             std::unique_ptr<ColumnVectorBatch> local(new ArrayColumnVectorBatch(
                     type_info, is_nullable,
-                    reinterpret_cast<ScalarColumnVectorBatch<int64_t>*>(offsets.release()),
+                    reinterpret_cast<ScalarColumnVectorBatch<uint64_t>*>(offsets.release()),
                     elements.release()));
             RETURN_IF_ERROR(local->resize(init_capacity));
             *column_vector_batch = std::move(local);
@@ -181,7 +181,7 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
 }
 
 ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
-                                               ScalarColumnVectorBatch<int64_t>* offsets,
+                                               ScalarColumnVectorBatch<uint64_t>* offsets,
                                                ColumnVectorBatch* elements)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {
     _offsets.reset(offsets);

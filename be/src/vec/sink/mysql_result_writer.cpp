@@ -111,7 +111,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     } else if constexpr (type == TYPE_ARRAY) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
-        for (size_t i = 0; i < row_size; ++i) {
+        for (ssize_t i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
             }

@@ -95,8 +95,8 @@ void test_read_write_array_column_vector(const TypeInfo* array_type_info, size_t
 
     // first write
     for (size_t i = 0; i < array_init_size; ++i) {
-        int64_t len = result[i].length();
-        memcpy(offset_cvb->mutable_cell_ptr(1 + i), &len, sizeof(int64_t));
+        uint64_t len = result[i].length();
+        memcpy(offset_cvb->mutable_cell_ptr(1 + i), &len, sizeof(uint64_t));
     }
     array_cvb->set_null_bits(0, array_init_size, false);
     array_cvb->get_offset_by_length(0, array_init_size);
@@ -114,8 +114,8 @@ void test_read_write_array_column_vector(const TypeInfo* array_type_info, size_t
     // second write
     EXPECT_TRUE(array_cvb->resize(array_size).ok());
     for (int i = array_init_size; i < array_size; ++i) {
-        int64_t len = result[i].length();
-        memcpy(offset_cvb->mutable_cell_ptr(i + 1), &len, sizeof(int64_t));
+        uint64_t len = result[i].length();
+        memcpy(offset_cvb->mutable_cell_ptr(i + 1), &len, sizeof(uint64_t));
     }
     array_cvb->set_null_bits(array_init_size, array_size - array_init_size, false);
     array_cvb->get_offset_by_length(array_init_size, array_size - array_init_size);

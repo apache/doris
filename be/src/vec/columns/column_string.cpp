@@ -164,7 +164,7 @@ ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
 
 StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
-    Int64 string_size = size_at(n);
+    IColumn::Offset string_size = size_at(n);
     size_t offset = offset_at(n);
 
     StringRef res;
@@ -178,7 +178,7 @@ StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
 }
 
 const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
-    const Int64 string_size = unaligned_load<Int64>(pos);
+    const IColumn::Offset string_size = unaligned_load<IColumn::Offset>(pos);
     pos += sizeof(string_size);
 
     const size_t old_size = chars.size();

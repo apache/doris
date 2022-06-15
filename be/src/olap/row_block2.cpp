@@ -289,8 +289,8 @@ Status RowBlockV2::_copy_data_to_column(int cid,
 
         auto& offsets_col = column_array->get_offsets();
         offsets_col.reserve(_selected_size);
-        int64_t offset = offsets_col.back();
-        for (int64_t j = 0; j < _selected_size; ++j) {
+        uint64_t offset = offsets_col.back();
+        for (uint16_t j = 0; j < _selected_size; ++j) {
             uint16_t row_idx = _selection_vector[j];
             auto cv = reinterpret_cast<const CollectionValue*>(column_block(cid).cell_ptr(row_idx));
             if (!nullable_mark_array[j]) {
@@ -551,9 +551,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
 
         auto& offsets_col = column_array->get_offsets();
         auto offset = offsets_col.back();
-        for (int64_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
-                int64_t row_idx = j + start;
+                uint64_t row_idx = j + start;
                 auto cv = reinterpret_cast<const CollectionValue*>(batch->cell_ptr(row_idx));
                 offset += cv->length();
                 _append_data_to_column(array_batch->elements(), array_batch->item_offset(row_idx),

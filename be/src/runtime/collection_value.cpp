@@ -448,7 +448,7 @@ size_t CollectionValue::get_byte_size(const TypeDescriptor& item_type) const {
     return result;
 }
 
-Status CollectionValue::init_collection(ObjectPool* pool, int64_t size, PrimitiveType child_type,
+Status CollectionValue::init_collection(ObjectPool* pool, uint64_t size, PrimitiveType child_type,
                                         CollectionValue* value) {
     return init_collection(
             value, [pool](size_t size) -> uint8_t* { return pool->add_array(new uint8_t[size]); },
@@ -456,7 +456,7 @@ Status CollectionValue::init_collection(ObjectPool* pool, int64_t size, Primitiv
 }
 
 Status CollectionValue::init_collection(CollectionValue* value, const AllocateMemFunc& allocate,
-                                        int64_t size, PrimitiveType child_type) {
+                                        uint64_t size, PrimitiveType child_type) {
     if (value == nullptr) {
         return Status::InvalidArgument("collection value is null");
     }
@@ -477,13 +477,13 @@ Status CollectionValue::init_collection(CollectionValue* value, const AllocateMe
     return Status::OK();
 }
 
-Status CollectionValue::init_collection(MemPool* pool, int64_t size, PrimitiveType child_type,
+Status CollectionValue::init_collection(MemPool* pool, uint64_t size, PrimitiveType child_type,
                                         CollectionValue* value) {
     return init_collection(
             value, [pool](size_t size) { return pool->allocate(size); }, size, child_type);
 }
 
-Status CollectionValue::init_collection(FunctionContext* context, int64_t size,
+Status CollectionValue::init_collection(FunctionContext* context, uint64_t size,
                                         PrimitiveType child_type, CollectionValue* value) {
     return init_collection(
             value, [context](size_t size) { return context->allocate(size); }, size, child_type);
@@ -506,8 +506,8 @@ void CollectionValue::deep_copy_collection(CollectionValue* shallow_copied_cv,
     }
 
     auto iterator = cv->iterator(item_type.type);
-    int64_t coll_byte_size = cv->length() * iterator.type_size();
-    int64_t nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
+    uint64_t coll_byte_size = cv->length() * iterator.type_size();
+    uint64_t nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
 
     MemFootprint footprint = gen_mem_footprint(coll_byte_size + nulls_size);
     int64_t offset = footprint.first;
