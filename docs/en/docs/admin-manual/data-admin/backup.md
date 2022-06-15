@@ -83,7 +83,7 @@ ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
    ```sql
    BACKUP SNAPSHOT example_db.snapshot_label2
    TO example_repo
-   ON 
+   ON
    (
       example_tbl PARTITION (p1,p2),
       example_tbl2
@@ -104,9 +104,9 @@ ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
    SnapshotFinishedTime: 2022-04-08 15:52:32
      UploadFinishedTime: 2022-04-08 15:52:38
            FinishedTime: 2022-04-08 15:52:44
-        UnfinishedTasks: 
-               Progress: 
-             TaskErrMsg: 
+        UnfinishedTasks:
+               Progress:
+             TaskErrMsg:
                  Status: [OK]
                 Timeout: 86400
    1 row in set (0.01 sec)
@@ -156,7 +156,7 @@ It is recommended to import the new and old clusters in parallel for a period of
 
    1. CREATE REPOSITORY
 
-      Create a remote repository path for backup or restore. This command needs to use the Broker process to access the remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.md), or you can directly back up to support through the S3 protocol For the remote storage of AWS S3 protocol, please refer to [Create Remote Warehouse Documentation](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md )
+      Create a remote repository path for backup or restore. This command needs to use the Broker process to access the remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.md), or you can directly back up to support through the S3 protocol For the remote storage of AWS S3 protocol, or directly back up to HDFS, please refer to [Create Remote Warehouse Documentation](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md )
 
    2. BACKUP
 
