@@ -62,7 +62,7 @@ public class RuleSet {
         return new RuleFactories();
     }
 
-    private static class RuleFactories<TYPE extends TreeNode> {
+    private static class RuleFactories<TYPE extends TreeNode<TYPE>> {
         final Builder<Rule<TYPE>> rules = ImmutableList.builder();
 
         public RuleFactories<TYPE> add(RuleFactory<TYPE> ruleFactory) {

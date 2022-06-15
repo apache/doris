@@ -21,14 +21,14 @@ import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import java.util.List;
 
 /**
  * Physical sort plan operator.
  */
-public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPlan> {
+public class PhysicalSort extends PhysicalUnaryOperator {
 
     private final int offset;
 
@@ -70,8 +70,7 @@ public class PhysicalSort extends PhysicalUnaryOperator<PhysicalSort, PhysicalPl
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalSortPlan((PhysicalPlan<? extends PhysicalPlan, PhysicalSort>) plan,
-                context);
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalSortPlan((PhysicalUnaryPlan<PhysicalSort, Plan>) plan, context);
     }
 }

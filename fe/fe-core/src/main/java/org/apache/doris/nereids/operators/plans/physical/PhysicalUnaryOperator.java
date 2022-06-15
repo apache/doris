@@ -25,18 +25,15 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import java.util.List;
 
 /**
  * Abstract class for all physical operator that have one input.
  */
-public abstract class PhysicalUnaryOperator<
-            TYPE extends PhysicalUnaryOperator<TYPE, INPUT_TYPE>,
-            INPUT_TYPE extends Plan>
-        extends AbstractOperator<TYPE>
-        implements PhysicalOperator<TYPE>, UnaryPlanOperator<TYPE, INPUT_TYPE> {
+public abstract class PhysicalUnaryOperator extends AbstractOperator
+        implements PhysicalOperator, UnaryPlanOperator {
 
     public PhysicalUnaryOperator(OperatorType type) {
         super(type);
@@ -44,16 +41,16 @@ public abstract class PhysicalUnaryOperator<
 
     @Override
     public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
-        return doComputeOutput(logicalProperties, (INPUT_TYPE) inputs[0]);
+        return doComputeOutput(logicalProperties, inputs[0]);
     }
 
-    public List<Slot> doComputeOutput(LogicalProperties logicalProperties, INPUT_TYPE input) {
+    public List<Slot> doComputeOutput(LogicalProperties logicalProperties, Plan input) {
         return logicalProperties.getOutput();
     }
 
     @Override
-    public PhysicalUnary toTreeNode(GroupExpression groupExpression) {
+    public PhysicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalUnary(this, groupExpression, logicalProperties, new PlaceHolderPlan());
+        return new PhysicalUnaryPlan(this, groupExpression, logicalProperties, new PlaceHolderPlan());
     }
 }
