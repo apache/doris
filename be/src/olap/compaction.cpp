@@ -54,6 +54,57 @@ OLAPStatus Compaction::execute_compact() {
     return st;
 }
 
+OLAPStatus Compaction::quick_rowsets_compact() {
+    MutexLock lock_cumulative(_tablet->get_cumulative_lock(), TRY_LOCK);
+    if (!lock_cumulative.own_lock()) {
+        LOG(WARNING) << "The tablet is under cumulative compaction. tablet="
+                     << _tablet->full_name();
+        return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
+    }
+
+    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
+    // for compaction may change. In this case, current compaction task should not be executed.
+    if (_tablet->get_clone_occurred()) {
+        _tablet->set_clone_occurred(false);
+        return OLAP_ERR_CUMULATIVE_CLONE_OCCURRED;
+    }
+
+    _input_rowsets.clear();
+    int version_count = _tablet->version_count();
+    MonotonicStopWatch watch;
+    watch.start();
+    int64_t permits = 0;
+    _tablet->pick_quick_compaction_rowsets(&_input_rowsets, &permits);
+    std::vector<Version> missedVersions;
+    find_longest_consecutive_version(&_input_rowsets, &missedVersions);
+    if (missedVersions.size() != 0) {
+        LOG(WARNING) << "quick_rowsets_compaction, find missed version"
+                     << ",input_size:" << _input_rowsets.size();
+    }
+    int nums = _input_rowsets.size();
+    if (_input_rowsets.size() >= config::quick_compaction_min_rowsets) {
+        OLAPStatus st = check_version_continuity(_input_rowsets);
+        if (st != OLAP_SUCCESS) {
+            LOG(WARNING) << "quick_rowsets_compaction failed, cause version not continuous";
+            return st;
+        }
+        st = do_compaction(permits);
+        if (st != OLAP_SUCCESS) {
+            gc_output_rowset();
+            LOG(WARNING) << "quick_rowsets_compaction failed";
+        } else {
+            LOG(INFO) << "quick_compaction succ"
+                      << ", before_versions:" << version_count
+                      << ", after_versions:" << _tablet->version_count()
+                      << ", cost:" << (watch.elapsed_time() / 1000 / 1000) << "ms"
+                      << ", merged: " << nums << ", batch:" << config::quick_compaction_batch_size
+                      << ", segments:" << permits << ", tabletid:" << _tablet->tablet_id();
+            _tablet->set_last_quick_compaction_success_time(UnixMillis());
+        }
+    }
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Compaction::do_compaction(int64_t permits) {
     TRACE("start to do compaction");
     _tablet->data_dir()->disks_compaction_score_increment(permits);

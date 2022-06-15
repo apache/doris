@@ -28,8 +28,11 @@ namespace doris {
 using std::map;
 
 EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
-                                                   std::vector<TTabletId>* error_tablet_ids)
-        : _publish_version_req(publish_version_req), _error_tablet_ids(error_tablet_ids) {}
+                                                   std::vector<TTabletId>* error_tablet_ids,
+                                                   std::unordered_map<TTabletId, int32_t>* succ_tablet_ids)
+        : _publish_version_req(publish_version_req),
+          _error_tablet_ids(error_tablet_ids),
+          _succ_tablet_ids(succ_tablet_ids) {}
 
 OLAPStatus EnginePublishVersionTask::finish() {
     OLAPStatus res = OLAP_SUCCESS;
@@ -106,6 +109,9 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
                 res = publish_status;
                 continue;
+            }
+            if (_succ_tablet_ids != nullptr) {
+                _succ_tablet_ids->insert({tablet_info.tablet_id, tablet_info.schema_hash});
             }
             partition_related_tablet_infos.erase(tablet_info);
             VLOG_NOTICE << "publish version successfully on tablet. tablet=" << tablet->full_name()

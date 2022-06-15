@@ -50,6 +50,7 @@ public:
 
     // This is only for http CompactionAction
     OLAPStatus compact();
+    OLAPStatus quick_rowsets_compact();
 
     virtual OLAPStatus prepare_compact() = 0;
     OLAPStatus execute_compact();

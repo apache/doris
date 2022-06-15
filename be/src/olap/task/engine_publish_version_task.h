@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
 
+#include <unordered_map>
 #include "gen_cpp/AgentService_types.h"
 #include "olap/olap_define.h"
 #include "olap/task/engine_task.h"
@@ -27,7 +28,8 @@ namespace doris {
 class EnginePublishVersionTask : public EngineTask {
 public:
     EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
-                             vector<TTabletId>* error_tablet_ids);
+                             vector<TTabletId>* error_tablet_ids,
+                             std::unordered_map<TTabletId, int32_t>* succ_tablet_ids = nullptr);
     ~EnginePublishVersionTask() {}
 
     virtual OLAPStatus finish() override;
@@ -35,6 +37,7 @@ public:
 private:
     const TPublishVersionRequest& _publish_version_req;
     vector<TTabletId>* _error_tablet_ids;
+    std::unordered_map<TTabletId, int32_t>* _succ_tablet_ids;
 };
 
 } // namespace doris
