@@ -308,6 +308,7 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_COMMENT", ScalarType.createStringType())
                                     .column("NODEGROUP", ScalarType.createVarchar(256))
                                     .column("TABLESPACE_NAME", ScalarType.createVarchar(268)).build()))
+            // Compatible with Datagrip
             .put("column_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "column_privileges", TableType.SCHEMA,
                             builder().column("GRANTEE", ScalarType.createVarchar(128))
@@ -317,6 +318,7 @@ public class SchemaTable extends Table {
                                     .column("COLUMN_NAME", ScalarType.createVarchar(64))
                                     .column("PRIVILEGE_TYPE", ScalarType.createVarchar(64))
                                     .column("IS_GRANTABLE", ScalarType.createVarchar(3)).build()))
+            // Compatible with Datagrip
             .put("triggers",
                     new SchemaTable(SystemIdGenerator.getNextId(), "triggers", TableType.SCHEMA,
                             builder().column("TRIGGER_CATALOG", ScalarType.createVarchar(512))
@@ -341,6 +343,7 @@ public class SchemaTable extends Table {
                                     .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
                                     .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
                                     .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
+            // Compatible with Datagrip
             .put("events",
                     new SchemaTable(SystemIdGenerator.getNextId(), "events", TableType.SCHEMA,
                             builder().column("EVENT_CATALOG", ScalarType.createVarchar(64))
