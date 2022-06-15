@@ -25,19 +25,15 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 
 import java.util.List;
 
 /**
  * Abstract class for all logical binary operator that have two inputs.
  */
-public abstract class LogicalBinaryOperator<
-            TYPE extends LogicalBinaryOperator<TYPE, LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
-            LEFT_INPUT_TYPE extends Plan,
-            RIGHT_INPUT_TYPE extends Plan>
-        extends AbstractOperator<TYPE>
-        implements LogicalOperator<TYPE>, BinaryPlanOperator<TYPE, LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
+public abstract class LogicalBinaryOperator extends AbstractOperator
+        implements LogicalOperator, BinaryPlanOperator {
 
     public LogicalBinaryOperator(OperatorType type) {
         super(type);
@@ -45,15 +41,15 @@ public abstract class LogicalBinaryOperator<
 
     @Override
     public final List<Slot> computeOutput(Plan... inputs) {
-        return doComputeOutput((LEFT_INPUT_TYPE) inputs[0], (RIGHT_INPUT_TYPE) inputs[1]);
+        return doComputeOutput(inputs[0], inputs[1]);
     }
 
-    public abstract List<Slot> doComputeOutput(LEFT_INPUT_TYPE left, RIGHT_INPUT_TYPE right);
+    public abstract List<Slot> doComputeOutput(Plan left, Plan right);
 
     @Override
-    public LogicalBinary toTreeNode(GroupExpression groupExpression) {
+    public LogicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new LogicalBinary(this, groupExpression, logicalProperties,
+        return new LogicalBinaryPlan(this, groupExpression, logicalProperties,
                 new PlaceHolderPlan(), new PlaceHolderPlan());
     }
 }

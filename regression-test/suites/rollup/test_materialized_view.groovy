@@ -83,7 +83,7 @@ suite("test_materialized_view", "rollup") {
     Thread.sleep(1000)
     explain{
         sql("SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id")
-        contains("rollup: amt_sum")
+        contains("(amt_sum)")
     }
     qt_sql "SELECT * FROM ${tbName1} order by record_id;"
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id order by store_id;"

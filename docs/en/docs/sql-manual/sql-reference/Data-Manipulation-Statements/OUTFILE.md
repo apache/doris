@@ -69,17 +69,27 @@ illustrate:
        The following properties are supported:
        column_separator: column separator
        line_delimiter: line delimiter
-       max_file_size: The size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
+       max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
     
        Broker related properties need to be prefixed with `broker.`:
        broker.name: broker name
        broker.hadoop.security.authentication: specify the authentication method as kerberos
        broker.kerberos_principal: specifies the principal of kerberos
-       broker.kerberos_keytab: Specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
+       broker.kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
     
-       HDFS related properties need to be prefixed with `hdfs.`:
-       hdfs.fs.defaultFS: namenode address and port
-       hdfs.hdfs_user: hdfs username
+       HDFS related properties:
+       fs.defaultFS: namenode address and port
+       hadoop.username: hdfs username
+       dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
+       dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
+       dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
+       dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+
+       For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
+       dfs.namenode.kerberos.principal: HDFS namenode service principal
+       hadoop.security.authentication: kerberos
+       hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
+       hadoop.kerberos.keytab: HDFS client keytab location.
     
        For the S3 protocol, you can directly execute the S3 protocol configuration:
        AWS_ENDPOINT
@@ -241,10 +251,30 @@ illustrate:
    FORMAT AS CSV
    PROPERTIES
    (
-       "hdfs.fs.defaultFS" = "hdfs://ip:port",
-       "hdfs.hdfs_user" = "work"
+       "fs.defaultFS" = "hdfs://ip:port",
+       "hadoop.username" = "work"
    );
-   ````
+   ```
+
+   If the Hadoop cluster is highly available and Kerberos authentication is enabled, you can refer to the following SQL statement:
+
+   ```sql
+   SELECT * FROM tbl
+   INTO OUTFILE "hdfs://path/to/result_"
+   FORMAT AS CSV
+   PROPERTIES
+   (
+   'fs.defaultFS'='hdfs://hacluster/',
+   'dfs.nameservices'='hacluster',
+   'dfs.ha.namenodes.hacluster'='n1,n2',
+   'dfs.namenode.rpc-address.hacluster.n1'='192.168.0.1:8020',
+   'dfs.namenode.rpc-address.hacluster.n2'='192.168.0.2:8020',
+   'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+   'dfs.namenode.kerberos.principal'='hadoop/_HOST@REALM.COM'
+   'hadoop.security.authentication'='kerberos',
+   'hadoop.kerberos.principal'='doris_test@REALM.COM',
+   'hadoop.kerberos.keytab'='/path/to/doris_test.keytab'
+   );
 
    If the final generated file is not larger than 100MB, it will be: `result_0.csv`.
    If larger than 100MB, it may be `result_0.csv, result_1.csv, ...`.

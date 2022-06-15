@@ -141,7 +141,8 @@ expression
     ;
 
 booleanExpression
-    : valueExpression                                              #predicated
+    : NOT booleanExpression                                                                  #not
+    | valueExpression                                                                        #predicated
     ;
 
 valueExpression

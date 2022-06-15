@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot<UnboundSlot> {
+public class UnboundSlot extends Slot {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {
@@ -63,5 +63,17 @@ public class UnboundSlot extends Slot<UnboundSlot> {
     @Override
     public String toString() {
         return "'" + getName();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        UnboundSlot other = (UnboundSlot) o;
+        return nameParts.containsAll(other.getNameParts());
     }
 }

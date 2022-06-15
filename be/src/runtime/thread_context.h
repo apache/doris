@@ -300,7 +300,8 @@ class SwitchThreadMemTrackerErrCallBack {
 public:
     explicit SwitchThreadMemTrackerErrCallBack(const std::string& action_type,
                                                bool cancel_work = true,
-                                               ERRCALLBACK err_call_back_func = nullptr);
+                                               ERRCALLBACK err_call_back_func = nullptr,
+                                               bool log_limit_exceeded = true);
 
     ~SwitchThreadMemTrackerErrCallBack();
 

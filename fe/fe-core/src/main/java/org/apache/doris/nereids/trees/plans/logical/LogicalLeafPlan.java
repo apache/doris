@@ -15,37 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator;
+import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 
 /**
- * Abstract class for all physical plan that have no child.
+ * Abstract class for all logical plan that have no child.
  */
-public class PhysicalLeaf<OP_TYPE extends PhysicalLeafOperator>
-        extends AbstractPhysicalPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE>
-        implements LeafPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE> {
+public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
+        extends AbstractLogicalPlan<OP_TYPE>
+        implements LeafPlan {
 
-    public PhysicalLeaf(OP_TYPE operator, LogicalProperties logicalProperties) {
-        super(NodeType.PHYSICAL, operator, logicalProperties);
+    public LogicalLeafPlan(OP_TYPE operator) {
+        super(NodeType.LOGICAL, operator);
     }
 
-    public PhysicalLeaf(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
-        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties);
+    public LogicalLeafPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties);
     }
 
     @Override
-    public PhysicalLeaf newChildren(List<TreeNode> children) {
+    public LogicalLeafPlan<OP_TYPE> newChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 0);
-        return new PhysicalLeaf(operator, groupExpression, logicalProperties);
+        return new LogicalLeafPlan(operator, groupExpression.orElse(null), logicalProperties);
     }
 }

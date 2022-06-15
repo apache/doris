@@ -35,11 +35,11 @@ import java.util.Objects;
 public class PatternMatcher<
         INPUT_TYPE extends RULE_TYPE,
         OUTPUT_TYPE extends RULE_TYPE,
-        RULE_TYPE extends TreeNode> {
+        RULE_TYPE extends TreeNode<RULE_TYPE>> {
 
-    public final Pattern<INPUT_TYPE> pattern;
+    public final Pattern<INPUT_TYPE, RULE_TYPE> pattern;
     public final RulePromise defaultRulePromise;
-    public final MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction;
+    public final MatchedAction<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> matchedAction;
 
     /**
      * PatternMatcher wrap a pattern, defaultRulePromise and matchedAction.
@@ -48,8 +48,8 @@ public class PatternMatcher<
      * @param defaultRulePromise defaultRulePromise
      * @param matchedAction matched callback function
      */
-    public PatternMatcher(Pattern<INPUT_TYPE> pattern, RulePromise defaultRulePromise,
-            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+    public PatternMatcher(Pattern<INPUT_TYPE, RULE_TYPE> pattern, RulePromise defaultRulePromise,
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> matchedAction) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
         this.defaultRulePromise = Objects.requireNonNull(
                 defaultRulePromise, "defaultRulePromise can not be null");
@@ -71,7 +71,7 @@ public class PatternMatcher<
         return new Rule<RULE_TYPE>(ruleType, pattern, rulePromise) {
             @Override
             public List<RULE_TYPE> transform(RULE_TYPE originPlan, PlannerContext context) {
-                MatchingContext<INPUT_TYPE> matchingContext =
+                MatchingContext<INPUT_TYPE, RULE_TYPE> matchingContext =
                         new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
                 OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
                 return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);

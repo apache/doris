@@ -20,6 +20,10 @@ under the License.
     <ModuleTransition delay="0.08">
       <section v-show="recoShowModule">
         <div class="page-title">
+          <div class="translate-warnning">
+            The content of this document may be from machine translation. If you are interested in assisting with translation and proofreading, please contact us 
+            <a href="mailto:dev@doris.apache.org">dev@doris.apache.org</a>.
+          </div>
           <h1 class="title">{{$page.title}}</h1>
           <PageInfo :pageInfo="$page" :showAccessNumber="showAccessNumber"></PageInfo>
         </div>

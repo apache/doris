@@ -558,7 +558,6 @@ Status NodeChannel::none_of(std::initializer_list<bool> vars) {
 }
 
 void NodeChannel::clear_all_batches() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_node_channel_tracker);
     std::lock_guard<std::mutex> lg(_pending_batches_lock);
     std::queue<AddBatchReq> empty;
     std::swap(_pending_batches, empty);

@@ -106,7 +106,6 @@ export default defineComponent({
       const matchVersion = versionKeys.find(
         (v) => this.$route.path.indexOf(v) > -1
       );
-      console.log(matchVersion, this.currentItem)
       currentVersion = matchVersion ? matchVersion : (this.currentItem.text || versionKeys[0])
       const index = this.subItems.findIndex(
         (item) => item.text === currentVersion

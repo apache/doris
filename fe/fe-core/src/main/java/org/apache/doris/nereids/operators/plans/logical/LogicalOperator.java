@@ -26,6 +26,6 @@ import java.util.List;
 /**
  * interface for all concrete logical plan operator.
  */
-public interface LogicalOperator<TYPE extends LogicalOperator<TYPE>> extends PlanOperator<TYPE> {
+public interface LogicalOperator extends PlanOperator {
     List<Slot> computeOutput(Plan... inputs);
 }

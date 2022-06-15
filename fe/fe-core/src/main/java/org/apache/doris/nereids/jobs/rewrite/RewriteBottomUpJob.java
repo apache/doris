@@ -35,7 +35,7 @@ import java.util.Objects;
 /**
  * Bottom up job for rewrite, use pattern match.
  */
-public class RewriteBottomUpJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYPE> {
+public class RewriteBottomUpJob<NODE_TYPE extends TreeNode<NODE_TYPE>> extends Job<NODE_TYPE> {
     private final Group group;
     private final List<Rule<NODE_TYPE>> rules;
     private final boolean childrenOptimized;

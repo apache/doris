@@ -24,16 +24,15 @@ import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
 import java.util.List;
 
 /**
  * Abstract class for all physical operator that have no input.
  */
-public abstract class PhysicalLeafOperator<TYPE extends PhysicalLeafOperator<TYPE>>
-        extends AbstractOperator<TYPE>
-        implements PhysicalOperator<TYPE>, LeafPlanOperator<TYPE> {
+public abstract class PhysicalLeafOperator extends AbstractOperator
+        implements PhysicalOperator, LeafPlanOperator {
 
     public PhysicalLeafOperator(OperatorType type) {
         super(type);
@@ -49,7 +48,7 @@ public abstract class PhysicalLeafOperator<TYPE extends PhysicalLeafOperator<TYP
     }
 
     @Override
-    public PhysicalLeaf toTreeNode(GroupExpression groupExpression) {
-        return new PhysicalLeaf(this, groupExpression, groupExpression.getParent().getLogicalProperties());
+    public PhysicalLeafPlan toTreeNode(GroupExpression groupExpression) {
+        return new PhysicalLeafPlan(this, groupExpression, groupExpression.getParent().getLogicalProperties());
     }
 }
