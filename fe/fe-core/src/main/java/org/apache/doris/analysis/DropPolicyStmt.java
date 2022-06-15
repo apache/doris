@@ -54,9 +54,15 @@ public class DropPolicyStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        tableName.analyze(analyzer);
-        if (user != null) {
-            user.analyze(analyzer.getClusterName());
+        switch (type) {
+            case STORAGE:
+                break;
+            case ROW:
+            default:
+                tableName.analyze(analyzer);
+                if (user != null) {
+                    user.analyze(analyzer.getClusterName());
+                }
         }
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -71,9 +77,16 @@ public class DropPolicyStmt extends DdlStmt {
         if (ifExists) {
             sb.append("IF EXISTS ");
         }
-        sb.append(policyName).append(" ON ").append(tableName.toSql());
-        if (user != null) {
-            sb.append(" FOR ").append(user.getQualifiedUser());
+        sb.append(policyName);
+        switch (type) {
+            case STORAGE:
+                break;
+            case ROW:
+            default:
+                sb.append(" ON ").append(tableName.toSql());
+                if (user != null) {
+                    sb.append(" FOR ").append(user.getQualifiedUser());
+                }
         }
         return sb.toString();
     }
