@@ -119,7 +119,7 @@ module.exports = {
         // 导航栏
         nav: [
           {
-            text: "Document",
+            text: "Docs",
             link: "",
             name: "document",
           },
@@ -131,14 +131,14 @@ module.exports = {
               // { text: "Doris Weekly", link: "/en/categories/DorisWeekly/" },
               { text: "Best Practice", link: "/en/categories/PracticalCases/" },
               { text: "Release Note", link: "/en/categories/ReleaseNote/" },
-              {
-                text: "Doris Internal",
-                link: "/en/categories/DorisInternals/",
-              },
+              // {
+              //   text: "Doris Internal",
+              //   link: "/en/categories/DorisInternals/",
+              // },
             ],
           },
           {
-            text: "Developer",
+            text: "Development",
             link: "/en/developer/developer-guide/debug-tool.html",
           },
           {
