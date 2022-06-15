@@ -64,12 +64,12 @@ The entire test simulation generates 100G of data and is imported into Doris 0.1
 | :--------------- | :---------- | ---------- | :----- |
 | REGION           | 5           | 400KB      |        |
 | NATION           | 25          | 7.714 KB   |        |
-| SUPPLIER         | 100 million | 85.528 MB  |        |
+| SUPPLIER         | 1 million | 85.528 MB  |        |
 | PART             | 20 million  | 752.330 MB |        |
 | PARTSUPP         | 80 million  | 4.375 GB   |        |
 | CUSTOMER         | 15 million  | 1.317 GB   |        |
-| ORDERS           | 1.5 billion | 6.301 GB   |        |
-| LINEITEM         | 6 billion   | 20.882 GB  |        |
+| ORDERS           | 150 million | 6.301 GB   |        |
+| LINEITEM         | 600 million   | 20.882 GB  |        |
 
 ## 4. Test SQL
 
