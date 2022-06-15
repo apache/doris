@@ -453,6 +453,17 @@ public class PlannerTest extends TestWithFeService {
     }
 
     @Test
+    public void testSelectAggregateItemCheckOnGroupingSet() throws Exception {
+        String sql = "explain select k1,if(k2=null, null, count(distinct k2)) from db1.tbl4"
+                + " group by grouping sets((k1),(k1,k2))";
+        String errorMessage = "errCode = 2, detailMessage = column: `k2` cannot both in select list and "
+                + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union instead.";
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Assertions.assertTrue(connectContext.getState().getErrorMessage().contains(errorMessage));
+    }
+
+    @Test
     public void testPushDownPredicateOnGroupingSetAggregate() throws Exception {
         String sql = "explain select k1, k2, count(distinct v1) from db1.tbl4"
                 + " group by grouping sets((k1), (k1, k2)) having k1 = 1 and k2 = 1";
