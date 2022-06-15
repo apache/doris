@@ -245,10 +245,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
                             long backendId = shadowReplica.getBackendId();
+                            long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
-                                    shadowShortKeyColumnCount, shadowSchemaHash,
+                                    shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION,
                                     originKeysType, TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
