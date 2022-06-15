@@ -557,6 +557,7 @@ public class SelectStmt extends QueryStmt {
     /**
      * check whether grouping set columns are in the agg function
      * within the select items. If true, throw an AnalysisException.
+     *
      * @throws AnalysisException
      */
     public void checkSelectItemsForGroupingSet() throws AnalysisException {
@@ -566,9 +567,9 @@ public class SelectStmt extends QueryStmt {
             for (Expr aggFunction : aggFunctions) {
                 for (Expr groupingExpr : groupByClause.getGroupingExprs()) {
                     if (aggFunction.contains(groupingExpr)) {
-                        throw new AnalysisException("column: " + groupingExpr.toSql() + " cannot both in" +
-                            " select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP," +
-                            " please use union instead.");
+                        throw new AnalysisException("column: " + groupingExpr.toSql() + " cannot both in"
+                                + " select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP,"
+                                + " please use union instead.");
                     }
                 }
             }
@@ -577,8 +578,10 @@ public class SelectStmt extends QueryStmt {
 
     /**
      * Get all AggregateFunctions,which are under the `expr` in the Expr-tree.
+     *
      * @param expr
-     * @return
+     *
+     * @return list of exprs
      */
     public List<Expr> getAggFuncExprsFromChildren(Expr expr) {
         List<Expr> aggFuncExprs = new LinkedList<>();
