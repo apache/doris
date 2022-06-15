@@ -37,6 +37,9 @@ template <typename T>
 struct AggOrthBitmapBaseData {
 public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
+
+    static constexpr bool is_variadic = true;
+
     void add(const IColumn** columns, size_t row_num) {
         const auto& bitmap_col = static_cast<const ColumnBitmap&>(*columns[0]);
         const auto& data_col = static_cast<const ColVecData&>(*columns[1]);
@@ -45,18 +48,19 @@ public:
         if constexpr (IsNumber<T>) {
             bitmap.update(data_col.get_element(row_num), bitmap_value);
         } else {
-            bitmap.update(StringValue(data_col.get_data_at(row_num).to_string()), bitmap_value);
+            bitmap.update(StringValue(data_col.get_data_at(row_num)), bitmap_value);
         }
     }
 
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {
         if (first_init) {
+            DCHECK(argument_size > 1);
             for (int idx = 2; idx < argument_size; ++idx) {
                 const auto& col = static_cast<const ColVecData&>(*columns[idx]);
                 if constexpr (IsNumber<T>) {
                     bitmap.add_key(col.get_element(row_num));
                 } else {
-                    bitmap.add_key(StringValue(col.get_data_at(row_num).to_string()));
+                    bitmap.add_key(StringValue(col.get_data_at(row_num)));
                 }
             }
             first_init = false;
@@ -95,7 +99,7 @@ public:
 
     void get(IColumn& to) const {
         auto& column = static_cast<ColumnBitmap&>(to);
-        column.get_data().push_back(result);
+        column.get_data().emplace_back(result);
     }
 
 private:
@@ -133,7 +137,7 @@ public:
 
     void get(IColumn& to) const {
         auto& column = static_cast<ColumnVector<Int64>&>(to);
-        column.get_data().push_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
+        column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
 
@@ -164,11 +168,42 @@ public:
 
     void get(IColumn& to) const {
         auto& column = static_cast<ColumnVector<Int64>&>(to);
-        column.get_data().push_back(result);
+        column.get_data().emplace_back(result);
     }
 
 private:
     Int64 result = 0;
+};
+
+template <typename T>
+struct OrthBitmapUnionCountData {
+    static constexpr auto name = "orthogonal_bitmap_union_count";
+
+    static constexpr bool is_variadic = false;
+
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
+
+    void add(const IColumn** columns, size_t row_num) {
+        const auto& column = static_cast<const ColumnBitmap&>(*columns[0]);
+        value |= column.get_data()[row_num];
+    }
+    void merge(const OrthBitmapUnionCountData& rhs) { result += rhs.result; }
+
+    void write(BufferWritable& buf) {
+        result = value.cardinality();
+        write_binary(result, buf);
+    }
+
+    void read(BufferReadable& buf) { read_binary(result, buf); }
+
+    void get(IColumn& to) const {
+        auto& column = static_cast<ColumnVector<Int64>&>(to);
+        column.get_data().emplace_back(result ? result : value.cardinality());
+    }
+
+private:
+    BitmapValue value;
+    int64_t result = 0;
 };
 
 template <typename Impl>
@@ -186,7 +221,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        this->data(place).init_add_key(columns, row_num, _argument_size);
+        if constexpr (Impl::is_variadic) {
+            this->data(place).init_add_key(columns, row_num, _argument_size);
+        }
         this->data(place).add(columns, row_num);
     }
 
@@ -211,64 +248,4 @@ public:
 private:
     int _argument_size;
 };
-
-struct OrthBitmapUnionCountData {
-    void add(const BitmapValue& data) { value |= data; }
-
-    void merge(const OrthBitmapUnionCountData& rhs) { result += rhs.result; }
-
-    void write(BufferWritable& buf) {
-        result = value.cardinality();
-        write_binary(result, buf);
-    }
-
-    void read(BufferReadable& buf) { read_binary(result, buf); }
-
-    void get(IColumn& to) const {
-        auto& column = static_cast<ColumnVector<Int64>&>(to);
-        column.get_data().push_back(result ? result : value.cardinality());
-    }
-
-private:
-    BitmapValue value;
-    int64_t result = 0;
-};
-
-class AggFunctionOrthBitmapUnionCount final
-        : public IAggregateFunctionDataHelper<OrthBitmapUnionCountData,
-                                              AggFunctionOrthBitmapUnionCount> {
-public:
-    String get_name() const override { return "orthogonal_bitmap_union_count"; }
-
-    AggFunctionOrthBitmapUnionCount(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<OrthBitmapUnionCountData,
-                                           AggFunctionOrthBitmapUnionCount>(argument_types_, {}) {}
-
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
-
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
-             Arena*) const override {
-        const auto& column = static_cast<const ColumnBitmap&>(*columns[0]);
-        this->data(place).add(column.get_data()[row_num]);
-    }
-
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
-        this->data(place).merge(this->data(rhs));
-    }
-
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(const_cast<AggregateDataPtr>(place)).write(buf);
-    }
-
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        this->data(place).read(buf);
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        this->data(place).get(to);
-    }
-};
-
 } // namespace doris::vectorized
