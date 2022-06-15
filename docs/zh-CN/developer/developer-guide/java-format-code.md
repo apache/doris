@@ -80,3 +80,10 @@ Checkstyle 会按照 [Class and Interface Declarations](https://www.oracle.com/j
 
 ![](/images/idea-rearrange-code.png)
 
+## Remove unused header
+
+默认快捷键 **CTRL + ALT + O --->** 仅仅删除未使用的导入。
+
+自动移除并且 Reorder ：
+
+点击 `Preferences->Editor->General->Auto Import->Optimize Imports on the Fly`
