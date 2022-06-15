@@ -83,6 +83,5 @@ suite("test_bitmap_intersect", "bitmap_function") {
        ) t
        """
 
-
     sql """ DROP TABLE  ${tbName} """
 }
