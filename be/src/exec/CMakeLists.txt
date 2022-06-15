@@ -105,6 +105,7 @@ set(EXEC_FILES
     hdfs_reader_writer.cpp
     hdfs_file_reader.cpp
     hdfs_writer.cpp
+    hdfs_builder.cpp
 )
 
 if (WITH_MYSQL)
