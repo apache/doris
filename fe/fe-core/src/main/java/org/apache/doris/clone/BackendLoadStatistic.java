@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,7 +187,7 @@ public class BackendLoadStatistic {
 
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
                     diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB(), diskInfo.getState());
+                    diskInfo.getTotalCapacityB(), diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 
@@ -252,7 +251,7 @@ public class BackendLoadStatistic {
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
             Map<TStorageMedium, Double> avgClusterReplicaNumPerBackendMap) {
-        
+
         for (TStorageMedium medium : TStorageMedium.values()) {
             LoadScore loadScore = calcSore(totalUsedCapacityMap.getOrDefault(medium, 0L),
                     totalCapacityMap.getOrDefault(medium, 1L),
@@ -269,13 +268,13 @@ public class BackendLoadStatistic {
 
     public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
             double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
-        
+
         double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacityB);
         double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
                 : usedCapacityPercent / avgClusterUsedCapacityPercent;
         double replicaNumProportion = avgClusterReplicaNumPerBackend <= 0 ? 0.0
                 : beTotalReplicaNum / avgClusterReplicaNumPerBackend;
-        
+
         LoadScore loadScore = new LoadScore();
 
         // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
@@ -288,7 +287,7 @@ public class BackendLoadStatistic {
         loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
         loadScore.score = capacityProportion * loadScore.capacityCoefficient
                 + replicaNumProportion * loadScore.replicaNumCoefficient;
-        
+
         return loadScore;
     }
 
@@ -315,7 +314,7 @@ public class BackendLoadStatistic {
         return status;
     }
 
-     /*
+    /**
      * Check whether the backend can be more balance if we migrate a tablet with size 'tabletSize' from
      * `srcPath` to 'destPath'
      * 1. recalculate the load score of src and dest path after migrate the tablet.
@@ -346,17 +345,17 @@ public class BackendLoadStatistic {
         }
         double avgUsedPercent = totalCapacity == 0 ? 0.0 : totalUsedCapacity / (double) totalCapacity;
         double currentSrcPathScore = srcPathStat.getCapacityB() == 0
-            ? 0.0 : srcPathStat.getUsedCapacityB() / (double) srcPathStat.getCapacityB();
+                ? 0.0 : srcPathStat.getUsedCapacityB() / (double) srcPathStat.getCapacityB();
         double currentDestPathScore = destPathStat.getCapacityB() == 0
-            ? 0.0 : destPathStat.getUsedCapacityB() / (double) destPathStat.getCapacityB();
+                ? 0.0 : destPathStat.getUsedCapacityB() / (double) destPathStat.getCapacityB();
 
         double newSrcPathScore = srcPathStat.getCapacityB() == 0
-            ? 0.0 : (srcPathStat.getUsedCapacityB() - tabletSize) / (double) srcPathStat.getCapacityB();
+                ? 0.0 : (srcPathStat.getUsedCapacityB() - tabletSize) / (double) srcPathStat.getCapacityB();
         double newDestPathScore = destPathStat.getCapacityB() == 0
-            ? 0.0 : (destPathStat.getUsedCapacityB() + tabletSize) / (double) destPathStat.getCapacityB();
+                ? 0.0 : (destPathStat.getUsedCapacityB() + tabletSize) / (double) destPathStat.getCapacityB();
 
         double currentDiff = Math.abs(currentSrcPathScore - avgUsedPercent)
-            + Math.abs(currentDestPathScore - avgUsedPercent);
+                + Math.abs(currentDestPathScore - avgUsedPercent);
         double newDiff = Math.abs(newSrcPathScore - avgUsedPercent) + Math.abs(newDestPathScore - avgUsedPercent);
 
         LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
@@ -380,7 +379,7 @@ public class BackendLoadStatistic {
 
     /**
      * Classify the paths into 'low', 'mid' and 'high',
-     * and skip offline path, and path with different storage medium 
+     * and skip offline path, and path with different storage medium
      */
     public void getPathStatisticByClass(
             Set<Long> low, Set<Long> mid, Set<Long> high, TStorageMedium storageMedium) {

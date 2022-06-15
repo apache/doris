@@ -121,7 +121,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.meta->set_length(
                     get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>()->size());
             length_options.meta->set_encoding(DEFAULT_ENCODING);
-            length_options.meta->set_compression(LZ4F);
+            length_options.meta->set_compression(opts.meta->compression());
 
             length_options.need_zone_map = false;
             length_options.need_bloom_filter = false;
@@ -149,7 +149,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.meta->set_length(
                         get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
                 null_options.meta->set_encoding(DEFAULT_ENCODING);
-                null_options.meta->set_compression(LZ4F);
+                null_options.meta->set_compression(opts.meta->compression());
 
                 null_options.need_zone_map = false;
                 null_options.need_bloom_filter = false;
@@ -193,23 +193,43 @@ Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* da
     return Status::OK();
 }
 
+Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                     size_t num_rows) {
+    size_t offset = 0;
+    auto next_run_step = [&]() {
+        size_t step = 1;
+        for (auto i = offset + 1; i < num_rows; ++i) {
+            if (null_map[offset] == null_map[i])
+                step++;
+            else
+                break;
+        }
+        return step;
+    };
+
+    do {
+        auto step = next_run_step();
+        if (null_map[offset]) {
+            RETURN_IF_ERROR(append_nulls(step));
+            *ptr += get_field()->size() * step;
+        } else {
+            // TODO:
+            //  1. `*ptr += get_field()->size() * step;` should do in this function, not append_data;
+            //  2. support array vectorized load and ptr offset add
+            RETURN_IF_ERROR(append_data(ptr, step));
+        }
+        offset += step;
+    } while (offset < num_rows);
+
+    return Status::OK();
+}
+
 Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num_rows) {
     assert(data && num_rows > 0);
+    const auto* ptr = (const uint8_t*)data;
     if (nullmap) {
-        size_t bitmap_size = BitmapSize(num_rows);
-        if (_null_bitmap.size() < bitmap_size) {
-            _null_bitmap.resize(bitmap_size);
-        }
-        uint8_t* bitmap_data = _null_bitmap.data();
-        memset(bitmap_data, 0, bitmap_size);
-        for (size_t i = 0; i < num_rows; ++i) {
-            if (nullmap[i]) {
-                BitmapSet(bitmap_data, i);
-            }
-        }
-        return append_nullable(bitmap_data, data, num_rows);
+        return append_nullable(nullmap, &ptr, num_rows);
     } else {
-        const uint8_t* ptr = (const uint8_t*)data;
         return append_data(&ptr, num_rows);
     }
 }
@@ -244,7 +264,7 @@ ScalarColumnWriter::~ScalarColumnWriter() {
 }
 
 Status ScalarColumnWriter::init() {
-    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
+    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), _compress_codec));
 
     PageBuilder* page_builder = nullptr;
 
@@ -400,7 +420,7 @@ Status ScalarColumnWriter::write_data() {
         footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
 
         PagePointer dict_pp;
-        RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec,
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec.get(),
                                                         _opts.compression_min_space_saving, _wblock,
                                                         {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
@@ -488,8 +508,8 @@ Status ScalarColumnWriter::finish_current_page() {
     }
     // trying to compress page body
     OwnedSlice compressed_body;
-    RETURN_IF_ERROR(PageIO::compress_page_body(_compress_codec, _opts.compression_min_space_saving,
-                                               body, &compressed_body));
+    RETURN_IF_ERROR(PageIO::compress_page_body(
+            _compress_codec.get(), _opts.compression_min_space_saving, body, &compressed_body));
     if (compressed_body.slice().empty()) {
         // page body is uncompressed
         page->data.emplace_back(std::move(encoded_values));

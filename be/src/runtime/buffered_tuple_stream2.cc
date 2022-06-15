@@ -22,9 +22,9 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
+#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/bit_util.h"
-#include "util/debug_util.h"
 #include "util/pretty_printer.h"
 
 using std::stringstream;

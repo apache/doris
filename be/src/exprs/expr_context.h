@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/expr-context.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_CONTEXT_H
-#define DORIS_BE_SRC_QUERY_EXPRS_EXPR_CONTEXT_H
+#pragma once
 
 #include <memory>
 
@@ -161,7 +160,6 @@ private:
     friend class RuntimePredicateWrapper;
     friend class BloomFilterPredicate;
     friend class OlapScanNode;
-    friend class EsScanNode;
     friend class EsPredicate;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
@@ -202,5 +200,3 @@ inline void* ExprContext::get_value(TupleRow* row) {
 }
 
 } // namespace doris
-
-#endif

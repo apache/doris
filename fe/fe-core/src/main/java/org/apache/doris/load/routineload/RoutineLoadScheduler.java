@@ -28,7 +28,6 @@ import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,7 +70,9 @@ public class RoutineLoadScheduler extends MasterDaemon {
             LOG.warn("failed to get need schedule routine jobs", e);
         }
 
-        LOG.info("there are {} job need schedule", routineLoadJobList.size());
+        if (!routineLoadJobList.isEmpty()) {
+            LOG.info("there are {} job need schedule", routineLoadJobList.size());
+        }
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
             RoutineLoadJob.JobState errorJobState = null;
             UserException userException = null;

@@ -80,7 +80,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -250,8 +249,8 @@ public class ReportHandler extends Daemon {
                 backendId, backendTablets.size(), backendReportVersion);
 
         // storage medium map
-        HashMap<Long, TStorageMedium> storageMediumMap = Config.disable_storage_medium_check ?
-                Maps.newHashMap() : Catalog.getCurrentCatalog().getPartitionIdToStorageMediumMap();
+        HashMap<Long, TStorageMedium> storageMediumMap = Config.disable_storage_medium_check
+                ? Maps.newHashMap() : Catalog.getCurrentCatalog().getPartitionIdToStorageMediumMap();
 
         // db id -> tablet id
         ListMultimap<Long, Long> tabletSyncMap = LinkedListMultimap.create();
@@ -335,7 +334,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
-        LOG.info("begin to handle task report from backend {}", backendId);
+        LOG.debug("begin to handle task report from backend {}", backendId);
         long start = System.currentTimeMillis();
 
         if (LOG.isDebugEnabled()) {
@@ -595,14 +594,16 @@ public class ReportHandler extends Daemon {
                                     Set<String> bfColumns = olapTable.getCopiedBfColumns();
                                     double bfFpp = olapTable.getBfFpp();
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
-                                            tableId, partitionId, indexId, tabletId, indexMeta.getShortKeyColumnCount(),
+                                            tableId, partitionId, indexId, tabletId, replica.getId(),
+                                            indexMeta.getShortKeyColumnCount(),
                                             indexMeta.getSchemaHash(), partition.getVisibleVersion(),
                                             indexMeta.getKeysType(),
                                             TStorageType.COLUMN,
                                             TStorageMedium.HDD, indexMeta.getSchema(), bfColumns, bfFpp, null,
                                             olapTable.getCopiedIndexes(),
                                             olapTable.isInMemory(),
-                                            olapTable.getPartitionInfo().getTabletType(partitionId));
+                                            olapTable.getPartitionInfo().getTabletType(partitionId),
+                                            olapTable.getCompressionType());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
@@ -692,7 +693,9 @@ public class ReportHandler extends Daemon {
 
             if (needDelete) {
                 // drop replica
-                DropReplicaTask task = new DropReplicaTask(backendId, tabletId, backendTabletInfo.getSchemaHash());
+                long replicaId = backendTabletInfo.getReplicaId();
+                DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId,
+                        backendTabletInfo.getSchemaHash());
                 batchTask.addTask(task);
                 LOG.warn("delete tablet[" + tabletId + "] from backend[" + backendId + "] because not found in meta");
                 ++deleteFromBackendCounter;
@@ -730,8 +733,9 @@ public class ReportHandler extends Daemon {
         for (TStorageMedium storageMedium : tabletMetaMigrationMap.keySet()) {
             List<Long> tabletIds = tabletMetaMigrationMap.get(storageMedium);
             if (!be.hasSpecifiedStorageMedium(storageMedium)) {
-                LOG.warn("no specified storage medium {} on backend {}, skip storage migration." +
-                        " sample tablet id: {}", storageMedium, backendId, tabletIds.isEmpty() ? "-1" : tabletIds.get(0));
+                LOG.warn("no specified storage medium {} on backend {}, skip storage migration."
+                        + " sample tablet id: {}", storageMedium, backendId, tabletIds.isEmpty()
+                        ? "-1" : tabletIds.get(0));
                 continue;
             }
             List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
@@ -891,7 +895,7 @@ public class ReportHandler extends Daemon {
         long rowCount = backendTabletInfo.getRowCount();
 
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLockOrMetaException();
         try {
             Partition partition = olapTable.getPartition(partitionId);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -49,7 +48,7 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -153,7 +152,7 @@ public class CacheAnalyzer {
             return Long.compare(table.latestTime, this.latestTime);
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(), latestPartitionId, latestVersion, latestTime);
         }
     }
@@ -214,7 +213,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
-        latestTable.Debug();
+        latestTable.debug();
 
         addAllViewStmt(selectStmt);
         String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
@@ -222,9 +221,10 @@ public class CacheAnalyzer {
         if (now == 0) {
             now = nowtime();
         }
-        if (enableSqlCache() &&
-                (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000) {
-            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime, Config.cache_last_version_interval_second*1000);
+        if (enableSqlCache()
+                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
+            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                    Config.cache_last_version_interval_second * 1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_MODE_SQL.increase(1L);
@@ -340,14 +340,14 @@ public class CacheAnalyzer {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) expr;
             if (cp.getOp() == CompoundPredicate.Operator.AND) {
-                if (cp.getChildren().size() == 2 && cp.getChild(0) instanceof BinaryPredicate &&
-                        cp.getChild(1) instanceof BinaryPredicate) {
+                if (cp.getChildren().size() == 2 && cp.getChild(0) instanceof BinaryPredicate
+                        && cp.getChild(1) instanceof BinaryPredicate) {
                     BinaryPredicate leftPre = (BinaryPredicate) cp.getChild(0);
                     BinaryPredicate rightPre = (BinaryPredicate) cp.getChild(1);
                     String leftColumn = getColumnName(leftPre);
                     String rightColumn = getColumnName(rightPre);
-                    if (leftColumn.equalsIgnoreCase(partColumn.getName()) &&
-                            rightColumn.equalsIgnoreCase(partColumn.getName())) {
+                    if (leftColumn.equalsIgnoreCase(partColumn.getName())
+                            && rightColumn.equalsIgnoreCase(partColumn.getName())) {
                         compoundPredicates.add(cp);
                     }
                 }

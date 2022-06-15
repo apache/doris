@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
-#define DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
+#pragma once
 
 #include <cstddef>
 #include <memory>
@@ -124,7 +123,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // _DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
-
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

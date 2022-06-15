@@ -328,23 +328,32 @@ set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
+add_library(xml2 STATIC IMPORTED)
+set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+
+add_library(lzma STATIC IMPORTED)
+set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
+
 add_library(gsasl STATIC IMPORTED)
-set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgsasl.a)
 
-add_library(breakpad STATIC IMPORTED)
-set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
+add_library(krb5support STATIC IMPORTED)
+set_target_properties(krb5support PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5support.a)
 
-if (ARCH_AMD64)
-    # libhdfs3 only support x86 or amd64
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
+add_library(krb5 STATIC IMPORTED)
+set_target_properties(krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5.a)
 
-    add_library(xml2 STATIC IMPORTED)
-    set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+add_library(com_err STATIC IMPORTED)
+set_target_properties(com_err PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcom_err.a)
 
-    add_library(lzma STATIC IMPORTED)
-    set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
-endif()
+add_library(k5crypto STATIC IMPORTED)
+set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libk5crypto.a)
+
+add_library(gssapi_krb5 STATIC IMPORTED)
+set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgssapi_krb5.a)
+
+add_library(hdfs3 STATIC IMPORTED)
+set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -370,8 +379,8 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
-if (USE_LLD AND NOT MAKE_TEST)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
+if (USE_LLD)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
 endif ()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
@@ -403,7 +412,7 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
         set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
     endif()
 endif()
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
 if (WITH_MYSQL)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
@@ -411,6 +420,14 @@ endif()
 
 if (WITH_LZO)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
+endif()
+
+# Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
+# and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
+# Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
+# which will bring about a 2% performance improvement, which may be useful in performance POC.
+if (USE_MEM_TRACKER)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_MEM_TRACKER")
 endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
@@ -421,6 +438,10 @@ endif()
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
 set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
+
+if (USE_DWARF)
+    set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
+endif()
 
 # For CMAKE_BUILD_TYPE=Debug
 set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
@@ -479,7 +500,6 @@ include_directories(
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
-    ${THIRDPARTY_DIR}/include/breakpad/
 )
 
 if (BUILD_JAVA_UDF)
@@ -502,6 +522,14 @@ endif()
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
+
+
+set(KRB5_LIBS
+    krb5support
+    krb5
+    com_err
+    gssapi_krb5
+    k5crypto)
 
 set(AWS_LIBS
     aws-sdk-s3
@@ -529,6 +557,7 @@ set(DORIS_LINK_LIBS
     Exec
     Exprs
     Gutil
+    IO
     Olap
     Rowset
     OlapFs
@@ -587,11 +616,13 @@ set(COMMON_THIRDPARTY
     odbc
     cctz
     minizip
-    breakpad
     ${AWS_LIBS}
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp
     librdkafka
+    hdfs3
+    xml2
+    lzma
 )
 
 if (${MAKE_TEST} STREQUAL "ON")
@@ -601,28 +632,12 @@ if (${MAKE_TEST} STREQUAL "ON")
     )
 endif()
 
-# thirdparties dependescies that can only run on X86 platform
-set(X86_DEPENDENCIES
+set(DORIS_DEPENDENCIES
+    ${DORIS_DEPENDENCIES}
+    ${WL_START_GROUP}
     ${COMMON_THIRDPARTY}
-    hdfs3
-    xml2
-    lzma
+    ${KRB5_LIBS}
 )
-
-if(ARCH_AARCH64)
-    # Set thirdparty libraries
-    set(DORIS_DEPENDENCIES
-        ${DORIS_DEPENDENCIES}
-        ${WL_START_GROUP}
-        ${COMMON_THIRDPARTY}
-    )
-else()
-    set(DORIS_DEPENDENCIES
-        ${DORIS_DEPENDENCIES}
-        ${WL_START_GROUP}
-        ${X86_DEPENDENCIES}
-    )
-endif()
 
 if(WITH_LZO)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
@@ -647,6 +662,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -static-libstdc++
     -static-libgcc
     -lstdc++fs
+    -lresolv
 )
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
@@ -708,6 +724,7 @@ add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
+add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/olap)

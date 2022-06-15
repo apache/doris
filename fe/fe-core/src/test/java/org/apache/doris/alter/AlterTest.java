@@ -47,7 +47,6 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -68,7 +67,6 @@ public class AlterTest {
     public static void beforeClass() throws Exception {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
-        Config.dynamic_partition_enable = true;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.disable_storage_medium_check = true;
         UtFrameUtils.createDorisCluster(runningDir);
@@ -80,149 +78,149 @@ public class AlterTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
-        createTable("CREATE TABLE test.tbl1\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    k2 int,\n" +
-                "    v1 int sum\n" +
-                ")\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "    PARTITION p1 values less than('2020-02-01'),\n" +
-                "    PARTITION p2 values less than('2020-03-01')\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
-                "PROPERTIES('replication_num' = '1');");
+        createTable("CREATE TABLE test.tbl1\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    k2 int,\n"
+                + "    v1 int sum\n"
+                + ")\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
-        createTable("CREATE TABLE test.tbl2\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    v1 int sum\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH (k1) BUCKETS 3\n" +
-                "PROPERTIES('replication_num' = '1');");
+        createTable("CREATE TABLE test.tbl2\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    v1 int sum\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH (k1) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
-        createTable("CREATE TABLE test.tbl3\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    k2 int,\n" +
-                "    v1 int sum\n" +
-                ")\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "    PARTITION p1 values less than('2020-02-01'),\n" +
-                "    PARTITION p2 values less than('2020-03-01')\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
-                "PROPERTIES('replication_num' = '1');");
+        createTable("CREATE TABLE test.tbl3\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    k2 int,\n"
+                + "    v1 int sum\n"
+                + ")\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
-        createTable("CREATE TABLE test.tbl4\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    k2 int,\n" +
-                "    v1 int sum\n" +
-                ")\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "    PARTITION p1 values less than('2020-02-01'),\n" +
-                "    PARTITION p2 values less than('2020-03-01'),\n" +
-                "    PARTITION p3 values less than('2020-04-01'),\n" +
-                "    PARTITION p4 values less than('2020-05-01')\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
-                "PROPERTIES" +
-                "(" +
-                "    'replication_num' = '1',\n" +
-                "    'in_memory' = 'false',\n" +
-                "    'storage_medium' = 'SSD',\n" +
-                "    'storage_cooldown_time' = '2999-12-31 00:00:00'\n" +
-                ");");
+        createTable("CREATE TABLE test.tbl4\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    k2 int,\n"
+                + "    v1 int sum\n"
+                + ")\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01'),\n"
+                + "    PARTITION p3 values less than('2020-04-01'),\n"
+                + "    PARTITION p4 values less than('2020-05-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES"
+                + "("
+                + "    'replication_num' = '1',\n"
+                + "    'in_memory' = 'false',\n"
+                + "    'storage_medium' = 'SSD',\n"
+                + "    'storage_cooldown_time' = '2999-12-31 00:00:00'\n"
+                + ");");
 
-        createTable("CREATE TABLE test.tbl5\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    k2 int,\n" +
-                "    v1 int \n" +
-                ") ENGINE=OLAP\n" +
-                "UNIQUE KEY (k1,k2)\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "    PARTITION p1 values less than('2020-02-01'),\n" +
-                "    PARTITION p2 values less than('2020-03-01')\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
-                "PROPERTIES('replication_num' = '1');");
+        createTable("CREATE TABLE test.tbl5\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    k2 int,\n"
+                + "    v1 int \n"
+                + ") ENGINE=OLAP\n"
+                + "UNIQUE KEY (k1,k2)\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
-        createTable("create external table test.odbc_table\n" +
-                "(  `k1` bigint(20) COMMENT \"\",\n" +
-                "  `k2` datetime COMMENT \"\",\n" +
-                "  `k3` varchar(20) COMMENT \"\",\n" +
-                "  `k4` varchar(100) COMMENT \"\",\n" +
-                "  `k5` float COMMENT \"\"\n" +
-                ")ENGINE=ODBC\n" +
-                "PROPERTIES (\n" +
-                "\"host\" = \"127.0.0.1\",\n" +
-                "\"port\" = \"3306\",\n" +
-                "\"user\" = \"root\",\n" +
-                "\"password\" = \"123\",\n" +
-                "\"database\" = \"db1\",\n" +
-                "\"table\" = \"tbl1\",\n" +
-                "\"driver\" = \"Oracle Driver\",\n" +
-                "\"odbc_type\" = \"oracle\"\n" +
-                ");");
+        createTable("create external table test.odbc_table\n"
+                + "(  `k1` bigint(20) COMMENT \"\",\n"
+                + "  `k2` datetime COMMENT \"\",\n"
+                + "  `k3` varchar(20) COMMENT \"\",\n"
+                + "  `k4` varchar(100) COMMENT \"\",\n"
+                + "  `k5` float COMMENT \"\"\n"
+                + ")ENGINE=ODBC\n"
+                + "PROPERTIES (\n"
+                + "\"host\" = \"127.0.0.1\",\n"
+                + "\"port\" = \"3306\",\n"
+                + "\"user\" = \"root\",\n"
+                + "\"password\" = \"123\",\n"
+                + "\"database\" = \"db1\",\n"
+                + "\"table\" = \"tbl1\",\n"
+                + "\"driver\" = \"Oracle Driver\",\n"
+                + "\"odbc_type\" = \"oracle\"\n"
+                + ");");
 
         // s3 resource
-        createRemoteStorageResource("create resource \"remote_s3\"\n" +
-                "properties\n" +
-                "(\n" +
-                "   \"type\" = \"s3\", \n" +
-                "   \"s3_endpoint\" = \"bj\",\n" +
-                "   \"s3_region\" = \"bj\",\n" +
-                "   \"s3_root_path\" = \"/path/to/root\",\n" +
-                "   \"s3_access_key\" = \"bbb\",\n" +
-                "   \"s3_secret_key\" = \"aaaa\",\n" +
-                "   \"s3_max_connections\" = \"50\",\n" +
-                "   \"s3_request_timeout_ms\" = \"3000\",\n" +
-                "   \"s3_connection_timeout_ms\" = \"1000\"\n" +
-                ");");
+        createRemoteStorageResource("create resource \"remote_s3\"\n"
+                + "properties\n"
+                + "(\n"
+                + "   \"type\" = \"s3\", \n"
+                + "   \"s3_endpoint\" = \"bj\",\n"
+                + "   \"s3_region\" = \"bj\",\n"
+                + "   \"s3_root_path\" = \"/path/to/root\",\n"
+                + "   \"s3_access_key\" = \"bbb\",\n"
+                + "   \"s3_secret_key\" = \"aaaa\",\n"
+                + "   \"s3_max_connections\" = \"50\",\n"
+                + "   \"s3_request_timeout_ms\" = \"3000\",\n"
+                + "   \"s3_connection_timeout_ms\" = \"1000\"\n"
+                + ");");
 
-        createRemoteStorageResource("create resource \"remote_s3_1\"\n" +
-                "properties\n" +
-                "(\n" +
-                "   \"type\" = \"s3\", \n" +
-                "   \"s3_endpoint\" = \"bj\",\n" +
-                "   \"s3_region\" = \"bj\",\n" +
-                "   \"s3_root_path\" = \"/path/to/root\",\n" +
-                "   \"s3_access_key\" = \"bbb\",\n" +
-                "   \"s3_secret_key\" = \"aaaa\",\n" +
-                "   \"s3_max_connections\" = \"50\",\n" +
-                "   \"s3_request_timeout_ms\" = \"3000\",\n" +
-                "   \"s3_connection_timeout_ms\" = \"1000\"\n" +
-                ");");
+        createRemoteStorageResource("create resource \"remote_s3_1\"\n"
+                + "properties\n"
+                + "(\n"
+                + "   \"type\" = \"s3\", \n"
+                + "   \"s3_endpoint\" = \"bj\",\n"
+                + "   \"s3_region\" = \"bj\",\n"
+                + "   \"s3_root_path\" = \"/path/to/root\",\n"
+                + "   \"s3_access_key\" = \"bbb\",\n"
+                + "   \"s3_secret_key\" = \"aaaa\",\n"
+                + "   \"s3_max_connections\" = \"50\",\n"
+                + "   \"s3_request_timeout_ms\" = \"3000\",\n"
+                + "   \"s3_connection_timeout_ms\" = \"1000\"\n"
+                + ");");
 
-        createTable("CREATE TABLE test.tbl_remote\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    k2 int,\n" +
-                "    v1 int sum\n" +
-                ")\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "    PARTITION p1 values less than('2020-02-01'),\n" +
-                "    PARTITION p2 values less than('2020-03-01'),\n" +
-                "    PARTITION p3 values less than('2020-04-01'),\n" +
-                "    PARTITION p4 values less than('2020-05-01')\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
-                "PROPERTIES" +
-                "(" +
-                "    'replication_num' = '1',\n" +
-                "    'in_memory' = 'false',\n" +
-                "    'storage_medium' = 'SSD',\n" +
-                "    'storage_cooldown_time' = '2122-04-01 20:24:00',\n" +
-                "    'remote_storage_resource' = 'remote_s3',\n" +
-                "    'remote_storage_cooldown_time' = '2122-12-01 20:23:00'" +
-                ");");
+        createTable("CREATE TABLE test.tbl_remote\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    k2 int,\n"
+                + "    v1 int sum\n"
+                + ")\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01'),\n"
+                + "    PARTITION p3 values less than('2020-04-01'),\n"
+                + "    PARTITION p4 values less than('2020-05-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES"
+                + "("
+                + "    'replication_num' = '1',\n"
+                + "    'in_memory' = 'false',\n"
+                + "    'storage_medium' = 'SSD',\n"
+                + "    'storage_cooldown_time' = '2122-04-01 20:24:00',\n"
+                + "    'remote_storage_resource' = 'remote_s3',\n"
+                + "    'remote_storage_cooldown_time' = '2122-12-01 20:23:00'"
+                + ");");
     }
 
     @AfterClass
@@ -348,13 +346,13 @@ public class AlterTest {
 
         // enable dynamic partition
         // not adding the `start` property so that it won't drop the origin partition p1, p2 and p3
-        stmt = "alter table test.tbl1 set (\n" +
-                "'dynamic_partition.enable' = 'true',\n" +
-                "'dynamic_partition.time_unit' = 'DAY',\n" +
-                "'dynamic_partition.end' = '3',\n" +
-                "'dynamic_partition.prefix' = 'p',\n" +
-                "'dynamic_partition.buckets' = '3'\n" +
-                " );";
+        stmt = "alter table test.tbl1 set (\n"
+                + "'dynamic_partition.enable' = 'true',\n"
+                + "'dynamic_partition.time_unit' = 'DAY',\n"
+                + "'dynamic_partition.end' = '3',\n"
+                + "'dynamic_partition.prefix' = 'p',\n"
+                + "'dynamic_partition.buckets' = '3'\n"
+                + " );";
         alterTable(stmt, false);
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
@@ -541,11 +539,11 @@ public class AlterTest {
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
         // alter recover to old state
-        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set (" +
-                "'storage_medium' = 'SSD', " +
-                "'storage_cooldown_time' = '2122-04-01 20:24:00', " +
-                "'remote_storage_cooldown_time' = '2122-12-01 20:23:00'" +
-                ")";
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ("
+                + "'storage_medium' = 'SSD', "
+                + "'storage_cooldown_time' = '2122-04-01 20:24:00', "
+                + "'remote_storage_cooldown_time' = '2122-12-01 20:23:00'"
+                + ")";
         alterTable(stmt, false);
         for (Partition partition : partitionList) {
             Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
@@ -557,14 +555,14 @@ public class AlterTest {
     @Test
     public void testDynamicPartitionDropAndAdd() throws Exception {
         // test day range
-        String stmt = "alter table test.tbl3 set (\n" +
-                "'dynamic_partition.enable' = 'true',\n" +
-                "'dynamic_partition.time_unit' = 'DAY',\n" +
-                "'dynamic_partition.start' = '-3',\n" +
-                "'dynamic_partition.end' = '3',\n" +
-                "'dynamic_partition.prefix' = 'p',\n" +
-                "'dynamic_partition.buckets' = '3'\n" +
-                " );";
+        String stmt = "alter table test.tbl3 set (\n"
+                + "'dynamic_partition.enable' = 'true',\n"
+                + "'dynamic_partition.time_unit' = 'DAY',\n"
+                + "'dynamic_partition.start' = '-3',\n"
+                + "'dynamic_partition.end' = '3',\n"
+                + "'dynamic_partition.prefix' = 'p',\n"
+                + "'dynamic_partition.buckets' = '3'\n"
+                + " );";
         alterTable(stmt, false);
         Thread.sleep(5000); // sleep to wait dynamic partition scheduler run
 
@@ -598,70 +596,70 @@ public class AlterTest {
     @Test
     public void testSetDynamicPropertiesInNormalTable() throws Exception {
         String tableName = "no_dynamic_table";
-        String createOlapTblStmt = "CREATE TABLE test.`" + tableName + "` (\n" +
-                "  `k1` date NULL COMMENT \"\",\n" +
-                "  `k2` int NULL COMMENT \"\",\n" +
-                "  `k3` smallint NULL COMMENT \"\",\n" +
-                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
-                "  `v2` datetime NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE (k1)\n" +
-                "(\n" +
-                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
-                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
-                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");";
+        String createOlapTblStmt = "CREATE TABLE test.`" + tableName + "` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\",\n"
+                + "  `k3` smallint NULL COMMENT \"\",\n"
+                + "  `v1` varchar(2048) NULL COMMENT \"\",\n"
+                + "  `v2` datetime NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`, `k3`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE (k1)\n"
+                + "(\n"
+                + "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n"
+                + "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n"
+                + "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");";
         createTable(createOlapTblStmt);
         String alterStmt = "alter table test." + tableName + " set (\"dynamic_partition.enable\" = \"true\");";
-        String errorMsg = "errCode = 2, detailMessage = Table default_cluster:test.no_dynamic_table is not a dynamic partition table. " +
-                "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.";
+        String errorMsg = "errCode = 2, detailMessage = Table default_cluster:test.no_dynamic_table is not a dynamic partition table. "
+                + "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.";
         alterTableWithExceptionMsg(alterStmt, errorMsg);
         // test set dynamic properties in a no dynamic partition table
-        String stmt = "alter table test." + tableName + " set (\n" +
-                "'dynamic_partition.enable' = 'true',\n" +
-                "'dynamic_partition.time_unit' = 'DAY',\n" +
-                "'dynamic_partition.start' = '-3',\n" +
-                "'dynamic_partition.end' = '3',\n" +
-                "'dynamic_partition.prefix' = 'p',\n" +
-                "'dynamic_partition.buckets' = '3'\n" +
-                " );";
+        String stmt = "alter table test." + tableName + " set (\n"
+                + "'dynamic_partition.enable' = 'true',\n"
+                + "'dynamic_partition.time_unit' = 'DAY',\n"
+                + "'dynamic_partition.start' = '-3',\n"
+                + "'dynamic_partition.end' = '3',\n"
+                + "'dynamic_partition.prefix' = 'p',\n"
+                + "'dynamic_partition.buckets' = '3'\n"
+                + " );";
         alterTable(stmt, false);
     }
 
     @Test
     public void testSetDynamicPropertiesInDynamicPartitionTable() throws Exception {
         String tableName = "dynamic_table";
-        String createOlapTblStmt = "CREATE TABLE test.`" + tableName + "` (\n" +
-                "  `k1` date NULL COMMENT \"\",\n" +
-                "  `k2` int NULL COMMENT \"\",\n" +
-                "  `k3` smallint NULL COMMENT \"\",\n" +
-                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
-                "  `v2` datetime NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE (k1)\n" +
-                "(\n" +
-                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
-                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
-                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"dynamic_partition.enable\" = \"true\",\n" +
-                "\"dynamic_partition.start\" = \"-3\",\n" +
-                "\"dynamic_partition.end\" = \"3\",\n" +
-                "\"dynamic_partition.time_unit\" = \"day\",\n" +
-                "\"dynamic_partition.prefix\" = \"p\",\n" +
-                "\"dynamic_partition.buckets\" = \"1\"\n" +
-                ");";
+        String createOlapTblStmt = "CREATE TABLE test.`" + tableName + "` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\",\n"
+                + "  `k3` smallint NULL COMMENT \"\",\n"
+                + "  `v1` varchar(2048) NULL COMMENT \"\",\n"
+                + "  `v2` datetime NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`, `k3`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE (k1)\n"
+                + "(\n"
+                + "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n"
+                + "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n"
+                + "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.time_unit\" = \"day\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\"\n"
+                + ");";
 
         createTable(createOlapTblStmt);
         String alterStmt1 = "alter table test." + tableName + " set (\"dynamic_partition.enable\" = \"false\");";
@@ -680,48 +678,48 @@ public class AlterTest {
 
     @Test
     public void testReplaceTable() throws Exception {
-        String stmt1 = "CREATE TABLE test.replace1\n" +
-                "(\n" +
-                "    k1 int, k2 int, k3 int sum\n" +
-                ")\n" +
-                "AGGREGATE KEY(k1, k2)\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
-                "rollup (\n" +
-                "r1(k1),\n" +
-                "r2(k2, k3)\n" +
-                ")\n" +
-                "PROPERTIES(\"replication_num\" = \"1\");";
+        String stmt1 = "CREATE TABLE test.replace1\n"
+                + "(\n"
+                + "    k1 int, k2 int, k3 int sum\n"
+                + ")\n"
+                + "AGGREGATE KEY(k1, k2)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 10\n"
+                + "rollup (\n"
+                + "r1(k1),\n"
+                + "r2(k2, k3)\n"
+                + ")\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
 
 
-        String stmt2 = "CREATE TABLE test.r1\n" +
-                "(\n" +
-                "    k1 int, k2 int\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 11\n" +
-                "PROPERTIES(\"replication_num\" = \"1\");";
+        String stmt2 = "CREATE TABLE test.r1\n"
+                + "(\n"
+                + "    k1 int, k2 int\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 11\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
 
-        String stmt3 = "CREATE TABLE test.replace2\n" +
-                "(\n" +
-                "    k1 int, k2 int\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 11\n" +
-                "PROPERTIES(\"replication_num\" = \"1\");";
+        String stmt3 = "CREATE TABLE test.replace2\n"
+                + "(\n"
+                + "    k1 int, k2 int\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 11\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
 
-        String stmt4 = "CREATE TABLE test.replace3\n" +
-                "(\n" +
-                "    k1 int, k2 int, k3 int sum\n" +
-                ")\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "\tPARTITION p1 values less than(\"100\"),\n" +
-                "\tPARTITION p2 values less than(\"200\")\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 1\n" +
-                "rollup (\n" +
-                "r3(k1),\n" +
-                "r4(k2, k3)\n" +
-                ")\n" +
-                "PROPERTIES(\"replication_num\" = \"1\");";
+        String stmt4 = "CREATE TABLE test.replace3\n"
+                + "(\n"
+                + "    k1 int, k2 int, k3 int sum\n"
+                + ")\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "\tPARTITION p1 values less than(\"100\"),\n"
+                + "\tPARTITION p2 values less than(\"200\")\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "rollup (\n"
+                + "r3(k1),\n"
+                + "r4(k2, k3)\n"
+                + ")\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
 
         createTable(stmt1);
         createTable(stmt2);
@@ -824,19 +822,19 @@ public class AlterTest {
 
     @Test
     public void testModifyBucketNum() throws Exception {
-        String stmt = "CREATE TABLE test.bucket\n" +
-                "(\n" +
-                "    k1 int, k2 int, k3 int sum\n" +
-                ")\n" +
-                "ENGINE = OLAP\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "PARTITION p1 VALUES LESS THAN (\"100000\"),\n" +
-                "PARTITION p2 VALUES LESS THAN (\"200000\"),\n" +
-                "PARTITION p3 VALUES LESS THAN (\"300000\")\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
-                "PROPERTIES(\"replication_num\" = \"1\");";
+        String stmt = "CREATE TABLE test.bucket\n"
+                + "(\n"
+                + "    k1 int, k2 int, k3 int sum\n"
+                + ")\n"
+                + "ENGINE = OLAP\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "PARTITION p1 VALUES LESS THAN (\"100000\"),\n"
+                + "PARTITION p2 VALUES LESS THAN (\"200000\"),\n"
+                + "PARTITION p3 VALUES LESS THAN (\"300000\")\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 10\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
 
         createTable(stmt);
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
@@ -855,19 +853,19 @@ public class AlterTest {
 
     @Test
     public void testChangeOrder() throws Exception {
-        createTable("CREATE TABLE test.change_order\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    k2 int,\n" +
-                "    v1 int sum\n" +
-                ")\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "    PARTITION p1 values less than('2020-02-01'),\n" +
-                "    PARTITION p2 values less than('2020-03-01')\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
-                "PROPERTIES('replication_num' = '1');");
+        createTable("CREATE TABLE test.change_order\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    k2 int,\n"
+                + "    v1 int sum\n"
+                + ")\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
         String changeOrderStmt = "ALTER TABLE test.change_order ORDER BY (k2, k1, v1);;";
         alterTable(changeOrderStmt, false);
@@ -875,20 +873,20 @@ public class AlterTest {
 
     @Test
     public void testAlterUniqueTablePartitionColumn() throws Exception {
-        createTable("CREATE TABLE test.unique_partition\n" +
-                "(\n" +
-                "    k1 date,\n" +
-                "    k2 int,\n" +
-                "    v1 int\n" +
-                ")\n" +
-                "UNIQUE KEY(k1, k2)\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "    PARTITION p1 values less than('2020-02-01'),\n" +
-                "    PARTITION p2 values less than('2020-03-01')\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
-                "PROPERTIES('replication_num' = '1');");
+        createTable("CREATE TABLE test.unique_partition\n"
+                + "(\n"
+                + "    k1 date,\n"
+                + "    k2 int,\n"
+                + "    v1 int\n"
+                + ")\n"
+                + "UNIQUE KEY(k1, k2)\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
         // partition key can not be changed.
         // this test is also for validating a bug fix about invisible columns(delete flag column)
@@ -937,35 +935,35 @@ public class AlterTest {
         stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
         alterTable(stmt, false);
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        Table odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 7);
-        Assert.assertEquals(odbc_table.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
-        Assert.assertEquals(odbc_table.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
+        Table odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 7);
+        Assert.assertEquals(odbcTable.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
+        Assert.assertEquals(odbcTable.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
 
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k7";
         alterTable(stmt, false);
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
+        odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
 
         // external table support modify column
         stmt = "alter table test.odbc_table modify column k6 bigint after k5";
         alterTable(stmt, false);
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
-        Assert.assertEquals(odbc_table.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
+        odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
+        Assert.assertEquals(odbcTable.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
 
         // external table support reorder column
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+        odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertTrue(odbcTable.getBaseSchema().stream().
                 map(column -> column.getName()).
                 reduce("", (totalName, columnName) -> totalName + columnName).equals("k1k2k3k4k5k6"));
         stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
         alterTable(stmt, false);
-        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+        Assert.assertTrue(odbcTable.getBaseSchema().stream().
                 map(column -> column.getName()).
                 reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
 
@@ -981,42 +979,42 @@ public class AlterTest {
         stmt = "alter table test.odbc_table drop column k2";
         alterTable(stmt, false);
         // do not allow drop last column
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
         stmt = "alter table test.odbc_table drop column k1";
         alterTable(stmt, true);
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
 
         // external table support rename operation
         stmt = "alter table test.odbc_table rename oracle_table";
         alterTable(stmt, false);
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableNullable("oracle_table");
-        Assert.assertNotNull(odbc_table);
-        odbc_table = db.getTableNullable("odbc_table");
-        Assert.assertNull(odbc_table);
+        odbcTable = db.getTableNullable("oracle_table");
+        Assert.assertNotNull(odbcTable);
+        odbcTable = db.getTableNullable("odbc_table");
+        Assert.assertNull(odbcTable);
     }
 
     @Test
     public void testModifyTableEngine() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.mysql_table (\n" +
-                "  `k1` date NULL COMMENT \"\",\n" +
-                "  `k2` int NULL COMMENT \"\",\n" +
-                "  `k3` smallint NULL COMMENT \"\",\n" +
-                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
-                "  `v2` datetime NULL COMMENT \"\"\n" +
-                ") ENGINE=MYSQL\n" +
-                "PROPERTIES (\n" +
-                "\"host\" = \"172.16.0.1\",\n" +
-                "\"port\" = \"3306\",\n" +
-                "\"user\" = \"cmy\",\n" +
-                "\"password\" = \"abc\",\n" +
-                "\"database\" = \"db1\",\n" +
-                "\"table\" = \"tbl1\"" +
-                ");";
+        String createOlapTblStmt = "CREATE TABLE test.mysql_table (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\",\n"
+                + "  `k3` smallint NULL COMMENT \"\",\n"
+                + "  `v1` varchar(2048) NULL COMMENT \"\",\n"
+                + "  `v2` datetime NULL COMMENT \"\"\n"
+                + ") ENGINE=MYSQL\n"
+                + "PROPERTIES (\n"
+                + "\"host\" = \"172.16.0.1\",\n"
+                + "\"port\" = \"3306\",\n"
+                + "\"user\" = \"cmy\",\n"
+                + "\"password\" = \"abc\",\n"
+                + "\"database\" = \"db1\",\n"
+                + "\"table\" = \"tbl1\""
+                + ");";
         createTable(createOlapTblStmt);
 
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
-        MysqlTable mysqlTable = db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
+        MysqlTable mysqlTable = (MysqlTable) db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
 
         String alterEngineStmt = "alter table test.mysql_table modify engine to odbc";
         alterTable(alterEngineStmt, true);

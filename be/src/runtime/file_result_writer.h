@@ -77,11 +77,6 @@ class BufferControlBlock;
 // write result to file
 class FileResultWriter final : public ResultWriter {
 public:
-    // [[deprecated]]
-    FileResultWriter(const ResultFileOptions* file_option,
-                     const std::vector<ExprContext*>& output_expr_ctxs,
-                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                     bool output_object_data);
     FileResultWriter(const ResultFileOptions* file_option,
                      const TStorageBackendType::type storage_type,
                      const TUniqueId fragment_instance_id,
@@ -137,7 +132,7 @@ private:
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    FileWriter* _file_writer = nullptr;
+    std::unique_ptr<FileWriter> _file_writer;
     // parquet file writer
     ParquetWriterWrapper* _parquet_writer = nullptr;
     // Used to buffer the export data of plain text

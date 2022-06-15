@@ -53,18 +53,16 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.List;
-import java.util.Map;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.List;
+import java.util.Map;
 
 public class SparkLoadPendingTaskTest {
 
@@ -75,7 +73,6 @@ public class SparkLoadPendingTaskTest {
                                 @Mocked Catalog catalog, @Injectable SparkLoadAppHandle handle,
                                 @Injectable Database database,
                                 @Injectable OlapTable table) throws UserException {
-        long dbId = 0L;
         long tableId = 1L;
 
         // columns
@@ -152,7 +149,6 @@ public class SparkLoadPendingTaskTest {
                                                    @Mocked Catalog catalog,
                                                    @Injectable Database database,
                                                    @Injectable OlapTable table) throws LoadException, DdlException, AnalysisException {
-        long dbId = 0L;
         long tableId = 1L;
 
         // c1 is partition column, c2 is distribution column

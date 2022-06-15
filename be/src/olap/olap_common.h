@@ -36,17 +36,16 @@
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
 
-#define LOW_56_BITS 0x00ffffffffffffff
-
 namespace doris {
 
-static const int64_t MAX_ROWSET_ID = 1L << 56;
+static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
+static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
-typedef int32_t SchemaHash;
-typedef __int128 int128_t;
-typedef unsigned __int128 uint128_t;
+using SchemaHash = int32_t;
+using int128_t = __int128;
+using uint128_t = unsigned __int128;
 
-typedef UniqueId TabletUid;
+using TabletUid = UniqueId;
 
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 
@@ -200,6 +199,12 @@ struct Version {
     Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
     Version() : first(0), second(0) {}
 
+    static Version mock() {
+        // Every time SchemaChange is used for external rowing, some temporary versions (such as 999, 1000, 1001) will be written, in order to avoid Cache conflicts, temporary
+        // The version number takes a BIG NUMBER plus the version number of the current SchemaChange
+        return Version(1 << 28, 1 << 29);
+    }
+
     friend std::ostream& operator<<(std::ostream& os, const Version& version);
 
     bool operator!=(const Version& rhs) const { return first != rhs.first || second != rhs.second; }
@@ -211,7 +216,7 @@ struct Version {
     }
 };
 
-typedef std::vector<Version> Versions;
+using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
     return os << "[" << version.first << "-" << version.second << "]";
@@ -265,7 +270,7 @@ struct OlapReaderStatistics {
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
-    int64_t pred_col_read_ns = 0;
+    int64_t first_read_ns = 0;
     int64_t lazy_read_ns = 0;
     int64_t output_col_ns = 0;
 
@@ -305,11 +310,11 @@ struct OlapReaderStatistics {
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 };
 
-typedef uint32_t ColumnId;
+using ColumnId = uint32_t;
 // Column unique id set
-typedef std::set<uint32_t> UniqueIdSet;
+using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
-typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
+using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1

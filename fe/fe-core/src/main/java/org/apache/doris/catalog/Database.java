@@ -36,12 +36,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import javax.annotation.Nullable;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -51,12 +49,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Internal representation of db-related metadata. Owned by Catalog instance.
@@ -71,7 +71,7 @@ import java.util.stream.Collectors;
  * if the table has never been loaded * if the table loading failed on the
  * previous attempt
  */
-public class Database extends MetaObject implements Writable {
+public class Database extends MetaObject implements Writable, InternalDatabase<Table> {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private long id;
@@ -314,7 +314,7 @@ public class Database extends MetaObject implements Writable {
         checkReplicaQuota();
     }
 
-    private boolean isTableExist(String tableName) {
+    public boolean isTableExist(String tableName) {
         if (Catalog.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
@@ -509,21 +509,21 @@ public class Database extends MetaObject implements Writable {
     }
 
     @SuppressWarnings("unchecked")
-    public <T extends Table> T getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
+    public Table getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
         Table table = getTableOrMetaException(tableName);
         if (table.getType() != tableType) {
             throw new MetaNotFoundException("table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
         }
-        return (T) table;
+        return table;
     }
 
     @SuppressWarnings("unchecked")
-    public <T extends Table> T getTableOrMetaException(long tableId, TableType tableType) throws MetaNotFoundException {
+    public Table getTableOrMetaException(long tableId, TableType tableType) throws MetaNotFoundException {
         Table table = getTableOrMetaException(tableId);
         if (table.getType() != tableType) {
             throw new MetaNotFoundException("table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
         }
-        return (T) table;
+        return table;
     }
 
     public Table getTableOrDdlException(String tableName) throws DdlException {
@@ -680,6 +680,11 @@ public class Database extends MetaObject implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
         }
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, fullQualifiedName, dataQuotaBytes);
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -167,7 +166,7 @@ public class MarkDownParserTest {
         lines.add("### url");
         lines.add("http://www.baidu.com");
         MarkDownParser parser = new MarkDownParser(lines);
-        Map<String, Map<String, String>> map = parser.parse();
+        parser.parse();
     }
 
     // no valid topic

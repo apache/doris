@@ -4,8 +4,11 @@
 
 #include "common/status.h"
 
-#include <boost/stacktrace.hpp>
 #include <glog/logging.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+
+#include <boost/stacktrace.hpp>
 
 #include "gutil/strings/fastmem.h" // for memcpy_inlined
 namespace doris {
@@ -217,6 +220,32 @@ Status Status::clone_and_append(const Slice& msg) const {
         return *this;
     }
     return Status(code(), message(), precise_code(), msg);
+}
+
+std::string Status::to_json() const {
+    rapidjson::StringBuffer s;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
+
+    writer.StartObject();
+    // status
+    writer.Key("status");
+    writer.String(code_as_string().c_str());
+    // msg
+    writer.Key("msg");
+    if (ok()) {
+        writer.String("OK");
+    } else {
+        auto err_msg = get_error_msg();
+        int16_t posix = precise_code();
+        if (posix != 1) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), " (error %d)", posix);
+            err_msg.append(buf);
+        }
+        writer.String(err_msg.c_str());
+    }
+    writer.EndObject();
+    return s.GetString();
 }
 
 } // namespace doris

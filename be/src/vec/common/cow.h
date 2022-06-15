@@ -20,31 +20,25 @@
 
 #pragma once
 
-#include <boost/smart_ptr/intrusive_ptr.hpp>
-#include <boost/smart_ptr/intrusive_ref_counter.hpp>
+#include <atomic>
 #include <initializer_list>
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
   *
   * Usage:
-
     class Column : public COW<Column>
     {
     private:
         friend class COW<Column>;
-
         /// Leave all constructors in private section. They will be avaliable through 'create' method.
         Column();
-
         /// Provide 'clone' method. It can be virtual if you want polymorphic behaviour.
         virtual Column * clone() const;
     public:
         /// Correctly use const qualifiers in your interface.
-
         virtual ~Column() {}
     };
-
   * It will provide 'create' and 'mutate' methods.
   * And 'Ptr' and 'MutablePtr' types.
   * Ptr is refcounted pointer to immutable object.
@@ -63,9 +57,7 @@
     Column::Ptr x = Column::create(1);
     /// Sharing single immutable object in two ptrs.
     Column::Ptr y = x;
-
     /// Now x and y are shared.
-
     /// Change value of x.
     {
         /// Creating mutable ptr. It can clone an object under the hood if it was shared.
@@ -75,9 +67,7 @@
         /// Assigning pointer 'x' to mutated object.
         x = std::move(mutate_x);
     }
-
     /// Now x and y are unshared and have different values.
-
   * Note. You may have heard that COW is bad practice.
   * Actually it is, if your values are small or if copying is done implicitly.
   * This is the case for string implementations.
@@ -120,20 +110,28 @@ protected:
         intrusive_ptr() : t(nullptr) {}
 
         intrusive_ptr(T* t, bool add_ref = true) : t(t) {
-            if (t && add_ref) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t && add_ref) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         template <typename U>
         intrusive_ptr(intrusive_ptr<U> const& rhs) : t(rhs.get()) {
-            if (t) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         intrusive_ptr(intrusive_ptr const& rhs) : t(rhs.get()) {
-            if (t) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         ~intrusive_ptr() {
-            if (t) ((std::remove_const_t<T>*)t)->release_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->release_ref();
+            }
         }
 
         template <typename U>
@@ -313,10 +311,11 @@ public:
 
 protected:
     MutablePtr shallow_mutate() const {
-        if (this->use_count() > 1)
+        if (this->use_count() > 1) {
             return derived()->clone();
-        else
+        } else {
             return assume_mutable();
+        }
     }
 
 public:
@@ -350,8 +349,8 @@ protected:
         const T& operator*() const { return *value; }
         T& operator*() { return value->assume_mutable_ref(); }
 
-        operator const immutable_ptr<T> &() const { return value; }
-        operator immutable_ptr<T> &() { return value; }
+        operator const immutable_ptr<T>&() const { return value; }
+        operator immutable_ptr<T>&() { return value; }
 
         operator bool() const { return value != nullptr; }
         bool operator!() const { return value == nullptr; }

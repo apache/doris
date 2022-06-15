@@ -41,7 +41,6 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -144,8 +143,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     private void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond, int minLoadTimeOutSecond) throws AnalysisException {
-        if (timeoutSecond > maxLoadTimeoutSecond ||
-                timeoutSecond < minLoadTimeOutSecond) {
+        if (timeoutSecond > maxLoadTimeoutSecond || timeoutSecond < minLoadTimeOutSecond) {
             throw new AnalysisException("Invalid timeout: " + timeoutSecond + ". Timeout should between "
                     + minLoadTimeOutSecond + " and " + maxLoadTimeoutSecond
                     + " seconds");
@@ -279,8 +277,8 @@ public class GlobalTransactionMgr implements Writable {
             MetaLockUtils.writeUnlockTables(tableList);
         }
         stopWatch.stop();
-        LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms." +
-                " data will be visable later.", transactionId, stopWatch.getTime());
+        LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms."
+                + " data will be visable later.", transactionId, stopWatch.getTime());
     }
 
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
@@ -394,7 +392,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     // for replay idToTransactionState
-    // check point also run transaction cleaner, the cleaner maybe concurrently modify id to 
+    // check point also run transaction cleaner, the cleaner maybe concurrently modify id to
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
@@ -589,7 +587,7 @@ public class GlobalTransactionMgr implements Writable {
         long dbId = request.getDbId();
         int commitTimeoutSec = Config.commit_timeout_second;
         for (int i = 0; i < commitTimeoutSec; ++i) {
-            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+            Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
             TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
             statusResult.status = new TStatus();
             TransactionStatus txnStatus = null;

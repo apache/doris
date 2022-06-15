@@ -58,7 +58,7 @@ public class BitmapValue {
     }
 
     public void add(long value) {
-        switch (bitmapType) {
+        switch (bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 singleValue = value;
                 bitmapType = SINGLE_VALUE;
@@ -95,7 +95,7 @@ public class BitmapValue {
     }
 
     public long cardinality() {
-        switch (bitmapType) {
+        switch (bitmapType) {  // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 return 0;
             case SINGLE_VALUE:
@@ -107,7 +107,7 @@ public class BitmapValue {
     }
 
     public void serialize(DataOutput output) throws IOException {
-        switch (bitmapType) {
+        switch (bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 output.writeByte(EMPTY);
                 break;
@@ -116,7 +116,7 @@ public class BitmapValue {
                 // FE is big end but BE is little end.
                 if (isLongValue32bitEnough(singleValue)) {
                     output.write(SINGLE32);
-                    output.writeInt(Integer.reverseBytes((int)singleValue));
+                    output.writeInt(Integer.reverseBytes((int) singleValue));
                 } else {
                     output.writeByte(SINGLE64);
                     output.writeLong(Long.reverseBytes(singleValue));
@@ -155,12 +155,12 @@ public class BitmapValue {
 
     // In-place bitwise AND (intersection) operation. The current bitmap is modified.
     public void and(BitmapValue other) {
-        switch (other.bitmapType) {
+        switch (other.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 clear();
                 break;
             case SINGLE_VALUE:
-                switch (this.bitmapType) {
+                switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case EMPTY:
                         break;
                     case SINGLE_VALUE:
@@ -180,7 +180,7 @@ public class BitmapValue {
                 }
                 break;
             case BITMAP_VALUE:
-                switch (this.bitmapType) {
+                switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case EMPTY:
                         break;
                     case SINGLE_VALUE:
@@ -199,14 +199,14 @@ public class BitmapValue {
 
     // In-place bitwise OR (union) operation. The current bitmap is modified.
     public void or(BitmapValue other) {
-        switch (other.bitmapType) {
+        switch (other.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 break;
             case SINGLE_VALUE:
                 add(other.singleValue);
                 break;
             case BITMAP_VALUE:
-                switch (this.bitmapType) {
+                switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case EMPTY:
                         // deep copy the bitmap in case of multi-rollups update the bitmap repeatedly
                         this.bitmap = new Roaring64Map();
@@ -227,12 +227,12 @@ public class BitmapValue {
         }
     }
 
-    public void remove(long value){
-        switch (this.bitmapType){
+    public void remove(long value) {
+        switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 break;
             case SINGLE_VALUE:
-                if(this.singleValue == value) {
+                if (this.singleValue == value) {
                     clear();
                 }
                 break;
@@ -245,18 +245,18 @@ public class BitmapValue {
 
     //In-place bitwise ANDNOT (difference) operation. The current bitmap is modified
     public void not(BitmapValue other) {
-        switch (other.bitmapType) {
+        switch (other.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 break;
             case SINGLE_VALUE:
                 remove(other.singleValue);
                 break;
             case BITMAP_VALUE:
-                switch (this.bitmapType) {
+                switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case EMPTY:
                         break;
                     case SINGLE_VALUE:
-                        if(other.bitmap.contains(this.singleValue)){
+                        if (other.bitmap.contains(this.singleValue)) {
                             clear();
                         }
                         break;
@@ -271,25 +271,25 @@ public class BitmapValue {
 
     //In-place bitwise XOR (symmetric difference) operation. The current bitmap is modified
     public void xor(BitmapValue other) {
-        switch (other.bitmapType) {
+        switch (other.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 break;
             case SINGLE_VALUE:
-                switch (this.bitmapType){
+                switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case EMPTY:
                         add(other.singleValue);
                         break;
                     case SINGLE_VALUE:
-                        if(this.singleValue != other.singleValue){
+                        if (this.singleValue != other.singleValue) {
                             add(other.singleValue);
-                        }else{
+                        } else {
                             clear();
                         }
                         break;
                     case BITMAP_VALUE:
-                        if(!this.bitmap.contains(other.singleValue)){
+                        if (!this.bitmap.contains(other.singleValue)) {
                             this.bitmap.add(other.singleValue);
-                        }else{
+                        } else {
                             this.bitmap.removeLong(other.singleValue);
                             convertToSmallerType();
                         }
@@ -297,7 +297,7 @@ public class BitmapValue {
                 }
                 break;
             case BITMAP_VALUE:
-                switch (this.bitmapType) {
+                switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case EMPTY:
                         this.bitmap = other.bitmap;
                         this.bitmapType = BITMAP_VALUE;
@@ -305,9 +305,9 @@ public class BitmapValue {
                     case SINGLE_VALUE:
                         this.bitmap = other.bitmap;
                         this.bitmapType = BITMAP_VALUE;
-                        if(this.bitmap.contains(this.singleValue)){
+                        if (this.bitmap.contains(this.singleValue)) {
                             this.bitmap.removeLong(this.singleValue);
-                        }else{
+                        } else {
                             this.bitmap.add(this.bitmapType);
                         }
                         break;
@@ -325,7 +325,7 @@ public class BitmapValue {
         if (this.bitmapType != other.bitmapType) {
             return false;
         }
-        switch (other.bitmapType) {
+        switch (other.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 ret = true;
                 break;
@@ -348,7 +348,7 @@ public class BitmapValue {
     // TODO(wb): keep getSizeInBytes consistent with be and refactor roaring
     public long getSizeInBytes() {
         long size = 0;
-        switch (bitmapType) {
+        switch (bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 size = 1;
                 break;
@@ -368,7 +368,7 @@ public class BitmapValue {
     @Override
     public String toString() {
         String toStringStr = "{}";
-        switch (bitmapType) {
+        switch (bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 break;
             case SINGLE_VALUE:

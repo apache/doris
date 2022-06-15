@@ -39,7 +39,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
-
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -155,8 +154,8 @@ public class TabletInvertedIndex {
 
                         // check and set path
                         // path info of replica is only saved in Master FE
-                        if (backendTabletInfo.isSetPathHash() &&
-                                replica.getPathHash() != backendTabletInfo.getPathHash()) {
+                        if (backendTabletInfo.isSetPathHash()
+                                && replica.getPathHash() != backendTabletInfo.getPathHash()) {
                             replica.setPathHash(backendTabletInfo.getPathHash());
                         }
 
@@ -657,4 +656,3 @@ public class TabletInvertedIndex {
         return tabletMetaMap;
     }
 }
-

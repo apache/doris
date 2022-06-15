@@ -21,7 +21,6 @@
 #include <sstream>
 
 #include "common/object_pool.h"
-#include "vec/exec/vbroker_scanner.h"
 #include "exec/json_scanner.h"
 #include "exec/orc_scanner.h"
 #include "exec/parquet_scanner.h"
@@ -32,6 +31,10 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
+#include "vec/exec/vbroker_scanner.h"
+#include "vec/exec/vjson_scanner.h"
+#include "vec/exec/vorc_scanner.h"
+#include "vec/exec/vparquet_scanner.h"
 
 namespace doris {
 
@@ -224,19 +227,37 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
     BaseScanner* scan = nullptr;
     switch (scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scan = new ParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                  scan_range.ranges, scan_range.broker_addresses,
-                                  _pre_filter_texprs, counter);
+        if (_vectorized) {
+            scan = new vectorized::VParquetScanner(
+                    _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
+        } else {
+            scan = new ParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                      scan_range.ranges, scan_range.broker_addresses,
+                                      _pre_filter_texprs, counter);
+        }
         break;
     case TFileFormatType::FORMAT_ORC:
-        scan = new ORCScanner(_runtime_state, runtime_profile(), scan_range.params,
-                              scan_range.ranges, scan_range.broker_addresses, _pre_filter_texprs,
-                              counter);
+        if (_vectorized) {
+            scan = new vectorized::VORCScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                               scan_range.ranges, scan_range.broker_addresses,
+                                               _pre_filter_texprs, counter);
+        } else {
+            scan = new ORCScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                  scan_range.ranges, scan_range.broker_addresses,
+                                  _pre_filter_texprs, counter);
+        }
         break;
     case TFileFormatType::FORMAT_JSON:
-        scan = new JsonScanner(_runtime_state, runtime_profile(), scan_range.params,
-                               scan_range.ranges, scan_range.broker_addresses, _pre_filter_texprs,
-                               counter);
+        if (_vectorized) {
+            scan = new vectorized::VJsonScanner(
+                    _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
+        } else {
+            scan = new JsonScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                   scan_range.ranges, scan_range.broker_addresses,
+                                   _pre_filter_texprs, counter);
+        }
         break;
     default:
         if (_vectorized) {
@@ -283,7 +304,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             }
 
             // This row batch has been filled up, and break this
-            if (row_batch->is_full() || row_batch->is_full_uncommited()) {
+            if (row_batch->is_full() || row_batch->is_full_uncommitted()) {
                 break;
             }
 

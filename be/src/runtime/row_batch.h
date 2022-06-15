@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/row-batch.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_ROW_BATCH_H
-#define DORIS_BE_RUNTIME_ROW_BATCH_H
+#pragma once
 
 #include <cstring>
 #include <vector>
@@ -159,8 +158,8 @@ public:
     // Returns true if row_batch has reached capacity.
     bool is_full() const { return _num_rows == _capacity; }
 
-    // Returns true if uncommited rows has reached capacity.
-    bool is_full_uncommited() { return _num_uncommitted_rows == _capacity; }
+    // Returns true if uncommitted rows has reached capacity.
+    bool is_full_uncommitted() { return _num_uncommitted_rows == _capacity; }
 
     // Returns true if the row batch has accumulated enough external memory (in MemPools
     // and io buffers).  This would be a trigger to compact the row batch or reclaim
@@ -354,10 +353,8 @@ public:
     // This function does not reset().
     // Returns the uncompressed serialized size (this will be the true size of output_batch
     // if tuple_data is actually uncompressed).
-    // if allocated_buf is not null, the serialized tuple data will be saved in this buf
-    // instead of `tuple_data` in PRowBatch.
     Status serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
-                     std::string* allocated_buf = nullptr);
+                     bool allow_transfer_large_data = false);
 
     // Utility function: returns total size of batch.
     static size_t get_batch_size(const PRowBatch& batch);
@@ -506,5 +503,3 @@ private:
          _iter.next())
 
 } // namespace doris
-
-#endif

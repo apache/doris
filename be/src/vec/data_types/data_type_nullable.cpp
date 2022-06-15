@@ -47,10 +47,40 @@ std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) c
             assert_cast<const ColumnNullable&>(*column.convert_to_full_column_if_const().get());
 
     if (col.is_null_at(row_num)) {
-        return "\\N";
+        return "NULL";
     } else {
         return nested_data_type->to_string(col.get_nested_column(), row_num);
     }
+}
+
+void DataTypeNullable::to_string(const IColumn& column, size_t row_num,
+                                 BufferWritable& ostr) const {
+    const ColumnNullable& col =
+            assert_cast<const ColumnNullable&>(*column.convert_to_full_column_if_const().get());
+
+    if (col.is_null_at(row_num)) {
+        ostr.write("NULL", 4);
+    } else {
+        nested_data_type->to_string(col.get_nested_column(), row_num, ostr);
+    }
+}
+
+Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
+    auto* null_column = assert_cast<ColumnNullable*>(column);
+    if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position() + 1) == 'U' &&
+        *(rb.position() + 2) == 'L' && *(rb.position() + 3) == 'L') {
+        null_column->insert_data(nullptr, 0);
+        return Status::OK();
+    }
+    auto st = nested_data_type->from_string(rb, &(null_column->get_nested_column()));
+    if (!st.ok()) {
+        // fill null if fail
+        null_column->insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+    // fill not null if succ
+    null_column->get_null_map_data().push_back(0);
+    return Status::OK();
 }
 
 // binary: row num | <null array> | <values array>

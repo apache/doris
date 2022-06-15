@@ -47,7 +47,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,9 +109,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     //  4. Filter data by using "conjuncts".
     protected List<Expr> preFilterConjuncts = Lists.newArrayList();
 
+    protected Expr vpreFilterConjunct = null;
+
     // Fragment that this PlanNode is executed in. Valid only after this PlanNode has been
     // assigned to a fragment. Set and maintained by enclosing PlanFragment.
-    protected PlanFragment fragment_;
+    protected PlanFragment fragment;
 
     // estimate of the output cardinality of this node; set in computeStats();
     // invalid: -1
@@ -139,33 +140,33 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     protected NodeType nodeType = NodeType.DEFAULT;
     protected StatsDeriveResult statsDeriveResult;
 
-    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
+    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName, NodeType nodeType) {
         this.id = id;
         this.limit = -1;
         // make a copy, just to be on the safe side
         this.tupleIds = Lists.newArrayList(tupleIds);
         this.tblRefIds = Lists.newArrayList(tupleIds);
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
+        this.nodeType = nodeType;
     }
 
-    protected PlanNode(PlanNodeId id, String planNodeName) {
+    protected PlanNode(PlanNodeId id, String planNodeName, NodeType nodeType) {
         this.id = id;
         this.limit = -1;
         this.tupleIds = Lists.newArrayList();
         this.tblRefIds = Lists.newArrayList();
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
+        this.nodeType = nodeType;
     }
 
     /**
      * Copy ctor. Also passes in new id.
      */
-    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName) {
+    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, NodeType nodeType) {
         this.id = id;
         this.limit = node.limit;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
@@ -174,8 +175,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
         this.cardinality = -1;
         this.compactData = node.compactData;
-        this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
         this.nodeType = nodeType;
     }
@@ -183,17 +183,30 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public enum NodeType {
         DEFAULT,
         AGG_NODE,
+        ANALYTIC_EVAL_NODE,
+        ASSERT_NUM_ROWS_NODE,
         BROKER_SCAN_NODE,
+        CROSS_JOIN_NODE,
+        EMPTY_SET_NODE,
+        ES_SCAN_NODE,
+        EXCEPT_NODE,
+        EXCHANGE_NODE,
         HASH_JOIN_NODE,
         HIVE_SCAN_NODE,
-        MERGE_NODE,
-        ES_SCAN_NODE,
-        ICEBREG_SCAN_NODE,
+        ICEBERG_SCAN_NODE,
+        INTERSECT_NODE,
         LOAD_SCAN_NODE,
         MYSQL_SCAN_NODE,
         ODBC_SCAN_NODE,
         OLAP_SCAN_NODE,
+        REPEAT_NODE,
+        SELECT_NODE,
+        SET_OPERATION_NODE,
         SCHEMA_SCAN_NODE,
+        SORT_NODE,
+        STREAM_LOAD_SCAN_NODE,
+        TABLE_FUNCTION_NODE,
+        UNION_NODE,
     }
 
     public String getPlanNodeName() {
@@ -243,7 +256,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     public PlanFragmentId getFragmentId() {
-        return fragment_.getFragmentId();
+        return fragment.getFragmentId();
     }
 
     public void setFragmentId(PlanFragmentId id) {
@@ -251,11 +264,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     public void setFragment(PlanFragment fragment) {
-        fragment_ = fragment;
+        this.fragment = fragment;
     }
 
     public PlanFragment getFragment() {
-        return fragment_;
+        return fragment;
     }
 
     public long getLimit() {
@@ -308,7 +321,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         List<TupleId> tupleIds = Lists.newArrayList();
         List<ScanNode> scanNodes = Lists.newArrayList();
         collectAll(Predicates.instanceOf(ScanNode.class), scanNodes);
-        for(ScanNode node: scanNodes) {
+        for (ScanNode node : scanNodes) {
             tupleIds.addAll(node.getTupleIds());
         }
         return tupleIds;
@@ -361,7 +374,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
-            for (int i = 0; i < targetConjuncts.size(); i+= 2) {
+            for (int i = 0; i < targetConjuncts.size(); i += 2) {
                 Expr expr = i + 1 < targetConjuncts.size() ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
                         targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
@@ -377,14 +390,18 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         if (conjuncts == null) {
             return;
         }
-        this.conjuncts.addAll(conjuncts);
+        for (Expr conjunct : conjuncts) {
+            addConjunct(conjunct);
+        }
     }
 
     public void addConjunct(Expr conjunct) {
         if (conjuncts == null) {
             conjuncts = Lists.newArrayList();
         }
-        conjuncts.add(conjunct);
+        if (!conjuncts.contains(conjunct)) {
+            conjuncts.add(conjunct);
+        }
     }
 
     public void setAssignedConjuncts(Set<ExprId> conjuncts) {
@@ -398,7 +415,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public void transferConjuncts(PlanNode recipient) {
         recipient.vconjunct = vconjunct;
         vconjunct = null;
-        
+
         recipient.conjuncts.addAll(conjuncts);
         conjuncts.clear();
     }
@@ -577,7 +594,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * from finalize() (to facilitate inserting additional nodes during plan
      * partitioning w/o the need to call finalize() recursively on the whole tree again).
      */
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         avgRowSize = 0.0F;
         for (TupleId tid : tupleIds) {
             TupleDescriptor desc = analyzer.getTupleDesc(tid);
@@ -638,7 +655,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      */
     protected void assignConjuncts(Analyzer analyzer) {
         List<Expr> unassigned = analyzer.getUnassignedConjuncts(this);
-        conjuncts.addAll(unassigned);
+        for (Expr unassignedConjunct : unassigned) {
+            addConjunct(unassignedConjunct);
+        }
         analyzer.markConjunctsAssigned(unassigned);
     }
 
@@ -782,7 +801,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {
-            if (e.hasSelectivity()) selectivities.add(e.getSelectivity());
+            if (e.hasSelectivity()) {
+                selectivities.add(e.getSelectivity());
+            }
         }
         if (selectivities.size() != conjuncts.size()) {
             // Some conjuncts have no estimated selectivity. Use a single default
@@ -868,16 +889,24 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return null;
     }
 
-    protected void addRuntimeFilter(RuntimeFilter filter) { runtimeFilters.add(filter); }
+    protected void addRuntimeFilter(RuntimeFilter filter) {
+        runtimeFilters.add(filter);
+    }
 
-    protected Collection<RuntimeFilter> getRuntimeFilters() { return runtimeFilters; }
+    protected Collection<RuntimeFilter> getRuntimeFilters() {
+        return runtimeFilters;
+    }
 
-    public void clearRuntimeFilters() { runtimeFilters.clear(); }
+    public void clearRuntimeFilters() {
+        runtimeFilters.clear();
+    }
 
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
-        if (runtimeFilters.isEmpty()) return "";
+        if (runtimeFilters.isEmpty()) {
+            return "";
+        }
         List<String> filtersStr = new ArrayList<>();
-        for (RuntimeFilter filter: runtimeFilters) {
+        for (RuntimeFilter filter : runtimeFilters) {
             StringBuilder filterStr = new StringBuilder();
             filterStr.append(filter.getFilterId());
             filterStr.append("[");
@@ -899,6 +928,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         if (!conjuncts.isEmpty()) {
             vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
             initCompoundPredicate(vconjunct);
+        }
+
+        if (!preFilterConjuncts.isEmpty()) {
+            vpreFilterConjunct = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
+            initCompoundPredicate(vpreFilterConjunct);
         }
 
         for (PlanNode child : children) {

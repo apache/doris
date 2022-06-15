@@ -29,7 +29,11 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,12 +43,6 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class CreateRoutineLoadStmtTest {
 
@@ -100,9 +98,6 @@ public class CreateRoutineLoadStmtTest {
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
         String kafkaPartitionString = "1,2,3";
-        List<String> partitionNameString = Lists.newArrayList();
-        partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
@@ -155,7 +150,6 @@ public class CreateRoutineLoadStmtTest {
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
-        TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
         loadPropertyList.add(columnSeparator);
         loadPropertyList.add(partitionNames);
@@ -180,7 +174,7 @@ public class CreateRoutineLoadStmtTest {
             }
         };
 
-        new Expectations(){
+        new Expectations() {
             {
                 ctx.getSessionVariable();
                 result = sessionVariable;

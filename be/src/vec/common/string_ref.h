@@ -29,6 +29,7 @@
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
 #include "udf/udf.h"
+#include "util/slice.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -39,6 +40,10 @@
 #if defined(__SSE4_2__)
 #include <nmmintrin.h>
 #include <smmintrin.h>
+#endif
+
+#if defined(__aarch64__)
+#include <sse2neon.h>
 #endif
 
 /// The thing to avoid creating strings to find substrings in the hash table.
@@ -54,6 +59,7 @@ struct StringRef {
 
     std::string to_string() const { return std::string(data, size); }
     std::string_view to_string_view() const { return std::string_view(data, size); }
+    doris::Slice to_slice() const { return doris::Slice(data, size); }
 
     // this is just for show, eg. print data to error log, to avoid print large string.
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
@@ -71,7 +77,7 @@ struct StringRef {
 
 using StringRefs = std::vector<StringRef>;
 
-#if defined(__SSE2__)
+#if defined(__SSE2__) || defined(__aarch64__)
 
 /** Compare strings for equality.
   * The approach is controversial and does not win in all cases.
@@ -162,7 +168,7 @@ inline bool operator==(StringRef lhs, StringRef rhs) {
 
     if (lhs.size == 0) return true;
 
-#if defined(__SSE2__)
+#if defined(__SSE2__) || defined(__aarch64__)
     return memequalSSE2Wide(lhs.data, rhs.data, lhs.size);
 #else
     return 0 == memcmp(lhs.data, rhs.data, lhs.size);
@@ -195,7 +201,7 @@ struct StringRefHash64 {
     size_t operator()(StringRef x) const { return util_hash::CityHash64(x.data, x.size); }
 };
 
-#if defined(__SSE4_2__)
+#if defined(__SSE4_2__) || defined(__aarch64__)
 
 /// Parts are taken from CityHash.
 

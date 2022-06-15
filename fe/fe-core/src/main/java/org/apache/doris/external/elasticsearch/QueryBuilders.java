@@ -18,6 +18,7 @@
 package org.apache.doris.external.elasticsearch;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;

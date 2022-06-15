@@ -32,7 +32,6 @@ import com.sleepycat.je.rep.ReplicationGroup;
 import com.sleepycat.je.rep.ReplicationNode;
 import com.sleepycat.je.rep.UnknownMasterException;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,11 +42,11 @@ import java.util.Set;
 
 public class BDBHA implements HAProtocol {
     private static final Logger LOG = LogManager.getLogger(BDBHA.class);
-    
+
     private BDBEnvironment environment;
     private String nodeName;
     private static final int RETRY_TIME = 3;
-    
+
     public BDBHA(BDBEnvironment env, String nodeName) {
         this.environment = env;
         this.nodeName = nodeName;
@@ -61,7 +60,7 @@ public class BDBHA implements HAProtocol {
     @Override
     public boolean fencing() {
         Database epochDb = environment.getEpochDB();
-        
+
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 long count = epochDb.count();
@@ -172,12 +171,12 @@ public class BDBHA implements HAProtocol {
 
     @Override
     public void transferToMaster() {
-        
+
     }
-    
+
     @Override
     public void transferToNonMaster() {
-        
+
     }
 
     @Override
@@ -215,7 +214,7 @@ public class BDBHA implements HAProtocol {
     public void addHelperSocket(String ip, Integer port) {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         Set<InetSocketAddress> helperSockets = Sets.newHashSet(replicationGroupAdmin.getHelperSockets());
-        InetSocketAddress newHelperSocket =  new InetSocketAddress(ip,port);
+        InetSocketAddress newHelperSocket =  new InetSocketAddress(ip, port);
         if (!helperSockets.contains(newHelperSocket)) {
             helperSockets.add(newHelperSocket);
             environment.setNewReplicationGroupAdmin(helperSockets);

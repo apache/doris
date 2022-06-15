@@ -62,10 +62,6 @@ public class LateralViewRef extends TableRef {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!analyzer.getContext().getSessionVariable().isEnableLateralView()) {
-            throw new AnalysisException("The session variables `enable_lateral_view` is false");
-        }
-
         if (isAnalyzed) {
             return;
         }
@@ -207,5 +203,3 @@ public class LateralViewRef extends TableRef {
         // The reset of @lateralViewRef happens in the reset() of @relatedTableRef.
     }
 }
-
-

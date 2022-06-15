@@ -38,7 +38,6 @@ import org.apache.doris.utframe.UtFrameUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
@@ -120,7 +119,7 @@ public class TabletReplicaTooSlowTest {
     }
 
     @AfterClass
-    public static void TearDown() {
+    public static void tearDown() {
         UtFrameUtils.cleanDorisFeDir(runningDirBase);
     }
 
@@ -157,13 +156,13 @@ public class TabletReplicaTooSlowTest {
     @Test
     public void test() throws Exception {
         // test colocate tablet repair
-        String createStr = "create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "distributed by hash(k2) buckets 1\n" +
-                "properties\n" +
-                "(\n" +
-                "    \"replication_num\" = \"3\"\n" +
-                ")";
+        String createStr = "create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_num\" = \"3\"\n"
+                + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
 
         int maxLoop = 300;

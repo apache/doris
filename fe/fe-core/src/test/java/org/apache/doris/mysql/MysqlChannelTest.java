@@ -17,6 +17,9 @@
 
 package org.apache.doris.mysql;
 
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -25,10 +28,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class MysqlChannelTest {
     int packetId = 0;
@@ -210,7 +209,7 @@ public class MysqlChannelTest {
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
-        ByteBuffer buf = channel1.fetchOnePacket();
+        channel1.fetchOnePacket();
     }
 
     @Test(expected = IOException.class)
@@ -226,7 +225,7 @@ public class MysqlChannelTest {
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
-        ByteBuffer buf = channel1.fetchOnePacket();
+        channel1.fetchOnePacket();
         Assert.fail("No Exception throws.");
     }
 

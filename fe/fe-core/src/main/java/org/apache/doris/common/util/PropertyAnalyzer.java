@@ -32,16 +32,16 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
-import org.apache.doris.thrift.TSortType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -69,13 +69,14 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
-    
+
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
 
     public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
-    
+
     public static final String PROPERTIES_TIMEOUT = "timeout";
+    public static final String PROPERTIES_COMPRESSION = "compression";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
@@ -191,15 +192,15 @@ public class PropertyAnalyzer {
 
         // check remote_storage_resource and remote_storage_cooldown_time
         if ((!hasRemoteCooldown && hasRemoteStorageResource) || (hasRemoteCooldown && !hasRemoteStorageResource)) {
-            throw new AnalysisException("Invalid data property, " +
-                    "`remote_storage_resource` and `remote_storage_cooldown_time` must be used together.");
+            throw new AnalysisException("Invalid data property, "
+                    + "`remote_storage_resource` and `remote_storage_cooldown_time` must be used together.");
         }
         if (hasRemoteStorageResource && hasRemoteCooldown) {
             // check remote resource
             Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(remoteStorageResourceName);
             if (resource == null) {
-                throw new AnalysisException("Invalid data property, " +
-                        "`remote_storage_resource` [" + remoteStorageResourceName + "] dose not exist.");
+                throw new AnalysisException("Invalid data property, "
+                        + "`remote_storage_resource` [" + remoteStorageResourceName + "] dose not exist.");
             }
             // check remote storage cool down timestamp
             if (remoteCooldownTimeStamp <= currentTimeMs) {
@@ -213,7 +214,7 @@ public class PropertyAnalyzer {
         Preconditions.checkNotNull(storageMedium);
         return new DataProperty(storageMedium, cooldownTimeStamp, remoteStorageResourceName, remoteCooldownTimeStamp);
     }
-    
+
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
         short shortKeyColumnCount = (short) -1;
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
@@ -306,7 +307,7 @@ public class PropertyAnalyzer {
         }
         return tTabletType;
     }
-    
+
     public static long analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
         long version = Partition.PARTITION_INIT_VERSION;
         if (properties != null && properties.containsKey(PROPERTIES_VERSION_INFO)) {
@@ -371,9 +372,9 @@ public class PropertyAnalyzer {
                             found = true;
                             break;
                         } else {
-                            throw new AnalysisException("Bloom filter index only used in columns of" +
-                                " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table." +
-                                " invalid column: " + bfColumn);
+                            throw new AnalysisException("Bloom filter index only used in columns of"
+                                    + " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
+                                    + " invalid column: " + bfColumn);
                         }
                     }
                 }
@@ -434,6 +435,35 @@ public class PropertyAnalyzer {
         return timeout;
     }
 
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws  AnalysisException {
+        String compressionType = "";
+        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
+            compressionType = properties.get(PROPERTIES_COMPRESSION);
+            properties.remove(PROPERTIES_COMPRESSION);
+        } else {
+            return TCompressionType.LZ4F;
+        }
+
+        if (compressionType.equalsIgnoreCase("no_compression")) {
+            return TCompressionType.NO_COMPRESSION;
+        } else if (compressionType.equalsIgnoreCase("lz4")) {
+            return TCompressionType.LZ4;
+        } else if (compressionType.equalsIgnoreCase("lz4f")) {
+            return TCompressionType.LZ4F;
+        } else if (compressionType.equalsIgnoreCase("zlib")) {
+            return TCompressionType.ZLIB;
+        } else if (compressionType.equalsIgnoreCase("zstd")) {
+            return TCompressionType.ZSTD;
+        } else if (compressionType.equalsIgnoreCase("snappy")) {
+            return TCompressionType.SNAPPY;
+        } else if (compressionType.equalsIgnoreCase("default_compression")) {
+            return TCompressionType.LZ4F;
+        } else {
+            throw new AnalysisException("unknown compression type: " + compressionType);
+        }
+    }
+
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
@@ -448,7 +478,7 @@ public class PropertyAnalyzer {
 
         if (storageFormat.equalsIgnoreCase("v1")) {
             throw new AnalysisException("Storage format V1 has been deprecated since version 0.14, "
-            		+ "please use V2 instead");
+                    + "please use V2 instead");
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;
         } else if (storageFormat.equalsIgnoreCase("default")) {
@@ -493,7 +523,7 @@ public class PropertyAnalyzer {
         return type;
     }
 
-    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws  AnalysisException{
+    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws AnalysisException {
         String typeStr = null;
         String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
         if (properties != null && properties.containsKey(propertyName)) {

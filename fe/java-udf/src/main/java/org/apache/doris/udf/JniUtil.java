@@ -17,15 +17,15 @@
 
 package org.apache.doris.udf;
 
-import com.google.common.base.Joiner;
-
-import org.apache.doris.thrift.TJvmMemoryPool;
+import org.apache.doris.monitor.jvm.JvmPauseMonitor;
+import org.apache.doris.thrift.TGetJMXJsonResponse;
 import org.apache.doris.thrift.TGetJvmMemoryMetricsResponse;
-import org.apache.doris.thrift.TJvmThreadInfo;
 import org.apache.doris.thrift.TGetJvmThreadsInfoRequest;
 import org.apache.doris.thrift.TGetJvmThreadsInfoResponse;
-import org.apache.doris.thrift.TGetJMXJsonResponse;
-import org.apache.doris.monitor.jvm.JvmPauseMonitor;
+import org.apache.doris.thrift.TJvmMemoryPool;
+import org.apache.doris.thrift.TJvmThreadInfo;
+
+import com.google.common.base.Joiner;
 import org.apache.thrift.TBase;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -36,14 +36,14 @@ import org.apache.thrift.protocol.TProtocolFactory;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.lang.management.GarbageCollectorMXBean;
-import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.lang.management.RuntimeMXBean;
 import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.Map;
 
@@ -91,8 +91,7 @@ public class JniUtil {
     /**
      * Serializes input into a byte[] using the default protocol factory.
      */
-    public static <T extends TBase<?, ?>>
-    byte[] serializeToThrift(T input) throws InternalException {
+    public static <T extends TBase<?, ?>> byte[] serializeToThrift(T input) throws InternalException {
         TSerializer serializer = new TSerializer(protocolFactory_);
         try {
             return serializer.serialize(input);
@@ -104,8 +103,8 @@ public class JniUtil {
     /**
      * Serializes input into a byte[] using a given protocol factory.
      */
-    public static <T extends TBase<?, ?>, F extends TProtocolFactory>
-    byte[] serializeToThrift(T input, F protocolFactory) throws InternalException {
+    public static <T extends TBase<?, ?>, F extends TProtocolFactory> byte[] serializeToThrift(
+            T input, F protocolFactory) throws InternalException {
         TSerializer serializer = new TSerializer(protocolFactory);
         try {
             return serializer.serialize(input);
@@ -114,17 +113,16 @@ public class JniUtil {
         }
     }
 
-    public static <T extends TBase<?, ?>>
-    void deserializeThrift(T result, byte[] thriftData) throws InternalException {
+    public static <T extends TBase<?, ?>> void deserializeThrift(
+            T result, byte[] thriftData) throws InternalException {
         deserializeThrift(protocolFactory_, result, thriftData);
     }
 
     /**
      * Deserialize a serialized form of a Thrift data structure to its object form.
      */
-    public static <T extends TBase<?, ?>, F extends TProtocolFactory>
-    void deserializeThrift(F protocolFactory, T result, byte[] thriftData)
-            throws InternalException {
+    public static <T extends TBase<?, ?>, F extends TProtocolFactory> void deserializeThrift(
+            F protocolFactory, T result, byte[] thriftData) throws InternalException {
         // TODO: avoid creating deserializer for each query?
         TDeserializer deserializer = new TDeserializer(protocolFactory);
         try {

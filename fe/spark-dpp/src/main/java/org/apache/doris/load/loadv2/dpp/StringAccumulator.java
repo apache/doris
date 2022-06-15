@@ -18,8 +18,9 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.spark.util.AccumulatorV2;
-import java.util.List;
+
 import java.util.ArrayList;
+import java.util.List;
 
 // This class is a accumulator of string based on AccumulatorV2
 // (https://spark.apache.org/docs/latest/api/java/org/apache/spark/util/AccumulatorV2.html).
@@ -53,7 +54,7 @@ public class StringAccumulator extends AccumulatorV2<String, String> {
 
     @Override
     public void merge(AccumulatorV2<String, String> other) {
-        StringAccumulator o = (StringAccumulator)other;
+        StringAccumulator o = (StringAccumulator) other;
         strs.addAll(o.strs);
     }
 

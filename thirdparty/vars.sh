@@ -44,8 +44,8 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 # all java libraries will be unpacked to here
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
-# source of all dependencies
-export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+# source of all dependencies, default unuse it
+# export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -148,6 +148,18 @@ RE2_DOWNLOAD="https://github.com/google/re2/archive/2021-02-02.tar.gz"
 RE2_NAME=re2-2021-02-02.tar.gz
 RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
+
+# hyperscan
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.0
+HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+
+# ragel (dependency for hyperscan)
+RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"
+RAGEL_NAME=ragel-6.10.tar.gz
+RAGEL_SOURCE=ragel-6.10
+RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
 BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
@@ -321,16 +333,22 @@ IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
-GSASL_NAME="libgsasl-1.10.0.tar.gz"
-GSASL_SOURCE="libgsasl-1.10.0"
-GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
+GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_NAME="libgsasl-1.8.0.tar.gz"
+GSASL_SOURCE="libgsasl-1.8.0"
+GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
+
+# krb5
+KRB5_DOWNLOAD="https://kerberos.org/dist/krb5/1.19/krb5-1.19.tar.gz"
+KRB5_NAME="krb5-1.19.tar.gz"
+KRB5_SOURCE="krb5-1.19"
+KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libhdfs3-master.zip"
-HDFS3_NAME="libhdfs3-master.zip"
-HDFS3_SOURCE="libhdfs3-master"
-HDFS3_MD5SUM="8c071fd2e7b0b1ccc1ec9c0d073d4146"
+HDFS3_DOWNLOAD="https://github.com/yangzhg/libhdfs3/archive/refs/tags/v2.3.1.tar.gz"
+HDFS3_NAME="libhdfs3-2.3.1.tar.gz"
+HDFS3_SOURCE="libhdfs3-2.3.1"
+HDFS3_MD5SUM="64ab3004826d83b23522ccf26940db94"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -350,14 +368,6 @@ BENCHMARK_NAME=benchmark-1.5.6.tar.gz
 BENCHMARK_SOURCE=benchmark-1.5.6
 BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
 
-# breakpad
-# breakpad has no release version, the source is from commit@38ee0be,
-# and also add lss files. See README.md in it.
-BREAKPAD_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/breakpad-src-38ee0be-with-lss.tar.gz"
-BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
-BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
-BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
-
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
 XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz"
@@ -371,11 +381,37 @@ SIMDJSON_NAME=simdjson-1.0.2.tar.gz
 SIMDJSON_SOURCE=simdjson-1.0.2
 SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
 
+# nlohmann_json
+NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
+NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
+NLOHMANN_JSON_SOURCE=json-3.10.1
+NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# opentelemetry-proto
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
+OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+
+# opentelemetry
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
+OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
+
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
 LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
+
+# sse2noen
+SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.5.1.tar.gz"
+SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
+SSE2NEON_SOURCE=sse2neon-1.5.1
+SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
+
+
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
@@ -394,6 +430,8 @@ BZIP
 LZO2
 CURL
 RE2
+HYPERSCAN
+RAGEL
 BOOST
 MYSQL
 ODBC
@@ -423,11 +461,15 @@ LZMA
 XML2
 IDN
 GSASL
+KRB5
 HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
-BREAKPAD
 XSIMD
 SIMDJSON
-LIBBACKTRACE"
+NLOHMANN_JSON
+OPENTELEMETRY_PROTO
+OPENTELEMETRY
+LIBBACKTRACE
+SSE2NEON"

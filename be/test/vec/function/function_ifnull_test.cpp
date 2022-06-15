@@ -20,15 +20,20 @@
 
 #include <string>
 
-#include "exec/schema_scanner.h"
 #include "function_test_util.h"
-#include "util/url_coding.h"
-#include "vec/core/field.h"
 
 namespace doris::vectorized {
 
 TEST(IfNullTest, Int_Test) {
     std::string func_name = "ifnull";
+    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+    DataSet data_set = {{{4, 10}, 4}, {{-4, 10}, -4}, {{Null(), 5}, 5}};
+
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
+TEST(NvlTest, Int_Test) {
+    std::string func_name = "nvl";
     InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
     DataSet data_set = {{{4, 10}, 4}, {{-4, 10}, -4}, {{Null(), 5}, 5}};
 
@@ -57,9 +62,9 @@ TEST(IfNullTest, String_Int_Test) {
     std::string func_name = "ifnull";
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTime};
     DataSet data_set = {{{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
-                         str_to_data_time("2021-10-24 12:32:31")},
+                         str_to_date_time("2021-10-24 12:32:31")},
                         {{Null(), std::string("2021-10-24 13:00:01")},
-                         str_to_data_time("2021-10-24 13:00:01")}};
+                         str_to_date_time("2021-10-24 13:00:01")}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }

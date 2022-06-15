@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,6 +41,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class OdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
@@ -55,6 +55,9 @@ public class OdbcTable extends Table {
     public static final String ODBC_TABLE = "table";
     public static final String ODBC_DRIVER = "driver";
     public static final String ODBC_TYPE = "odbc_type";
+    public static final String ODBC_CHARSET = "charset";
+    public static final String ODBC_EXTRA_PARAM = "extra_param";
+
 
     // map now odbc external table Doris support now
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
@@ -72,13 +75,14 @@ public class OdbcTable extends Table {
     private static String mysqlProperName(String name) {
         return "`" + name + "`";
     }
-    
+
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
                 return mysqlProperName(name);
+            default:
+                return name;
         }
-        return name;
     }
 
     private String odbcCatalogResourceName;
@@ -90,6 +94,9 @@ public class OdbcTable extends Table {
     private String odbcTableName;
     private String driver;
     private String odbcTableTypeName;
+    private String charset;
+    private String extraParam;
+    private Map<String, String> resourceProperties;
 
     public OdbcTable() {
         super(TableType.ODBC);
@@ -104,10 +111,9 @@ public class OdbcTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of odbc table, "
-                    + "they are: odbc_catalog_resource or [host, port, user, password, driver, odbc_type]" +
-                    " and database and table");
+                    + "they are: odbc_catalog_resource or [host, port, user, password, driver, odbc_type]"
+                    + " and database and table");
         }
-
         if (properties.containsKey(ODBC_CATALOG_RESOURCE)) {
             odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
 
@@ -125,13 +131,26 @@ public class OdbcTable extends Table {
                         + "'@'" + ConnectContext.get().getRemoteIP()
                         + "' for resource '" + odbcCatalogResourceName + "'");
             }
+            resourceProperties = new HashMap<>(oriResource.getCopiedProperties());
+            resourceProperties.remove(ODBC_HOST);
+            resourceProperties.remove(ODBC_PORT);
+            resourceProperties.remove(ODBC_USER);
+            resourceProperties.remove(ODBC_PASSWORD);
+            resourceProperties.remove(ODBC_DRIVER);
+            resourceProperties.remove(ODBC_CHARSET);
+            resourceProperties.remove(ODBC_TYPE);
+            resourceProperties.remove("type");
+            resourceProperties.remove(ODBC_DATABASE);
         } else {
+            Map<String, String> copiedProperties = new HashMap<>();
+            copiedProperties.putAll(properties);
             // Set up
             host = properties.get(ODBC_HOST);
             if (Strings.isNullOrEmpty(host)) {
                 throw new DdlException("Host of Odbc table is null. "
                         + "Please set proper resource or add properties('host'='xxx.xxx.xxx.xxx') when create table");
             }
+            copiedProperties.remove(ODBC_HOST);
 
             port = properties.get(ODBC_PORT);
             if (Strings.isNullOrEmpty(port)) {
@@ -147,24 +166,32 @@ public class OdbcTable extends Table {
 
                 }
             }
+            copiedProperties.remove(ODBC_PORT);
 
             userName = properties.get(ODBC_USER);
             if (Strings.isNullOrEmpty(userName)) {
                 throw new DdlException("User of Odbc table is null. "
                         + "Please set odbc_catalog_resource or add properties('user'='root') when create table");
             }
+            copiedProperties.remove(ODBC_USER);
 
             passwd = properties.get(ODBC_PASSWORD);
             if (passwd == null) {
                 throw new DdlException("Password of Odbc table is null. "
                         + "Please set odbc_catalog_resource or add properties('password'='xxxx') when create table");
             }
+            copiedProperties.remove(ODBC_PASSWORD);
 
             driver = properties.get(ODBC_DRIVER);
             if (Strings.isNullOrEmpty(driver)) {
                 throw new DdlException("Driver of Odbc table is null. "
                         + "Please set odbc_catalog_resource or add properties('diver'='xxxx') when create table");
             }
+            copiedProperties.remove(ODBC_DRIVER);
+
+
+            charset = properties.get(ODBC_CHARSET);
+            copiedProperties.remove(ODBC_CHARSET);
 
             String tableType = properties.get(ODBC_TYPE);
             if (Strings.isNullOrEmpty(tableType)) {
@@ -177,6 +204,10 @@ public class OdbcTable extends Table {
                             + " Now Odbc table type only support:" + supportTableType());
                 }
             }
+            copiedProperties.remove(ODBC_TYPE);
+            copiedProperties.remove(ODBC_DATABASE);
+            copiedProperties.remove(ODBC_TABLE);
+            extraParam = getExtraParameter(copiedProperties);
         }
 
         odbcDatabaseName = properties.get(ODBC_DATABASE);
@@ -187,7 +218,7 @@ public class OdbcTable extends Table {
 
         odbcTableName = properties.get(ODBC_TABLE);
         if (Strings.isNullOrEmpty(odbcTableName)) {
-            throw new DdlException("Database of Odbc table is null. "
+            throw new DdlException("Table of Odbc table is null. "
                     + "Please add properties('table'='xxxx') when create table");
         }
     }
@@ -199,13 +230,28 @@ public class OdbcTable extends Table {
             throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
 
-        String property = odbcCatalogResource.getProperties(propertyName);
+        String property = odbcCatalogResource.getProperty(propertyName);
         if (property == null) {
             throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
         }
         return property;
     }
+    public String getExtraParameter(Map<String, String> extraMap) {
+        if (extraMap == null || extraMap.isEmpty()) {
+            return "";
+        }
+        return ";" + extraMap.entrySet()
+                .stream()
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining(";"));
+    }
 
+    public String getExtraParam() {
+        if (extraParam != null) {
+            return extraParam;
+        }
+        return getExtraParameter(resourceProperties);
+    }
     public String getOdbcCatalogResourceName() {
         return odbcCatalogResourceName;
     }
@@ -253,6 +299,20 @@ public class OdbcTable extends Table {
         return getPropertyFromResource(ODBC_DRIVER);
     }
 
+    public String getCharset() {
+        if (charset != null) {
+            return charset;
+        }
+        String resourceCharset = "utf8";
+        try {
+            resourceCharset = getPropertyFromResource(ODBC_CHARSET);
+        } catch (Exception e) {
+            LOG.info(e.getMessage());
+        }
+
+        return resourceCharset;
+    }
+
     public String getOdbcTableTypeName() {
         if (odbcTableTypeName != null) {
             return odbcTableTypeName;
@@ -273,7 +333,7 @@ public class OdbcTable extends Table {
                         getOdbcDatabaseName(),
                         getUserName(),
                         getPasswd(),
-                        "utf8");
+                        getCharset());
                 break;
             case POSTGRESQL:
                 connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s;UseDeclareFetch=1;Fetch=4096",
@@ -283,7 +343,7 @@ public class OdbcTable extends Table {
                         getOdbcDatabaseName(),
                         getUserName(),
                         getPasswd(),
-                        "utf8");
+                        getCharset());
                 break;
             case MYSQL:
                 connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s;forward_cursor=1;no_cache=1",
@@ -293,20 +353,20 @@ public class OdbcTable extends Table {
                         getOdbcDatabaseName(),
                         getUserName(),
                         getPasswd(),
-                        "utf8");
+                        getCharset());
                 break;
             case SQLSERVER:
                 connectString = String.format("Driver=%s;Server=%s,%s;DataBase=%s;Uid=%s;Pwd=%s",
-                                getOdbcDriver(),
-                                getHost(),
-                                getPort(),
-                                getOdbcDatabaseName(),
-                                getUserName(),
-                                getPasswd());
+                        getOdbcDriver(),
+                        getHost(),
+                        getPort(),
+                        getOdbcDatabaseName(),
+                        getUserName(),
+                        getPasswd());
                 break;
             default:
         }
-        return connectString;
+        return connectString + getExtraParam();
     }
 
     public TOdbcTableType getOdbcTableType() {
@@ -323,7 +383,7 @@ public class OdbcTable extends Table {
         return copied;
     }
 
-    public void resetIdsForRestore(Catalog catalog){
+    public void resetIdsForRestore(Catalog catalog) {
         id = catalog.getNextId();
     }
 
@@ -361,6 +421,8 @@ public class OdbcTable extends Table {
             sb.append(passwd);
             sb.append(driver);
             sb.append(odbcTableTypeName);
+            sb.append(charset);
+            sb.append(extraParam);
         }
         String md5 = DigestUtils.md5Hex(sb.toString());
         LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
@@ -382,6 +444,8 @@ public class OdbcTable extends Table {
         serializeMap.put(ODBC_TABLE, odbcTableName);
         serializeMap.put(ODBC_DRIVER, driver);
         serializeMap.put(ODBC_TYPE, odbcTableTypeName);
+        serializeMap.put(ODBC_CHARSET, charset);
+        serializeMap.put(ODBC_EXTRA_PARAM, extraParam);
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -417,6 +481,8 @@ public class OdbcTable extends Table {
         odbcTableName = serializeMap.get(ODBC_TABLE);
         driver = serializeMap.get(ODBC_DRIVER);
         odbcTableTypeName = serializeMap.get(ODBC_TYPE);
+        charset = serializeMap.get(ODBC_CHARSET);
+        extraParam = serializeMap.get(ODBC_EXTRA_PARAM);
     }
 
     public static String supportTableType() {

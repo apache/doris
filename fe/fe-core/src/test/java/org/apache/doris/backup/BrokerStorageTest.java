@@ -24,8 +24,12 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import mockit.Tested;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.thrift.TServiceClient;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
@@ -48,12 +52,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
-
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Tested;
 
 @Ignore
 public class BrokerStorageTest {
@@ -90,31 +88,30 @@ public class BrokerStorageTest {
         storage = new BrokerStorage("bos_broker", properties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
         content =
-                "O wild West Wind, thou breath of Autumn's being\n" +
-                        "Thou, from whose unseen presence the leaves dead\n" +
-                        "Are driven, like ghosts from an enchanter fleeing,\n" +
-                        "Yellow, and black, and pale, and hectic red,\n" +
-                        "Pestilence-stricken multitudes:O thou\n" +
-                        "Who chariotest to their dark wintry bed\n" +
-                        "The winged seeds, where they lie cold and low,\n" +
-                        "Each like a corpse within its grave, until\n" +
-                        "Thine azure sister of the Spring shall blow\n" +
-                        "Her clarion o'er the dreaming earth, and fill\n" +
-                        "(Driving sweet buds like flocks to feed in air)\n" +
-                        "With living hues and odors plain and hill:\n" +
-                        "Wild Spirit, which art moving everywhere;\n" +
-                        "Destroyer and preserver; hear, oh, hear!";
+                "O wild West Wind, thou breath of Autumn's being\n"
+                        + "Thou, from whose unseen presence the leaves dead\n"
+                        + "Are driven, like ghosts from an enchanter fleeing,\n"
+                        + "Yellow, and black, and pale, and hectic red,\n"
+                        + "Pestilence-stricken multitudes:O thou\n"
+                        + "Who chariotest to their dark wintry bed\n"
+                        + "The winged seeds, where they lie cold and low,\n"
+                        + "Each like a corpse within its grave, until\n"
+                        + "Thine azure sister of the Spring shall blow\n"
+                        + "Her clarion o'er the dreaming earth, and fill\n"
+                        + "(Driving sweet buds like flocks to feed in air)\n"
+                        + "With living hues and odors plain and hill:\n"
+                        + "Wild Spirit, which art moving everywhere;\n"
+                        + "Destroyer and preserver; hear, oh, hear!";
         new MockUp<BrokerStorage>() {
             @Mock
             private Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {
                 return pair;
             }
         };
-        GenericKeyedObjectPoolConfig brokerPoolConfig = new GenericKeyedObjectPoolConfig();
         new Expectations() {
             {
                 pool.returnObject(withInstanceOf(TNetworkAddress.class), withInstanceOf(TServiceClient.class));
-                minTimes =0;
+                minTimes = 0;
             }
         };
         Deencapsulation.setField(ClientPool.class, "brokerPool", pool);
@@ -150,7 +147,7 @@ public class BrokerStorageTest {
         status = storage.downloadWithFileSize(remote, localFile2.getAbsolutePath(), 1024 * 1024);
         Assert.assertEquals(Status.OK, status);
         Assert.assertEquals(DigestUtils.md5Hex(new FileInputStream(localFile)),
-            DigestUtils.md5Hex(new FileInputStream(localFile2)));
+                DigestUtils.md5Hex(new FileInputStream(localFile2)));
     }
 
     @Test

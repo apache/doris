@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
+#pragma once
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/types.pb.h"
@@ -30,7 +29,6 @@ namespace doris {
 
 struct ContiguousRow;
 class MemTable;
-class RowCursor;
 
 class RowsetWriter {
 public:
@@ -64,6 +62,9 @@ public:
     virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
+    virtual Status flush_single_memtable(const vectorized::Block* block) {
+        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+    }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
@@ -71,7 +72,7 @@ public:
 
     virtual Version version() = 0;
 
-    virtual int64_t num_rows() = 0;
+    virtual int64_t num_rows() const = 0;
 
     virtual RowsetId rowset_id() = 0;
 
@@ -82,5 +83,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H

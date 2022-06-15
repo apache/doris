@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/row-batch-list.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
-#define DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -130,5 +129,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

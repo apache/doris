@@ -114,7 +114,7 @@ TEST(GenericIteratorsTest, Union) {
     delete iter;
 }
 
-TEST(GenericIteratorsTest, Merge) {
+TEST(GenericIteratorsTest, MergeAgg) {
     auto schema = create_schema();
     std::vector<RowwiseIterator*> inputs;
 
@@ -122,7 +122,7 @@ TEST(GenericIteratorsTest, Merge) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(std::move(inputs), -1);
+    auto iter = new_merge_iterator(std::move(inputs), -1, false);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -152,6 +152,40 @@ TEST(GenericIteratorsTest, Merge) {
     } while (st.ok());
     EXPECT_TRUE(st.is_end_of_file());
     EXPECT_EQ(600, row_count);
+
+    delete iter;
+}
+
+TEST(GenericIteratorsTest, MergeUnique) {
+    auto schema = create_schema();
+    std::vector<RowwiseIterator*> inputs;
+
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    inputs.push_back(new_auto_increment_iterator(schema, 300));
+
+    auto iter = new_merge_iterator(std::move(inputs), -1, true);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    RowBlockV2 block(schema, 128);
+
+    size_t row_count = 0;
+    do {
+        block.clear();
+        st = iter->next_batch(&block);
+        for (int i = 0; i < block.num_rows(); ++i) {
+            size_t base_value = row_count;
+            auto row = block.row(i);
+            EXPECT_EQ(base_value, *(int16_t*)row.cell_ptr(0));
+            EXPECT_EQ(base_value + 1, *(int32_t*)row.cell_ptr(1));
+            EXPECT_EQ(base_value + 2, *(int64_t*)row.cell_ptr(2));
+            row_count++;
+        }
+    } while (st.ok());
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(300, row_count);
 
     delete iter;
 }

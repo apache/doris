@@ -7,8 +7,7 @@
 // any changes here, make sure that you're not breaking any platforms.
 //
 
-#ifndef BASE_CASTS_H_
-#define BASE_CASTS_H_
+#pragma once
 
 #include <assert.h> // for use with down_cast<>
 #include <common/logging.h>
@@ -385,5 +384,3 @@ inline Enum tight_enum_cast(int e_val) {
     }
     return static_cast<Enum>(e_val);
 }
-
-#endif // BASE_CASTS_H_

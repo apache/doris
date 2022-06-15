@@ -209,7 +209,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         BaseCompaction base_compaction(tablet);
         res = base_compaction.compact();
         if (!res) {
-            if (res == Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
+            if (res.precise_code() == OLAP_ERR_BE_NO_SUITABLE_VERSION) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
                             << tablet->full_name();
@@ -223,7 +223,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         CumulativeCompaction cumulative_compaction(tablet);
         res = cumulative_compaction.compact();
         if (!res) {
-            if (res == Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
+            if (res.precise_code() == OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->full_name();
@@ -249,7 +249,7 @@ void CompactionAction::handle(HttpRequest* req) {
         std::string json_result;
         Status st = _handle_show_compaction(req, &json_result);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
@@ -257,7 +257,7 @@ void CompactionAction::handle(HttpRequest* req) {
         std::string json_result;
         Status st = _handle_run_compaction(req, &json_result);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
@@ -265,7 +265,7 @@ void CompactionAction::handle(HttpRequest* req) {
         std::string json_result;
         Status st = _handle_run_status_compaction(req, &json_result);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }

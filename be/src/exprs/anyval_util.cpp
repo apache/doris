@@ -20,6 +20,7 @@
 
 #include "exprs/anyval_util.h"
 
+#include "common/object_pool.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 

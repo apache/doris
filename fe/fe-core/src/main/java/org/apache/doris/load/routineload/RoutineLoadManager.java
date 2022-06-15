@@ -24,6 +24,11 @@ import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -38,16 +43,18 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -411,11 +418,8 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public long getAvailableBeForTask(long previousBeId, String clusterName) throws LoadException {
-        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
-        if (beIdsInCluster == null) {
-            throw new LoadException("The " + clusterName + " has been deleted");
-        }
+    public long getAvailableBeForTask(long jobId, long previousBeId, String clusterName) throws LoadException {
+        List<Long> availableBeIds = getAvailableBackendIds(jobId, clusterName);
 
         // check if be has idle slot
         readLock();
@@ -423,7 +427,7 @@ public class RoutineLoadManager implements Writable {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
 
             // 1. Find if the given BE id has available slots
-            if (previousBeId != -1L && beIdsInCluster.contains(previousBeId)) {
+            if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
                 // get the previousBackend info
                 Backend previousBackend = Catalog.getCurrentSystemInfo().getBackend(previousBeId);
                 // check previousBackend is not null && load available
@@ -447,7 +451,7 @@ public class RoutineLoadManager implements Writable {
             int idleTaskNum = 0;
             long resultBeId = -1L;
             int maxIdleSlotNum = 0;
-            for (Long beId : beIdsInCluster) {
+            for (Long beId : availableBeIds) {
                 if (beIdToMaxConcurrentTasks.containsKey(beId)) {
                     if (beIdToConcurrentTasks.containsKey(beId)) {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
@@ -465,6 +469,61 @@ public class RoutineLoadManager implements Writable {
             return resultBeId;
         } finally {
             readUnlock();
+        }
+    }
+
+    /**
+     * The routine load task can only be scheduled on backends which has proper resource tags.
+     * The tags should be got from user property.
+     * But in the old version, the routine load job does not have user info, so for compatibility,
+     * if there is no user info, we will get tags from replica allocation of the first partition of the table.
+     *
+     * @param jobId
+     * @param cluster
+     * @return
+     * @throws LoadException
+     */
+    private List<Long> getAvailableBackendIds(long jobId, String cluster) throws LoadException {
+        RoutineLoadJob job = getJob(jobId);
+        if (job == null) {
+            throw new LoadException("job " + jobId + " does not exist");
+        }
+        Set<Tag> tags;
+        if (job.getUserIdentity() == null) {
+            // For old job, there may be no user info. So we have to use tags from replica allocation
+            tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+        } else {
+            tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
+            if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+                // user may be dropped, or may not set resource tag property.
+                // Here we fall back to use replica tag
+                tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+            }
+        }
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().setCluster(cluster)
+                .addTags(tags).build();
+        return Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
+    }
+
+    private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {
+        try {
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+            OlapTable tbl = (OlapTable) db.getTableOrMetaException(tblId, Table.TableType.OLAP);
+            tbl.readLock();
+            try {
+                PartitionInfo partitionInfo = tbl.getPartitionInfo();
+                for (Partition partition : tbl.getPartitions()) {
+                    ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
+                    // just use the first one
+                    return replicaAlloc.getAllocMap().keySet();
+                }
+                // Should not run into here. Just make compiler happy.
+                return Sets.newHashSet();
+            } finally {
+                tbl.readUnlock();
+            }
+        } catch (MetaNotFoundException e) {
+            throw new LoadException(e.getMessage());
         }
     }
 
@@ -495,7 +554,7 @@ public class RoutineLoadManager implements Writable {
         // return all of routine load job
         List<RoutineLoadJob> result;
         RESULT:
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             if (dbFullName == null) {
                 result = new ArrayList<>(idToRoutineLoadJob.values());
                 sortRoutineLoadJob(result);
@@ -523,7 +582,7 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
             return null;
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         if (!includeHistory) {
             result = result.stream().filter(entity -> !entity.getState().isFinalState()).collect(Collectors.toList());
@@ -555,10 +614,12 @@ public class RoutineLoadManager implements Writable {
         int i = 0;
         int j = routineLoadJobList.size() - 1;
         while (i < j) {
-            while (!routineLoadJobList.get(i).isFinal() && (i < j))
+            while (!routineLoadJobList.get(i).isFinal() && (i < j)) {
                 i++;
-            while (routineLoadJobList.get(j).isFinal() && (i < j))
+            }
+            while (routineLoadJobList.get(j).isFinal() && (i < j)) {
                 j--;
+            }
             if (i < j) {
                 RoutineLoadJob routineLoadJob = routineLoadJobList.get(i);
                 routineLoadJobList.set(i, routineLoadJobList.get(j));

@@ -53,7 +53,8 @@
         "delete_sign_idx": -1,
         "sequence_col_idx": -1,
         "sort_type": "LEXICAL",
-        "sort_col_num": 0
+        "sort_col_num": 0,
+        "compression_type": "LZ4F"
     },
     "rs_metas": [
         {
@@ -143,5 +144,6 @@
     "preferred_rowset_type": "BETA_ROWSET",
     "tablet_type": "TABLET_TYPE_DISK",
     "storage_medium": "HDD",
-    "remote_storage_name": ""
+    "remote_storage_name": "",
+    "replica_id": 0
 }

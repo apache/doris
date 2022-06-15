@@ -28,10 +28,10 @@ import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Longs;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -143,7 +143,9 @@ public abstract class Type {
      * The output of this is stored directly in the hive metastore as the column type.
      * The string must match exactly.
      */
-    public final String toSql() { return toSql(0); }
+    public final String toSql() {
+        return toSql(0);
+    }
 
     /**
      * Recursive helper for toSql() to be implemented by subclasses. Keeps track of the
@@ -154,7 +156,9 @@ public abstract class Type {
     /**
      * Same as toSql() but adds newlines and spaces for better readability of nested types.
      */
-    public String prettyPrint() { return prettyPrint(0); }
+    public String prettyPrint() {
+        return prettyPrint(0);
+    }
 
     /**
      * Pretty prints this type with lpad number of leading spaces. Used to implement
@@ -182,14 +186,26 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DECIMALV2);
     }
 
-    public boolean isWildcardDecimal() { return false; }
-    public boolean isWildcardVarchar() { return false; }
-    public boolean isWildcardChar() { return false; }
+    public boolean isWildcardDecimal() {
+        return false;
+    }
+
+    public boolean isWildcardVarchar() {
+        return false;
+    }
+
+    public boolean isWildcardChar() {
+        return false;
+    }
 
     public boolean isStringType() {
         return isScalarType(PrimitiveType.VARCHAR)
                 || isScalarType(PrimitiveType.CHAR)
                 || isScalarType(PrimitiveType.STRING);
+    }
+
+    public boolean isVarchar() {
+        return isScalarType(PrimitiveType.VARCHAR);
     }
 
     // only metric types have the following constraint:
@@ -204,8 +220,8 @@ public abstract class Type {
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll and bitmap column must use with specific function, and don't support filter or group by." +
-                    "please run 'help hll' or 'help bitmap' in your mysql client.";
+            "Doris hll and bitmap column must use with specific function, and don't support filter or group by."
+                    + "please run 'help hll' or 'help bitmap' in your mysql client.";
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
@@ -215,7 +231,9 @@ public abstract class Type {
         return isScalarType(PrimitiveType.BITMAP);
     }
 
-    public boolean isQuantileStateType() { return isScalarType(PrimitiveType.QUANTILE_STATE); }
+    public boolean isQuantileStateType() {
+        return isScalarType(PrimitiveType.QUANTILE_STATE);
+    }
 
     public boolean isObjectStored() {
         return isHllType() || isBitmapType() || isQuantileStateType();
@@ -230,9 +248,9 @@ public abstract class Type {
     }
 
     public boolean isFixedPointType() {
-        return isScalarType(PrimitiveType.TINYINT) || isScalarType(PrimitiveType.SMALLINT) ||
-                isScalarType(PrimitiveType.INT) || isScalarType(PrimitiveType.BIGINT) ||
-                isScalarType(PrimitiveType.LARGEINT);
+        return isScalarType(PrimitiveType.TINYINT) || isScalarType(PrimitiveType.SMALLINT)
+                || isScalarType(PrimitiveType.INT) || isScalarType(PrimitiveType.BIGINT)
+                || isScalarType(PrimitiveType.LARGEINT);
     }
 
     public boolean isFloatingPointType() {
@@ -248,7 +266,7 @@ public abstract class Type {
         return isScalarType(PrimitiveType.TINYINT) || isScalarType(PrimitiveType.SMALLINT)
                 || isScalarType(PrimitiveType.INT);
     }
-    
+
     public boolean isLargeIntType() {
         return isScalarType(PrimitiveType.LARGEINT);
     }
@@ -273,7 +291,7 @@ public abstract class Type {
     public boolean isDatetime() {
         return isScalarType(PrimitiveType.DATETIME);
     }
-    
+
     public boolean isTime() {
         return isScalarType(PrimitiveType.TIME);
     }
@@ -314,7 +332,9 @@ public abstract class Type {
         return true;
     }
 
-    public int getLength() { return -1; }
+    public int getLength() {
+        return -1;
+    }
 
     /**
      * Indicates whether we support partitioning tables on columns of this type.
@@ -398,7 +418,7 @@ public abstract class Type {
         if (t1.isScalarType() && t2.isScalarType()) {
             return ScalarType.canCastTo((ScalarType) t1, (ScalarType) t2);
         } else if (t1.isArrayType() && t2.isArrayType()) {
-            return ArrayType.canCastTo((ArrayType)t1, (ArrayType)t2);
+            return ArrayType.canCastTo((ArrayType) t1, (ArrayType) t2);
         }
         return t1.isNull() || t1.getPrimitiveType() == PrimitiveType.VARCHAR;
     }
@@ -446,9 +466,9 @@ public abstract class Type {
      * Returns null if this expr is not instance of StringLiteral or StringLiteral
      * inner value could not parse to long. otherwise return parsed Long result.
      */
-    public static Long tryParseToLong(Expr expectStringExpr){
+    public static Long tryParseToLong(Expr expectStringExpr) {
         if (expectStringExpr instanceof StringLiteral) {
-            String value = ((StringLiteral)expectStringExpr).getValue();
+            String value = ((StringLiteral) expectStringExpr).getValue();
             return Longs.tryParse(value);
         }
         return null;
@@ -476,7 +496,9 @@ public abstract class Type {
      * MAP<STRING,STRUCT<f1:INT>> --> 3
      */
     private boolean exceedsMaxNestingDepth(int d) {
-        if (d >= MAX_NESTING_DEPTH) return true;
+        if (d >= MAX_NESTING_DEPTH) {
+            return true;
+        }
         if (isStructType()) {
             StructType structType = (StructType) this;
             for (StructField f : structType.getFields()) {
@@ -500,7 +522,7 @@ public abstract class Type {
 
     // TODO(dhc): fix this
     public static Type fromPrimitiveType(PrimitiveType type) {
-        switch(type) {
+        switch (type) {
             case BOOLEAN:
                 return Type.BOOLEAN;
             case TINYINT:
@@ -553,12 +575,12 @@ public abstract class Type {
 
     public static List<TTypeDesc> toThrift(ArrayList<Type> types) {
         ArrayList<TTypeDesc> result = Lists.newArrayList();
-        for (Type t: types) {
+        for (Type t : types) {
             result.add(t.toThrift());
         }
         return result;
     }
-    
+
     public static Type fromThrift(TTypeDesc thrift) {
         Preconditions.checkState(thrift.types.size() > 0);
         Pair<Type, Integer> t = fromThrift(thrift, 0);
@@ -575,7 +597,7 @@ public abstract class Type {
         TTypeNode node = col.getTypes().get(nodeIdx);
         Type type = null;
         int tmpNodeIdx = nodeIdx;
-        switch (node.getType()) {
+        switch (node.getType()) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case SCALAR: {
                 Preconditions.checkState(node.isSetScalarType());
                 TScalarType scalarType = node.getScalarType();
@@ -654,11 +676,15 @@ public abstract class Type {
      * For datetime types this is the length in characters of the String representation
      * (assuming the maximum allowed precision of the fractional seconds component).
      * For binary data this is the length in bytes.
-     * Null is returned for for data types where the column size is not applicable.
+     * Null is returned for data types where the column size is not applicable.
      */
     public Integer getColumnSize() {
-        if (!isScalarType()) return null;
-        if (isNumericType()) return getPrecision();
+        if (!isScalarType()) {
+            return null;
+        }
+        if (isNumericType()) {
+            return getPrecision();
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case CHAR:
@@ -707,7 +733,9 @@ public abstract class Type {
      * For non-numeric types, returns null.
      */
     public Integer getPrecision() {
-        if (!isScalarType()) return null;
+        if (!isScalarType()) {
+            return null;
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case TINYINT:
@@ -738,7 +766,9 @@ public abstract class Type {
      * component.
      */
     public Integer getDecimalDigits() {
-        if (!isScalarType()) return null;
+        if (!isScalarType()) {
+            return null;
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case BOOLEAN:
@@ -771,7 +801,9 @@ public abstract class Type {
      * types where NUM_PREC_RADIX is not applicable.
      */
     public Integer getNumPrecRadix() {
-        if (!isScalarType()) return null;
+        if (!isScalarType()) {
+            return null;
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case TINYINT:
@@ -880,7 +912,7 @@ public abstract class Type {
         compatibilityMatrix[SMALLINT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // INT
-        compatibilityMatrix[INT.ordinal()][BIGINT.ordinal()] = PrimitiveType.BIGINT;    
+        compatibilityMatrix[INT.ordinal()][BIGINT.ordinal()] = PrimitiveType.BIGINT;
         compatibilityMatrix[INT.ordinal()][LARGEINT.ordinal()] = PrimitiveType.LARGEINT;
         // 32 bit integer fits only mantissa of double.
         // TODO: arguably we should promote INT + FLOAT to DOUBLE to avoid loss of precision,
@@ -901,7 +933,7 @@ public abstract class Type {
         compatibilityMatrix[INT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
 
-        // BIGINT 
+        // BIGINT
         // 64 bit integer does not fit in mantissa of double or float.
         // TODO: arguably we should always promote BIGINT + FLOAT to double here to keep as
         // much precision as possible, but we depend on this implicit cast for some use
@@ -917,7 +949,7 @@ public abstract class Type {
         compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;        
+        compatibilityMatrix[BIGINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BIGINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -952,7 +984,7 @@ public abstract class Type {
 
         // DOUBLE
         compatibilityMatrix[DOUBLE.ordinal()][DATE.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][DATETIME.ordinal()] = PrimitiveType.DOUBLE ;
+        compatibilityMatrix[DOUBLE.ordinal()][DATETIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[DOUBLE.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1008,7 +1040,7 @@ public abstract class Type {
         compatibilityMatrix[STRING.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
 
-        // DECIMALV2 
+        // DECIMALV2
         compatibilityMatrix[DECIMALV2.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1042,15 +1074,27 @@ public abstract class Type {
                 PrimitiveType t1 = PrimitiveType.values()[i];
                 PrimitiveType t2 = PrimitiveType.values()[j];
                 // DECIMAL, NULL, and INVALID_TYPE  are handled separately.
-                if (t1 == PrimitiveType.INVALID_TYPE ||
-                        t2 == PrimitiveType.INVALID_TYPE) continue;
-                if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
-                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
-                if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
-                if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
-                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
-                if (t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP) continue;
-                if (t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) continue;
+                if (t1 == PrimitiveType.INVALID_TYPE || t2 == PrimitiveType.INVALID_TYPE) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) {
+                    continue;
+                }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }
@@ -1104,7 +1148,7 @@ public abstract class Type {
 
         // Following logical is compatible with MySQL.
         if (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR) {
-            return Type.VARCHAR; 
+            return Type.VARCHAR;
         }
         if ((t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.STRING)
                 || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.VARCHAR)
@@ -1113,8 +1157,8 @@ public abstract class Type {
         }
 
         // int family type and char family type should cast to char family type
-        if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily()) ||
-                (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
+        if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily())
+                || (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
             return t1.isStringType() ?  t1 : t2;
         }
 

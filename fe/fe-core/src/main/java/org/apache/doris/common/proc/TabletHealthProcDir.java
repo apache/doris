@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -37,6 +35,9 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -172,8 +173,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
             this.cloningNum = cloningTabletIds.size();
             db.getTables().stream().filter(t -> t != null && t.getType() == Table.TableType.OLAP).forEach(t -> {
                 OlapTable olapTable = (OlapTable) t;
-                ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId()) ?
-                        colocateTableIndex.getGroup(olapTable.getId()) : null;
+                ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId())
+                        ? colocateTableIndex.getGroup(olapTable.getId()) : null;
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
@@ -194,7 +195,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                             replicaAlloc, aliveBeIdsInCluster);
                                     res = pair.first;
                                 }
-                                switch (res) {
+                                switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                                     case HEALTHY:
                                         healthyNum++;
                                         break;

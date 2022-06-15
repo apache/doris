@@ -29,10 +29,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -47,7 +47,7 @@ import java.util.List;
  *    or  select k1, approx_count_distinct(k2) from table group by k1
  * Rewritten query: select k1, hll_union_agg(mv_hll_union_k2) from table group by k1
  */
-public class NDVToHll implements ExprRewriteRule{
+public class NDVToHll implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new NDVToHll();
 
     @Override

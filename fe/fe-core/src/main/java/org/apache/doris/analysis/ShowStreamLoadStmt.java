@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -29,6 +27,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,9 +51,9 @@ public class ShowStreamLoadStmt extends ShowStmt {
     }
 
     private String dbName;
-    private Expr whereClause;
-    private LimitElement limitElement;
-    private List<OrderByElement> orderByElements;
+    private final Expr whereClause;
+    private final LimitElement limitElement;
+    private final List<OrderByElement> orderByElements;
 
     private String labelValue;
     private String stateValue;
@@ -60,7 +61,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
 
     private ArrayList<OrderByPair> orderByPairs;
 
-    private ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+    private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Label").add("Db").add("Table").add("User")
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
             .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
@@ -92,6 +93,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
         try {
             index = analyzeColumn("FinishTime");
         } catch (AnalysisException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
         OrderByPair orderByPair = new OrderByPair(index, false);
         orderByFinishTime.add(orderByPair);
@@ -125,6 +127,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
         try {
             state = StreamLoadState.valueOf(stateValue);
         } catch (Exception e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
         return state;
     }

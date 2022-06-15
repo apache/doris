@@ -32,17 +32,15 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class CreateMaterializedViewStmtTest {
 
@@ -57,7 +55,7 @@ public class CreateMaterializedViewStmtTest {
 
     @Before
     public void initTest() {
-        Deencapsulation.setField(Config.class, "enable_materialized_view", true);
+
     }
 
     @Test
@@ -1243,7 +1241,7 @@ public class CreateMaterializedViewStmtTest {
             }
         };
         MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
-        Assert.assertEquals(50, ((ScalarType)mvColumnItem.getType()).getLength());
+        Assert.assertEquals(50, mvColumnItem.getType().getLength());
 
         SlotRef slotRef2 = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params2 = Lists.newArrayList();
@@ -1255,12 +1253,12 @@ public class CreateMaterializedViewStmtTest {
                 slotDescriptor2.getColumn();
                 result = column2;
                 column2.getOriginType();
-                result = ScalarType.createDecimalV2Type(10,1);
+                result = ScalarType.createDecimalV2Type(10, 1);
             }
         };
         MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
-        Assert.assertEquals(new Integer(10), ((ScalarType)mvColumnItem2.getType()).getPrecision());
-        Assert.assertEquals(1, ((ScalarType)mvColumnItem2.getType()).getScalarScale());
+        Assert.assertEquals(new Integer(10), mvColumnItem2.getType().getPrecision());
+        Assert.assertEquals(1, ((ScalarType) mvColumnItem2.getType()).getScalarScale());
 
         SlotRef slotRef3 = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params3 = Lists.newArrayList();
@@ -1276,7 +1274,6 @@ public class CreateMaterializedViewStmtTest {
             }
         };
         MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
-        Assert.assertEquals(5, ((ScalarType)mvColumnItem3.getType()).getLength());
+        Assert.assertEquals(5, mvColumnItem3.getType().getLength());
     }
 }
-

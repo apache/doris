@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_EXEC_BASE_SCANNER_H_
-#define BE_SRC_EXEC_BASE_SCANNER_H_
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -34,6 +35,7 @@ class RuntimeState;
 class ExprContext;
 
 namespace vectorized {
+class VExprContext;
 class IColumn;
 using MutableColumnPtr = IColumn::MutablePtr;
 } // namespace vectorized
@@ -51,8 +53,16 @@ struct ScannerCounter {
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
+                const std::vector<TBrokerRangeDesc>& ranges,
+                const std::vector<TNetworkAddress>& broker_addresses,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
-    virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
+
+    virtual ~BaseScanner() {
+        Expr::close(_dest_expr_ctx, _state);
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExpr::close(_dest_vexpr_ctx, _state);
+        }
+    }
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
@@ -62,8 +72,8 @@ public:
     virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) = 0;
 
     // Get next block
-    virtual Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, bool* eof) {
-        return Status::NotSupported("Not Implemented get next");
+    virtual Status get_next(vectorized::Block* block, bool* eof) {
+        return Status::NotSupported("Not Implemented get block");
     }
 
     // Close this scanner
@@ -76,8 +86,16 @@ public:
     void free_expr_local_allocations();
 
 protected:
+    Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
+    virtual Status _init_src_block();
+
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
+
+    //const TBrokerScanRangeParams& _params;
+    const std::vector<TBrokerRangeDesc>& _ranges;
+    const std::vector<TNetworkAddress>& _broker_addresses;
+    int _next_range;
     // used for process stat
     ScannerCounter* _counter;
 
@@ -118,10 +136,17 @@ protected:
     bool _success = false;
     bool _scanner_eof = false;
 
+    // for vectorized load
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+    vectorized::Block _src_block;
+    int _num_of_columns_from_file;
+
 private:
+    Status _filter_src_block();
+    void _fill_columns_from_path();
+    Status _materialize_dest_block(vectorized::Block* output_block);
     Status _fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 };
 
 } /* namespace doris */
-
-#endif /* BE_SRC_EXEC_BASE_SCANNER_H_ */

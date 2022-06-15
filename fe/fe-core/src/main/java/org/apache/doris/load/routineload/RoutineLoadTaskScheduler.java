@@ -39,7 +39,6 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,7 +89,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         // update the max slot num of each backend periodically
         updateBackendSlotIfNecessary();
 
-        long start = System.currentTimeMillis();
         // if size of queue is zero, tasks will be submitted by batch
         int idleSlotNum = routineLoadManager.getClusterIdleSlotNum();
         // scheduler will be blocked when there is no slot for task in cluster
@@ -143,8 +141,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             }
         } catch (UserException e) {
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).
-                    updateState(JobState.PAUSED,
-                    new ErrorReason(e.getErrorCode(), e.getMessage()), false);
+                    updateState(JobState.PAUSED, new ErrorReason(e.getErrorCode(), e.getMessage()), false);
             throw e;
         } catch (Exception e) {
             // exception happens, PAUSE the job
@@ -181,7 +178,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             long startTime = System.currentTimeMillis();
             tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
-            LOG.debug("create routine load task cost(ms): {}, job id: {}", 
+            LOG.debug("create routine load task cost(ms): {}, job id: {}",
                     (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
         } catch (MetaNotFoundException e) {
             // this means database or table has been dropped, just stop this routine load job.
@@ -205,7 +202,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             long startTime = System.currentTimeMillis();
             submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask);
-            LOG.debug("send routine load task cost(ms): {}, job id: {}", 
+            LOG.debug("send routine load task cost(ms): {}, job id: {}",
                     (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
             if (tRoutineLoadTask.isSetKafkaLoadInfo()) {
                 LOG.debug("send kafka routine load task {} with partition offset: {}, job: {}",
@@ -264,7 +261,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             client = ClientPool.backendPool.borrowObject(address);
             TStatus tStatus = client.submitRoutineLoadTask(Lists.newArrayList(tTask));
             ok = true;
-           
+
             if (tStatus.getStatusCode() != TStatusCode.OK) {
                 throw new LoadException("failed to submit task. error code: " + tStatus.getStatusCode()
                         + ", msg: " + (tStatus.getErrorMsgsSize() > 0 ? tStatus.getErrorMsgs().get(0) : "NaN"));
@@ -287,7 +284,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.
     private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
-        long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName());
+        long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getJobId(),
+                routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName());
         if (beId == -1L) {
             return false;
         }
@@ -303,4 +301,3 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         return true;
     }
 }
-

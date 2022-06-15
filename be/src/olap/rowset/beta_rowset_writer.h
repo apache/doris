@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
+#pragma once
 
 #include "olap/rowset/rowset_writer.h"
 #include "vector"
@@ -57,12 +56,13 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
+    Status flush_single_memtable(const vectorized::Block* block) override;
 
     RowsetSharedPtr build() override;
 
     Version version() override { return _context.version; }
 
-    int64_t num_rows() override { return _num_rows_written; }
+    int64_t num_rows() const override { return _num_rows_written; }
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
@@ -71,6 +71,8 @@ public:
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);
+    Status _add_block(const vectorized::Block* block,
+                      std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
@@ -100,5 +102,3 @@ private:
 };
 
 } // namespace doris
-
-#endif //DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H

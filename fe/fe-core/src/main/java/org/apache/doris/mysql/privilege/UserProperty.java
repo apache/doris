@@ -37,7 +37,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang.StringUtils;
 
 import java.io.DataInput;
@@ -134,7 +133,7 @@ public class UserProperty implements Writable {
     }
 
     public long getMaxQueryInstances() {
-        return commonProperties.getMaxQueryInstances();// maxQueryInstances;
+        return commonProperties.getMaxQueryInstances(); // maxQueryInstances;
     }
 
     public String[] getSqlBlockRules() {
@@ -276,8 +275,8 @@ public class UserProperty implements Writable {
                 }
 
                 // check if sql_block_rule has already exist
-                for (String ruleName : value.replaceAll(" ","").split(",")){
-                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)){
+                for (String ruleName : value.replaceAll(" ", "").split(",")) {
+                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)) {
                         throw new DdlException("the sql block rule " + ruleName + " not exist");
                     }
                 }

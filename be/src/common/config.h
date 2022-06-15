@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_CONFIG_H
-#define DORIS_BE_SRC_COMMON_CONFIG_H
+#pragma once
 
 #include "configbase.h"
 
@@ -227,21 +226,24 @@ CONF_Int64(index_stream_cache_capacity, "10737418240");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
+// Shard size for page cache, the value must be power of two.
+// It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
+CONF_Int32(storage_page_cache_shard_size, "16");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 
-CONF_Bool(enable_storage_vectorization, "false");
+CONF_Bool(enable_storage_vectorization, "true");
 
-CONF_Bool(enable_low_cardinality_optimize, "false");
+CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
-CONF_Bool(enable_vectorized_compaction, "false");
+CONF_Bool(enable_vectorized_compaction, "true");
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
@@ -291,6 +293,12 @@ CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_compaction_threads, "10");
+
+// This config can be set to limit thread number in convert rowset thread pool.
+CONF_mInt32(convert_rowset_thread_num, "0");
+
+// initial sleep interval in seconds of scan alpha rowset
+CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
@@ -378,7 +386,7 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
-CONF_mBool(disable_stream_load_2pc, "true");
+CONF_mBool(disable_stream_load_2pc, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -464,6 +472,9 @@ CONF_Int32(memory_max_alignment, "16");
 
 // write buffer size before flush
 CONF_mInt64(write_buffer_size, "209715200");
+
+// max buffer size used in memtable for the aggregated table
+CONF_mInt64(memtable_max_buffer_size, "419430400");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -551,9 +562,11 @@ CONF_String(default_rowset_type, "BETA");
 CONF_Int64(brpc_max_body_size, "3147483648");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
-// Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
-// through brpc, this will be faster and avoid the error of Request length overflow.
-CONF_mBool(transfer_data_by_brpc_attachment, "false");
+// TODO(zxy): expect to be true in v1.3
+// Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
+// Controller Attachment and send it through http brpc when the length of the Tuple/Block data
+// is greater than 1.8G. This is to avoid the error of Request length overflow (2G).
+CONF_mBool(transfer_large_data_by_brpc, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -685,27 +698,12 @@ CONF_mInt32(segment_cache_capacity, "1000000");
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
 
-// Set to true to disable the minidump feature.
-CONF_Bool(disable_minidump, "false");
-
-// The dir to save minidump file.
-// Make sure that the user who run Doris has permission to create and visit this dir,
-// So Doris will fail to start.
-CONF_String(minidump_dir, "${DORIS_HOME}/minidump");
-
-// The max minidump file size in MB.
-CONF_Int32(max_minidump_file_size_mb, "200");
-
-// The max number of minidump file.
-// Doris will only keep latest 10 minidump files by default.
-CONF_Int32(max_minidump_file_number, "10");
-
 // If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
 // the value set by the fallback version kafka_broker_version_fallback will be used,
 // and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
 CONF_String(kafka_broker_version_fallback, "0.10.0");
 
-// The the number of pool siz of routine load consumer.
+// The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 CONF_Int32(routine_load_consumer_pool_size, "10");
@@ -738,8 +736,13 @@ CONF_Validator(string_type_length_soft_limit_bytes,
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 CONF_Int32(object_pool_buffer_size, "100");
 
+// ParquetReaderWrap prefetch buffer size
+CONF_Int32(parquet_reader_max_buffer_size, "50");
+
+// When the rows number reached this limit, will check the filter rate the of bloomfilter
+// if it is lower than a specific threshold, the predicate will be disabled.
+CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+
 } // namespace config
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_CONFIG_H

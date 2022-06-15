@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -34,12 +35,11 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -139,10 +139,13 @@ public class OdbcScanNode extends ScanNode {
         }
 
         // Other DataBase use limit do top n
-        if (shouldPushDownLimit() && (odbcType == TOdbcTableType.MYSQL || odbcType == TOdbcTableType.POSTGRESQL || odbcType == TOdbcTableType.MONGODB) ) {
-            sql.append(" LIMIT " + limit);
+        if (shouldPushDownLimit()
+                && (odbcType == TOdbcTableType.MYSQL
+                || odbcType == TOdbcTableType.POSTGRESQL
+                || odbcType == TOdbcTableType.MONGODB)) {
+            sql.append(" LIMIT ").append(limit);
         }
-        
+
         return sql.toString();
     }
 
@@ -213,13 +216,12 @@ public class OdbcScanNode extends ScanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        // this is just to avoid odbc scan node's cardinality being -1. So that we can calculate the join cost
-        // normally.
-        // We assume that the data volume of all odbc tables is very small, so set cardinality directly to 1.
-        cardinality = cardinality == -1 ? 1 : cardinality;
+
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
     }
 }

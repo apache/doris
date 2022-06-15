@@ -20,8 +20,9 @@
 
 #include "runtime/runtime_state.h"
 
-#include <boost/algorithm/string/join.hpp>
 #include <fmt/format.h>
+
+#include <boost/algorithm/string/join.hpp>
 #include <sstream>
 #include <string>
 
@@ -388,7 +389,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
-    // If file havn't been opened, open it here
+    // If file haven't been opened, open it here
     if (_error_log_file == nullptr) {
         Status status = create_error_log_file();
         if (!status.ok()) {

@@ -18,9 +18,9 @@
 #include "exprs/hll_function.h"
 #include "olap/hll.h"
 #include "udf/udf.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 

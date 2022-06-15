@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -93,7 +92,7 @@ public class PartitionInfo implements Writable {
         return type;
     }
 
-    public List<Column> getPartitionColumns(){
+    public List<Column> getPartitionColumns() {
         return partitionColumns;
     }
 
@@ -126,7 +125,7 @@ public class PartitionInfo implements Writable {
     }
 
     public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,
-                                              long partitionId, boolean isTemp) throws DdlException {
+                                                      long partitionId, boolean isTemp) throws DdlException {
         Preconditions.checkArgument(desc.isAnalyzed());
         PartitionItem partitionItem = createAndCheckPartitionItem(desc, isTemp);
         setItemInternal(partitionId, isTemp, partitionItem);

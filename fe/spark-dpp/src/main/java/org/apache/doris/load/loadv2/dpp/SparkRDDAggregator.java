@@ -17,12 +17,13 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.common.io.BitmapValue;
 import org.apache.doris.common.io.Hll;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFunction;
@@ -53,15 +54,15 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
 
     Object finalize(Object value) {
         return value;
-    };
+    }
 
     public static SparkRDDAggregator buildAggregator(EtlJobConfig.EtlColumn column) throws SparkDppException {
         String aggType = StringUtils.lowerCase(column.aggregationType);
         String columnType = StringUtils.lowerCase(column.columnType);
         switch (aggType) {
-            case "bitmap_union" :
+            case "bitmap_union":
                 return new BitmapUnionAggregator();
-            case "hll_union" :
+            case "hll_union":
                 return new HllUnionAggregator();
             case "max":
                 switch (columnType) {
@@ -235,8 +236,8 @@ class BitmapUnionAggregator extends SparkRDDAggregator<BitmapValue> {
             BitmapValue bitmapValue = new BitmapValue();
             if (value instanceof byte[]) {
                 bitmapValue.deserialize(new DataInputStream(new ByteArrayInputStream((byte[]) value)));
-            } else if (value != null){
-                bitmapValue.add(Long.valueOf(value.toString()));
+            } else if (value != null) {
+                bitmapValue.add(Long.parseLong(value.toString()));
             }
             return bitmapValue;
         } catch (Exception e) {
@@ -261,7 +262,7 @@ class BitmapUnionAggregator extends SparkRDDAggregator<BitmapValue> {
         try {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             DataOutputStream outputStream = new DataOutputStream(bos);
-            ((BitmapValue)value).serialize(outputStream);
+            ((BitmapValue) value).serialize(outputStream);
             return bos.toByteArray();
         } catch (IOException ioException) {
             ioException.printStackTrace();
@@ -279,7 +280,7 @@ class HllUnionAggregator extends SparkRDDAggregator<Hll> {
             Hll hll = new Hll();
             if (value instanceof byte[]) {
                 hll.deserialize(new DataInputStream(new ByteArrayInputStream((byte[]) value)));
-            } else if (value != null){
+            } else if (value != null) {
                 hll.updateWithHash(value);
             }
             return hll;
@@ -305,7 +306,7 @@ class HllUnionAggregator extends SparkRDDAggregator<Hll> {
         try {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             DataOutputStream outputStream = new DataOutputStream(bos);
-            ((Hll)value).serialize(outputStream);
+            ((Hll) value).serialize(outputStream);
             return bos.toByteArray();
         } catch (IOException ioException) {
             ioException.printStackTrace();
@@ -381,7 +382,7 @@ class NumberMaxAggregator extends SparkRDDAggregator {
         if (dst == null) {
             return src;
         }
-        return ((Comparable)dst).compareTo(src) > 0 ? dst : src;
+        return ((Comparable) dst).compareTo(src) > 0 ? dst : src;
     }
 }
 
@@ -396,7 +397,7 @@ class NumberMinAggregator extends SparkRDDAggregator {
         if (dst == null) {
             return src;
         }
-        return ((Comparable)dst).compareTo(src) < 0 ? dst : src;
+        return ((Comparable) dst).compareTo(src) < 0 ? dst : src;
     }
 }
 
@@ -426,7 +427,7 @@ class ShortSumAggregator extends SparkRDDAggregator<Short> {
         }
         int ret = dst + src;
         // here may overflow, just keep the same logic with be
-        return (short)ret;
+        return (short) ret;
     }
 }
 
@@ -458,7 +459,7 @@ class ByteSumAggregator extends SparkRDDAggregator<Byte> {
         }
         int ret = dst + src;
         // here may overflow, just keep the same logic with be
-        return (byte)ret;
+        return (byte) ret;
     }
 }
 

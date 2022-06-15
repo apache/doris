@@ -42,7 +42,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,9 +51,6 @@ import org.junit.Test;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class AuthTest {
 
@@ -86,6 +84,8 @@ public class AuthTest {
                     resolvedIPs.add("20.1.1.1");
                     resolvedIPs.add("20.1.1.2");
                     resolvedIPs.add("20.1.1.3");
+                    break;
+                default:
                     break;
             }
             return true;
@@ -143,7 +143,8 @@ public class AuthTest {
     }
 
     @Test
-    public void test() throws IllegalAccessException, IllegalArgumentException, InvocationTargetException {
+    public void test()
+            throws IllegalAccessException, IllegalArgumentException, InvocationTargetException, UserException {
         // 1. create cmy@%
         UserIdentity userIdentity = new UserIdentity("cmy", "%");
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
@@ -1206,6 +1207,127 @@ public class AuthTest {
             Assert.fail();
         } catch (UserException e) {
             e.printStackTrace();
+        }
+
+        // 40. create new user and grant node_priv to it
+        final UserIdentity opUser = new UserIdentity("op_user", "%");
+        userDesc = new UserDesc(opUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+
+        privileges = Lists.newArrayList(AccessPrivilege.NODE_PRIV);
+        // 40.1 grant to non-global level, which is not allowed
+        grantStmt = new GrantStmt(opUser, null, new TablePattern("db1", "*"), privileges);
+        try {
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+
+        grantStmt = new GrantStmt(opUser, null, new TablePattern("db1", "tbl"), privileges);
+        try {
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+        // 40.2 grant to global level
+        new Expectations() {
+            {
+                ctx.getCurrentUserIdentity();
+                minTimes = 1;
+                result = opUser;
+            }
+        };
+        Assert.assertFalse(auth.checkGlobalPriv(ctx, PrivPredicate.OPERATOR));
+        grantStmt = new GrantStmt(opUser, null, new TablePattern("*", "*"), privileges);
+        // first, use op_user itself to grant node_priv, which is not allowed
+        try {
+            new Expectations() {
+                {
+                    ctx.getCurrentUserIdentity();
+                    minTimes = 1;
+                    result = opUser;
+                }
+            };
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+        // second, use root to grant node_priv
+        try {
+            new Expectations() {
+                {
+                    ctx.getCurrentUserIdentity();
+                    minTimes = 1;
+                    result = UserIdentity.ROOT;
+                }
+            };
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // switch to op_user to check it has node_priv
+        new Expectations() {
+            {
+                ctx.getCurrentUserIdentity();
+                minTimes = 2;
+                result = opUser;
+            }
+        };
+        Assert.assertTrue(auth.checkGlobalPriv(ctx, PrivPredicate.OPERATOR));
+        // Now, op_user only has node_priv, it can not grant node_priv to other user.
+        // create otherOpUser first
+        UserIdentity otherOpUser = new UserIdentity("other_op_user", "%");
+        userDesc = new UserDesc(otherOpUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        // try grant, it should fail
+        grantStmt = new GrantStmt(otherOpUser, null, new TablePattern("*", "*"), privileges);
+        try {
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+        // Now, we grant grant_priv to opUser, and check if it can than grant node_priv to other user
+        privileges = Lists.newArrayList(AccessPrivilege.GRANT_PRIV);
+        grantStmt = new GrantStmt(opUser, null, new TablePattern("*", "*"), privileges);
+        try {
+            new Expectations() {
+                {
+                    ctx.getCurrentUserIdentity();
+                    minTimes = 2;
+                    result = UserIdentity.ROOT;
+                }
+            };
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // grant node_priv to other_op_user
+        grantStmt = new GrantStmt(otherOpUser, null, new TablePattern("*", "*"), privileges);
+        try {
+            new Expectations() {
+                {
+                    ctx.getCurrentUserIdentity();
+                    minTimes = 1;
+                    result = opUser;
+                }
+            };
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
         }
     }
 

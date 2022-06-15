@@ -17,14 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Mocked;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

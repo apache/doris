@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,8 +45,7 @@ public abstract class AlterJobV2 implements Writable {
 
     public enum JobState {
         PENDING, // Job is created
-        WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns,
-                     // waiting for previous txns to be finished
+        WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns, waiting for previous txns to be finished
         RUNNING, // alter tasks are sent to BE, and waiting for them finished.
         FINISHED, // job is done
         CANCELLED; // job is cancelled(failed or be cancelled by user)
@@ -147,7 +145,7 @@ public abstract class AlterJobV2 implements Writable {
      * run() and cancel()
      * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
      * So using 'synchronized' to make sure only one thread can run the job at one time.
-     * 
+     *
      * lock order:
      *      synchronized
      *      db lock
@@ -160,17 +158,17 @@ public abstract class AlterJobV2 implements Writable {
 
         try {
             switch (jobState) {
-            case PENDING:
-                runPendingJob();
-                break;
-            case WAITING_TXN:
-                runWaitingTxnJob();
-                break;
-            case RUNNING:
-                runRunningJob();
-                break;
-            default:
-                break;
+                case PENDING:
+                    runPendingJob();
+                    break;
+                case WAITING_TXN:
+                    runWaitingTxnJob();
+                    break;
+                case RUNNING:
+                    runRunningJob();
+                    break;
+                default:
+                    break;
             }
         } catch (AlterCancelException e) {
             cancelImpl(e.getMessage());
@@ -188,7 +186,7 @@ public abstract class AlterJobV2 implements Writable {
     protected boolean checkTableStable(Database db) throws AlterCancelException {
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }

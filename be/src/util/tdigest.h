@@ -40,8 +40,7 @@
 // https://github.com/tdunning/t-digest/blob/07b8f2ca2be8d0a9f04df2feadad5ddc1bb73c88/docs/t-digest-paper/histo.pdf.
 // https://github.com/derrickburns/tdigest
 
-#ifndef TDIGEST2_TDIGEST_H_
-#define TDIGEST2_TDIGEST_H_
+#pragma once
 
 #include <algorithm>
 #include <cfloat>
@@ -783,5 +782,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // TDIGEST2_TDIGEST_H_

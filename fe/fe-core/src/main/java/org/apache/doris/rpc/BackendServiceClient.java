@@ -22,14 +22,13 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import io.grpc.ManagedChannel;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-
-import io.grpc.ManagedChannel;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 
 public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
@@ -44,8 +43,7 @@ public class BackendServiceClient {
         this.address = address;
         channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
-                .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                .enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
+                .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
                 .usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
@@ -54,6 +52,16 @@ public class BackendServiceClient {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.execPlanFragment(request);
+    }
+
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
+            InternalService.PExecPlanFragmentRequest request) {
+        return stub.execPlanFragmentPrepare(request);
+    }
+
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
+            InternalService.PExecPlanFragmentStartRequest request) {
+        return stub.execPlanFragmentStart(request);
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(

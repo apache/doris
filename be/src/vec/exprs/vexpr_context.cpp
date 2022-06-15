@@ -30,6 +30,14 @@ VExprContext::VExprContext(VExpr* expr)
           _closed(false),
           _last_result_column_id(-1) {}
 
+VExprContext::~VExprContext() {
+    DCHECK(!_prepared || _closed);
+
+    for (int i = 0; i < _fn_contexts.size(); ++i) {
+        delete _fn_contexts[i];
+    }
+}
+
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
     Status st = _root->execute(this, block, result_column_id);
     _last_result_column_id = *result_column_id;
@@ -40,7 +48,11 @@ doris::Status VExprContext::prepare(doris::RuntimeState* state,
                                     const doris::RowDescriptor& row_desc,
                                     const std::shared_ptr<doris::MemTracker>& tracker) {
     _prepared = true;
-    _mem_tracker = tracker;
+    if (!tracker) {
+        _mem_tracker = tls_ctx()->_thread_mem_tracker_mgr->mem_tracker();
+    } else {
+        _mem_tracker = tracker;
+    }
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _pool.reset(new MemPool(_mem_tracker.get()));
     return _root->prepare(state, row_desc, this);
@@ -68,10 +80,9 @@ void VExprContext::close(doris::RuntimeState* state) {
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         _fn_contexts[i]->impl()->close();
-        delete _fn_contexts[i];
     }
     // _pool can be NULL if Prepare() was never called
-    if (_pool != NULL) {
+    if (_pool != nullptr) {
         _pool->free_all();
     }
     _closed = true;
@@ -133,7 +144,9 @@ Block VExprContext::get_output_block_after_execute_exprs(
     for (auto vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
         status = vexpr_ctx->execute(&tmp_block, &result_column_id);
-        if (UNLIKELY(!status.ok())) return {};
+        if (UNLIKELY(!status)) {
+            return {};
+        }
         DCHECK(result_column_id != -1);
         result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
     }

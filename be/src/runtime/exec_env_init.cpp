@@ -20,7 +20,6 @@
 #include "common/logging.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
@@ -95,8 +94,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
-    _extdatasource_client_cache =
-            new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
     _task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
     _thread_mgr = new ThreadResourceMgr();
     if (config::doris_enable_scanner_thread_pool_per_disk &&
@@ -148,7 +145,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
-    _extdatasource_client_cache->init_metrics("extdatasource");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -254,8 +250,9 @@ Status ExecEnv::_init_mem_tracker() {
         // Reason same as buffer_pool_limit
         storage_cache_limit = storage_cache_limit / 2;
     }
-    int32_t index_page_cache_percentage = config::index_page_cache_percentage;
-    StoragePageCache::create_global_cache(storage_cache_limit, index_page_cache_percentage);
+    int32_t index_percentage = config::index_page_cache_percentage;
+    uint32_t num_shards = config::storage_page_cache_shard_size;
+    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
@@ -323,7 +320,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_broker_client_cache);
-    SAFE_DELETE(_extdatasource_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_mgr);

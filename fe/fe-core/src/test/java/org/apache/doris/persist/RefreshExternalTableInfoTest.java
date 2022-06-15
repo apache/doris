@@ -17,6 +17,19 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -24,20 +37,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-
-import org.apache.doris.catalog.FakeCatalog;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.FeConstants;
 
 public class RefreshExternalTableInfoTest {
     private Catalog catalog;

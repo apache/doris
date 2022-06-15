@@ -40,7 +40,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -120,8 +119,8 @@ public class MaterializedViewSelector {
             return null;
         }
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
-        LOG.debug("The best materialized view is {} for scan node {} in query {}, " +
-                        "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
+        LOG.debug("The best materialized view is {} for scan node {} in query {}, "
+                        + "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
                 bestIndexId, scanNode.getId(), selectStmt.toSql(), isPreAggregation, reasonOfDisable,
                 (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
@@ -535,5 +534,3 @@ public class MaterializedViewSelector {
         }
     }
 }
-
-

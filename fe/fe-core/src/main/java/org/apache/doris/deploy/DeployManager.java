@@ -33,7 +33,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,64 +45,64 @@ import java.util.Map;
 /*
  * This deploy manager is to support Kubernetes, Ambari or other system for automating deployment.
  * The deploy manager will try to get the helper node when initialize catalog.
- * When this FE is transfer to Master, it will start a polling thread to detect the node change of at most 4 
+ * When this FE is transfer to Master, it will start a polling thread to detect the node change of at most 4
  * service groups in remote deployment system:
- * 
+ *
  *      electableFeServiceGroup: contains Master and Follower FE
  *      backendServiceGroup: contains Backends
  *      observerFeServiceGroup:  contains Observer FE (optional, k8s only)
  *      brokerServiceGroup: contains Broker (optional, Ambari only)
- * 
+ *
  * When node changing is detected, the deploy manager will try to ADD or DROP the new or missing node.
- * 
+ *
  * Current support operations:
- * 
+ *
  * A. Startup
  * 1. Start 1 Frontend(FE), and automatically transfer to the single startup Master.
  * 2. Start 3 FEs, they will reach a consensus on choosing first FE in node list as startup Master.
- * 
+ *
  * B. Expansion
  * 1. With 1 existing FE(Master), add 2 FEs to reach HA.
  * 2. With 1 or 3 existing FE(Master + Follower), add more FE(observer).
  * 3. With 1 or 3 existing FE(Master + Follower), add more Backends(BE).
  * 3. With 1 or 3 existing FE(Master + Follower), add more Broker.
- * 
+ *
  * C. Shrink
  * 1. With 3 existing FEs, drop 2 FEs.
  * 2. With 1 or 3 existing FE(Master + Follower), drop existing FE(observer).
  * 3. With 1 or 3 existing FE(Master + Follower), drop existing BE.
  * 3. With 1 or 3 existing FE(Master + Follower), drop existing Broker.
- * 
+ *
  * Environment variables:
- * 
+ *
  * FE_EXIST_ENTPOINT:
  *      he existing FE(Master + Follower) before the new FE start up.
- *      The main reason of this var is to indicate whether there is already an alive Master 
+ *      The main reason of this var is to indicate whether there is already an alive Master
  *      or the consensus of who is master is needed.
- *      
+ *
  * FE_INIT_NUMBER:
  *      Number of newly start up FE(Master + Follower), can only be 1 or 3.
- * 
+ *
  * Only one of FE_EXIST_ENTPOINT and FE_INIT_NUMBER need to be set.
- * 
+ *
  * eg:
- * 
+ *
  *  1. Start 1 FE as a single Master
  *      set FE_EXIST_ENTPOINT as empty
  *      set FE_INIT_NUMBER = 1
- *      
+ *
  *  2. Start 3 FE(Master + Follower)
  *      set FE_EXIST_ENTPOINT as empty
  *      set FE_INIT_NUMBER = 3
- *      
+ *
  *  3. With 1 existing FE(Master), add 2 FEs to reach HA.
  *      set FE_EXIST_ENTPOINT=existing_fe_host:edit_log_port
  *      set FE_INIT_NUMBER as empty
- * 
+ *
  */
 public class DeployManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DeployManager.class);
-    
+
     // We misspelled the environment value ENV_FE_EXIST_ENT(D)POINT. But for forward compatibility,
     // we have to keep this misspelling for a while.
     // TODO(cmy): remove it later
@@ -276,7 +275,7 @@ public class DeployManager extends MasterDaemon {
         // 2. get electable fe host from remote
         boolean ok = true;
         List<Pair<String, Integer>> feHostPorts = null;
-        while(true) {
+        while (true) {
             try {
                 feHostPorts = getElectableGroupHostPorts();
                 if (feHostPorts == null) {
@@ -303,7 +302,7 @@ public class DeployManager extends MasterDaemon {
                     System.exit(-1);
                 }
             }
-            
+
             LOG.info("get electable fe host from remote: {}", feHostPorts);
             break;
         }
@@ -493,7 +492,7 @@ public class DeployManager extends MasterDaemon {
      * Inspect the node change.
      * 1. Check if there are some nodes need to be dropped.
      * 2. Check if there are some nodes need to be added.
-     * 
+     *
      * We only handle one change at a time.
      * Return true if something changed
      */
@@ -513,7 +512,7 @@ public class DeployManager extends MasterDaemon {
                     LOG.error("self host {}:{} does not exist in remote hosts. Showdown.");
                     System.exit(-1);
                 }
-                
+
                 // Check the detected downtime
                 if (!counterMap.containsKey(localHost.toString())) {
                     // First detected downtime. Add to the map and ignore

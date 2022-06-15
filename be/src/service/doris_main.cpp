@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <errno.h>
 #include <gperftools/malloc_extension.h>
+#include <setjmp.h>
 #include <sys/file.h>
 #include <unistd.h>
 
 #include <condition_variable>
 #include <cstring>
-#include <errno.h>
 #include <mutex>
-#include <setjmp.h>
 #include <thread>
-#include <unistd.h>
 #include <unordered_map>
 
 #include "util/jni-util.h"
@@ -52,7 +51,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/minidump.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -333,9 +331,11 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
+#ifdef USE_MEM_TRACKER
     if (doris::config::track_new_delete) {
         init_hook();
     }
+#endif // USE_MEM_TRACKER
 #endif
 
     std::vector<doris::StorePath> paths;
@@ -456,15 +456,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    // 5. init minidump
-    doris::Minidump minidump;
-    status = minidump.init();
-    if (!status.ok()) {
-        LOG(ERROR) << "Failed to initialize minidump: " << status.get_error_msg();
-        doris::shutdown_logging();
-        exit(1);
-    }
-
 #ifdef LIBJVM
     // 6. init jni
     status = doris::JniUtil::Init();
@@ -484,6 +475,7 @@ int main(int argc, char** argv) {
         doris::MemInfo::refresh_current_mem();
 #endif
         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
+        // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
         // It should be actively triggered at the end of query/load.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(10);
@@ -497,7 +489,6 @@ int main(int argc, char** argv) {
     be_server->stop();
     be_server->join();
     engine->stop();
-    minidump.stop();
 
     delete be_server;
     be_server = nullptr;

@@ -62,8 +62,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
      * This is just like the logic in v1 version, but we support disjunctive predicates here.
      */
     @Override
-    Collection<Long> pruneMultipleColumnPartition(
-        Map<Column, FinalFilters> columnToFilters) throws AnalysisException {
+    Collection<Long> pruneMultipleColumnPartition(Map<Column, FinalFilters> columnToFilters) throws AnalysisException {
         PartitionKey minKey = new PartitionKey();
         PartitionKey maxKey = new PartitionKey();
         RangeMap<PartitionKey, Long> rangeMap = TreeRangeMap.create();
@@ -113,7 +112,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
 
     private Range<ColumnBound> getMinInfinityRange(Column column) throws AnalysisException {
         ColumnBound value = ColumnBound.of(
-            LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), false));
+                LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), false));
         return Range.closed(value, value);
     }
 
@@ -140,14 +139,13 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                 Set<Range<ColumnBound>> filters = finalFilters.filters;
                 Set<Long> result = Sets.newHashSet();
                 for (Range<ColumnBound> filter : filters) {
-                    if (filter.hasLowerBound() && filter.lowerBoundType() == BoundType.CLOSED &&
-                        filter.hasUpperBound() && filter.upperBoundType() == BoundType.CLOSED &&
-                        filter.lowerEndpoint() == filter.upperEndpoint()) {
+                    if (filter.hasLowerBound() && filter.lowerBoundType() == BoundType.CLOSED
+                            && filter.hasUpperBound() && filter.upperBoundType() == BoundType.CLOSED
+                            && filter.lowerEndpoint() == filter.upperEndpoint()) {
                         // Equal to predicate, e.g., col=1, the filter range is [1, 1].
                         minKey.pushColumn(filter.lowerEndpoint().getValue(), column.getDataType());
                         maxKey.pushColumn(filter.upperEndpoint().getValue(), column.getDataType());
-                        result.addAll(
-                            doPruneMulti(columnToFilters, rangeMap, columnIdx + 1, minKey, maxKey));
+                        result.addAll(doPruneMulti(columnToFilters, rangeMap, columnIdx + 1, minKey, maxKey));
                         minKey.popColumn();
                         maxKey.popColumn();
                     } else {
@@ -182,16 +180,14 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                         }
 
                         try {
-                            BoundType lowerType = filter.hasLowerBound() &&
-                                filter.lowerBoundType() == BoundType.CLOSED ?
-                                BoundType.CLOSED : BoundType.OPEN;
-                            BoundType upperType = filter.hasUpperBound() &&
-                                filter.upperBoundType() == BoundType.CLOSED ?
-                                BoundType.CLOSED : BoundType.OPEN;
-                            result.addAll(rangeMap.subRangeMap(
-                                Range.range(minKey, lowerType, maxKey, upperType))
-                                .asMapOfRanges().values());
+                            BoundType lowerType = filter.hasLowerBound() && filter.lowerBoundType() == BoundType.CLOSED
+                                    ? BoundType.CLOSED : BoundType.OPEN;
+                            BoundType upperType = filter.hasUpperBound() && filter.upperBoundType() == BoundType.CLOSED
+                                    ? BoundType.CLOSED : BoundType.OPEN;
+                            result.addAll(rangeMap.subRangeMap(Range.range(minKey, lowerType, maxKey, upperType))
+                                    .asMapOfRanges().values());
                         } catch (IllegalArgumentException e) {
+                            // CHECKSTYLE IGNORE THIS LINE
                         }
 
                         for (; pushMinCount > 0; pushMinCount--) {
@@ -215,7 +211,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                               boolean isMax) throws AnalysisException {
         Column column = partitionColumns.get(columnIdx);
         key.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), isMax),
-            column.getDataType());
+                column.getDataType());
     }
 
     private Collection<Long> noFiltersResult(PartitionKey minKey, PartitionKey maxKey,
@@ -256,8 +252,12 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             RangePartitionUniqueId that = (RangePartitionUniqueId) o;
             return partitionId == that.partitionId;
         }

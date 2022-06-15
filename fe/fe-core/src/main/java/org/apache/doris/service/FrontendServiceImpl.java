@@ -121,7 +121,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -132,8 +131,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
-import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
 
 // Frontend service used to serve all request for this frontend through
 // thrift protocol
@@ -643,7 +640,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             case "STREAMING_MINI_LOAD":
                 break;
             default:
-                status.setStatusCode(NOT_IMPLEMENTED_ERROR);
+                status.setStatusCode(TStatusCode.NOT_IMPLEMENTED_ERROR);
                 break;
         }
         return result;
@@ -837,6 +834,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (request.isSetAuthCode()) {
+            // CHECKSTYLE IGNORE THIS LINE
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
@@ -1196,5 +1194,3 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
 }
-
-

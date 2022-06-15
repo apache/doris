@@ -50,7 +50,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,13 +78,13 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         Map<String, EtlPartitionConf> etlPartitions = createEtlPartitions();
         Preconditions.checkNotNull(etlPartitions);
         taskConf.setEtlPartitions(etlPartitions);
-    
+
         LoadErrorHub.Param info = load.getLoadErrorHubInfo();
         // hadoop load only support mysql load error hub
         if (info != null && info.getType() == HubType.MYSQL_TYPE) {
             taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
         }
-    
+
         etlTaskConf = taskConf.toDppTaskConf();
         Preconditions.checkNotNull(etlTaskConf);
 
@@ -211,7 +210,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 } else {
                     dppColumn.put("is_key", false);
                     String aggregation = "none";
-                    if ("AGG_KEYS" == table.getKeysType().name()) {
+                    if ("AGG_KEYS".equals(table.getKeysType().name())) {
                         AggregateType aggregateType = column.getAggregationType();
                         if (AggregateType.SUM == aggregateType) {
                             aggregation = "ADD";
@@ -256,7 +255,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                             dppColumn.put("name", column.getName());
                             dppColumn.put("is_key", true);
                             dppColumn.put("is_implicit", true);
-                            columnRefs.add(keySize, dppColumn); 
+                            columnRefs.add(keySize, dppColumn);
                             ++keySize;
                         }
                     }

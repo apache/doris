@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>

@@ -31,7 +31,6 @@ import org.apache.doris.load.ExportJob.JobState;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -176,8 +175,8 @@ public class ShowExportStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like below: "
-                    + " ID = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\", " +
-                    "or LABEL = \"xxx\" or LABEL like \"xxx%\"");
+                    + " ID = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\", "
+                    + "or LABEL = \"xxx\" or LABEL like \"xxx%\"");
         }
     }
 

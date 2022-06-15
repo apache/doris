@@ -36,7 +36,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,7 +109,7 @@ public class ColocateTableIndex implements Writable {
             result = 31 * result + grpId.hashCode();
             return result;
         }
-        
+
         @Override
         public String toString() {
             return dbId + "." + grpId;
@@ -523,7 +522,8 @@ public class ColocateTableIndex implements Writable {
 
     public void replayAddTableToGroup(ColocatePersistInfo info) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getGroupId().dbId);
-        OlapTable tbl = db.getTableOrMetaException(info.getTableId(), org.apache.doris.catalog.Table.TableType.OLAP);
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(info.getTableId(),
+                org.apache.doris.catalog.Table.TableType.OLAP);
         writeLock();
         try {
             Map<Tag, List<List<Long>>> map = info.getBackendsPerBucketSeq();

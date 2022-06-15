@@ -49,10 +49,14 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1),
-          _mem_tracker(MemTracker::create_tracker(
-                  tracker->limit(), tracker->label() + ":OlapScanner:" + tls_ctx()->thread_id_str(),
-                  tracker)) {}
+          _version(-1) {
+#ifndef NDEBUG
+    _mem_tracker = MemTracker::create_tracker(tracker->limit(),
+                                              "OlapScanner:" + tls_ctx()->thread_id_str(), tracker);
+#else
+    _mem_tracker = tracker;
+#endif
+}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
@@ -322,7 +326,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             if (UNLIKELY(*eof)) {
                 break;
             }
-
             _num_rows_read++;
 
             _convert_row_to_tuple(tuple);
@@ -545,7 +548,7 @@ void OlapScanner::update_counter() {
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, stats.num_rows_filtered);
     COUNTER_UPDATE(_parent->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(_parent->_short_cond_timer, stats.short_cond_ns);
-    COUNTER_UPDATE(_parent->_pred_col_read_timer, stats.pred_col_read_ns);
+    COUNTER_UPDATE(_parent->_first_read_timer, stats.first_read_ns);
     COUNTER_UPDATE(_parent->_lazy_read_timer, stats.lazy_read_ns);
     COUNTER_UPDATE(_parent->_output_col_timer, stats.output_col_ns);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);

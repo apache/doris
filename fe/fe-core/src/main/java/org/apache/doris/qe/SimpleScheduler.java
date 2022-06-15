@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,8 +86,8 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 
@@ -119,8 +118,8 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 
@@ -199,11 +198,11 @@ public class SimpleScheduler {
     public static boolean isAvailable(Backend backend) {
         return (backend != null && backend.isQueryAvailable() && !blacklistBackends.containsKey(backend.getId()));
     }
-    
+
     private static class UpdateBlacklistThread implements Runnable {
         private static final Logger LOG = LogManager.getLogger(UpdateBlacklistThread.class);
         private static Thread thread;
-        
+
         public UpdateBlacklistThread() {
             thread = new Thread(this, "UpdateBlacklistThread");
             thread.setDaemon(true);
@@ -212,7 +211,7 @@ public class SimpleScheduler {
         public void start() {
             thread.start();
         }
- 
+
         @Override
         public void run() {
             LOG.debug("UpdateBlacklistThread is start to run");
@@ -251,7 +250,7 @@ public class SimpleScheduler {
             }
         }
     }
-    
+
     public static TNetworkAddress getHostByCurrentBackend(Map<TNetworkAddress, Long> addressToBackendID) {
         int backendSize = addressToBackendID.size();
         if (backendSize == 0) {

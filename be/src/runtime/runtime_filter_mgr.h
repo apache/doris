@@ -26,11 +26,10 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/runtime_filter.h"
-#include "util/time.h"
-#include "util/uid_util.h"
-// defination for TRuntimeFilterDesc
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "util/time.h"
+#include "util/uid_util.h"
 
 namespace doris {
 class TUniqueId;
@@ -45,13 +44,13 @@ class PMergeFilterRequest;
 /// get_filter(filter_id, &filter);
 /// filter->merge(origin_filter)
 
-/// comsumer:
+/// consumer:
 /// get_filter(filter_id, &filter)
 /// filter->wait
 /// if filter->ready().ok(), use filter
 
 // owned by RuntimeState
-// RuntimeFilterMgr will be destoryed when RuntimeState is destoryed
+// RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
 public:
     RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state);

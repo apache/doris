@@ -38,9 +38,15 @@ public class NormalizeBinaryPredicatesRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BinaryPredicate)) return expr;
-        if (expr.getChild(0).unwrapSlotRef(false) != null) return expr;
-        if (expr.getChild(1).unwrapSlotRef(false) == null) return expr;
+        if (!(expr instanceof BinaryPredicate)) {
+            return expr;
+        }
+        if (expr.getChild(0).unwrapSlotRef(false) != null) {
+            return expr;
+        }
+        if (expr.getChild(1).unwrapSlotRef(false) == null) {
+            return expr;
+        }
 
         BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
 

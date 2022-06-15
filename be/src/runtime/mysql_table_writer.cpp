@@ -32,7 +32,7 @@ std::string MysqlConnInfo::debug_string() const {
     std::stringstream ss;
 
     ss << "(host=" << host << ",port=" << port << ",user=" << user << ",db=" << db
-       << ",passwd=" << passwd << ")";
+       << ",passwd=" << passwd << ",charset=" << charset << ")";
     return ss.str();
 }
 
@@ -62,7 +62,7 @@ Status MysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string&
     }
 
     // set character
-    if (mysql_set_character_set(_mysql_conn, "utf8")) {
+    if (mysql_set_character_set(_mysql_conn, conn_info.charset.c_str())) {
         std::stringstream ss;
         ss << "mysql_set_character_set failed because " << mysql_error(_mysql_conn);
         return Status::InternalError(ss.str());

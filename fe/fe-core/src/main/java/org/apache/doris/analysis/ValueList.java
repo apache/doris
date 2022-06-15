@@ -17,9 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,9 +36,17 @@ public class ValueList {
         this.rows = rows;
     }
 
-    public List<ArrayList<Expr>> getRows() { return rows; }
-    public void addRow(ArrayList<Expr> row) { rows.add(row); }
-    public ArrayList<Expr> getFirstRow() { return rows.get(0); }
+    public List<ArrayList<Expr>> getRows() {
+        return rows;
+    }
+
+    public void addRow(ArrayList<Expr> row) {
+        rows.add(row);
+    }
+
+    public ArrayList<Expr> getFirstRow() {
+        return rows.get(0);
+    }
 
     public void analyzeForSelect(Analyzer analyzer) throws AnalysisException {
         if (rows.isEmpty()) {

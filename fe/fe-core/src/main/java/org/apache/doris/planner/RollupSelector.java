@@ -35,7 +35,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,8 +62,8 @@ public final class RollupSelector {
     public long selectBestRollup(
             Collection<Long> partitionIds, List<Expr> conjuncts, boolean isPreAggregation)
             throws UserException {
-        Preconditions.checkArgument(partitionIds != null , "Paritition can't be null.");
-        
+        Preconditions.checkArgument(partitionIds != null, "Paritition can't be null.");
+
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
             // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
@@ -192,7 +191,7 @@ public final class RollupSelector {
             for (Column col : table.getSchemaByIndexId(index.getId())) {
                 if (equivalenceColumns.contains(col.getName())) {
                     prefixMatchCount++;
-                } else if (unequivalenceColumns.contains(col.getName())) { 
+                } else if (unequivalenceColumns.contains(col.getName())) {
                     // Unequivalence predicate's columns can match only first column in rollup.
                     prefixMatchCount++;
                     break;
@@ -269,12 +268,12 @@ public final class RollupSelector {
             return false;
         }
         if (expr instanceof InPredicate) {
-            return isInPredicateUsedForPrefixIndex((InPredicate)expr);
+            return isInPredicateUsedForPrefixIndex((InPredicate) expr);
         } else if (expr instanceof BinaryPredicate) {
             if (isJoinConjunct) {
-                return isEqualJoinConjunctUsedForPrefixIndex((BinaryPredicate)expr);
+                return isEqualJoinConjunctUsedForPrefixIndex((BinaryPredicate) expr);
             } else {
-                return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate)expr);
+                return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate) expr);
             }
         }
         return true;

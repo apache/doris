@@ -245,6 +245,40 @@ struct ConvertImplGenericToString {
     }
 };
 
+template <typename StringColumnType>
+struct ConvertImplGenericFromString {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        static_assert(std::is_same_v<StringColumnType, ColumnString>,
+                      "Can be used only to parse from ColumnString");
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        // result column must set type
+        DCHECK(block.get_by_position(result).type != nullptr);
+        auto data_type_to = block.get_by_position(result).type;
+        if (const StringColumnType* col_from_string =
+                    check_and_get_column<StringColumnType>(&col_from)) {
+            auto col_to = data_type_to->create_column();
+
+            //IColumn & col_to = *res;
+            size_t size = col_from.size();
+            col_to->reserve(size);
+
+            for (size_t i = 0; i < size; ++i) {
+                const auto& val = col_from_string->get_data_at(i);
+                ReadBuffer read_buffer((char*)(val.data), val.size);
+                RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
+            }
+            block.replace_by_position(result, std::move(col_to));
+        } else {
+            return Status::RuntimeError(fmt::format(
+                    "Illegal column {} of first argument of conversion function from string",
+                    col_from.get_name()));
+        }
+        return Status::OK();
+    }
+};
+
 template <typename ToDataType, typename Name>
 struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
@@ -518,7 +552,6 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-    bool can_be_executed_on_default_arguments() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -694,7 +727,6 @@ protected:
         if (arguments.size() > 2)
             new_arguments.insert(std::end(new_arguments), std::next(std::begin(arguments), 2),
                                  std::end(arguments));
-
         return wrapper_function(context, block, new_arguments, result, input_rows_count);
     }
 
@@ -719,11 +751,7 @@ struct ConvertThroughParsing {
 
     using ToFieldType = typename ToDataType::FieldType;
 
-    static bool is_all_read(ReadBuffer& in) {
-        if (in.eof()) return true;
-
-        return false;
-    }
+    static bool is_all_read(ReadBuffer& in) { return in.eof(); }
 
     template <typename Additions = void*>
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
@@ -780,19 +808,9 @@ struct ConvertThroughParsing {
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            {
-                bool parsed;
-
-                {
-                    parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
-
-                    parsed = parsed && is_all_read(read_buffer);
-                }
-
-                if (!parsed) vec_to[i] = 0;
-
-                (*vec_null_map_to)[i] = !parsed;
-            }
+            (*vec_null_map_to)[i] =
+                    !try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone) ||
+                    !is_all_read(read_buffer);
 
             current_offset = next_offset;
         }
@@ -837,27 +855,16 @@ public:
                         size_t result, size_t input_rows_count) override {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
-        bool ok = true;
-
-        {
-            if (check_and_get_data_type<DataTypeString>(from_type)) {
-                return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                        block, arguments, result, input_rows_count);
-            }
-
-            else
-                ok = false;
+        if (check_and_get_data_type<DataTypeString>(from_type)) {
+            return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
+                    block, arguments, result, input_rows_count);
         }
 
-        if (!ok) {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal type {} of argument of function {} . Only String or FixedString "
-                    "argument is accepted for try-conversion function. For other arguments, use "
-                    "function without 'orZero' or 'orNull'.",
-                    block.get_by_position(arguments[0]).type->get_name(), get_name()));
-        }
-
-        return Status::OK();
+        return Status::RuntimeError(fmt::format(
+                "Illegal type {} of argument of function {} . Only String or FixedString "
+                "argument is accepted for try-conversion function. For other arguments, use "
+                "function without 'orZero' or 'orNull'.",
+                block.get_by_position(arguments[0]).type->get_name(), get_name()));
     }
 };
 
@@ -878,8 +885,7 @@ public:
     // This function should not be called for get DateType Ptr
     // using the FunctionCast::get_return_type_impl
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        auto res = std::make_shared<ToDataType>();
-        return res;
+        return std::make_shared<ToDataType>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -966,8 +972,9 @@ private:
                    !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                      check_and_get_data_type<DataTypeDate>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
-        } else
+        } else {
             function = FunctionTo<DataType>::Type::create();
+        }
 
         /// Check conversion using underlying function
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
@@ -1066,6 +1073,70 @@ private:
         };
     }
 
+    WrapperType create_array_wrapper(const DataTypePtr& from_type_untyped,
+                                     const DataTypeArray& to_type) const {
+        /// Conversion from String through parsing.
+        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+            return &ConvertImplGenericFromString<ColumnString>::execute;
+        }
+
+        const auto* from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
+
+        if (!from_type) {
+            LOG(FATAL) << "CAST AS Array can only be performed between same-dimensional Array, "
+                          "String types";
+        }
+
+        DataTypePtr from_nested_type = from_type->get_nested_type();
+
+        /// In query SELECT CAST([] AS Array(Array(String))) from type is Array(Nothing)
+        bool from_empty_array = is_nothing(from_nested_type);
+
+        if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
+            !from_empty_array) {
+            LOG(FATAL)
+                    << "CAST AS Array can only be performed between same-dimensional array types";
+        }
+
+        const DataTypePtr& to_nested_type = to_type.get_nested_type();
+
+        /// Prepare nested type conversion
+        const auto nested_function = prepare_unpack_dictionaries(from_nested_type, to_nested_type);
+
+        return [nested_function, from_nested_type, to_nested_type](
+                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                       const size_t result, size_t /*input_rows_count*/) -> Status {
+            auto& from_column = block.get_by_position(arguments.front()).column;
+
+            const ColumnArray* from_col_array =
+                    check_and_get_column<ColumnArray>(from_column.get());
+
+            if (from_col_array) {
+                /// create columns for converting nested column containing original and result columns
+                ColumnWithTypeAndName from_nested_column {from_col_array->get_data_ptr(),
+                                                          from_nested_type, ""};
+
+                /// convert nested column
+                ColumnNumbers new_arguments {block.columns()};
+                block.insert(from_nested_column);
+
+                size_t nested_result = block.columns();
+                block.insert({to_nested_type, ""});
+                RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
+                                                from_col_array->get_data_ptr()->size()));
+                auto nested_result_column = block.get_by_position(nested_result).column;
+
+                /// set converted nested column to result
+                block.get_by_position(result).column = ColumnArray::create(
+                        nested_result_column, from_col_array->get_offsets_ptr());
+            } else {
+                return Status::RuntimeError(fmt::format(
+                        "Illegal column {} for function CAST AS Array", from_column->get_name()));
+            }
+            return Status::OK();
+        };
+    }
+
     WrapperType prepare_unpack_dictionaries(const DataTypePtr& from_type,
                                             const DataTypePtr& to_type) const {
         const auto& from_nested = from_type;
@@ -1085,7 +1156,7 @@ private:
             };
         }
 
-        bool skip_not_null_check = false;
+        constexpr bool skip_not_null_check = false;
 
         auto wrapper = prepare_remove_nullable(from_nested, to_nested, skip_not_null_check);
 
@@ -1095,7 +1166,6 @@ private:
     WrapperType prepare_remove_nullable(const DataTypePtr& from_type, const DataTypePtr& to_type,
                                         bool skip_not_null_check) const {
         /// Determine whether pre-processing and/or post-processing must take place during conversion.
-
         bool source_is_nullable = from_type->is_nullable();
         bool result_is_nullable = to_type->is_nullable();
 
@@ -1122,7 +1192,8 @@ private:
                 tmp_block.insert({nullptr, nested_type, ""});
 
                 /// Perform the requested conversion.
-                wrapper(context, tmp_block, arguments, tmp_res_index, input_rows_count);
+                RETURN_IF_ERROR(
+                        wrapper(context, tmp_block, arguments, tmp_res_index, input_rows_count));
 
                 const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
 
@@ -1161,7 +1232,7 @@ private:
                     }
                 }
 
-                wrapper(context, tmp_block, arguments, result, input_rows_count);
+                RETURN_IF_ERROR(wrapper(context, tmp_block, arguments, result, input_rows_count));
                 block.get_by_position(result).column = tmp_block.get_by_position(result).column;
                 return Status::OK();
             };
@@ -1219,7 +1290,8 @@ private:
         switch (to_type->get_type_id()) {
         case TypeIndex::String:
             return create_string_wrapper(from_type);
-
+        case TypeIndex::Array:
+            return create_array_wrapper(from_type, static_cast<const DataTypeArray&>(*to_type));
         default:
             break;
         }
@@ -1264,8 +1336,8 @@ protected:
             LOG(FATAL) << fmt::format(
                     "Second argument to {} must be a constant string describing type", get_name());
         }
-
         auto type = DataTypeFactory::instance().get(type_col->get_value<String>());
+        DCHECK(type != nullptr);
 
         bool need_to_be_nullable = false;
         // 1. from_type is nullable

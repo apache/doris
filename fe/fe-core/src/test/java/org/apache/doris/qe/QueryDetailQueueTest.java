@@ -17,14 +17,8 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-
-import org.apache.doris.qe.QueryDetail;
-import org.apache.doris.qe.QueryDetailQueue;
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.List;
@@ -39,19 +33,19 @@ public class QueryDetailQueueTest {
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         List<QueryDetail> queryDetails = QueryDetailQueue.getQueryDetails(eventTime);
-        Assert.assertTrue(queryDetails.size() == 0); 
+        Assert.assertTrue(queryDetails.size() == 0);
 
         queryDetails = QueryDetailQueue.getQueryDetails(eventTime - 1);
-        Assert.assertTrue(queryDetails.size() == 1); 
+        Assert.assertTrue(queryDetails.size() == 1);
 
         Gson gson = new Gson();
-        String json_string = gson.toJson(queryDetails);
-        String query_detail_string = "[{\"eventTime\":1592208814796," 
+        String jsonString = gson.toJson(queryDetails);
+        String queryDetailString = "[{\"eventTime\":1592208814796,"
                                      + "\"queryId\":\"219a2d5443c542d4-8fc938db37c892e3\","
                                      + "\"startTime\":1592208814796,\"endTime\":-1,\"latency\":-1,"
                                      + "\"state\":\"RUNNING\",\"database\":\"testDb\","
                                      + "\"sql\":\"select * from table1 limit 1\"}]";
-        Assert.assertEquals(json_string, query_detail_string);
+        Assert.assertEquals(jsonString, queryDetailString);
 
         queryDetail.setEventTime(eventTime + 1);
         queryDetail.setEndTime(eventTime + 1);
@@ -60,14 +54,14 @@ public class QueryDetailQueueTest {
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         queryDetails = QueryDetailQueue.getQueryDetails(eventTime);
-        Assert.assertTrue(queryDetails.size() == 1); 
+        Assert.assertTrue(queryDetails.size() == 1);
 
-        json_string = gson.toJson(queryDetails);
-        query_detail_string = "[{\"eventTime\":1592208814797," 
+        jsonString = gson.toJson(queryDetails);
+        queryDetailString = "[{\"eventTime\":1592208814797,"
                               + "\"queryId\":\"219a2d5443c542d4-8fc938db37c892e3\","
                               + "\"startTime\":1592208814796,\"endTime\":1592208814797,"
                               + "\"latency\":1,\"state\":\"FINISHED\",\"database\":\"testDb\","
                               + "\"sql\":\"select * from table1 limit 1\"}]";
-        Assert.assertEquals(json_string, query_detail_string);
+        Assert.assertEquals(jsonString, queryDetailString);
     }
 }

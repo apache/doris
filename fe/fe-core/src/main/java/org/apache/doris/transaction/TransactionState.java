@@ -33,7 +33,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -540,8 +539,10 @@ public class TransactionState implements Writable {
 
     // return true if txn is running but timeout
     public boolean isTimeout(long currentMillis) {
-        return (transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs) ||
-                (transactionStatus == TransactionStatus.PRECOMMITTED && currentMillis - preCommitTime > preCommittedTimeoutMs);
+        return (transactionStatus == TransactionStatus.PREPARE
+                && currentMillis - prepareTime > timeoutMs)
+                || (transactionStatus == TransactionStatus.PRECOMMITTED
+                && currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
     public synchronized void addTableIndexes(OlapTable table) {

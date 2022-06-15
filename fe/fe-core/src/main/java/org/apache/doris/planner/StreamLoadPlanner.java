@@ -33,8 +33,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -54,11 +54,10 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -111,7 +110,7 @@ public class StreamLoadPlanner {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
         }
         if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND
-                && !destTable.hasDeleteSign() ) {
+                && !destTable.hasDeleteSign()) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 

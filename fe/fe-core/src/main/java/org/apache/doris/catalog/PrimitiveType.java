@@ -57,7 +57,7 @@ public enum PrimitiveType {
 
     ARRAY("ARRAY", 24, TPrimitiveType.ARRAY),
     MAP("MAP", 24, TPrimitiveType.MAP),
-    STRUCT("MAP", 24, TPrimitiveType.STRUCT),
+    STRUCT("STRUCT", 24, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
@@ -293,11 +293,11 @@ public enum PrimitiveType {
 
         // BITMAP
         builder.put(BITMAP, BITMAP);
-        
+
         // QUANTILE_STATE
         builder.put(QUANTILE_STATE, QUANTILE_STATE);
 
-        //TIME
+        // TIME
         builder.put(TIME, TIME);
         builder.put(TIME, DOUBLE);
 
@@ -535,7 +535,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        
+
         compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 
@@ -715,7 +715,7 @@ public enum PrimitiveType {
         return (this == DATE || this == DATETIME);
     }
 
-    public boolean isArrayType(){
+    public boolean isArrayType() {
         return this == ARRAY;
     }
 

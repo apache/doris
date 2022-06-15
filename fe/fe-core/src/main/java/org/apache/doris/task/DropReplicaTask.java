@@ -22,21 +22,28 @@ import org.apache.doris.thrift.TTaskType;
 
 public class DropReplicaTask extends AgentTask {
     private int schemaHash; // set -1L as unknown
+    private long replicaId;
 
-    public DropReplicaTask(long backendId, long tabletId, int schemaHash) {
+    public DropReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash) {
         super(null, backendId, TTaskType.DROP, -1L, -1L, -1L, -1L, tabletId);
         this.schemaHash = schemaHash;
+        this.replicaId = replicaId;
     }
-    
+
     public TDropTabletReq toThrift() {
         TDropTabletReq request = new TDropTabletReq(tabletId);
         if (this.schemaHash != -1) {
             request.setSchemaHash(schemaHash);
         }
+        request.setReplicaId(replicaId);
         return request;
     }
 
     public int getSchemaHash() {
         return schemaHash;
+    }
+
+    public long getReplicaId() {
+        return replicaId;
     }
 }

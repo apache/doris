@@ -62,7 +62,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -247,8 +246,8 @@ public class MaterializedViewHandler extends AlterHandler {
                     Map<String, String> properties = addRollupClause.getProperties();
                     if (properties == null || !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)
                             || !properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
-                        throw new DdlException("Table[" + olapTable.getName() + "] can not " +
-                                "add segment v2 rollup index without setting storage format to v2.");
+                        throw new DdlException("Table[" + olapTable.getName() + "] can not "
+                                + "add segment v2 rollup index without setting storage format to v2.");
                     }
                     rollupIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
                     changeStorageFormat = true;
@@ -462,8 +461,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
                 if (baseAggregationType != mvAggregationType) {
                     throw new DdlException(
-                            "The aggregation type of column[" + mvColumnName + "] must be same as the aggregate " +
-                                    "type of base column in aggregate table");
+                            "The aggregation type of column[" + mvColumnName + "] must be same as the aggregate "
+                                    + "type of base column in aggregate table");
                 }
                 if (baseAggregationType != null && baseAggregationType.isReplaceFamily() && olapTable
                         .getKeysNum() != numOfKeys) {
@@ -832,7 +831,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = catalog.getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
             for (Partition partition : olapTable.getPartitions()) {
@@ -879,7 +878,7 @@ public class MaterializedViewHandler extends AlterHandler {
     private void changeTableStatus(long dbId, long tableId, OlapTableState olapTableState) {
         try {
             Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-            OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
             olapTable.writeLockOrMetaException();
             try {
                 if (olapTable.getState() == olapTableState) {
@@ -1036,7 +1035,7 @@ public class MaterializedViewHandler extends AlterHandler {
         List<AlterJobV2> rollupJobV2List = new ArrayList<>();
         OlapTable olapTable;
         try {
-            olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+            olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
@@ -1051,8 +1050,9 @@ public class MaterializedViewHandler extends AlterHandler {
             if (cancelAlterTableStmt.getAlterJobIdList() != null) {
                 for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
-                    if (alterJobV2 == null)
+                    if (alterJobV2 == null) {
                         continue;
+                    }
                     rollupJobV2List.add(getUnfinishedAlterJobV2ByJobId(jobId));
                 }
             } else {

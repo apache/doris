@@ -24,11 +24,10 @@ import com.google.common.collect.BoundType;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
-
-import java.util.Set;
-
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.Set;
 
 public class RangeCompareTest {
 
@@ -64,7 +63,7 @@ public class RangeCompareTest {
         LiteralExpr upperBoundOfRange2 = new IntLiteral(1);
         Range<LiteralExpr> range2 = Range.lessThan(upperBoundOfRange2);
         try {
-            Range<LiteralExpr> intersectionRange = range1.intersection(range2);
+            range1.intersection(range2);
             Assert.fail();
         } catch (IllegalArgumentException e) {
             System.out.println(e);
@@ -81,7 +80,7 @@ public class RangeCompareTest {
         LiteralExpr upperBoundOfRange2 = new DecimalLiteral("0.1");
         Range<LiteralExpr> range2 = Range.lessThan(upperBoundOfRange2);
         try {
-            Range<LiteralExpr> intersectionRange = range1.intersection(range2);
+            range1.intersection(range2);
             Assert.fail();
         } catch (IllegalArgumentException e) {
             System.out.println(e);

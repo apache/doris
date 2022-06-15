@@ -27,7 +27,6 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -194,7 +193,6 @@ public class DecimalLiteral extends LiteralExpr {
     protected void toThrift(TExprNode msg) {
         // TODO(hujie01) deal with loss information
         msg.node_type = TExprNodeType.DECIMAL_LITERAL;
-        BigDecimal v = new BigDecimal(value.toBigInteger());
         msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 
@@ -250,6 +248,8 @@ public class DecimalLiteral extends LiteralExpr {
             return new IntLiteral(value.longValue(), targetType);
         } else if (targetType.isStringType()) {
             return new StringLiteral(value.toString());
+        } else if (targetType.isLargeIntType()) {
+            return new LargeIntLiteral(value.toBigInteger().toString());
         }
         return super.uncheckedCastTo(targetType);
     }

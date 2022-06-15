@@ -35,17 +35,22 @@ import java.util.List;
 public class ArrayLiteral extends LiteralExpr {
 
     public ArrayLiteral() {
-        this.type = new ArrayType(Type.NULL);
+        type = new ArrayType(Type.NULL, false);
         children = new ArrayList<>();
     }
 
     public ArrayLiteral(LiteralExpr... v) {
-        if (v.length < 1) {
-            this.type = new ArrayType(Type.NULL);
-            return;
+        Type itemType = Type.NULL;
+        boolean containsNull = false;
+        for (LiteralExpr expr : v) {
+            if (itemType == Type.NULL || expr.type.getSlotSize() > itemType.getSlotSize()) {
+                itemType = expr.type;
+            }
+            if (expr.isNullable()) {
+                containsNull = true;
+            }
         }
-
-        this.type = new ArrayType(v[0].type);
+        type = new ArrayType(itemType, containsNull);
         children = new ArrayList<>(v.length);
         children.addAll(Arrays.asList(v));
     }
@@ -68,6 +73,14 @@ public class ArrayLiteral extends LiteralExpr {
     protected String toSqlImpl() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl()));
+
+        return "ARRAY(" + StringUtils.join(list, ", ") + ")";
+    }
+
+    @Override
+    public String toDigestImpl() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.toDigestImpl()));
 
         return "ARRAY(" + StringUtils.join(list, ", ") + ")";
     }
@@ -124,7 +137,7 @@ public class ArrayLiteral extends LiteralExpr {
         ArrayLiteral literal = new ArrayLiteral(this);
         for (int i = 0; i < children.size(); ++ i) {
             Expr child = children.get(i);
-            literal.children.set(i, child.uncheckedCastTo(((ArrayType)targetType).getItemType()));
+            literal.children.set(i, child.uncheckedCastTo(((ArrayType) targetType).getItemType()));
         }
         literal.setType(targetType);
         return literal;

@@ -31,10 +31,12 @@
 //
 // Implementation of InstallFailureSignalHandler().
 
-#include <boost/stacktrace.hpp>
+#pragma once
+
 #include <glog/logging.h>
 #include <gutil/macros.h>
 
+#include <boost/stacktrace.hpp>
 #include <csignal>
 #include <ctime>
 #ifdef HAVE_UCONTEXT_H

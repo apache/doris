@@ -23,16 +23,15 @@
 #include "olap/storage_engine.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris::vectorized {
 
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
-        AggregateFunctionPtr function = _agg_functions[i];
-        AggregateDataPtr place = _agg_places[i];
-        function->destroy(place);
-        delete[] place;
+        _agg_functions[i]->destroy(_agg_places[i]);
+        delete[] _agg_places[i];
     }
 }
 
@@ -55,7 +54,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         Status res = _vcollect_iter.add_child(rs_reader);
-        if (!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
@@ -64,10 +63,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
         }
     }
 
-    _vcollect_iter.build_heap(*valid_rs_readers);
+    RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
     if (_vcollect_iter.is_merge()) {
         auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status == Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        _eof = status.precise_code() == OLAP_ERR_DATA_EOF;
     }
 
     return Status::OK();
@@ -85,22 +84,11 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     auto& tablet_schema = tablet()->tablet_schema();
     for (auto idx : _agg_columns_idx) {
-        FieldAggregationMethod agg_method =
+        AggregateFunctionPtr function =
                 tablet_schema
                         .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
-                        .aggregation();
-        std::string agg_name =
-                TabletColumn::get_string_by_aggregation_type(agg_method) + AGG_READER_SUFFIX;
-        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-
-        // create aggregate function
-        DataTypes argument_types;
-        argument_types.push_back(_next_row.block->get_data_type(idx));
-        Array params;
-        AggregateFunctionPtr function = AggregateFunctionSimpleFactory::instance().get(
-                agg_name, argument_types, params,
-                _next_row.block->get_data_type(idx)->is_nullable());
+                        .get_aggregate_function({_next_row.block->get_data_type(idx)},
+                                                vectorized::AGG_READER_SUFFIX);
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data
@@ -172,10 +160,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
 Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                        bool* eof) {
     auto res = _vcollect_iter.next(block);
-    if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+    if (UNLIKELY(!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF)) {
         return res;
     }
-    *eof = res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+    *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
     return Status::OK();
 }
 
@@ -201,7 +189,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
 
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+        if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
             *eof = true;
             break;
         }
@@ -252,7 +240,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+        if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
             *eof = true;
             break;
         }

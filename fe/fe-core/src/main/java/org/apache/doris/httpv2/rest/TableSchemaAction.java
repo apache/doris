@@ -41,7 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -67,7 +66,7 @@ public class TableSchemaAction extends RestBaseController {
             OlapTable table;
             try {
                 Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
-                table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+                table = (OlapTable) db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }

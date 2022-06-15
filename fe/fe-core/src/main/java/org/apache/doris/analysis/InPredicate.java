@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,7 +50,7 @@ public class InPredicate extends Predicate {
 
     private static final String IN_SET_LOOKUP = "in_set_lookup";
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
-    private static final String IN_ITERATE= "in_iterate";
+    private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     private final boolean isNotIn;
     private static final String IN = "in";
@@ -60,13 +59,17 @@ public class InPredicate extends Predicate {
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue;
+        for (Type t : Type.getSupportedTypes()) {
+            if (t.isNull()) {
+                continue;
+            }
             // TODO we do not support codegen for CHAR and the In predicate must be codegened
             // because it has variable number of arguments. This will force CHARs to be
             // cast up to strings; meaning that "in" comparisons will not have CHAR comparison
             // semantics.
-            if (t.getPrimitiveType() == PrimitiveType.CHAR) continue;
+            if (t.getPrimitiveType() == PrimitiveType.CHAR) {
+                continue;
+            }
 
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 
@@ -126,8 +129,7 @@ public class InPredicate extends Predicate {
      */
     @Override
     public Expr negate() {
-      return new InPredicate(getChild(0), children.subList(1, children.size()),
-          !isNotIn);
+        return new InPredicate(getChild(0), children.subList(1, children.size()), !isNotIn);
     }
 
     public List<Expr> getListChildren() {
@@ -147,35 +149,24 @@ public class InPredicate extends Predicate {
         return true;
     }
 
-   @Override
-   public void vectorizedAnalyze(Analyzer analyzer) {
+    @Override
+    public void vectorizedAnalyze(Analyzer analyzer) {
         super.vectorizedAnalyze(analyzer);
-
-       PrimitiveType type = getChild(0).getType().getPrimitiveType();
-
-//       OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
-//               FunctionOperator.FILTER_IN, true, true, type);
-//       Preconditions.checkState(match != null);
-//       Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
-//       this.vectorOpcode = match.opcode;
-//       LOG.info(debugString() + " opcode: " + vectorOpcode);
-   }
+    }
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        
+
         if (contains(Subquery.class)) {
             // An [NOT] IN predicate with a subquery must contain two children, the second of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
-                throw new AnalysisException("Unsupported IN predicate with a subquery: " +
-                    toSql());
-            } 
-            Subquery subquery = (Subquery)getChild(1);
+                throw new AnalysisException("Unsupported IN predicate with a subquery: " + toSql());
+            }
+            Subquery subquery = (Subquery) getChild(1);
             if (!subquery.returnsScalarColumn()) {
-                throw new AnalysisException("Subquery must return a single column: " +
-                subquery.toSql());
+                throw new AnalysisException("Subquery must return a single column: " + subquery.toSql());
             }
 
             // Ensure that the column in the lhs of the IN predicate and the result of
@@ -263,6 +254,19 @@ public class InPredicate extends Predicate {
         strBuilder.append(getChild(0).toSql() + " " + notStr + "IN (");
         for (int i = 1; i < children.size(); ++i) {
             strBuilder.append(getChild(i).toSql());
+            strBuilder.append((i + 1 != children.size()) ? ", " : "");
+        }
+        strBuilder.append(")");
+        return strBuilder.toString();
+    }
+
+    @Override
+    public String toDigestImpl() {
+        StringBuilder strBuilder = new StringBuilder();
+        String notStr = (isNotIn) ? "NOT " : "";
+        strBuilder.append(getChild(0).toDigest() + " " + notStr + "IN (");
+        for (int i = 1; i < children.size(); ++i) {
+            strBuilder.append(getChild(i).toDigest());
             strBuilder.append((i + 1 != children.size()) ? ", " : "");
         }
         strBuilder.append(")");

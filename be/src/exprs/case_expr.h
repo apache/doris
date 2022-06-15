@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/case-expr.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_CASE_EXPR_H
-#define DORIS_BE_SRC_QUERY_EXPRS_CASE_EXPR_H
+#pragma once
 
 #include <string>
 
@@ -39,6 +38,7 @@ public:
     virtual SmallIntVal get_small_int_val(ExprContext* ctx, TupleRow* row) override;
     virtual IntVal get_int_val(ExprContext* ctx, TupleRow* row) override;
     virtual BigIntVal get_big_int_val(ExprContext* ctx, TupleRow* row) override;
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
     virtual FloatVal get_float_val(ExprContext* ctx, TupleRow* row) override;
     virtual DoubleVal get_double_val(ExprContext* ctx, TupleRow* row) override;
     virtual StringVal get_string_val(ExprContext* ctx, TupleRow* row) override;
@@ -79,5 +79,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

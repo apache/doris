@@ -45,7 +45,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.parquet.Strings;
@@ -450,8 +449,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             if (!isThisRoundChanged) {
                 // if all backends are checked but this round is not changed,
                 // we should end the loop
-                LOG.info("all backends are checked but this round is not changed, " +
-                        "end outer loop in colocate group {}", groupId);
+                LOG.info("all backends are checked but this round is not changed, "
+                        + "end outer loop in colocate group {}", groupId);
                 break;
             }
             // end inner loop

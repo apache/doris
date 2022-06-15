@@ -6206,7 +6206,7 @@ by an original code donated by Sébastien Brisard.
 ===============================================================================
 
 
-The complete text of licenses and disclaimers associated with the the original
+The complete text of licenses and disclaimers associated with the original
 sources enumerated above at the time of code translation are in the LICENSE.txt
 file.
 

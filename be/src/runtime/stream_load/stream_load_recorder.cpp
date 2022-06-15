@@ -20,7 +20,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "rocksdb/db.h"
-
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"

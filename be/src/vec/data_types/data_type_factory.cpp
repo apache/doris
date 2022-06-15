@@ -108,8 +108,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_ARRAY:
         DCHECK(col_desc.children.size() == 1);
-        nested =
-                std::make_shared<vectorized::DataTypeArray>(create_data_type(col_desc.children[0]));
+        nested = std::make_shared<vectorized::DataTypeArray>(
+                create_data_type(col_desc.children[0], col_desc.contains_null));
         break;
     case INVALID_TYPE:
     default:
@@ -255,6 +255,74 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     }
 
     if (nested && pcolumn.is_nullable() > 0) {
+        return std::make_shared<vectorized::DataTypeNullable>(nested);
+    }
+    return nested;
+}
+
+DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool is_nullable) {
+    DataTypePtr nested = nullptr;
+    switch (type->id()) {
+    case ::arrow::Type::BOOL:
+        nested = std::make_shared<vectorized::DataTypeUInt8>();
+        break;
+    case ::arrow::Type::INT8:
+        nested = std::make_shared<vectorized::DataTypeInt8>();
+        break;
+    case ::arrow::Type::UINT8:
+        nested = std::make_shared<vectorized::DataTypeUInt8>();
+        break;
+    case ::arrow::Type::INT16:
+        nested = std::make_shared<vectorized::DataTypeInt16>();
+        break;
+    case ::arrow::Type::UINT16:
+        nested = std::make_shared<vectorized::DataTypeUInt16>();
+        break;
+    case ::arrow::Type::INT32:
+        nested = std::make_shared<vectorized::DataTypeInt32>();
+        break;
+    case ::arrow::Type::UINT32:
+        nested = std::make_shared<vectorized::DataTypeUInt32>();
+        break;
+    case ::arrow::Type::INT64:
+        nested = std::make_shared<vectorized::DataTypeInt64>();
+        break;
+    case ::arrow::Type::UINT64:
+        nested = std::make_shared<vectorized::DataTypeUInt64>();
+        break;
+    case ::arrow::Type::HALF_FLOAT:
+    case ::arrow::Type::FLOAT:
+        nested = std::make_shared<vectorized::DataTypeFloat32>();
+        break;
+    case ::arrow::Type::DOUBLE:
+        nested = std::make_shared<vectorized::DataTypeFloat64>();
+        break;
+    case ::arrow::Type::DATE32:
+        nested = std::make_shared<vectorized::DataTypeDate>();
+        break;
+    case ::arrow::Type::DATE64:
+    case ::arrow::Type::TIMESTAMP:
+        nested = std::make_shared<vectorized::DataTypeDateTime>();
+        break;
+    case ::arrow::Type::BINARY:
+    case ::arrow::Type::FIXED_SIZE_BINARY:
+    case ::arrow::Type::STRING:
+        nested = std::make_shared<vectorized::DataTypeString>();
+        break;
+    case ::arrow::Type::DECIMAL:
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>();
+        break;
+    case ::arrow::Type::LIST:
+        DCHECK(type->num_fields() == 1);
+        nested = std::make_shared<vectorized::DataTypeArray>(
+                create_data_type(type->field(0)->type().get(), true));
+        break;
+    default:
+        DCHECK(false) << "invalid arrow type:" << (int)(type->id());
+        break;
+    }
+
+    if (nested && is_nullable) {
         return std::make_shared<vectorized::DataTypeNullable>(nested);
     }
     return nested;

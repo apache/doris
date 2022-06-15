@@ -29,18 +29,17 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang.StringUtils;
-
-import java.io.File;
-import java.util.List;
-import java.util.UUID;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.File;
+import java.util.List;
+import java.util.UUID;
+
 public class ColocatePlanTest {
-    private static final String COLOCATE_ENABLE = "colocate: true";
+    public static final String COLOCATE_ENABLE = "COLOCATE";
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 

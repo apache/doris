@@ -21,34 +21,26 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.DorisAssert;
+import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.util.UUID;
-
-public class AggregateTest {
-
-    private static String baseDir = "fe";
-    private static String runningDir = baseDir + "/mocked/AggregateTest/"
-            + UUID.randomUUID().toString() + "/";
+public class AggregateTest extends TestWithFeService {
     private static final String TABLE_NAME = "table1";
     private static final String DB_NAME = "db1";
     private static DorisAssert dorisAssert;
 
-    @BeforeClass
-    public static void beforeClass() throws Exception{
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
-        String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, " +
-                "deptno int, salary int, commission int, time DATETIME) "
+        String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, "
+                + "deptno int, salary int, commission int, time DATETIME) "
                 + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
-        dorisAssert.withTable(createTableSQL);
+        createTable(createTableSQL);
     }
 
     /**
@@ -98,20 +90,20 @@ public class AggregateTest {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
 
         // normal.
-        {
-            String query = "select empid, window_funnel(1, 'default', time, empid = 1, empid = 2) from " +
-                           DB_NAME + "." + TABLE_NAME + " group by empid";
+        { // CHECKSTYLE IGNORE THIS LINE
+            String query = "select empid, window_funnel(1, 'default', time, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
             }
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // less argument.
         do {
-            String query = "select empid, window_funnel(1, 'default', time) from " +
-                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select empid, window_funnel(1, 'default', time) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
@@ -121,12 +113,12 @@ public class AggregateTest {
                 Assert.fail("must be AnalysisException.");
             }
             Assert.fail("must be AnalysisException.");
-        } while(false);
+        } while (false);
 
         // argument with wrong type.
         do {
-            String query = "select empid, window_funnel('xx', 'default', time, empid = 1) from " +
-                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select empid, window_funnel('xx', 'default', time, empid = 1) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
@@ -136,11 +128,11 @@ public class AggregateTest {
                 Assert.fail("must be AnalysisException.");
             }
             Assert.fail("must be AnalysisException.");
-        } while(false);
+        } while (false);
 
         do {
-            String query = "select empid, window_funnel(1, 1, time, empid = 1) from " +
-                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select empid, window_funnel(1, 1, time, empid = 1) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
@@ -150,12 +142,12 @@ public class AggregateTest {
                 Assert.fail("must be AnalysisException.");
             }
             Assert.fail("must be AnalysisException.");
-        } while(false);
+        } while (false);
 
 
         do {
-            String query = "select empid, window_funnel(1, '1', empid, '1') from " +
-                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select empid, window_funnel(1, '1', empid, '1') from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
@@ -165,11 +157,11 @@ public class AggregateTest {
                 Assert.fail("must be AnalysisException.");
             }
             Assert.fail("must be AnalysisException.");
-        } while(false);
+        } while (false);
 
         do {
-            String query = "select empid, window_funnel(1, '1', time, '1') from " +
-                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select empid, window_funnel(1, '1', time, '1') from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
@@ -179,11 +171,6 @@ public class AggregateTest {
                 Assert.fail("must be AnalysisException.");
             }
             Assert.fail("must be AnalysisException.");
-        } while(false);
-    }
-
-    @AfterClass
-    public static void afterClass() throws Exception {
-        UtFrameUtils.cleanDorisFeDir(baseDir);
+        } while (false);
     }
 }

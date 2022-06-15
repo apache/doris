@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
+#pragma once
 
 #include <list>
 #include <memory>
@@ -33,9 +32,9 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
-#include "olap/tuple_reader.h"
 #include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
+#include "olap/tuple_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "runtime/vectorized_row_batch.h"
@@ -61,7 +60,7 @@ public:
 
     virtual Status get_batch(RuntimeState* state, RowBatch* batch, bool* eof);
 
-    Status close(RuntimeState* state);
+    virtual Status close(RuntimeState* state);
 
     RuntimeState* runtime_state() { return _runtime_state; }
 
@@ -155,5 +154,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

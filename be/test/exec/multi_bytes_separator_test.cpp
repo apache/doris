@@ -23,10 +23,10 @@
 
 #include "common/object_pool.h"
 #include "exec/broker_scanner.h"
-#include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/local_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -37,7 +37,10 @@ namespace doris {
 
 class MultiBytesSeparatorTest : public testing::Test {
 public:
-    MultiBytesSeparatorTest() {}
+    MultiBytesSeparatorTest() : _runtime_state(TQueryGlobals()) {}
+
+private:
+    RuntimeState _runtime_state;
 
 protected:
     virtual void SetUp() {}
@@ -56,8 +59,8 @@ TEST_F(MultiBytesSeparatorTest, normal) {
     const std::vector<TBrokerRangeDesc> ranges;
     const std::vector<TNetworkAddress> broker_addresses;
     const std::vector<TExpr> pre_filter_texprs;
-    BrokerScanner scanner(nullptr, nullptr, params, ranges, broker_addresses, pre_filter_texprs,
-                          nullptr);
+    BrokerScanner scanner(&_runtime_state, nullptr, params, ranges, broker_addresses,
+                          pre_filter_texprs, nullptr);
 
 #define private public
 

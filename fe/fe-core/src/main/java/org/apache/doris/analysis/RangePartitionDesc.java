@@ -39,8 +39,8 @@ public class RangePartitionDesc extends PartitionDesc {
 
     @Override
     public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
-        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED &&
-                partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
+        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED
+                && partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
             throw new AnalysisException("You can only use fixed or less than values to create range partitions");
         }
     }
@@ -58,7 +58,7 @@ public class RangePartitionDesc extends PartitionDesc {
             idx++;
         }
         sb.append(")\n(\n");
-        
+
         for (int i = 0; i < singlePartitionDescs.size(); i++) {
             if (i != 0) {
                 sb.append(",\n");

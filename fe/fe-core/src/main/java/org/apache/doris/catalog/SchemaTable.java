@@ -67,7 +67,7 @@ public class SchemaTable extends Table {
     // like 'show table where_clause'. If we decide to support it, we must mock these related table here.
     public static Map<String, Table> TABLE_MAP =
             ImmutableMap
-                    .<String, Table> builder()
+                    .<String, Table>builder()
                     .put("tables", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "tables",
@@ -448,4 +448,3 @@ public class SchemaTable extends Table {
         return tTableDescriptor;
     }
 }
-

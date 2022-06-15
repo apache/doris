@@ -30,8 +30,8 @@
 #include "runtime/collection_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
 #include "runtime/string_value.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
@@ -157,7 +157,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
             for (auto slot : desc->string_slots()) {
                 DCHECK(slot->type().is_string_type());
                 StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
-                int offset = convert_to<int>(string_val->ptr);
+                int64_t offset = convert_to<int64_t>(string_val->ptr);
                 string_val->ptr = tuple_data + offset;
 
                 // Why we do this mask? Field len of StringValue is changed from int to size_t in
@@ -173,8 +173,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
 
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                CollectionValue::deserialize_collection(array_val, tuple_data,
-                                                        slot_collection->type());
+                const auto& item_type_desc = slot_collection->type().children[0];
+                CollectionValue::deserialize_collection(array_val, tuple_data, item_type_desc);
             }
         }
     }
@@ -210,7 +210,7 @@ RowBatch::~RowBatch() {
 }
 
 Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
-                           size_t* compressed_size, std::string* allocated_buf) {
+                           size_t* compressed_size, bool allow_transfer_large_data) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
@@ -225,19 +225,9 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
     // is_compressed
     output_batch->set_is_compressed(false);
     // tuple data
-    size_t size = total_byte_size();
-    std::string* mutable_tuple_data = nullptr;
-    if (allocated_buf != nullptr) {
-        allocated_buf->resize(size);
-        // all tuple data will be written in the allocated_buf
-        // instead of tuple_data in PRowBatch
-        mutable_tuple_data = allocated_buf;
-        // tuple_data is a required field
-        output_batch->set_tuple_data("");
-    } else {
-        mutable_tuple_data = output_batch->mutable_tuple_data();
-        mutable_tuple_data->resize(size);
-    }
+    size_t tuple_byte_size = total_byte_size();
+    std::string* mutable_tuple_data = output_batch->mutable_tuple_data();
+    mutable_tuple_data->resize(tuple_byte_size);
 
     // Copy tuple data, including strings, into output_batch (converting string
     // pointers into offsets in the process)
@@ -261,49 +251,51 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
             mutable_tuple_offsets->Add((int32_t)offset);
             mutable_new_tuple_offsets->Add(offset);
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
-            CHECK_LE(offset, size);
+            CHECK_LE(offset, tuple_byte_size);
         }
     }
-    CHECK_EQ(offset, size) << "offset: " << offset << " vs. size: " << size;
+    CHECK_EQ(offset, tuple_byte_size)
+            << "offset: " << offset << " vs. tuple_byte_size: " << tuple_byte_size;
 
-    if (config::compress_rowbatches && size > 0) {
+    size_t max_compressed_size = snappy::MaxCompressedLength(tuple_byte_size);
+    bool can_compress = config::compress_rowbatches && tuple_byte_size > 0;
+    if (can_compress) {
+        try {
+            // Allocation of extra-long contiguous memory may fail, and data compression cannot be used if it fails
+            _compression_scratch.resize(max_compressed_size);
+        } catch (...) {
+            can_compress = false;
+            std::exception_ptr p = std::current_exception();
+            LOG(WARNING) << "Try to alloc " << max_compressed_size
+                         << " bytes for compression scratch failed. "
+                         << (p ? p.__cxa_exception_type()->name() : "null");
+        }
+    }
+    if (can_compress) {
         // Try compressing tuple_data to _compression_scratch, swap if compressed data is
         // smaller
-        uint32_t max_compressed_size = snappy::MaxCompressedLength(size);
-
-        if (_compression_scratch.size() < max_compressed_size) {
-            _compression_scratch.resize(max_compressed_size);
-        }
-
         size_t compressed_size = 0;
         char* compressed_output = _compression_scratch.data();
-        snappy::RawCompress(mutable_tuple_data->data(), size, compressed_output, &compressed_size);
-
-        if (LIKELY(compressed_size < size)) {
+        snappy::RawCompress(mutable_tuple_data->data(), tuple_byte_size, compressed_output,
+                            &compressed_size);
+        if (LIKELY(compressed_size < tuple_byte_size)) {
             _compression_scratch.resize(compressed_size);
             mutable_tuple_data->swap(_compression_scratch);
             output_batch->set_is_compressed(true);
         }
 
-        VLOG_ROW << "uncompressed size: " << size << ", compressed size: " << compressed_size;
+        VLOG_ROW << "uncompressed tuple_byte_size: " << tuple_byte_size
+                 << ", compressed size: " << compressed_size;
     }
 
     // return compressed and uncompressed size
     size_t pb_size = get_batch_size(*output_batch);
-    if (allocated_buf == nullptr) {
-        *uncompressed_size = pb_size - mutable_tuple_data->size() + size;
-        *compressed_size = pb_size;
-        if (pb_size > std::numeric_limits<int32_t>::max()) {
-            // the protobuf has a hard limit of 2GB for serialized data.
-            return Status::InternalError(
-                    fmt::format("The rowbatch is large than 2GB({}), can not send by Protobuf. "
-                                "please set BE config 'transfer_data_by_brpc_attachment' to true "
-                                "and restart BE.",
-                                pb_size));
-        }
-    } else {
-        *uncompressed_size = pb_size + size;
-        *compressed_size = pb_size + mutable_tuple_data->size();
+    *uncompressed_size = pb_size - mutable_tuple_data->size() + tuple_byte_size;
+    *compressed_size = pb_size;
+    if (!allow_transfer_large_data && pb_size > std::numeric_limits<int32_t>::max()) {
+        // the protobuf has a hard limit of 2GB for serialized data.
+        return Status::InternalError(fmt::format(
+                "The rowbatch is large than 2GB({}), can not send by Protobuf.", pb_size));
     }
     return Status::OK();
 }
@@ -566,10 +558,10 @@ size_t RowBatch::total_byte_size() const {
                 if (tuple->is_null(slot_collection->null_indicator_offset())) {
                     continue;
                 }
-                // compute data null_signs size
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                result += array_val->get_byte_size(slot_collection->type());
+                const auto& item_type_desc = slot_collection->type().children[0];
+                result += array_val->get_byte_size(item_type_desc);
             }
         }
     }

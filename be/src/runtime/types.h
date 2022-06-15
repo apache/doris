@@ -18,28 +18,20 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/types.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_TYPES_H
-#define DORIS_BE_RUNTIME_TYPES_H
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "common/config.h"
-#include "gen_cpp/Types_types.h" // for TPrimitiveType
-#include "gen_cpp/types.pb.h"    // for PTypeDesc
-#include "olap/hll.h"
-#include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
-#include "thrift/protocol/TDebugProtocol.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 
 namespace doris {
+
+extern const int HLL_COLUMN_DEFAULT_LEN;
+
+struct TPrimitiveType;
+class PTypeDesc;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).
@@ -65,11 +57,14 @@ struct TypeDescriptor {
     /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
     static const int MAX_DECIMAL8_PRECISION = 18;
 
-    /// Empty for scalar types
+    // Empty for scalar types
     std::vector<TypeDescriptor> children;
 
-    /// Only set if type == TYPE_STRUCT. The field name of each child.
+    // Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
+
+    // Used for complex types only.
+    bool contains_null = true;
 
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
@@ -188,95 +183,9 @@ struct TypeDescriptor {
     bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
 
     /// Returns the byte size of this type.  Returns 0 for variable length types.
-    int get_byte_size() const {
-        switch (type) {
-        case TYPE_ARRAY:
-        case TYPE_MAP:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-        case TYPE_OBJECT:
-        case TYPE_QUANTILE_STATE:
-        case TYPE_STRING:
-            return 0;
+    int get_byte_size() const { return ::doris::get_byte_size(type); }
 
-        case TYPE_NULL:
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            return 1;
-
-        case TYPE_SMALLINT:
-            return 2;
-
-        case TYPE_INT:
-        case TYPE_FLOAT:
-            return 4;
-
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-            return 8;
-
-        case TYPE_LARGEINT:
-        case TYPE_DATETIME:
-        case TYPE_DATE:
-        case TYPE_DECIMALV2:
-            return 16;
-
-        case INVALID_TYPE:
-        default:
-            DCHECK(false);
-        }
-        return 0;
-    }
-
-    /// Returns the size of a slot for this type.
-    int get_slot_size() const {
-        switch (type) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-        case TYPE_OBJECT:
-        case TYPE_QUANTILE_STATE:
-        case TYPE_STRING:
-            return sizeof(StringValue);
-
-        case TYPE_NULL:
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            return 1;
-
-        case TYPE_SMALLINT:
-            return 2;
-
-        case TYPE_INT:
-        case TYPE_FLOAT:
-            return 4;
-
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_TIME:
-            return 8;
-
-        case TYPE_LARGEINT:
-            return sizeof(__int128);
-
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-            // This is the size of the slot, the actual size of the data is 12.
-            return sizeof(DateTimeValue);
-
-        case TYPE_DECIMALV2:
-            return 16;
-
-        case TYPE_ARRAY:
-            return sizeof(CollectionValue);
-
-        case INVALID_TYPE:
-        default:
-            DCHECK(false);
-        }
-        // For llvm complain
-        return -1;
-    }
+    int get_slot_size() const { return ::doris::get_slot_size(type); }
 
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);
@@ -308,5 +217,3 @@ private:
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
 
 } // namespace doris
-
-#endif

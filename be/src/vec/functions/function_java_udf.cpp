@@ -49,10 +49,11 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
 
 Status JavaFunctionCall::prepare(FunctionContext* context,
                                  FunctionContext::FunctionStateScope scope) {
-    DCHECK(executor_cl_ == NULL) << "Init() already called!";
-    JNIEnv* env;
+    JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == NULL) return Status::InternalError("Failed to get/create JVM");
+    if (env == nullptr) {
+        return Status::InternalError("Failed to get/create JVM");
+    }
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &executor_cl_));
     executor_ctor_id_ = env->GetMethodID(executor_cl_, "<init>", EXECUTOR_CTOR_SIGNATURE);
     RETURN_ERROR_IF_EXC(env);
@@ -101,7 +102,7 @@ Status JavaFunctionCall::prepare(FunctionContext* context,
 Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                                  const ColumnNumbers& arguments, size_t result, size_t num_rows,
                                  bool dry_run) {
-    JNIEnv* env;
+    JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -124,12 +125,14 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         } else {
             jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] = -1;
         }
-        if (const ColumnString* str_col = check_and_get_column<ColumnString>(data_col.get())) {
+
+        if (data_col->is_column_string()) {
+            const ColumnString* str_col = assert_cast<const ColumnString*>(data_col.get());
             jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
                     reinterpret_cast<int64_t>(str_col->get_chars().data());
             jni_ctx->input_offsets_ptrs.get()[arg_idx] =
                     reinterpret_cast<int64_t>(str_col->get_offsets().data());
-        } else if (data_col->is_numeric()) {
+        } else if (data_col->is_numeric() || data_col->is_column_decimal()) {
             jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
                     reinterpret_cast<int64_t>(data_col->get_raw_data().data);
         } else {
@@ -151,12 +154,13 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         *(jni_ctx->output_null_value) = reinterpret_cast<int64_t>(null_col->get_data().data());
 #ifndef EVALUATE_JAVA_UDF
 #define EVALUATE_JAVA_UDF                                                                          \
-    if (const ColumnString* str_col = check_and_get_column<ColumnString>(data_col.get())) {        \
+    if (data_col->is_column_string()) {                                                            \
+        const ColumnString* str_col = assert_cast<const ColumnString*>(data_col.get());            \
         ColumnString::Chars& chars = const_cast<ColumnString::Chars&>(str_col->get_chars());       \
         ColumnString::Offsets& offsets =                                                           \
                 const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
         int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JavaFunctionCall::IncreaseReservedBufferSize(increase_buffer_size);  \
+        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
         chars.reserve(buffer_size);                                                                \
         chars.resize(buffer_size);                                                                 \
         offsets.reserve(num_rows);                                                                 \
@@ -169,15 +173,14 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                                        nullptr);                                                   \
         while (jni_ctx->output_intermediate_state_ptr->row_idx < num_rows) {                       \
             increase_buffer_size++;                                                                \
-            int32_t buffer_size =                                                                  \
-                    JavaFunctionCall::IncreaseReservedBufferSize(increase_buffer_size);            \
+            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
             chars.resize(buffer_size);                                                             \
             *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());             \
             jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                     \
             env->CallNonvirtualVoidMethodA(jni_ctx->executor, executor_cl_, executor_evaluate_id_, \
                                            nullptr);                                               \
         }                                                                                          \
-    } else if (data_col->is_numeric()) {                                                           \
+    } else if (data_col->is_numeric() || data_col->is_column_decimal()) {                          \
         data_col->reserve(num_rows);                                                               \
         data_col->resize(num_rows);                                                                \
         *(jni_ctx->output_value_buffer) =                                                          \
@@ -205,7 +208,7 @@ Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (jni_ctx != NULL) {
+    if (jni_ctx != nullptr) {
         delete jni_ctx;
         context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
     }

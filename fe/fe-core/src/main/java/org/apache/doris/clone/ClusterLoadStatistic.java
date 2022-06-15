@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.TreeMultimap;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -169,7 +168,7 @@ public class ClusterLoadStatistic {
                 continue;
             }
 
-            if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore > Config.balance_load_score_threshold) {
+            if (Config.be_rebalancer_fuzzy_test) {
                 if (beStat.getLoadScore(medium) > avgLoadScore) {
                     beStat.setClazz(medium, Classification.HIGH);
                     highCounter++;
@@ -178,12 +177,23 @@ public class ClusterLoadStatistic {
                     lowCounter++;
                 }
             } else {
-                beStat.setClazz(medium, Classification.MID);
-                midCounter++;
+                if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore
+                        > Config.balance_load_score_threshold) {
+                    if (beStat.getLoadScore(medium) > avgLoadScore) {
+                        beStat.setClazz(medium, Classification.HIGH);
+                        highCounter++;
+                    } else if (beStat.getLoadScore(medium) < avgLoadScore) {
+                        beStat.setClazz(medium, Classification.LOW);
+                        lowCounter++;
+                    }
+                } else {
+                    beStat.setClazz(medium, Classification.MID);
+                    midCounter++;
+                }
             }
         }
 
-        LOG.info("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
+        LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
                 medium, avgLoadScore, lowCounter, midCounter, highCounter);
     }
 
@@ -281,10 +291,13 @@ public class ClusterLoadStatistic {
                 List<String> pathStat = Lists.newArrayList();
                 pathStat.add(pathStatistic.getPath());
                 pathStat.add(String.valueOf(pathStatistic.getPathHash()));
+                pathStat.add(pathStatistic.getStorageMedium().name());
                 pathStat.add(String.valueOf(pathStatistic.getUsedCapacityB()));
                 pathStat.add(String.valueOf(pathStatistic.getCapacityB()));
                 pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(pathStatistic.getUsedCapacityB() * 100
                         / (double) pathStatistic.getCapacityB())));
+                pathStat.add(pathStatistic.getClazz().name());
+                pathStat.add(pathStatistic.getDiskState().name());
                 statistics.add(pathStat);
             }
             break;

@@ -26,7 +26,6 @@ import org.apache.doris.common.util.RuntimeProfile;
 import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang3.tuple.Triple;
 
 import java.util.List;
@@ -113,7 +112,7 @@ public class MultiProfileTreeBuilder {
     }
 
     public List<Triple<String, String, Long>> getInstanceList(String executionId, String fragmentId)
-         throws AnalysisException {
+            throws AnalysisException {
         ProfileTreeBuilder singleBuilder = getExecutionProfileTreeBuilder(executionId);
         return singleBuilder.getInstanceList(fragmentId);
     }
@@ -129,7 +128,8 @@ public class MultiProfileTreeBuilder {
         return singleBuilder.getFragmentTreeRoot();
     }
 
-    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId) throws AnalysisException{
+    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId)
+            throws AnalysisException {
         return getExecutionProfileTreeBuilder(executionId).getFragmentsInstances();
     }
 

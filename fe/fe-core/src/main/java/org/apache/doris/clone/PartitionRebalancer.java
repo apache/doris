@@ -32,7 +32,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -323,11 +322,11 @@ public class PartitionRebalancer extends Rebalancer {
 
         @Override
         public String toString() {
-            return "ReplicaMove{" +
-                    "tabletId=" + tabletId +
-                    ", fromBe=" + fromBe +
-                    ", toBe=" + toBe +
-                    '}';
+            return "ReplicaMove{"
+                    + "tabletId=" + tabletId
+                    + ", fromBe=" + fromBe
+                    + ", toBe=" + toBe
+                    + '}';
         }
     }
 

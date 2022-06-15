@@ -361,13 +361,14 @@ TEST_F(TestDeltaWriter, open) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001, 30001, load_id, tuple_desc};
+    WriteRequest write_req = {10003,   270068375,  WriteType::LOAD,      20001, 30001,
+                              load_id, tuple_desc, &tuple_desc->slots(), true};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(nullptr, false);
+    res = delta_writer->close_wait();
     EXPECT_EQ(Status::OK(), res);
     SAFE_DELETE(delta_writer);
 
@@ -376,14 +377,11 @@ TEST_F(TestDeltaWriter, open) {
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(nullptr, false);
+    res = delta_writer->close_wait();
     EXPECT_EQ(Status::OK(), res);
     SAFE_DELETE(delta_writer);
 
-    TDropTabletReq drop_request;
-    auto tablet_id = 10003;
-    auto schema_hash = 270068375;
-    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
     EXPECT_EQ(Status::OK(), res);
 }
 
@@ -475,12 +473,11 @@ TEST_F(TestDeltaWriter, write) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(nullptr, false);
+    res = delta_writer->close_wait();
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
-    TabletSharedPtr tablet =
-            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
     version.first = tablet->rowset_with_max_version()->end_version() + 1;
@@ -499,9 +496,7 @@ TEST_F(TestDeltaWriter, write) {
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    auto tablet_id = 10003;
-    auto schema_hash = 270068375;
-    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
@@ -609,12 +604,11 @@ TEST_F(TestDeltaWriter, vec_write) {
 
     res = delta_writer->close();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->close_wait(nullptr, false);
+    res = delta_writer->close_wait();
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet =
-            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
@@ -638,11 +632,9 @@ TEST_F(TestDeltaWriter, vec_write) {
         res = tablet->add_inc_rowset(rowset);
         ASSERT_TRUE(res.ok());
     }
-    ASSERT_EQ(2, tablet->num_rows());
+    ASSERT_EQ(1, tablet->num_rows());
 
-    auto tablet_id = 10003;
-    auto schema_hash = 270068375;
-    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
     ASSERT_TRUE(res.ok());
     delete delta_writer;
 }
@@ -687,12 +679,11 @@ TEST_F(TestDeltaWriter, sequence_col) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(nullptr, false);
+    res = delta_writer->close_wait();
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
-    TabletSharedPtr tablet =
-            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
     version.first = tablet->rowset_with_max_version()->end_version() + 1;
@@ -711,9 +702,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    auto tablet_id = 10005;
-    auto schema_hash = 270068377;
-    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
@@ -772,12 +761,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     res = delta_writer->close();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->close_wait(nullptr, false);
+    res = delta_writer->close_wait();
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet =
-            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
@@ -803,9 +791,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     }
     ASSERT_EQ(1, tablet->num_rows());
 
-    auto tablet_id = 10005;
-    auto schema_hash = 270068377;
-    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
     ASSERT_TRUE(res.ok());
     delete delta_writer;
 }

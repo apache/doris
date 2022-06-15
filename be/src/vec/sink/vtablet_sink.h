@@ -63,11 +63,6 @@ private:
             std::pair<std::unique_ptr<vectorized::MutableBlock>, PTabletWriterAddBlockRequest>;
     std::queue<AddBlockReq> _pending_blocks;
     ReusableClosure<PTabletWriterAddBlockResult>* _add_block_closure = nullptr;
-
-    // This buffer is used to store the serialized block data
-    // The data in the buffer is copied to the attachment of the brpc when it is sent,
-    // to avoid an extra pb serialization in the brpc.
-    std::string _column_values_buffer;
 };
 
 class OlapTableSink;
@@ -101,6 +96,10 @@ private:
     // set stop_processing is we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
+
+    // some output column of output expr may have different nullable property with dest slot desc
+    // so here need to do the convert operation
+    void _convert_to_dest_desc_block(vectorized::Block* block);
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;

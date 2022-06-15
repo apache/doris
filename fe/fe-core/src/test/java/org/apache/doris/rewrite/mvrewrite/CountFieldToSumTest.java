@@ -24,17 +24,15 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.collect.Lists;
-
-import org.apache.doris.rewrite.ExprRewriter;
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class CountFieldToSumTest {
 
@@ -42,7 +40,7 @@ public class CountFieldToSumTest {
     public void testCountDistinct(@Injectable Analyzer analyzer,
                                   @Injectable FunctionCallExpr functionCallExpr) {
         TableName tableName = new TableName("db1", "table1");
-        SlotRef slotRef = new SlotRef(tableName,"c1");
+        SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr>  params = Lists.newArrayList();
         params.add(slotRef);
 

@@ -29,7 +29,9 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
+#include "runtime/mem_pool.h"
 #include "util/mem_util.hpp"
+#include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
@@ -309,15 +311,15 @@ public:
     }
 
     void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto dest_value = static_cast<CollectionValue*>(dest);
         // NOTICE: The address pointed by null_signs of the dest_value can NOT be modified here.
         auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_null_signs());
         direct_copy(&base, dest, src);
     }
 
     void direct_copy(uint8_t** base, void* dest, const void* src) const {
-        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
-        auto src_value = reinterpret_cast<const CollectionValue*>(src);
+        auto dest_value = static_cast<CollectionValue*>(dest);
+        auto src_value = static_cast<const CollectionValue*>(src);
 
         auto nulls_size = src_value->has_null() ? src_value->length() : 0;
         dest_value->set_data(src_value->length() ? (*base + nulls_size) : nullptr);
@@ -330,17 +332,22 @@ public:
                         src_value->length());
         }
         *base += nulls_size + src_value->length() * _item_type_info->size();
+
         // Direct copy item.
         if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
-                if (dest_value->is_null_at(i)) continue;
+                if (dest_value->is_null_at(i)) {
+                    continue;
+                }
                 dynamic_cast<const ArrayTypeInfo*>(_item_type_info.get())
                         ->direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
                                       (uint8_t*)(src_value->data()) + i * _item_size);
             }
         } else {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
-                if (dest_value->is_null_at(i)) continue;
+                if (dest_value->is_null_at(i)) {
+                    continue;
+                }
                 auto dest_address = (uint8_t*)(dest_value->mutable_data()) + i * _item_size;
                 auto src_address = (uint8_t*)(src_value->data()) + i * _item_size;
                 if (is_olap_string_type(_item_type_info->type())) {
@@ -530,18 +537,27 @@ template <FieldType field_type>
 struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
+    static inline CppType get_cpp_type_value(const void* address) {
+        if constexpr (field_type == OLAP_FIELD_TYPE_LARGEINT) {
+            return get_int128_from_unalign(address);
+        }
+        return *reinterpret_cast<const CppType*>(address);
+    }
+
+    static inline void set_cpp_type_value(void* address, const CppType& value) {
+        memcpy(address, &value, sizeof(CppType));
+    }
+
     static inline bool equal(const void* left, const void* right) {
-        CppType l_value = *reinterpret_cast<const CppType*>(left);
-        CppType r_value = *reinterpret_cast<const CppType*>(right);
-        return l_value == r_value;
+        return get_cpp_type_value(left) == get_cpp_type_value(right);
     }
 
     static inline int cmp(const void* left, const void* right) {
-        CppType left_int = *reinterpret_cast<const CppType*>(left);
-        CppType right_int = *reinterpret_cast<const CppType*>(right);
-        if (left_int < right_int) {
+        CppType left_value = get_cpp_type_value(left);
+        CppType right_value = get_cpp_type_value(right);
+        if (left_value < right_value) {
             return -1;
-        } else if (left_int > right_int) {
+        } else if (left_value > right_value) {
             return 1;
         } else {
             return 0;
@@ -549,19 +565,19 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static inline void shallow_copy(void* dest, const void* src) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void copy_object(void* dest, const void* src, MemPool* mem_pool) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void direct_copy(void* dest, const void* src) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+        memcpy(dest, src, sizeof(CppType));
     }
 
     static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
@@ -572,11 +588,11 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static inline void set_to_max(void* buf) {
-        *reinterpret_cast<CppType*>(buf) = std::numeric_limits<CppType>::max();
+        set_cpp_type_value(buf, std::numeric_limits<CppType>::max());
     }
 
     static inline void set_to_min(void* buf) {
-        *reinterpret_cast<CppType*>(buf) = std::numeric_limits<CppType>::min();
+        set_cpp_type_value(buf, std::numeric_limits<CppType>::min());
     }
 
     static inline uint32_t hash_code(const void* data, uint32_t seed) {
@@ -584,7 +600,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static std::string to_string(const void* src) {
-        return std::to_string(*reinterpret_cast<const CppType*>(src));
+        return std::to_string(get_cpp_type_value(src));
     }
 
     static Status from_string(void* buf, const std::string& scan_key) {
@@ -592,7 +608,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         if (scan_key.length() > 0) {
             value = static_cast<CppType>(strtol(scan_key.c_str(), nullptr, 10));
         }
-        *reinterpret_cast<CppType*>(buf) = value;
+        set_cpp_type_value(buf, value);
         return Status::OK();
     }
 };

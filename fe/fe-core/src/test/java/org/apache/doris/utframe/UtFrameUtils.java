@@ -19,6 +19,7 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -33,6 +34,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -45,10 +47,11 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 
 import java.io.File;
@@ -63,7 +66,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-
+/**
+ * @deprecated If you want to start a FE server in unit test, please let your test
+ * class extend {@link TestWithFeService}.
+ */
+@Deprecated
 public class UtFrameUtils {
 
     // Help to create a mocked ConnectContext.
@@ -99,6 +106,7 @@ public class UtFrameUtils {
             }
         }
         statementBase.analyze(analyzer);
+        statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
         return statementBase;
     }
 
@@ -148,23 +156,23 @@ public class UtFrameUtils {
             file.mkdir();
         }
 
-        int fe_http_port = findValidPort();
-        int fe_rpc_port = findValidPort();
-        int fe_query_port = findValidPort();
-        int fe_edit_log_port = findValidPort();
+        int feHttpPort = findValidPort();
+        int feRpcPort = findValidPort();
+        int feQueryPort = findValidPort();
+        int feEditLogPort = findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
-        feConfMap.put("http_port", String.valueOf(fe_http_port));
-        feConfMap.put("rpc_port", String.valueOf(fe_rpc_port));
-        feConfMap.put("query_port", String.valueOf(fe_query_port));
-        feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
+        feConfMap.put("http_port", String.valueOf(feHttpPort));
+        feConfMap.put("rpc_port", String.valueOf(feRpcPort));
+        feConfMap.put("query_port", String.valueOf(feQueryPort));
+        feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
         feConfMap.put("tablet_create_timeout_second", "10");
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
-        return fe_rpc_port;
+        return feRpcPort;
     }
 
     public static void createDorisCluster(String runningDir) throws InterruptedException, NotInitException,
@@ -174,9 +182,9 @@ public class UtFrameUtils {
 
     public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
-        int fe_rpc_port = startFEServer(runningDir);
+        int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
-            createBackend("127.0.0.1", fe_rpc_port);
+            createBackend("127.0.0.1", feRpcPort);
             // sleep to wait first heartbeat
             Thread.sleep(6000);
         }
@@ -188,27 +196,27 @@ public class UtFrameUtils {
             FeStartException, NotInitException, DdlException, InterruptedException {
         // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
-        int fe_rpc_port = startFEServer(runningDir);
+        int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
-            createBackend(host, fe_rpc_port);
+            createBackend(host, feRpcPort);
         }
         // sleep to wait first heartbeat
         Thread.sleep(6000);
     }
 
-    public static void createBackend(String beHost, int fe_rpc_port) throws IOException, InterruptedException {
-        int be_heartbeat_port = findValidPort();
-        int be_thrift_port = findValidPort();
-        int be_brpc_port = findValidPort();
-        int be_http_port = findValidPort();
+    public static void createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+        int beHeartbeatPort = findValidPort();
+        int beThriftPort = findValidPort();
+        int beBrpcPort = findValidPort();
+        int beHttpPort = findValidPort();
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost,
-                be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
-                new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
+                beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
+                new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
-        backend.setFeAddress(new TNetworkAddress("127.0.0.1", fe_rpc_port));
+        backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
         // add be
@@ -222,9 +230,9 @@ public class UtFrameUtils {
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        be.setBePort(be_thrift_port);
-        be.setHttpPort(be_http_port);
-        be.setBrpcPort(be_brpc_port);
+        be.setBePort(beThriftPort);
+        be.setHttpPort(beHttpPort);
+        be.setBrpcPort(beBrpcPort);
         Catalog.getCurrentSystemInfo().addBackend(be);
     }
 
@@ -232,6 +240,7 @@ public class UtFrameUtils {
         try {
             FileUtils.deleteDirectory(new File(baseDir));
         } catch (IOException e) {
+            // ignore
         }
     }
 
@@ -293,5 +302,21 @@ public class UtFrameUtils {
             return null;
         }
     }
-}
 
+    public static String getStmtDigest(ConnectContext connectContext, String originStmt) throws Exception {
+        SqlScanner input =
+                new SqlScanner(new StringReader(originStmt), connectContext.getSessionVariable().getSqlMode());
+        SqlParser parser = new SqlParser(input);
+        StatementBase statementBase = SqlParserUtils.getFirstStmt(parser);
+        Preconditions.checkState(statementBase instanceof QueryStmt);
+        QueryStmt queryStmt = (QueryStmt) statementBase;
+        String digest = queryStmt.toDigest();
+        return DigestUtils.md5Hex(digest);
+    }
+
+    public static boolean checkPlanResultContainsNode(String planResult, int idx, String nodeName) {
+        String realNodeName = idx + ":" + nodeName;
+        String realVNodeName = idx + ":V" + nodeName;
+        return planResult.contains(realNodeName) || planResult.contains(realVNodeName);
+    }
+}

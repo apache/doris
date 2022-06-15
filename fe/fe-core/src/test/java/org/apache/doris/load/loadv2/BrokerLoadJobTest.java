@@ -52,7 +52,11 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -64,12 +68,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class BrokerLoadJobTest {
 
@@ -345,7 +343,7 @@ public class BrokerLoadJobTest {
                                           @Mocked OlapTable olapTable,
                                           @Mocked PlanFragment sinkFragment,
                                           @Mocked OlapTableSink olapTableSink,
-                                          @Mocked BrokerScanNode scanNode) throws Exception{
+                                          @Mocked BrokerScanNode scanNode) throws Exception {
         List<Column> schema = new ArrayList<>();
         schema.add(new Column("a", PrimitiveType.BIGINT));
         Map<String, String> properties = new HashMap<>();
@@ -361,7 +359,7 @@ public class BrokerLoadJobTest {
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         RuntimeProfile jobProfile = new RuntimeProfile("test");
-        LoadLoadingTask task = new LoadLoadingTask(database, olapTable,brokerDesc, fileGroups,
+        LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups,
                 100, 100, false, 100, callback, "",
                 100, 1, 1, true, jobProfile, false);
         try {

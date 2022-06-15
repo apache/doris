@@ -100,4 +100,3 @@ public class CreateResourceStmt extends DdlStmt {
         return sb.toString();
     }
 }
-

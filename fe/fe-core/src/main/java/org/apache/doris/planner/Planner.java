@@ -45,7 +45,6 @@ import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,7 +75,9 @@ public class Planner {
         return fragments;
     }
 
-    public PlannerContext getPlannerContext() { return plannerContext;}
+    public PlannerContext getPlannerContext() {
+        return plannerContext;
+    }
 
     public List<ScanNode> getScanNodes() {
         if (singleNodePlanner == null) {
@@ -100,11 +101,11 @@ public class Planner {
                     expr.getIds(null, slotList);
                     if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
                         int outputScale = slotDesc.getColumn().getScale();
@@ -217,7 +218,7 @@ public class Planner {
          */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
-        
+
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
@@ -240,7 +241,7 @@ public class Planner {
             RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
         }
 
-	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
+        if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

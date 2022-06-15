@@ -119,8 +119,13 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx)
-            : _iter(iter), _sequence_id_idx(sequence_id_idx) {}
+    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique)
+            : _iter(iter),
+              _sequence_id_idx(sequence_id_idx),
+              _is_unique(is_unique),
+              _num_columns(iter->schema().num_column_ids()),
+              _num_key_columns(iter->schema().num_key_columns()) {}
+
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
@@ -156,39 +161,38 @@ public:
     Status init(const StorageReadOptions& opts);
 
     bool compare(const VMergeIteratorContext& rhs) const {
-        const Schema& schema = _iter->schema();
-        int num = schema.num_key_columns();
-        int cmp_res =
-                this->_block.compare_at(_index_in_block, rhs._index_in_block, num, rhs._block, -1);
+        int cmp_res = this->_block.compare_at(_index_in_block, rhs._index_in_block,
+                                              _num_key_columns, rhs._block, -1);
         if (cmp_res != 0) {
             return cmp_res > 0;
         }
 
+        auto col_cmp_res = 0;
         if (_sequence_id_idx != -1) {
-            int col_cmp_res = this->_block.compare_column_at(_index_in_block, rhs._index_in_block,
-                                                             _sequence_id_idx, rhs._block, -1);
-            if (col_cmp_res != 0) {
-                return col_cmp_res < 0;
-            }
+            col_cmp_res = this->_block.compare_column_at(_index_in_block, rhs._index_in_block,
+                                                         _sequence_id_idx, rhs._block, -1);
         }
-        return this->data_id() < rhs.data_id();
+        auto result = col_cmp_res == 0 ? this->data_id() < rhs.data_id() : col_cmp_res < 0;
+
+        if (_is_unique) {
+            result ? this->set_skip(true) : rhs.set_skip(true);
+        }
+        return result;
     }
 
     void copy_row(vectorized::Block* block) {
         vectorized::Block& src = _block;
         vectorized::Block& dst = *block;
 
-        auto columns = _iter->schema().columns();
+        for (size_t i = 0; i < _num_columns; ++i) {
+            auto& s_col = src.get_by_position(i);
+            auto& d_col = dst.get_by_position(i);
 
-        for (size_t i = 0; i < columns.size(); ++i) {
-            vectorized::ColumnWithTypeAndName s_col = src.get_by_position(i);
-            vectorized::ColumnWithTypeAndName d_col = dst.get_by_position(i);
-
-            vectorized::ColumnPtr s_cp = s_col.column;
-            vectorized::ColumnPtr d_cp = d_col.column;
+            vectorized::ColumnPtr& s_cp = s_col.column;
+            vectorized::ColumnPtr& d_cp = d_col.column;
 
             //copy a row to dst block column by column
-            ((vectorized::IColumn&)(*d_cp)).insert_range_from(*s_cp, _index_in_block, 1);
+            ((vectorized::IColumn&)(*d_cp)).insert_from(*s_cp, _index_in_block);
         }
     }
 
@@ -204,6 +208,10 @@ public:
 
     uint64_t data_id() const { return _iter->data_id(); }
 
+    bool need_skip() const { return _skip; }
+
+    void set_skip(bool skip) const { _skip = skip; }
+
 private:
     // Load next block into _block
     Status _load_next_block();
@@ -213,10 +221,14 @@ private:
     // used to store data load from iterator->next_batch(Vectorized::Block*)
     vectorized::Block _block;
 
+    int _sequence_id_idx = -1;
+    bool _is_unique = false;
     bool _valid = false;
+    mutable bool _skip = false;
     size_t _index_in_block = -1;
     int _block_row_max = 4096;
-    int _sequence_id_idx = -1;
+    int _num_columns;
+    int _num_key_columns;
 };
 
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
@@ -231,6 +243,7 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
 }
 
 Status VMergeIteratorContext::advance() {
+    _skip = false;
     // NOTE: we increase _index_in_block directly to valid one check
     do {
         _index_in_block++;
@@ -264,8 +277,8 @@ Status VMergeIteratorContext::_load_next_block() {
 class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
-    VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx)
-            : _origin_iters(iters), _sequence_id_idx(sequence_id_idx) {}
+    VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx, bool is_unique)
+            : _origin_iters(iters), _sequence_id_idx(sequence_id_idx), _is_unique(is_unique) {}
 
     ~VMergeIterator() override {
         while (!_merge_heap.empty()) {
@@ -301,6 +314,7 @@ private:
 
     int block_row_max = 0;
     int _sequence_id_idx = -1;
+    bool _is_unique = false;
 };
 
 Status VMergeIterator::init(const StorageReadOptions& opts) {
@@ -310,7 +324,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _schema = &(*_origin_iters.begin())->schema();
 
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx);
+        auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx, _is_unique);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -332,8 +346,10 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
         auto ctx = _merge_heap.top();
         _merge_heap.pop();
 
-        // copy current row to block
-        ctx->copy_row(block);
+        if (!ctx->need_skip()) {
+            // copy current row to block
+            ctx->copy_row(block);
+        }
 
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
@@ -343,7 +359,10 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
             delete ctx;
         }
     }
-
+    if (!_merge_heap.empty()) {
+        return Status::OK();
+    }
+    // Still last batch needs to be processed
     return Status::EndOfFile("no more data in segment");
 }
 
@@ -403,11 +422,12 @@ Status VUnionIterator::next_batch(vectorized::Block* block) {
     return Status::EndOfFile("End of VUnionIterator");
 }
 
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, int sequence_id_idx) {
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, int sequence_id_idx,
+                                    bool is_unique) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new VMergeIterator(inputs, sequence_id_idx);
+    return new VMergeIterator(inputs, sequence_id_idx, is_unique);
 }
 
 RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs) {

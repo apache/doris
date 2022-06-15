@@ -19,15 +19,16 @@ package org.apache.doris.udf;
 
 import org.apache.doris.common.BitmapValueUtil;
 import org.apache.doris.common.io.BitmapValue;
-import org.apache.hadoop.hive.ql.udf.generic.AbstractGenericUDAFResolver;
-import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator;
-import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
+
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentTypeException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
+import org.apache.hadoop.hive.ql.udf.generic.AbstractGenericUDAFResolver;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorUtils;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
@@ -111,7 +112,7 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
         }
 
         @Override
-        public Object terminate(AggregationBuffer agg){
+        public Object terminate(AggregationBuffer agg) {
             BitmapAgg myagg = (BitmapAgg) agg;
             try {
                 return BitmapValueUtil.serializeToBytes(myagg.bitmap);
@@ -132,7 +133,7 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
         }
 
         @Override
-        public Object terminatePartial(AggregationBuffer agg){
+        public Object terminatePartial(AggregationBuffer agg) {
             return terminate(agg);
         }
 

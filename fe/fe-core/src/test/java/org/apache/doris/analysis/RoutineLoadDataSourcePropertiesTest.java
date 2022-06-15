@@ -24,7 +24,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.KafkaProgress;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -183,8 +182,9 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
-                    "and the offset at the same time"));
+            Assert.assertTrue(e.getMessage().contains(
+                    "The offset of the partition cannot be specified by the timestamp "
+                            + "and the offset at the same time"));
         }
 
         // no partitions but has offset
@@ -315,8 +315,9 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
-                    "and the offset at the same time"));
+            Assert.assertTrue(e.getMessage().contains(
+                    "The offset of the partition cannot be specified by the timestamp "
+                            + "and the offset at the same time"));
         }
 
         // no partitions but has offset

@@ -17,8 +17,6 @@
 
 package org.apache.doris.udf;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -27,12 +25,20 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.udf.UdfExecutor.JavaUdfDataType;
 
+import com.google.common.base.Preconditions;
 import sun.misc.Unsafe;
 
+import java.io.File;
 import java.lang.reflect.Field;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public class UdfUtils {
     public static final Unsafe UNSAFE;
@@ -112,5 +118,118 @@ public class UdfUtils {
             }
 
         }
+    }
+
+    public static URLClassLoader getClassLoader(String jarPath, ClassLoader parent) throws MalformedURLException {
+        URL url = new File(jarPath).toURI().toURL();
+        return URLClassLoader.newInstance(new URL[] {url}, parent);
+    }
+
+    /**
+     * Sets the return type of a Java UDF. Returns true if the return type is compatible
+     * with the return type from the function definition. Throws an UdfRuntimeException
+     * if the return type is not supported.
+     */
+    public static Pair<Boolean, JavaUdfDataType> setReturnType(Type retType, Class<?> udfReturnType)
+            throws InternalException {
+        if (!JavaUdfDataType.isSupported(retType)) {
+            throw new InternalException("Unsupported return type: " + retType.toSql());
+        }
+        JavaUdfDataType javaType = JavaUdfDataType.getType(udfReturnType);
+        // Check if the evaluate method return type is compatible with the return type from
+        // the function definition. This happens when both of them map to the same primitive
+        // type.
+        if (retType.getPrimitiveType().toThrift() != javaType.getPrimitiveType()) {
+            return new Pair<Boolean, JavaUdfDataType>(false, javaType);
+        }
+        return new Pair<Boolean, JavaUdfDataType>(true, javaType);
+    }
+
+    /**
+     * Sets the argument types of a Java UDF or UDAF. Returns true if the argument types specified
+     * in the UDF are compatible with the argument types of the evaluate() function loaded
+     * from the associated JAR file.
+     */
+    public static Pair<Boolean, JavaUdfDataType[]> setArgTypes(Type[] parameterTypes, Class<?>[] udfArgTypes,
+            boolean isUdaf) {
+        JavaUdfDataType[] inputArgTypes = new JavaUdfDataType[parameterTypes.length];
+        int firstPos = isUdaf ? 1 : 0;
+        for (int i = 0; i < parameterTypes.length; ++i) {
+            inputArgTypes[i] = JavaUdfDataType.getType(udfArgTypes[i + firstPos]);
+            if (inputArgTypes[i].getPrimitiveType() != parameterTypes[i].getPrimitiveType().toThrift()) {
+                return new Pair<Boolean, JavaUdfDataType[]>(false, inputArgTypes);
+            }
+        }
+        return new Pair<Boolean, JavaUdfDataType[]>(true, inputArgTypes);
+    }
+
+    /**
+     * input is a 64bit num from backend, and then get year, month, day, hour, minus, second by the order of bits.
+     */
+    public static LocalDateTime convertToDateTime(long date) {
+        int year = (int) (date >> 48);
+        int yearMonth = (int) (date >> 40);
+        int yearMonthDay = (int) (date >> 32);
+
+        int month = (yearMonth & 0XFF);
+        int day = (yearMonthDay & 0XFF);
+
+        int hourMinuteSecond = (int) (date % (1 << 31));
+        int minuteTypeNeg = (hourMinuteSecond % (1 << 16));
+
+        int hour = (hourMinuteSecond >> 24);
+        int minute = ((hourMinuteSecond >> 16) & 0XFF);
+        int second = (minuteTypeNeg >> 4);
+        //here don't need those bits are type = ((minus_type_neg >> 1) & 0x7);
+
+        LocalDateTime value = LocalDateTime.of(year, month, day, hour, minute, second);
+        return value;
+    }
+
+    /**
+     * a 64bit num convertToDate.
+     */
+    public static LocalDate convertToDate(long date) {
+        int year = (int) (date >> 48);
+        int yearMonth = (int) (date >> 40);
+        int yearMonthDay = (int) (date >> 32);
+
+        int month = (yearMonth & 0XFF);
+        int day = (yearMonthDay & 0XFF);
+        LocalDate value = LocalDate.of(year, month, day);
+        return value;
+    }
+
+    /**
+     * input is the second, minute, hours, day , month and year respectively.
+     * and then combining all num to a 64bit value return to backend;
+     */
+    public static long convertDateTimeToLong(int year, int month, int day, int hour, int minute, int second,
+            boolean isDate) {
+        long time = 0;
+        time = time + year;
+        time = (time << 8) + month;
+        time = (time << 8) + day;
+        time = (time << 8) + hour;
+        time = (time << 8) + minute;
+        time = (time << 12) + second;
+        int type = isDate ? 2 : 3;
+        time = (time << 3) + type;
+        //this bit is int neg = 0;
+        time = (time << 1);
+        return time;
+    }
+
+    /**
+     * Change the order of the bytes, Because JVM is Big-Endian , x86 is Little-Endian.
+     */
+    public static byte[] convertByteOrder(byte[] bytes) {
+        int length = bytes.length;
+        for (int i = 0; i < length / 2; ++i) {
+            byte temp = bytes[i];
+            bytes[i] = bytes[length - 1 - i];
+            bytes[length - 1 - i] = temp;
+        }
+        return bytes;
     }
 }

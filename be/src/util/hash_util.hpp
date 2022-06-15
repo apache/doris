@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/hash-util.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
+#pragma once
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
@@ -30,6 +29,8 @@
 // the code that is built and the runtime checks to control what code is run.
 #ifdef __SSE4_2__
 #include <nmmintrin.h>
+#elif __aarch64__
+#include <sse2neon.h>
 #endif
 #include <zlib.h>
 
@@ -45,7 +46,7 @@ public:
     static uint32_t zlib_crc_hash(const void* data, int32_t bytes, uint32_t hash) {
         return crc32(hash, (const unsigned char*)data, bytes);
     }
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__aarch64__)
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
     // the current hash/seed value.
     // This should only be called if SSE is supported.
@@ -401,5 +402,3 @@ struct hash<std::pair<doris::TUniqueId, int64_t>> {
 };
 
 } // namespace std
-
-#endif

@@ -33,7 +33,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -241,9 +240,9 @@ public class Tablet extends MetaObject implements Writable {
                 }
             }
             final long finalMinVersionCount = minVersionCount;
-            return allQueryableReplica.stream().filter(replica -> replica.getVersionCount() == -1 ||
-                            replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow ||
-                            replica.getVersionCount() < finalMinVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT)
+            return allQueryableReplica.stream().filter(replica -> replica.getVersionCount() == -1
+                            || replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow
+                            || replica.getVersionCount() < finalMinVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT)
                     .collect(Collectors.toList());
         }
         return allQueryableReplica;
@@ -545,8 +544,8 @@ public class Tablet extends MetaObject implements Writable {
             // get the max version diff
             long delta = versions.get(versions.size() - 1) - versions.get(0);
             double ratio = (double) delta / versions.get(versions.size() - 1);
-            if (versions.get(versions.size() - 1) > Config.min_version_count_indicate_replica_compaction_too_slow &&
-                    ratio > Config.valid_version_count_delta_ratio_between_replicas) {
+            if (versions.get(versions.size() - 1) > Config.min_version_count_indicate_replica_compaction_too_slow
+                    && ratio > Config.valid_version_count_delta_ratio_between_replicas) {
                 return Pair.create(TabletStatus.REPLICA_COMPACTION_TOO_SLOW, Priority.HIGH);
             }
         }

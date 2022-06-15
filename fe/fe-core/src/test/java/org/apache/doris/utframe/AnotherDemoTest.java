@@ -44,7 +44,7 @@ import java.util.List;
 import java.util.UUID;
 
 /*
- * This demo is mainly used to confirm that 
+ * This demo is mainly used to confirm that
  * repeatedly starting FE and BE in 2 UnitTest will not cause conflict
  */
 public class AnotherDemoTest {
@@ -72,7 +72,7 @@ public class AnotherDemoTest {
     }
 
     @AfterClass
-    public static void TearDown() {
+    public static void tearDown() {
         UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
@@ -104,7 +104,7 @@ public class AnotherDemoTest {
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // 4. get and test the created db and table
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:db1");
-        OlapTable tbl = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
             Assert.assertNotNull(tbl);

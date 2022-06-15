@@ -17,9 +17,6 @@
 
 package org.apache.doris.httpv2.rest;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -30,7 +27,9 @@ import com.clearspring.analytics.util.Lists;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -41,7 +40,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -118,7 +116,7 @@ public class SetConfigAction extends RestBaseController {
 
     @Setter
     @AllArgsConstructor
-    public static class ErrConfig{
+    public static class ErrConfig {
         @SerializedName(value = "config_name")
         @JsonProperty("config_name")
         private String configName;
@@ -145,7 +143,7 @@ public class SetConfigAction extends RestBaseController {
     @Getter
     @Setter
     @AllArgsConstructor
-    public static class SetConfigEntity{
+    public static class SetConfigEntity {
         @SerializedName(value = "set")
         @JsonProperty("set")
         Map<String, String> setConfigs;

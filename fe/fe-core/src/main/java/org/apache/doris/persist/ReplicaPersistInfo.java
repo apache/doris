@@ -24,7 +24,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class ReplicaPersistInfo implements Writable {
-    
+
     public enum ReplicaOperationType {
         ADD(0),
         CROND_DELETE(1),
@@ -43,12 +43,12 @@ public class ReplicaPersistInfo implements Writable {
 
         private final int value;
 
-        private ReplicaOperationType(int value) {
-          this.value = value;
+        ReplicaOperationType(int value) {
+            this.value = value;
         }
-        
+
         public int getValue() {
-          return value;
+            return value;
         }
 
         public static ReplicaOperationType findByValue(int value) {
@@ -77,8 +77,8 @@ public class ReplicaPersistInfo implements Writable {
                     return null;
             }
         }
-      }
-    
+    }
+
     // required
     private ReplicaOperationType opType;
     private long dbId;
@@ -89,14 +89,14 @@ public class ReplicaPersistInfo implements Writable {
 
     private long replicaId;
     private long backendId;
-    
+
     private long version;
     @Deprecated
     private long versionHash = 0L;
     private int schemaHash = -1;
     private long dataSize;
     private long rowCount;
-    
+
     private long lastFailedVersion = -1L;
     @Deprecated
     private long lastFailedVersionHash = 0L;
@@ -110,7 +110,7 @@ public class ReplicaPersistInfo implements Writable {
             long lastFailedVersion,
             long lastSuccessVersion) {
 
-        return new ReplicaPersistInfo(ReplicaOperationType.ADD, 
+        return new ReplicaPersistInfo(ReplicaOperationType.ADD,
                 dbId, tableId, partitionId, indexId, tabletId, backendId,
                 replicaId, version, schemaHash, dataSize, rowCount,
                 lastFailedVersion, lastSuccessVersion);
@@ -123,7 +123,7 @@ public class ReplicaPersistInfo implements Writable {
             int schemaHash, long dataSize, long rowCount,
             long lastFailedVersion, long lastSuccessVersion) {
 
-        return new ReplicaPersistInfo(ReplicaOperationType.CROND_DELETE, 
+        return new ReplicaPersistInfo(ReplicaOperationType.CROND_DELETE,
                 -1L, -1L, -1L, indexId, tabletId, -1L,
                 replicaId, version, schemaHash, dataSize, rowCount,
                 lastFailedVersion, lastSuccessVersion);
@@ -177,12 +177,12 @@ public class ReplicaPersistInfo implements Writable {
             long lastFailedVersion,
             long lastSuccessVersion) {
 
-        return new ReplicaPersistInfo(ReplicaOperationType.SCHEMA_CHANGE, 
+        return new ReplicaPersistInfo(ReplicaOperationType.SCHEMA_CHANGE,
                 -1L, -1L, partitionId, indexId, tabletId, backendId, -1L, version,
                 schemaHash, dataSize, rowCount, lastFailedVersion,
                 lastSuccessVersion);
     }
-    
+
     public static ReplicaPersistInfo createForClearRollupInfo(long dbId, long tableId, long partitionId, long indexId) {
         return new ReplicaPersistInfo(ReplicaOperationType.CLEAR_ROLLUPINFO,
                 dbId, tableId, partitionId, indexId, -1L, -1L, -1L, -1L, -1, -1L, -1L, -1L, -1L);
@@ -214,7 +214,7 @@ public class ReplicaPersistInfo implements Writable {
         this.schemaHash = schemaHash;
         this.dataSize = dataSize;
         this.rowCount = rowCount;
-        
+
         this.lastFailedVersion = lastFailedVersion;
         this.lastSuccessVersion = lastSuccessVersion;
     }
@@ -222,7 +222,7 @@ public class ReplicaPersistInfo implements Writable {
     public ReplicaOperationType getOpType() {
         return opType;
     }
-    
+
     public long getDbId() {
         return dbId;
     }
@@ -266,11 +266,11 @@ public class ReplicaPersistInfo implements Writable {
     public long getRowCount() {
         return rowCount;
     }
-    
+
     public long getLastFailedVersion() {
         return lastFailedVersion;
     }
-    
+
     public long getLastSuccessVersion() {
         return lastSuccessVersion;
     }
@@ -294,7 +294,7 @@ public class ReplicaPersistInfo implements Writable {
         out.writeLong(versionHash);
         out.writeLong(dataSize);
         out.writeLong(rowCount);
-        
+
         out.writeInt(opType.value);
         out.writeLong(lastFailedVersion);
         out.writeLong(lastFailedVersionHash);
@@ -305,7 +305,7 @@ public class ReplicaPersistInfo implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        
+
         dbId = in.readLong();
         tableId = in.readLong();
         partitionId = in.readLong();
@@ -334,13 +334,13 @@ public class ReplicaPersistInfo implements Writable {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof ReplicaPersistInfo)) {
             return false;
         }
-        
+
         ReplicaPersistInfo info = (ReplicaPersistInfo) obj;
-        
+
         return backendId == info.backendId
                 && replicaId == info.replicaId
                 && tabletId == info.tabletId

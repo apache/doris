@@ -1442,7 +1442,6 @@ char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size) {
     return p;
 }
 
-
 // ----------------------------------------------------------------------
 // ItoaKMGT()
 //    Description: converts an integer to a string
@@ -1480,7 +1479,7 @@ string ItoaKMGT(int64 i) {
 }
 
 string AccurateItoaKMGT(int64 i) {
-    const char *sign = "";
+    const char* sign = "";
     if (i < 0) {
         // We lose some accuracy if the caller passes LONG_LONG_MIN, but
         // that's OK as this function is only for human readability
@@ -1489,30 +1488,38 @@ string AccurateItoaKMGT(int64 i) {
         i = -i;
     }
 
-    string ret = std::to_string(i) + " : " + StringPrintf("%s", sign);
+    string ret = StringPrintf("%s", sign) + std::to_string(i) + " = " + StringPrintf("%s", sign);
     int64 val;
     if ((val = (i >> 40)) > 1) {
-        ret += StringPrintf("%" PRId64 "%s", val, "T");
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            " + ",
+                            val, "T");
         i = i - (val << 40);
     }
     if ((val = (i >> 30)) > 1) {
-        ret += StringPrintf(" %" PRId64 "%s", val, "G");
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            " + ",
+                            val, "G");
         i = i - (val << 30);
     }
     if ((val = (i >> 20)) > 1) {
-        ret += StringPrintf(" %" PRId64 "%s", val, "M");
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            " + ",
+                            val, "M");
         i = i - (val << 20);
     }
     if ((val = (i >> 10)) > 1) {
-        ret += StringPrintf(" %" PRId64 "%s", val, "K");
+        ret += StringPrintf("%" PRId64 "%s", val, "K");
         i = i - (val << 10);
     } else {
-        ret += StringPrintf(" %" PRId64 "%s", i, "K");
+        ret += StringPrintf("%" PRId64 "%s", i, "K");
     }
 
     return ret;
 }
-
 
 // DEPRECATED(wadetregaskis).
 // These are non-inline because some BUILD files turn on -Wformat-non-literal.

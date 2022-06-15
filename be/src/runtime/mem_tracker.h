@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -39,6 +41,11 @@ enum class MemTrackerLevel { OVERVIEW = 0, TASK, INSTANCE, VERBOSE };
 
 class MemTracker;
 class RuntimeState;
+
+using TrackersMap = phmap::parallel_flat_hash_map<
+        std::string, std::shared_ptr<MemTracker>, phmap::priv::hash_default_hash<std::string>,
+        phmap::priv::hash_default_eq<std::string>,
+        std::allocator<std::pair<const std::string, std::shared_ptr<MemTracker>>>, 12, std::mutex>;
 
 /// A MemTracker tracks memory consumption; it contains an optional limit
 /// and can be arranged into a tree structure such that the consumption tracked
@@ -80,6 +87,9 @@ public:
     // Cosume/release will not sync to parent.Usually used to manually record the specified memory,
     // It is independent of the recording of TCMalloc Hook in the thread local tracker, so the same
     // block of memory is recorded independently in these two trackers.
+    // TODO(zxy) At present, the purpose of most virtual trackers is only to preserve the logic of
+    // manually recording memory before, which may be used later. After each virtual tracker is
+    // required case by case, discuss its necessity.
     static std::shared_ptr<MemTracker> create_virtual_tracker(
             int64_t byte_limit = -1, const std::string& label = std::string(),
             const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
@@ -97,8 +107,9 @@ public:
     // Gets a shared_ptr to the "process" tracker, creating it if necessary.
     static std::shared_ptr<MemTracker> get_process_tracker();
     static MemTracker* get_raw_process_tracker();
-    // Gets a shared_ptr to the "brpc server" tracker, creating it if necessary.
-    static std::shared_ptr<MemTracker> get_brpc_server_tracker();
+    // Get a temporary tracker with a specified label, and the tracker will be created when the label is first get.
+    // Temporary trackers are not automatically destructed, which is usually used for debugging.
+    static std::shared_ptr<MemTracker> get_temporary_mem_tracker(const std::string& label);
 
     Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
@@ -111,6 +122,7 @@ public:
 
     // Increases consumption of this tracker and its ancestors by 'bytes'.
     void consume(int64_t bytes) {
+#ifdef USE_MEM_TRACKER
         if (bytes <= 0) {
             release(-bytes);
             return;
@@ -118,6 +130,7 @@ public:
         for (auto& tracker : _all_trackers) {
             tracker->_consumption->add(bytes);
         }
+#endif
     }
 
     // Increases consumption of this tracker and its ancestors by 'bytes' only if
@@ -125,6 +138,7 @@ public:
     // no MemTrackers are updated. Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
     Status try_consume(int64_t bytes) {
+#ifdef USE_MEM_TRACKER
         if (bytes <= 0) {
             release(-bytes);
             return Status::OK();
@@ -155,11 +169,13 @@ public:
         }
         // Everyone succeeded, return.
         DCHECK_EQ(i, -1);
+#endif
         return Status::OK();
     }
 
     // Decreases consumption of this tracker and its ancestors by 'bytes'.
     void release(int64_t bytes) {
+#ifdef USE_MEM_TRACKER
         if (bytes < 0) {
             consume(-bytes);
             return;
@@ -170,6 +186,7 @@ public:
         for (auto& tracker : _all_trackers) {
             tracker->_consumption->add(-bytes);
         }
+#endif
     }
 
     static void batch_consume(int64_t bytes,
@@ -236,22 +253,26 @@ public:
     // ancestor. This happens when we want to update tracking on a particular mem tracker but the consumption
     // against the limit recorded in one of its ancestors already happened.
     void consume_local(int64_t bytes, MemTracker* end_tracker) {
+#ifdef USE_MEM_TRACKER
         DCHECK(end_tracker);
         if (bytes == 0) return;
         for (auto& tracker : _all_trackers) {
             if (tracker == end_tracker) return;
             tracker->_consumption->add(bytes);
         }
+#endif
     }
 
     // up to (but not including) end_tracker.
     void release_local(int64_t bytes, MemTracker* end_tracker) {
+#ifdef USE_MEM_TRACKER
         DCHECK(end_tracker);
         if (bytes == 0) return;
         for (auto& tracker : _all_trackers) {
             if (tracker == end_tracker) return;
             tracker->_consumption->add(-bytes);
         }
+#endif
     }
 
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
@@ -262,6 +283,7 @@ public:
 
     WARN_UNUSED_RESULT
     Status try_transfer_to(MemTracker* dst, int64_t bytes) {
+#ifdef USE_MEM_TRACKER
         if (id() == dst->id()) return Status::OK();
         // Must release first, then consume
         release_cache(bytes);
@@ -270,14 +292,17 @@ public:
             consume_cache(bytes);
             return st;
         }
+#endif
         return Status::OK();
     }
 
     // Forced transfer, 'dst' may limit exceed, and more ancestor trackers will be updated.
     void transfer_to(MemTracker* dst, int64_t bytes) {
+#ifdef USE_MEM_TRACKER
         if (id() == dst->id()) return;
         release_cache(bytes);
         dst->consume_cache(bytes);
+#endif
     }
 
     // Returns true if a valid limit of this tracker or one of its ancestors is exceeded.
@@ -376,8 +401,7 @@ public:
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     /// If 'state' is non-nullptr, logs the error to 'state'.
     Status mem_limit_exceeded(RuntimeState* state, const std::string& details = std::string(),
-                              int64_t failed_allocation = -1,
-                              Status failed_alloc = Status::OK()) WARN_UNUSED_RESULT;
+                              int64_t failed_allocation = -1, Status failed_alloc = Status::OK());
 
     // Usually, a negative values means that the statistics are not accurate,
     // 1. The released memory is not consumed.
@@ -423,6 +447,10 @@ public:
     static const std::string COUNTER_NAME;
 
 private:
+    static std::shared_ptr<MemTracker> create_tracker_impl(
+            int64_t byte_limit, const std::string& label, const std::shared_ptr<MemTracker>& parent,
+            MemTrackerLevel level, RuntimeProfile* profile);
+
     /// 'byte_limit' < 0 means no limit
     /// 'label' is the label used in the usage string (log_usage())
     MemTracker(int64_t byte_limit, const std::string& label,
@@ -466,8 +494,6 @@ private:
 
     // Creates the process tracker.
     static void create_process_tracker();
-    // Creates the brpc server tracker.
-    static void create_brpc_server_tracker();
 
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit.
     int64_t _limit;
@@ -486,8 +512,6 @@ private:
 
     // Consume size smaller than mem_tracker_consume_min_size_bytes will continue to accumulate
     // to avoid frequent calls to consume/release of MemTracker.
-    // TODO(zxy) It may be more performant to use thread_local static, which is inherently thread-safe.
-    // Test after introducing TCMalloc hook
     std::atomic<int64_t> _untracked_mem = 0;
 
     std::vector<MemTracker*> _all_trackers;   // this tracker plus all of its ancestors

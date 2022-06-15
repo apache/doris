@@ -52,13 +52,16 @@ public:
 
     // read a page specified by `pp' from `file' into `handle'
     Status read_page(fs::ReadableBlock* rblock, const PagePointer& pp, PageHandle* handle,
-                     Slice* body, PageFooterPB* footer, PageTypePB type) const;
+                     Slice* body, PageFooterPB* footer, PageTypePB type,
+                     BlockCompressionCodec* codec) const;
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
     const TypeInfo* type_info() const { return _type_info; }
     bool support_ordinal_seek() const { return _meta.has_ordinal_index_meta(); }
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
+
+    CompressionTypePB get_compression() const { return _meta.compression(); }
 
 private:
     Status load_index_page(fs::ReadableBlock* rblock, const PagePointerPB& pp, PageHandle* handle,
@@ -84,7 +87,6 @@ private:
 
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
-    const BlockCompressionCodec* _compress_codec = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
 };
 
@@ -145,6 +147,8 @@ private:
     ordinal_t _current_ordinal = 0;
     // open file handle
     std::unique_ptr<fs::ReadableBlock> _rblock;
+    // iterator owned compress codec, should NOT be shared by threads, initialized before used
+    std::unique_ptr<BlockCompressionCodec> _compress_codec;
 };
 
 } // namespace segment_v2

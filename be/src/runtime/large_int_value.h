@@ -15,25 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
-#define DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
+#pragma once
 
+#include <fmt/format.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <fmt/format.h>
 #include <iostream>
 #include <sstream>
 #include <string>
 
-#include "udf/udf.h"
-#include "util/hash_util.hpp"
-
 namespace doris {
 
-const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
-const __int128 MIN_INT128 = ((__int128)0x01 << 127);
+inline const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
+inline const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 
 class LargeIntValue {
 public:
@@ -59,5 +55,3 @@ inline std::ostream& operator<<(std::ostream& os, __int128 const& value) {
 inline std::istream& operator>>(std::istream& is, __int128& value) {
     return doris::operator>>(is, value);
 }
-
-#endif

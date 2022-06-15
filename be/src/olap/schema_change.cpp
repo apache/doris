@@ -29,7 +29,6 @@
 #include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
@@ -1160,8 +1159,6 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
     reset_merged_rows();
     reset_filtered_rows();
 
-    bool use_beta_rowset = new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET;
-
     SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
@@ -1191,14 +1188,10 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
 
             // enter here while memory limitation is reached.
             RowsetSharedPtr rowset;
-            RowsetTypePB new_rowset_type = rowset_reader->rowset()->rowset_meta()->rowset_type();
-            if (use_beta_rowset) {
-                new_rowset_type = BETA_ROWSET;
-            }
             if (!_internal_sorting(
                         row_block_arr,
                         Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                        new_tablet, new_rowset_type, segments_overlap, &rowset)) {
+                        new_tablet, segments_overlap, &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
             }
@@ -1247,13 +1240,9 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
         // enter here while memory limitation is reached.
         RowsetSharedPtr rowset = nullptr;
 
-        RowsetTypePB new_rowset_type = rowset_reader->rowset()->rowset_meta()->rowset_type();
-        if (use_beta_rowset) {
-            new_rowset_type = BETA_ROWSET;
-        }
         if (!_internal_sorting(row_block_arr,
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                               new_tablet, new_rowset_type, segments_overlap, &rowset)) {
+                               new_tablet, segments_overlap, &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
         }
@@ -1305,31 +1294,16 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
 
 bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& row_block_arr,
                                                 const Version& version, TabletSharedPtr new_tablet,
-                                                RowsetTypePB new_rowset_type,
                                                 SegmentsOverlapPB segments_overlap,
                                                 RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     RowBlockMerger merger(new_tablet);
 
-    RowsetWriterContext context;
-    context.rowset_id = StorageEngine::instance()->next_rowset_id();
-    context.tablet_uid = new_tablet->tablet_uid();
-    context.tablet_id = new_tablet->tablet_id();
-    context.partition_id = new_tablet->partition_id();
-    context.tablet_schema_hash = new_tablet->schema_hash();
-    context.rowset_type = new_rowset_type;
-    context.path_desc = new_tablet->tablet_path_desc();
-    context.tablet_schema = &(new_tablet->tablet_schema());
-    context.data_dir = new_tablet->data_dir();
-    context.rowset_state = VISIBLE;
-    context.version = version;
-    context.segments_overlap = segments_overlap;
-
     VLOG_NOTICE << "init rowset builder. tablet=" << new_tablet->full_name()
                 << ", block_row_size=" << new_tablet->num_rows_per_row_block();
 
     std::unique_ptr<RowsetWriter> rowset_writer;
-    if (RowsetFactory::create_rowset_writer(context, &rowset_writer) != Status::OK()) {
+    if (!new_tablet->create_rowset_writer(version, VISIBLE, segments_overlap, &rowset_writer)) {
         return false;
     }
 
@@ -1482,17 +1456,18 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         // for schema change, seek_columns is the same to return_columns
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+        reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
 
         do {
+            RowsetSharedPtr max_rowset;
             // get history data to be converted and it will check if there is hold in base tablet
-            res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
+            res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed, &max_rowset);
             if (!res.ok()) {
                 LOG(WARNING) << "fail to get version to be changed. res=" << res;
                 break;
             }
 
             // should check the max_version >= request.alter_version, if not the convert is useless
-            RowsetSharedPtr max_rowset = base_tablet->rowset_with_max_version();
             if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
                 LOG(WARNING) << "base tablet's max version="
                              << (max_rowset == nullptr ? 0 : max_rowset->end_version())
@@ -1507,9 +1482,23 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
             new_tablet->acquire_version_and_rowsets(&version_rowsets);
+            std::sort(version_rowsets.begin(), version_rowsets.end(),
+                      [](const std::pair<Version, RowsetSharedPtr>& l,
+                         const std::pair<Version, RowsetSharedPtr>& r) {
+                          return l.first.first < r.first.first;
+                      });
             for (auto& pair : version_rowsets) {
                 if (pair.first.second <= max_rowset->end_version()) {
                     rowsets_to_delete.push_back(pair.second);
+                } else if (pair.first.first <= max_rowset->end_version()) {
+                    // If max version is [X-10] and new tablet has version [7-9][10-12],
+                    // we only can remove [7-9] from new tablet. If we add [X-10] to new tablet, it will has version
+                    // cross: [X-10] [10-12].
+                    // So, we should return OLAP_ERR_VERSION_ALREADY_MERGED for fast fail.
+                    LOG(WARNING) << "New tablet has a version " << pair.first
+                                 << " crossing base tablet's max_version="
+                                 << max_rowset->end_version();
+                    Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
@@ -1604,8 +1593,15 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                         std::make_pair(item.column_name, mv_param));
             }
         }
-
+        {
+            std::lock_guard<std::shared_mutex> wrlock(_mutex);
+            _tablet_ids_in_converting.insert(new_tablet->tablet_id());
+        }
         res = _convert_historical_rowsets(sc_params);
+        {
+            std::lock_guard<std::shared_mutex> wrlock(_mutex);
+            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+        }
         if (!res.ok()) {
             break;
         }
@@ -1632,6 +1628,11 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     }
 
     return res;
+}
+
+bool SchemaChangeHandler::tablet_in_converting(int64_t tablet_id) {
+    std::shared_lock rdlock(_mutex);
+    return _tablet_ids_in_converting.find(tablet_id) != _tablet_ids_in_converting.end();
 }
 
 Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
@@ -1695,32 +1696,18 @@ Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
     reader_context.return_columns = &return_columns;
     reader_context.seek_columns = &return_columns;
     reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+    reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
     RETURN_NOT_OK(rowset_reader->init(&reader_context));
-
-    RowsetWriterContext writer_context;
-    writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
-    writer_context.tablet_uid = new_tablet->tablet_uid();
-    writer_context.tablet_id = new_tablet->tablet_id();
-    writer_context.partition_id = (*base_rowset)->partition_id();
-    writer_context.tablet_schema_hash = new_tablet->schema_hash();
-    writer_context.data_dir = new_tablet->data_dir();
-    writer_context.rowset_type = (*base_rowset)->rowset_meta()->rowset_type();
-    if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-        writer_context.rowset_type = BETA_ROWSET;
-    }
-    writer_context.path_desc = new_tablet->tablet_path_desc();
-    writer_context.tablet_schema = &(new_tablet->tablet_schema());
-    writer_context.rowset_state = PREPARED;
-    writer_context.txn_id = (*base_rowset)->txn_id();
-    writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
-    writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
-    writer_context.segments_overlap = (*base_rowset)->rowset_meta()->segments_overlap();
-
+    PUniqueId load_id;
+    load_id.set_hi((*base_rowset)->load_id().hi());
+    load_id.set_lo((*base_rowset)->load_id().lo());
     std::unique_ptr<RowsetWriter> rowset_writer;
-    RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+    RETURN_NOT_OK(new_tablet->create_rowset_writer(
+            (*base_rowset)->txn_id(), load_id, PREPARED,
+            (*base_rowset)->rowset_meta()->segments_overlap(), &rowset_writer));
 
     if ((res = sc_procedure->process(rowset_reader, rowset_writer.get(), new_tablet,
                                      base_tablet)) != Status::OK()) {
@@ -1765,18 +1752,17 @@ SCHEMA_VERSION_CONVERT_ERR:
 }
 
 Status SchemaChangeHandler::_get_versions_to_be_changed(
-        TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed) {
+        TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed,
+        RowsetSharedPtr* max_rowset) {
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
         LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS);
     }
+    *max_rowset = rowset;
 
-    std::vector<Version> span_versions;
     RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                           &span_versions));
-    versions_to_be_changed->insert(versions_to_be_changed->end(), span_versions.begin(),
-                                   span_versions.end());
+                                                           versions_to_be_changed));
 
     return Status::OK();
 }
@@ -1842,29 +1828,12 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         // As long as there is a new_table as running, ref table is set as running
         // NOTE If the first sub_table fails first, it will continue to go as normal here
         TabletSharedPtr new_tablet = sc_params.new_tablet;
-
-        RowsetWriterContext writer_context;
-        writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
-        writer_context.tablet_uid = new_tablet->tablet_uid();
-        writer_context.tablet_id = new_tablet->tablet_id();
-        writer_context.partition_id = new_tablet->partition_id();
-        writer_context.tablet_schema_hash = new_tablet->schema_hash();
-        writer_context.data_dir = new_tablet->data_dir();
-        // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
-        writer_context.rowset_type = rs_reader->rowset()->rowset_meta()->rowset_type();
-        if (sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-            // Use beta rowset to do schema change
-            // And in this case, linked schema change will not be used.
-            writer_context.rowset_type = BETA_ROWSET;
-        }
-        writer_context.path_desc = new_tablet->tablet_path_desc();
-        writer_context.tablet_schema = &(new_tablet->tablet_schema());
-        writer_context.rowset_state = VISIBLE;
-        writer_context.version = rs_reader->version();
-        writer_context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
-
+        // When tablet create new rowset writer, it may change rowset type, in this case
+        // linked schema change will not be used.
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        Status status = new_tablet->create_rowset_writer(
+                rs_reader->version(), VISIBLE,
+                rs_reader->rowset()->rowset_meta()->segments_overlap(), &rowset_writer);
         if (!status.ok()) {
             res = Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
             goto PROCESS_ALTER_EXIT;
@@ -1889,8 +1858,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
             LOG(WARNING) << "failed to build rowset, exit alter process";
             goto PROCESS_ALTER_EXIT;
         }
-        res = sc_params.new_tablet->add_rowset(new_rowset, false);
-        if (res == Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
+        res = sc_params.new_tablet->add_rowset(new_rowset);
+        if (res.precise_code() == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sc_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;

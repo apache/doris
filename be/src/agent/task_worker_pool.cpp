@@ -383,6 +383,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.row_count = 0;
             tablet_info.data_size = 0;
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+            tablet_info.__set_replica_id(tablet->replica_id());
             finish_tablet_infos.push_back(tablet_info);
         }
 
@@ -428,7 +429,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
             Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id);
+                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id);
             if (!drop_status.ok()) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
@@ -531,7 +532,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
         Status sc_status = _env->storage_engine()->execute_task(&engine_task);
         if (!sc_status.ok()) {
-            if (sc_status == Status::OLAPInternalError(OLAP_ERR_DATA_QUALITY_ERR)) {
+            if (sc_status.precise_code() == OLAP_ERR_DATA_QUALITY_ERR) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
             status = Status::DataQualityError("The data quality does not satisfy");
@@ -1609,6 +1610,8 @@ void TaskWorkerPool::_random_sleep(int second) {
 }
 
 void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
+                              StorageEngine::instance()->compaction_mem_tracker());
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
         TCompactionReq compaction_req;
@@ -1637,8 +1640,8 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
             compaction_type = CompactionType::CUMULATIVE_COMPACTION;
         }
 
-        TabletSharedPtr tablet_ptr = StorageEngine::instance()->tablet_manager()->get_tablet(
-                compaction_req.tablet_id, compaction_req.schema_hash);
+        TabletSharedPtr tablet_ptr =
+                StorageEngine::instance()->tablet_manager()->get_tablet(compaction_req.tablet_id);
         if (tablet_ptr != nullptr) {
             auto data_dir = tablet_ptr->data_dir();
             if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
@@ -1734,7 +1737,7 @@ void TaskWorkerPool::_storage_medium_migrate_v2(const TAgentTaskRequest& agent_t
         EngineStorageMigrationTaskV2 engine_task(agent_task_req.storage_migration_req_v2);
         Status sc_status = _env->storage_engine()->execute_task(&engine_task);
         if (!sc_status.ok()) {
-            if (sc_status == Status::OLAPInternalError(OLAP_ERR_DATA_QUALITY_ERR)) {
+            if (sc_status.precise_code() == OLAP_ERR_DATA_QUALITY_ERR) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
             status = Status::DataQualityError("The data quality does not satisfy");

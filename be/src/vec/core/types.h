@@ -25,15 +25,16 @@
 #include <string>
 #include <vector>
 
-#include "gen_cpp/data.pb.h"
-#include "olap/decimal12.h"
-#include "olap/hll.h"
-#include "olap/uint24.h"
-#include "udf/udf.h"
 #include "util/binary_cast.hpp"
-#include "util/bitmap_value.h"
 
-namespace doris::vectorized {
+namespace doris {
+
+class BitmapValue;
+class HyperLogLog;
+struct decimal12_t;
+struct uint24_t;
+
+namespace vectorized {
 
 /// Data types for representing elementary values from a database in RAM.
 
@@ -138,7 +139,7 @@ struct TypeName<uint24_t> {
 };
 template <>
 struct TypeName<StringValue> {
-    static const char* get() { return "SringValue"; }
+    static const char* get() { return "StringValue"; }
 };
 
 template <>
@@ -433,8 +434,8 @@ inline const char* getTypeName(TypeIndex idx) {
 
     __builtin_unreachable();
 }
-
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.
 namespace std {

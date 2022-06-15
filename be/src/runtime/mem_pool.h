@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/mem-pool.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_MEM_POOL_H
-#define DORIS_BE_RUNTIME_MEM_POOL_H
+#pragma once
 
 #include <stdio.h>
 
@@ -102,7 +101,7 @@ public:
     ~MemPool();
 
     /// Allocates a section of memory of 'size' bytes with DEFAULT_ALIGNMENT at the end
-    /// of the the current chunk. Creates a new chunk if there aren't any chunks
+    /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
     uint8_t* allocate(int64_t size, Status* rst = nullptr) {
         return allocate<false>(size, DEFAULT_ALIGNMENT, rst);
@@ -317,5 +316,3 @@ private:
 template uint8_t* MemPool::allocate<false>(int64_t size, int alignment, Status* rst);
 template uint8_t* MemPool::allocate<true>(int64_t size, int alignment, Status* rst);
 } // namespace doris
-
-#endif

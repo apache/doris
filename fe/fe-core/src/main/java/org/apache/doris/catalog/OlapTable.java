@@ -48,6 +48,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -61,7 +62,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -130,7 +130,7 @@ public class OlapTable extends Table {
     private Type sequenceType;
 
     private TableIndexes indexes;
-    
+
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
     // using same id is not suitable for our new framework.
@@ -151,7 +151,7 @@ public class OlapTable extends Table {
         this.colocateGroup = null;
 
         this.indexes = null;
-      
+
         this.tableProperty = null;
 
         this.hasSequenceCol = false;
@@ -424,10 +424,11 @@ public class OlapTable extends Table {
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore() {
-        // disable dynamic partition
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore();
         }
+        // remove colocate property.
+        setColocateGroup(null);
     }
 
     public Status resetIdsForRestore(Catalog catalog, Database db, ReplicaAllocation restoreReplicaAlloc) {
@@ -499,7 +500,8 @@ public class OlapTable extends Table {
 
                     // replicas
                     try {
-                        Map<Tag, List<Long>> tag2beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(
+                        Map<Tag, List<Long>> tag2beIds =
+                                Catalog.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                 replicaAlloc, db.getClusterName(), null);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
@@ -628,7 +630,7 @@ public class OlapTable extends Table {
     public KeysType getKeysTypeByIndexId(long indexId) {
         MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
         Preconditions.checkNotNull(indexMeta, "index id:" + indexId + " meta is null");
-         return indexMeta.getKeysType();
+        return indexMeta.getKeysType();
     }
 
     public PartitionInfo getPartitionInfo() {
@@ -703,8 +705,8 @@ public class OlapTable extends Table {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
 
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE ||
-                    partitionInfo.getType() == PartitionType.LIST);
+            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE
+                    || partitionInfo.getType() == PartitionType.LIST);
 
             if (!isForceDrop) {
                 // recycle partition
@@ -802,7 +804,7 @@ public class OlapTable extends Table {
      * `getAllPartitions()`
      *
      */
-    
+
     // get partition by name, not including temp partitions
     @Override
     public Partition getPartition(String partitionName) {
@@ -826,7 +828,7 @@ public class OlapTable extends Table {
         }
         return partition;
     }
-    
+
     // get all partitions except temp partitions
     public Collection<Partition> getPartitions() {
         return idToPartition.values();
@@ -934,7 +936,7 @@ public class OlapTable extends Table {
     public void setColocateGroup(String colocateGroup) {
         this.colocateGroup = colocateGroup;
     }
-    
+
     // when the table is creating new rollup and enter finishing state, should tell be not auto load to new rollup
     // it is used for stream load
     // the caller should get db lock when call this method
@@ -1130,7 +1132,7 @@ public class OlapTable extends Table {
         } else {
             out.writeBoolean(false);
         }
-      
+
         // tableProperty
         if (tableProperty == null) {
             out.writeBoolean(false);
@@ -1176,7 +1178,7 @@ public class OlapTable extends Table {
             partitionInfo = RangePartitionInfo.read(in);
         } else if (partType == PartitionType.LIST) {
             partitionInfo = ListPartitionInfo.read(in);
-        }else {
+        } else {
             throw new IOException("invalid partition type: " + partType);
         }
 
@@ -1219,7 +1221,7 @@ public class OlapTable extends Table {
         if (in.readBoolean()) {
             tableProperty = TableProperty.read(in);
         }
-        
+
         // temp partitions
         tempPartitions = TempPartitions.read(in);
         RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
@@ -1296,7 +1298,7 @@ public class OlapTable extends Table {
                 copied.dropPartitionAndReserveTablet(partName);
             }
         }
-        
+
         return copied;
     }
 
@@ -1474,7 +1476,7 @@ public class OlapTable extends Table {
 
     public Column getBaseColumn(String columnName) {
         for (Column column : getBaseSchema()) {
-            if (column.getName().equalsIgnoreCase(columnName)){
+            if (column.getName().equalsIgnoreCase(columnName)) {
                 return column;
             }
         }
@@ -1586,19 +1588,19 @@ public class OlapTable extends Table {
      *      2. {[0, 10), [15, 20)} === {[0, 10), [15, 18), [18, 20)}
      *      3. {[0, 10), [15, 20)} === {[0, 10), [15, 20)}
      *      4. {[0, 10), [15, 20)} !== {[0, 20)}
-     *      
+     *
      * If useTempPartitionName is false and replaced partition number are equal,
      * the replaced partitions' name will remain unchanged.
      * What is "remain unchange"?
      *      1. replace partition (p1, p2) with temporary partition (tp1, tp2). After replacing, the partition
      *         names are still p1 and p2.
-     * 
+     *
      */
     public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
             boolean strictRange, boolean useTempPartitionName) throws DdlException {
         // check partition items
         checkPartition(partitionNames, tempPartitionNames, strictRange);
-        
+
         // begin to replace
         // 1. drop old partitions
         for (String partitionName : partitionNames) {
@@ -1678,6 +1680,14 @@ public class OlapTable extends Table {
         return !tempPartitions.isEmpty();
     }
 
+    public void setCompressionType(TCompressionType compressionType) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPRESSION, compressionType.name());
+        tableProperty.buildCompressionType();
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
@@ -1691,6 +1701,13 @@ public class OlapTable extends Table {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    public TCompressionType getCompressionType() {
+        if (tableProperty == null) {
+            return TCompressionType.LZ4F;
+        }
+        return tableProperty.getCompressionType();
     }
 
     public DataSortInfo getDataSortInfo() {
@@ -1718,15 +1735,15 @@ public class OlapTable extends Table {
         if (groupingExps == null || groupingExps.isEmpty()) {
             return false;
         }
-        List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null ?
-                aggregateInfo.getPartitionExprs() : groupingExps;
+        List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null
+                ? aggregateInfo.getPartitionExprs() : groupingExps;
         DistributionInfo distribution = getDefaultDistributionInfo();
-        if(distribution instanceof HashDistributionInfo) {
+        if (distribution instanceof HashDistributionInfo) {
             List<Column> distributeColumns =
-                    ((HashDistributionInfo)distribution).getDistributionColumns();
+                    ((HashDistributionInfo) distribution).getDistributionColumns();
             PartitionInfo partitionInfo = getPartitionInfo();
             if (partitionInfo instanceof RangePartitionInfo) {
-                List<Column> rangeColumns = ((RangePartitionInfo)partitionInfo).getPartitionColumns();
+                List<Column> rangeColumns = partitionInfo.getPartitionColumns();
                 if (!distributeColumns.containsAll(rangeColumns)) {
                     return false;
                 }

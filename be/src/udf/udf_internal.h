@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf-internal.h
 // and modified by Doris
 
-#ifndef DORIS_BE_UDF_UDF_INTERNAL_H
-#define DORIS_BE_UDF_UDF_INTERNAL_H
+#pragma once
 
 #include <string.h>
 
@@ -189,5 +188,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

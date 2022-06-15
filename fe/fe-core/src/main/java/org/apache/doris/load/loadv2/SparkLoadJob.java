@@ -93,7 +93,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -193,10 +192,10 @@ public class SparkLoadJob extends BulkLoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
-       transactionId = Catalog.getCurrentGlobalTransactionMgr()
+        transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  LoadJobSourceType.FRONTEND, id, getTimeout());
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        LoadJobSourceType.FRONTEND, id, getTimeout());
     }
 
     @Override
@@ -498,9 +497,11 @@ public class SparkLoadJob extends BulkLoadJob {
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.ip, fsBroker.port));
 
-                                        LOG.debug("push task for replica {}, broker {}:{}, backendId {}, filePath {}, fileSize {}" ,
-                                                  replicaId, fsBroker.ip, fsBroker.port, backendId, tBrokerRangeDesc.path,
-                                                  tBrokerRangeDesc.file_size);
+                                        LOG.debug("push task for replica {}, broker {}:{},"
+                                                        + " backendId {}, filePath {}, fileSize {}",
+                                                replicaId, fsBroker.ip, fsBroker.port, backendId,
+                                                tBrokerRangeDesc.path,
+                                                tBrokerRangeDesc.file_size);
 
                                         PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(), partitionId,
                                                                          indexId, tabletId, replicaId, schemaHash,

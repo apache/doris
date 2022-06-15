@@ -53,6 +53,8 @@ public:
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
 
+    std::shared_ptr<MemTracker>& get_mem_tracker() { return _mem_tracker; }
+
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -61,7 +63,7 @@ protected:
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);
 
-    void modify_rowsets();
+    Status modify_rowsets();
     void gc_output_rowset();
 
     Status construct_output_rowset_writer();

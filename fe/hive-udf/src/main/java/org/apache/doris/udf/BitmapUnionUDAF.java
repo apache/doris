@@ -19,6 +19,7 @@ package org.apache.doris.udf;
 
 import org.apache.doris.common.BitmapValueUtil;
 import org.apache.doris.common.io.BitmapValue;
+
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentTypeException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -104,7 +105,7 @@ public class BitmapUnionUDAF extends AbstractGenericUDAFResolver {
         }
 
         @Override
-        public Object terminate(AggregationBuffer agg){
+        public Object terminate(AggregationBuffer agg) {
             BitmapAgg myagg = (BitmapAgg) agg;
             try {
                 return BitmapValueUtil.serializeToBytes(myagg.bitmap);
@@ -125,7 +126,7 @@ public class BitmapUnionUDAF extends AbstractGenericUDAFResolver {
         }
 
         @Override
-        public Object terminatePartial(AggregationBuffer agg){
+        public Object terminatePartial(AggregationBuffer agg) {
             return terminate(agg);
         }
     }

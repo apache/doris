@@ -59,7 +59,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -195,7 +194,7 @@ public class DatabaseTransactionMgr {
         return labelToTxnIds.get(label);
     }
 
-    protected int getRunningTxnNums() {
+    public int getRunningTxnNums() {
         return runningTxnNums;
     }
 
@@ -664,11 +663,12 @@ public class DatabaseTransactionMgr {
 
         long currentTimeMillis = System.currentTimeMillis();
         long timeoutTimeMillis = currentTimeMillis + timeoutMillis;
-        while (currentTimeMillis < timeoutTimeMillis &&
-                transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+        while (currentTimeMillis < timeoutTimeMillis
+                && transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
             try {
                 transactionState.waitTransactionVisible(timeoutMillis);
             } catch (InterruptedException e) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
             currentTimeMillis = System.currentTimeMillis();
         }
@@ -683,12 +683,13 @@ public class DatabaseTransactionMgr {
             // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
             // it must at the front of the finalStatusTransactionStateDeque.
             // check both "short" and "long" queue.
-            if (!finalStatusTransactionStateDequeShort.isEmpty() &&
-                    transactionState.getTransactionId() == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
+            if (!finalStatusTransactionStateDequeShort.isEmpty()
+                    && transactionState.getTransactionId() == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
                 finalStatusTransactionStateDequeShort.pop();
                 clearTransactionState(transactionState.getTransactionId());
-            } else if (!finalStatusTransactionStateDequeLong.isEmpty() &&
-                    transactionState.getTransactionId() == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
+            } else if (!finalStatusTransactionStateDequeLong.isEmpty()
+                    && transactionState.getTransactionId()
+                    == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
                 finalStatusTransactionStateDequeLong.pop();
                 clearTransactionState(transactionState.getTransactionId());
             }
@@ -704,12 +705,12 @@ public class DatabaseTransactionMgr {
                 // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
                 // it must at the front of the finalStatusTransactionStateDeque
                 // check both "short" and "long" queue.
-                if (!finalStatusTransactionStateDequeShort.isEmpty() &&
-                        txnId == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
+                if (!finalStatusTransactionStateDequeShort.isEmpty()
+                        && txnId == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
                     finalStatusTransactionStateDequeShort.pop();
                     clearTransactionState(txnId);
-                } else if (!finalStatusTransactionStateDequeLong.isEmpty() &&
-                        txnId == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
+                } else if (!finalStatusTransactionStateDequeLong.isEmpty()
+                        && txnId == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
                     finalStatusTransactionStateDequeLong.pop();
                     clearTransactionState(txnId);
                 }
@@ -832,8 +833,8 @@ public class DatabaseTransactionMgr {
                         continue;
                     }
                     if (partition.getVisibleVersion() != partitionCommitInfo.getVersion() - 1) {
-                        LOG.debug("transactionId {} partition commitInfo version {} is not equal with " +
-                                        "partition visible version {} plus one, need wait",
+                        LOG.debug("transactionId {} partition commitInfo version {} is not equal with "
+                                        + "partition visible version {} plus one, need wait",
                                 transactionId,
                                 partitionCommitInfo.getVersion(),
                                 partition.getVisibleVersion());
@@ -1197,8 +1198,8 @@ public class DatabaseTransactionMgr {
             throw new TransactionNotFoundException("transaction [" + transactionId + "] not found.");
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            throw new TransactionNotFoundException("transaction [" + transactionId + "] is already aborted, " +
-                    "abort reason: " + transactionState.getReason());
+            throw new TransactionNotFoundException("transaction [" + transactionId + "] is already aborted, "
+                    + "abort reason: " + transactionState.getReason());
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -1340,8 +1341,8 @@ public class DatabaseTransactionMgr {
     }
 
     public int getTransactionNum() {
-        return idToRunningTransactionState.size() + finalStatusTransactionStateDequeShort.size() +
-               finalStatusTransactionStateDequeLong.size();
+        return idToRunningTransactionState.size() + finalStatusTransactionStateDequeShort.size()
+                + finalStatusTransactionStateDequeLong.size();
     }
 
 
@@ -1630,8 +1631,8 @@ public class DatabaseTransactionMgr {
     }
 
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
-        boolean shouldAddTableListLock  = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED ||
-                transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
+        boolean shouldAddTableListLock  = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
+                || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
         Database db = null;
         List<Table> tableList = null;
         if (shouldAddTableListLock) {

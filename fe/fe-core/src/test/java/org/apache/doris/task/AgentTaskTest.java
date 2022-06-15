@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
@@ -36,7 +37,6 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Range;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -107,14 +107,14 @@ public class AgentTaskTest {
 
         // create
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
-                                                  indexId1, tabletId1, shortKeyNum, schemaHash1,
+                                                  indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1,
                                                   version, KeysType.AGG_KEYS,
                                                   storageType, TStorageMedium.SSD,
                                                   columns, null, 0, latch, null,
-                                                  false, TTabletType.TABLET_TYPE_DISK);
+                                                  false, TTabletType.TABLET_TYPE_DISK, TCompressionType.LZ4F);
 
         // drop
-        dropTask = new DropReplicaTask(backendId1, tabletId1, schemaHash1);
+        dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1);
 
         // push
         pushTask =
@@ -124,7 +124,7 @@ public class AgentTaskTest {
 
         // clone
         cloneTask =
-                new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
+                new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, replicaId1, schemaHash1,
                         Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600);
 
         // storageMediaMigrationTask
@@ -138,7 +138,7 @@ public class AgentTaskTest {
         // add null
         agentBatchTask.addTask(null);
         Assert.assertEquals(0, agentBatchTask.getTaskNum());
-        
+
         // normal
         agentBatchTask.addTask(createReplicaTask);
         Assert.assertEquals(1, agentBatchTask.getTaskNum());
@@ -188,7 +188,7 @@ public class AgentTaskTest {
 
         // storageMediaMigrationTask
         TAgentTaskRequest request7 =
-            (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, storageMediaMigrationTask);
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, storageMediaMigrationTask);
         Assert.assertEquals(TTaskType.STORAGE_MEDIUM_MIGRATE, request7.getTaskType());
         Assert.assertEquals(storageMediaMigrationTask.getSignature(), request7.getSignature());
         Assert.assertNotNull(request7.getStorageMediumMigrateReq());
@@ -240,7 +240,7 @@ public class AgentTaskTest {
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum(backendId1, TTaskType.DROP, true));
 
         dropTask.failed();
-        DropReplicaTask dropTask2 = new DropReplicaTask(backendId2, tabletId1, schemaHash1);
+        DropReplicaTask dropTask2 = new DropReplicaTask(backendId2, tabletId1, replicaId1, schemaHash1);
         AgentTaskQueue.addTask(dropTask2);
         dropTask2.failed();
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum(backendId1, TTaskType.DROP, true));

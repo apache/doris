@@ -74,9 +74,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -86,6 +83,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -100,6 +99,7 @@ import java.util.stream.Collectors;
 public class RestoreJob extends AbstractJob {
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
 
+    // CHECKSTYLE OFF
     public enum RestoreJobState {
         PENDING, // Job is newly created. Check and prepare meta in catalog. Create replica if necessary.
                  // Waiting for replica creation finished synchronously, then sending snapshot tasks.
@@ -113,6 +113,7 @@ public class RestoreJob extends AbstractJob {
         FINISHED,
         CANCELLED
     }
+    // CHECKSTYLE ON
 
     private String backupTimestamp;
 
@@ -179,7 +180,7 @@ public class RestoreJob extends AbstractJob {
     public RestoreFileMapping getFileMapping() {
         return fileMapping;
     }
-    
+
     public int getMetaVersion() {
         return metaVersion;
     }
@@ -407,7 +408,7 @@ public class RestoreJob extends AbstractJob {
      *      * A. View already exist. The same signature is allowed.
      *      * B. View does not exist.
      * All newly created table/partition/index/tablet/replica should be saved for rolling back.
-     * 
+     *
      * Step:
      * 1. download and deserialize backup meta from repository.
      * 2. set all existing restored table's state to RESTORE.
@@ -956,14 +957,15 @@ public class RestoreJob extends AbstractJob {
                     Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
-                            restoreTablet.getId(), indexMeta.getShortKeyColumnCount(),
+                            restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),
                             indexMeta.getKeysType(), TStorageType.COLUMN,
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
                             localTbl.getCopiedIndexes(),
                             localTbl.isInMemory(),
-                            localTbl.getPartitionInfo().getTabletType(restorePart.getId()));
+                            localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
+                            localTbl.getCompressionType());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }
@@ -1018,7 +1020,8 @@ public class RestoreJob extends AbstractJob {
 
                 // replicas
                 try {
-                    Map<Tag, List<Long>> beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName, null);
+                    Map<Tag, List<Long>> beIds = Catalog.getCurrentSystemInfo()
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = catalog.getNextId();
@@ -1438,7 +1441,7 @@ public class RestoreJob extends AbstractJob {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(),false)) {
+                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
                                     replica.updateVersionInfo(part.getVisibleVersion(),
                                             replica.getDataSize(), replica.getRowCount());
                                 }
@@ -1706,7 +1709,7 @@ public class RestoreJob extends AbstractJob {
         Text.writeString(out, backupTimestamp);
         jobInfo.write(out);
         out.writeBoolean(allowLoad);
-        
+
         Text.writeString(out, state.name());
 
         if (backupMeta != null) {
@@ -1759,7 +1762,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         out.writeInt(restoredResources.size());
-        for (Resource resource: restoredResources) {
+        for (Resource resource : restoredResources) {
             resource.write(out);
         }
 
@@ -1818,7 +1821,7 @@ public class RestoreJob extends AbstractJob {
                 long partId = in.readLong();
                 long version = in.readLong();
                 // Useless but read it to compatible with meta
-                long versionHash = in.readLong();
+                long versionHash = in.readLong(); // CHECKSTYLE IGNORE THIS LINE
                 restoredVersionInfo.put(tblId, partId, version);
             }
         }
@@ -1857,4 +1860,3 @@ public class RestoreJob extends AbstractJob {
         return sb.toString();
     }
 }
-

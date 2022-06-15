@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -34,7 +35,6 @@ import org.apache.doris.thrift.TColumnType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * This class represents the column-related metadata.
@@ -87,6 +88,8 @@ public class Column implements Writable {
     private Expr defineExpr; // use to define column in materialize view
     @SerializedName(value = "visible")
     private boolean visible;
+    @SerializedName(value = "defaultValueExprDef")
+    private DefaultValueExprDef defaultValueExprDef; // used for default value
 
     public Column() {
         this.name = "";
@@ -95,6 +98,7 @@ public class Column implements Writable {
         this.isKey = false;
         this.stats = new ColumnStats();
         this.visible = true;
+        this.defineExpr = null;
         this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
     }
 
@@ -117,10 +121,10 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
+        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null);
     }
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-                  String defaultValue, String comment, boolean visible) {
+                  String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -136,6 +140,7 @@ public class Column implements Writable {
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
+        this.defaultValueExprDef = defaultValueExprDef;
         this.comment = comment;
         this.stats = new ColumnStats();
         this.visible = visible;
@@ -151,6 +156,7 @@ public class Column implements Writable {
         this.isKey = column.isKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
+        this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
         this.stats = column.getStats();
         this.visible = column.visible;
@@ -160,10 +166,7 @@ public class Column implements Writable {
     public void createChildrenColumn(Type type, Column column) {
         if (type.isArrayType()) {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
-            // TODO We always set the item type in array nullable.
-            //  We may provide an alternative to configure this property of
-            //  the item type in array in future.
-            c.setIsAllowNull(true);
+            c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
         }
     }
@@ -231,7 +234,9 @@ public class Column implements Writable {
         return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
     }
 
-    public PrimitiveType getDataType() { return type.getPrimitiveType(); }
+    public PrimitiveType getDataType() {
+        return type.getPrimitiveType();
+    }
 
     public Type getType() {
         return type;
@@ -241,11 +246,21 @@ public class Column implements Writable {
         this.type = type;
     }
 
-    public Type getOriginType() { return type; }
+    public Type getOriginType() {
+        return type;
+    }
 
-    public int getStrLen() { return type.getLength(); }
-    public int getPrecision() { return type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : -1; }
-    public int getScale() { return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1; }
+    public int getStrLen() {
+        return type.getLength();
+    }
+
+    public int getPrecision() {
+        return type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : -1;
+    }
+
+    public int getScale() {
+        return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1;
+    }
 
     public AggregateType getAggregationType() {
         return this.aggregationType;
@@ -285,10 +300,14 @@ public class Column implements Writable {
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
         }
+        if (defaultValueExprDef != null) {
+            return defaultValueExprDef.getExpr();
+        }
         Expr result = defaultValueLiteral.castTo(getType());
         result.checkValueValid();
         return result;
     }
+
 
     public void setStats(ColumnStats stats) {
         this.stats = stats;
@@ -343,7 +362,7 @@ public class Column implements Writable {
         tColumn.setDefaultValue(this.defaultValue);
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
-        
+
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -397,8 +416,8 @@ public class Column implements Writable {
             Integer lSize = type.getColumnStringRepSize();
             Integer rSize = other.type.getColumnStringRepSize();
             if (rSize < lSize) {
-                throw new DdlException("Can not change from wider type " + type.toSql() +
-                                        " to narrower type " + other.type.toSql());
+                throw new DdlException("Can not change from wider type " + type.toSql()
+                        + " to narrower type " + other.type.toSql());
             }
         }
 
@@ -485,6 +504,10 @@ public class Column implements Writable {
         defineExpr = expr;
     }
 
+    public DefaultValueExprDef getDefaultValueExprDef() {
+        return defaultValueExprDef;
+    }
+
     public SlotRef getRefColumn() {
         List<Expr> slots = new ArrayList<>();
         if (defineExpr == null) {
@@ -525,6 +548,13 @@ public class Column implements Writable {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, getDataType(), aggregationType, isAggregationTypeImplicit,
+                isKey, isAllowNull, getDefaultValue(), getStrLen(), getPrecision(), getScale(),
+                comment, visible, children);
     }
 
     @Override
@@ -623,7 +653,6 @@ public class Column implements Writable {
     }
 
     public static Column read(DataInput in) throws IOException {
-
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Column.class);
     }
@@ -645,10 +674,13 @@ public class Column implements Writable {
                 break;
             case ARRAY:
                 sb.append(type.toString());
+                break;
             case MAP:
                 sb.append(type.toString());
+                break;
             case STRUCT:
                 sb.append(type.toString());
+                break;
             default:
                 sb.append(typeStringMap.get(dataType));
                 break;

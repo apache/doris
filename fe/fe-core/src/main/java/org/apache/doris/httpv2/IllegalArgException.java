@@ -14,20 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.httpv2;
 
 public class IllegalArgException extends Exception {
-  private static final long serialVersionUID = 3344697787301861667L;
+    private static final long serialVersionUID = 3344697787301861667L;
 
-  public IllegalArgException() {
-    super("");
-  }
+    public IllegalArgException() {
+        super("");
+    }
 
-  public IllegalArgException(String msg) {
-    super(msg);
-  }
+    public IllegalArgException(String msg) {
+        super(msg);
+    }
 
-  public IllegalArgException(String msg, Throwable cause) {
-    super(msg, cause);
-  }
+    public IllegalArgException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
 }

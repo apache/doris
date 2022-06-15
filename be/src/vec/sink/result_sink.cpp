@@ -37,11 +37,6 @@ VResultSink::VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>
         _sink_type = sink.type;
     }
 
-    if (_sink_type == TResultSinkType::FILE) {
-        CHECK(sink.__isset.file_options);
-        _file_opts.reset(new ResultFileOptions(sink.file_options));
-    }
-
     _name = "ResultSink";
 }
 
@@ -75,13 +70,6 @@ Status VResultSink::prepare(RuntimeState* state) {
         _writer.reset(new (std::nothrow)
                               VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
         break;
-    case TResultSinkType::FILE:
-        CHECK(_file_opts.get() != nullptr);
-        return Status::InternalError("Unsupport vfile result sink type");
-        // TODO:
-        /*      _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,*/
-        /*_profile, _sender.get()));*/
-        //        break;
     default:
         return Status::InternalError("Unknown result sink type");
     }
@@ -99,25 +87,31 @@ Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status VResultSink::send(RuntimeState* state, Block* block) {
+    // The memory consumption in the process of sending the results is not check query memory limit.
+    // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
     return _writer->append_block(*block);
 }
 
 Status VResultSink::close(RuntimeState* state, Status exec_status) {
-    if (_closed || _writer == nullptr || _sender == nullptr) {
+    if (_closed) {
         return Status::OK();
     }
 
     Status final_status = exec_status;
-    // close the writer
-    Status st = _writer->close();
-    if (!st.ok() && exec_status.ok()) {
-        // close file writer failed, should return this error to client
-        final_status = st;
+
+    if (_writer) {
+        // close the writer
+        Status st = _writer->close();
+        if (!st.ok() && exec_status.ok()) {
+            // close file writer failed, should return this error to client
+            final_status = st;
+        }
     }
 
     // close sender, this is normal path end
     if (_sender) {
-        _sender->update_num_written_rows(_writer->get_written_rows());
+        if (_writer) _sender->update_num_written_rows(_writer->get_written_rows());
         _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(

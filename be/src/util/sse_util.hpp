@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/sse-util.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_SSE_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_SSE_UTIL_H
+#pragma once
 
 #include <nmmintrin.h>
 #include <smmintrin.h>
@@ -59,5 +58,3 @@ static const int SSE_BITMASK[CHARS_PER_128_BIT_REGISTER] = {
 
 } // namespace sse_util
 } // namespace doris
-
-#endif

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -36,15 +37,13 @@ import org.apache.doris.thrift.TUnionNode;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.collections.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Node that merges the results of its child plans, Normally, this is done by
@@ -60,54 +59,69 @@ public abstract class SetOperationNode extends PlanNode {
 
     // List of set operation result exprs of the originating SetOperationStmt. Used for
     // determining passthrough-compatibility of children.
-    protected List<Expr> setOpResultExprs_;
+    protected List<Expr> setOpResultExprs;
 
     // Expr lists corresponding to the input query stmts.
     // The ith resultExprList belongs to the ith child.
     // All exprs are resolved to base tables.
-    protected List<List<Expr>> resultExprLists_ = Lists.newArrayList();
+    protected List<List<Expr>> resultExprLists = Lists.newArrayList();
 
     // Expr lists that originate from constant select stmts.
     // We keep them separate from the regular expr lists to avoid null children.
-    protected List<List<Expr>> constExprLists_ = Lists.newArrayList();
+    protected List<List<Expr>> constExprLists = Lists.newArrayList();
 
     // Materialized result/const exprs corresponding to materialized slots.
     // Set in finalize() and substituted against the corresponding child's output smap.
-    protected List<List<Expr>> materializedResultExprLists_ = Lists.newArrayList();
-    protected List<List<Expr>> materializedConstExprLists_ = Lists.newArrayList();
+    protected List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
+    protected List<List<Expr>> materializedConstExprLists = Lists.newArrayList();
 
     // Indicates if this UnionNode is inside a subplan.
-    protected boolean isInSubplan_;
+    protected boolean isInSubplan;
 
     // Index of the first non-passthrough child.
-    protected int firstMaterializedChildIdx_;
+    protected int firstMaterializedChildIdx;
 
-    protected final TupleId tupleId_;
+    protected final TupleId tupleId;
+
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        this.setOpResultExprs = Lists.newArrayList();
+        this.tupleId = tupleId;
+        this.isInSubplan = false;
+    }
+
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
+                               List<Expr> setOpResultExprs, boolean isInSubplan, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        this.setOpResultExprs = setOpResultExprs;
+        this.tupleId = tupleId;
+        this.isInSubplan = isInSubplan;
+    }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
-        super(id, tupleId.asList(), planNodeName);
-        setOpResultExprs_ = Lists.newArrayList();
-        tupleId_ = tupleId;
-        isInSubplan_ = false;
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        this.setOpResultExprs = Lists.newArrayList();
+        this.tupleId = tupleId;
+        this.isInSubplan = false;
     }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
                                List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId.asList(), planNodeName);
-        setOpResultExprs_ = setOpResultExprs;
-        tupleId_ = tupleId;
-        isInSubplan_ = isInSubplan;
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        this.setOpResultExprs = setOpResultExprs;
+        this.tupleId = tupleId;
+        this.isInSubplan = isInSubplan;
     }
 
     public void addConstExprList(List<Expr> exprs) {
-        constExprLists_.add(exprs);
+        constExprLists.add(exprs);
     }
 
     /**
      * Returns true if this UnionNode has only constant exprs.
      */
     public boolean isConstantUnion() {
-        return resultExprLists_.isEmpty();
+        return resultExprLists.isEmpty();
     }
 
     /**
@@ -115,15 +129,15 @@ public abstract class SetOperationNode extends PlanNode {
      */
     public void addChild(PlanNode node, List<Expr> resultExprs) {
         super.addChild(node);
-        resultExprLists_.add(resultExprs);
+        resultExprLists.add(resultExprs);
     }
 
-    public List<List<Expr>> getMaterializedResultExprLists_() {
-        return materializedResultExprLists_;
+    public List<List<Expr>> getMaterializedResultExprLists() {
+        return materializedResultExprLists;
     }
 
-    public List<List<Expr>> getMaterializedConstExprLists_() {
-        return materializedConstExprLists_;
+    public List<List<Expr>> getMaterializedConstExprLists() {
+        return materializedConstExprLists;
     }
 
     @Override
@@ -151,11 +165,11 @@ public abstract class SetOperationNode extends PlanNode {
         }
         // drop resultExprs/constExprs that aren't getting materialized (= where the
         // corresponding output slot isn't being materialized)
-        materializedResultExprLists_.clear();
-        Preconditions.checkState(resultExprLists_.size() == children.size());
-        List<SlotDescriptor> slots = analyzer.getDescTbl().getTupleDesc(tupleId_).getSlots();
-        for (int i = 0; i < resultExprLists_.size(); ++i) {
-            List<Expr> exprList = resultExprLists_.get(i);
+        materializedResultExprLists.clear();
+        Preconditions.checkState(resultExprLists.size() == children.size());
+        List<SlotDescriptor> slots = analyzer.getDescTbl().getTupleDesc(tupleId).getSlots();
+        for (int i = 0; i < resultExprLists.size(); ++i) {
+            List<Expr> exprList = resultExprLists.get(i);
             List<Expr> newExprList = Lists.newArrayList();
             Preconditions.checkState(exprList.size() == slots.size());
             for (int j = 0; j < exprList.size(); ++j) {
@@ -163,14 +177,14 @@ public abstract class SetOperationNode extends PlanNode {
                     newExprList.add(exprList.get(j));
                 }
             }
-            materializedResultExprLists_.add(
+            materializedResultExprLists.add(
                     Expr.substituteList(newExprList, getChild(i).getOutputSmap(), analyzer, true));
         }
         Preconditions.checkState(
-                materializedResultExprLists_.size() == getChildren().size());
+                materializedResultExprLists.size() == getChildren().size());
 
-        materializedConstExprLists_.clear();
-        for (List<Expr> exprList : constExprLists_) {
+        materializedConstExprLists.clear();
+        for (List<Expr> exprList : constExprLists) {
             Preconditions.checkState(exprList.size() == slots.size());
             List<Expr> newExprList = Lists.newArrayList();
             for (int i = 0; i < exprList.size(); ++i) {
@@ -178,12 +192,12 @@ public abstract class SetOperationNode extends PlanNode {
                     newExprList.add(exprList.get(i));
                 }
             }
-            materializedConstExprLists_.add(newExprList);
+            materializedConstExprLists.add(newExprList);
         }
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
@@ -197,7 +211,7 @@ public abstract class SetOperationNode extends PlanNode {
     }
 
     private void computeCardinality() {
-        cardinality = constExprLists_.size();
+        cardinality = constExprLists.size();
         for (PlanNode child : children) {
             // ignore missing child cardinality info in the hope it won't matter enough
             // to change the planning outcome
@@ -226,12 +240,12 @@ public abstract class SetOperationNode extends PlanNode {
         List<TupleId> childTupleIds = childNode.getTupleIds();
         // Check that if the child outputs a single tuple, then it's not nullable. Tuple
         // nullability can be considered to be part of the physical row layout.
-        Preconditions.checkState(childTupleIds.size() != 1 ||
-                !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
+        Preconditions.checkState(childTupleIds.size() != 1
+                || !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
         // If the Union node is inside a subplan, passthrough should be disabled to avoid
         // performance issues by forcing tiny batches.
         // TODO: Remove this as part of IMPALA-4179.
-        if (isInSubplan_) {
+        if (isInSubplan) {
             return false;
         }
         // Pass through is only done for the simple case where the row has a single tuple. One
@@ -240,36 +254,50 @@ public abstract class SetOperationNode extends PlanNode {
         if (childTupleIds.size() != 1) {
             return false;
         }
-        Preconditions.checkState(!setOpResultExprs_.isEmpty());
+        Preconditions.checkState(!setOpResultExprs.isEmpty());
 
-        TupleDescriptor setOpTupleDescriptor = analyzer.getDescTbl().getTupleDesc(tupleId_);
+        TupleDescriptor setOpTupleDescriptor = analyzer.getDescTbl().getTupleDesc(tupleId);
         TupleDescriptor childTupleDescriptor =
                 analyzer.getDescTbl().getTupleDesc(childTupleIds.get(0));
 
         // Verify that the set operation tuple descriptor has one slot for every expression.
-        Preconditions.checkState(setOpTupleDescriptor.getSlots().size() == setOpResultExprs_.size());
+        Preconditions.checkState(setOpTupleDescriptor.getSlots().size() == setOpResultExprs.size());
         // Verify that the set operation node has one slot for every child expression.
         Preconditions.checkState(
                 setOpTupleDescriptor.getSlots().size() == childExprList.size());
 
-        if (setOpResultExprs_.size() != childTupleDescriptor.getSlots().size()) {
+        if (setOpResultExprs.size() != childTupleDescriptor.getSlots().size()) {
             return false;
         }
         if (setOpTupleDescriptor.getByteSize() != childTupleDescriptor.getByteSize()) {
             return false;
         }
 
-        for (int i = 0; i < setOpResultExprs_.size(); ++i) {
-            if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized())
+        for (int i = 0; i < setOpResultExprs.size(); ++i) {
+            if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized()) {
                 continue;
-            SlotRef setOpSlotRef = setOpResultExprs_.get(i).unwrapSlotRef(false);
+            }
+            SlotRef setOpSlotRef = setOpResultExprs.get(i).unwrapSlotRef(false);
             SlotRef childSlotRef = childExprList.get(i).unwrapSlotRef(false);
             Preconditions.checkNotNull(setOpSlotRef);
             if (childSlotRef == null) {
                 return false;
             }
-            if (!childSlotRef.getDesc().LayoutEquals(setOpSlotRef.getDesc())) {
-                return false;
+            if (VectorizedUtil.isVectorized()) {
+                // On vectorized engine, we have more chance to do passthrough.
+                if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                    return false;
+                }
+                if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
+                    return false;
+                }
+                if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
+                    return false;
+                }
+            } else {
+                if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
+                    return false;
+                }
             }
         }
         return true;
@@ -285,22 +313,22 @@ public abstract class SetOperationNode extends PlanNode {
         List<List<Expr>> newResultExprLists = Lists.newArrayList();
         ArrayList<PlanNode> newChildren = Lists.newArrayList();
         for (int i = 0; i < children.size(); i++) {
-            if (isChildPassthrough(analyzer, children.get(i), resultExprLists_.get(i))) {
-                newResultExprLists.add(resultExprLists_.get(i));
+            if (isChildPassthrough(analyzer, children.get(i), resultExprLists.get(i))) {
+                newResultExprLists.add(resultExprLists.get(i));
                 newChildren.add(children.get(i));
             }
         }
-        firstMaterializedChildIdx_ = newChildren.size();
+        firstMaterializedChildIdx = newChildren.size();
 
         for (int i = 0; i < children.size(); i++) {
-            if (!isChildPassthrough(analyzer, children.get(i), resultExprLists_.get(i))) {
-                newResultExprLists.add(resultExprLists_.get(i));
+            if (!isChildPassthrough(analyzer, children.get(i), resultExprLists.get(i))) {
+                newResultExprLists.add(resultExprLists.get(i));
                 newChildren.add(children.get(i));
             }
         }
 
-        Preconditions.checkState(resultExprLists_.size() == newResultExprLists.size());
-        resultExprLists_ = newResultExprLists;
+        Preconditions.checkState(resultExprLists.size() == newResultExprLists.size());
+        resultExprLists = newResultExprLists;
         Preconditions.checkState(children.size() == newChildren.size());
         children = newChildren;
     }
@@ -315,37 +343,37 @@ public abstract class SetOperationNode extends PlanNode {
      * been evaluated during registration to set analyzer.hasEmptyResultSet_.
      */
     @Override
-    public void init(Analyzer analyzer) {
+    public void init(Analyzer analyzer) throws UserException {
         Preconditions.checkState(conjuncts.isEmpty());
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
     }
 
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {
-        Preconditions.checkState( materializedResultExprLists_.size() == children.size());
+        Preconditions.checkState(materializedResultExprLists.size() == children.size());
         List<List<TExpr>> texprLists = Lists.newArrayList();
-        for (List<Expr> exprList : materializedResultExprLists_) {
+        for (List<Expr> exprList : materializedResultExprLists) {
             texprLists.add(Expr.treesToThrift(exprList));
         }
         List<List<TExpr>> constTexprLists = Lists.newArrayList();
-        for (List<Expr> constTexprList : materializedConstExprLists_) {
+        for (List<Expr> constTexprList : materializedConstExprLists) {
             constTexprLists.add(Expr.treesToThrift(constTexprList));
         }
-        Preconditions.checkState(firstMaterializedChildIdx_ <= children.size());
+        Preconditions.checkState(firstMaterializedChildIdx <= children.size());
         switch (nodeType) {
             case UNION_NODE:
                 msg.union_node = new TUnionNode(
-                        tupleId_.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx_);
+                        tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
                 msg.node_type = TPlanNodeType.UNION_NODE;
                 break;
             case INTERSECT_NODE:
                 msg.intersect_node = new TIntersectNode(
-                        tupleId_.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx_);
+                        tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
                 msg.node_type = TPlanNodeType.INTERSECT_NODE;
                 break;
             case EXCEPT_NODE:
                 msg.except_node = new TExceptNode(
-                        tupleId_.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx_);
+                        tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
                 msg.node_type = TPlanNodeType.EXCEPT_NODE;
                 break;
             default:
@@ -366,23 +394,23 @@ public abstract class SetOperationNode extends PlanNode {
         if (CollectionUtils.isNotEmpty(conjuncts)) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
-        if (CollectionUtils.isNotEmpty(constExprLists_)) {
+        if (CollectionUtils.isNotEmpty(constExprLists)) {
             output.append(prefix).append("constant exprs: ").append("\n");
-            for (List<Expr> exprs : constExprLists_) {
+            for (List<Expr> exprs : constExprLists) {
                 output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
                         .collect(Collectors.joining(" | "))).append("\n");
             }
         }
         if (detailLevel == TExplainLevel.VERBOSE) {
-            if (CollectionUtils.isNotEmpty(materializedResultExprLists_)) {
+            if (CollectionUtils.isNotEmpty(materializedResultExprLists)) {
                 output.append(prefix).append("child exprs: ").append("\n");
-                for(List<Expr> exprs : materializedResultExprLists_) {
+                for (List<Expr> exprs : materializedResultExprLists) {
                     output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
                             .collect(Collectors.joining(" | "))).append("\n");
                 }
             }
             List<String> passThroughNodeIds = Lists.newArrayList();
-            for (int i = 0; i < firstMaterializedChildIdx_; ++i) {
+            for (int i = 0; i < firstMaterializedChildIdx; ++i) {
                 passThroughNodeIds.add(children.get(i).getId().toString());
             }
             if (!passThroughNodeIds.isEmpty()) {

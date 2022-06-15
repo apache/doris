@@ -304,16 +304,9 @@ protected:
     std::mutex _closed_lock;
     bool _is_closed = false;
 
-private:
-    // buffer for saving serialized row batch data.
-    // In the non-attachment approach, we need to use two PRowBatch structures alternately
-    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
-    // This is not necessary with the attachment approach, because the memory structures
-    // are already copied into attachment memory before sending, and will wait for
-    // the previous RPC to be fully completed before the next copy.
-    std::string _tuple_data_buffer;
-    std::string* _tuple_data_buffer_ptr = nullptr;
+    RuntimeState* _state;
 
+private:
     std::unique_ptr<RowBatch> _cur_batch;
     PTabletWriterAddBatchRequest _cur_add_batch_request;
     using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
@@ -325,7 +318,8 @@ class IndexChannel {
 public:
     IndexChannel(OlapTableSink* parent, int64_t index_id, bool is_vec)
             : _parent(parent), _index_id(index_id), _is_vectorized(is_vec) {
-        _index_channel_tracker = MemTracker::create_tracker(-1, "IndexChannel");
+        _index_channel_tracker =
+                MemTracker::create_tracker(-1, "IndexChannel:indexID=" + std::to_string(_index_id));
     }
     ~IndexChannel() = default;
 
@@ -336,7 +330,6 @@ public:
 
     void for_each_node_channel(
             const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
-        SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
         for (auto& it : _node_channels) {
             func(it.second);
         }
@@ -528,8 +521,8 @@ protected:
     // Save the status of close() method
     Status _close_status;
 
-    // TODO(cmy): this should be removed after we switch to rpc attachment by default.
-    bool _transfer_data_by_brpc_attachment = false;
+    // User can change this config at runtime, avoid it being modified during query or loading process.
+    bool _transfer_large_data_by_brpc = false;
 
     // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
     // should compute tablet index for every row

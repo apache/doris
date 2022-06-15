@@ -48,7 +48,6 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -99,7 +98,7 @@ public class HeartbeatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
-        
+
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend);
@@ -253,12 +252,12 @@ public class HeartbeatMgr extends MasterDaemon {
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), beStartTime, version);
                 } else {
-                    return new BackendHbResponse(backendId, result.getStatus().getErrorMsgs().isEmpty() ? "Unknown error"
+                    return new BackendHbResponse(backendId, backend.getHost(), result.getStatus().getErrorMsgs().isEmpty() ? "Unknown error"
                             : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
                 LOG.warn("backend heartbeat got exception", e);
-                return new BackendHbResponse(backendId,
+                return new BackendHbResponse(backendId, backend.getHost(),
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
                 if (client != null) {
@@ -380,4 +379,3 @@ public class HeartbeatMgr extends MasterDaemon {
     }
 
 }
-

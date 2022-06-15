@@ -21,9 +21,8 @@
 #include <string>
 
 #include "function_test_util.h"
-#include "runtime/tuple_row.h"
-#include "util/url_coding.h"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_decimal.h"
 
 namespace doris::vectorized {
 
@@ -55,6 +54,91 @@ TEST(function_array_element_test, element_at) {
                 {{Null(), 1}, Null()}, {{empty_arr, 0}, Null()}, {{empty_arr, 1}, Null()}};
 
         check_function<DataTypeInt8, true>(func_name, input_types, data_set);
+    }
+
+    // element_at(Array<Int128>, Int64)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int128, TypeIndex::Int64};
+
+        Array vec = {Int128(1), Int128(2), Int128(3)};
+        DataSet data_set = {{{vec, Int64(0)}, Null()},      {{vec, Int64(1)}, Int128(1)},
+                            {{vec, Int64(4)}, Null()},      {{vec, Int64(-1)}, Int128(3)},
+                            {{vec, Int64(-3)}, Int128(1)},  {{vec, Int64(-4)}, Null()},
+                            {{Null(), Int64(1)}, Null()},   {{empty_arr, Int64(0)}, Null()},
+                            {{empty_arr, Int64(1)}, Null()}};
+
+        check_function<DataTypeInt128, true>(func_name, input_types, data_set);
+    }
+
+    // element_at(Array<Float64>, Int64)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float64, TypeIndex::Int64};
+
+        Array vec = {double(1.11), double(2.22), double(3.33)};
+        DataSet data_set = {{{vec, Int64(0)}, Null()},        {{vec, Int64(1)}, double(1.11)},
+                            {{vec, Int64(4)}, Null()},        {{vec, Int64(-1)}, double(3.33)},
+                            {{vec, Int64(-3)}, double(1.11)}, {{vec, Int64(-4)}, Null()},
+                            {{Null(), Int64(1)}, Null()},     {{empty_arr, Int64(0)}, Null()},
+                            {{empty_arr, Int64(1)}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+
+    // element_at(Array<DateTime>, Int64)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Int64};
+
+        Array vec = {str_to_date_time("2022-01-02 01:00:00"), str_to_date_time(""),
+                     str_to_date_time("2022-07-08 03:00:00")};
+        DataSet data_set = {{{vec, Int64(0)}, Null()},
+                            {{vec, Int64(1)}, str_to_date_time("2022-01-02 01:00:00")},
+                            {{vec, Int64(4)}, Null()},
+                            {{vec, Int64(-1)}, str_to_date_time("2022-07-08 03:00:00")},
+                            {{vec, Int64(-2)}, str_to_date_time("")},
+                            {{vec, Int64(-4)}, Null()},
+                            {{Null(), Int64(1)}, Null()},
+                            {{empty_arr, Int64(0)}, Null()},
+                            {{empty_arr, Int64(1)}, Null()}};
+
+        check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
+    }
+
+    // element_at(Array<Date>, Int64)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Int64};
+
+        Array vec = {str_to_date_time("2022-01-02"), str_to_date_time(""),
+                     str_to_date_time("2022-07-08")};
+        DataSet data_set = {{{vec, Int64(0)}, Null()},
+                            {{vec, Int64(1)}, str_to_date_time("2022-01-02")},
+                            {{vec, Int64(4)}, Null()},
+                            {{vec, Int64(-1)}, str_to_date_time("2022-07-08")},
+                            {{vec, Int64(-2)}, str_to_date_time("")},
+                            {{vec, Int64(-4)}, Null()},
+                            {{Null(), Int64(1)}, Null()},
+                            {{empty_arr, Int64(0)}, Null()},
+                            {{empty_arr, Int64(1)}, Null()}};
+
+        check_function<DataTypeDate, true>(func_name, input_types, data_set);
+    }
+
+    // element_at(Array<Decimal128>, Int64)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128, TypeIndex::Int64};
+
+        Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
+                     ut_type::DECIMALFIELD(0.0)};
+        DataSet data_set = {{{vec, Int64(0)}, Null()},
+                            {{vec, Int64(1)}, ut_type::DECIMAL(17014116.67)},
+                            {{vec, Int64(4)}, Null()},
+                            {{vec, Int64(-1)}, ut_type::DECIMAL(0.0)},
+                            {{vec, Int64(-2)}, ut_type::DECIMAL(-17014116.67)},
+                            {{vec, Int64(-4)}, Null()},
+                            {{Null(), Int64(1)}, Null()},
+                            {{empty_arr, Int64(0)}, Null()},
+                            {{empty_arr, Int64(1)}, Null()}};
+
+        check_function<DataTypeDecimal<Decimal128>, true>(func_name, input_types, data_set);
     }
 
     // element_at(Array<String>, Int32)

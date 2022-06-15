@@ -26,8 +26,8 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 
 import java.util.List;

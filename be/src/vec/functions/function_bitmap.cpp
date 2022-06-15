@@ -21,12 +21,12 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/functions/function_always_not_nullable.h"
 
 namespace doris::vectorized {
 
@@ -39,26 +39,39 @@ struct BitmapEmpty {
 
 struct ToBitmap {
     static constexpr auto name = "to_bitmap";
+    using ReturnType = DataTypeBitMap;
 
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res, NullMap& null_map) {
-        auto size = offsets.size();
-        res.reserve(size);
+    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                       MutableColumnPtr& col_res) {
+        execute<false>(data, offsets, nullptr, col_res);
+    }
+
+    static void vector_nullable(const ColumnString::Chars& data,
+                                const ColumnString::Offsets& offsets, const NullMap& nullmap,
+                                MutableColumnPtr& col_res) {
+        execute<true>(data, offsets, &nullmap, col_res);
+    }
+    template <bool arg_is_nullable>
+    static void execute(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                        const NullMap* nullmap, MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
         for (size_t i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1] - 1;
-            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
-                                                                                &parse_result);
-            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                res.emplace_back();
-                null_map[i] = 1;
+            if (arg_is_nullable && ((*nullmap)[i])) {
                 continue;
+            } else {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+                uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                        raw_str, str_size, &parse_result);
+                if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                    res_data[i].add(int_value);
+                }
             }
-            res.emplace_back();
-            res.back().add(int_value);
         }
-        return Status::OK();
     }
 };
 
@@ -496,7 +509,7 @@ public:
 };
 
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
-using FunctionToBitmap = FunctionBitmapAlwaysNull<ToBitmap>;
+using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash>;
 

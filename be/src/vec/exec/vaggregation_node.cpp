@@ -22,13 +22,11 @@
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
 #include "runtime/row_batch.h"
-#include "util/defer_op.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vslot_ref.h"
-#include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -274,8 +272,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
         _agg_data.without_key = reinterpret_cast<AggregateDataPtr>(
                 _mem_pool->allocate(_total_size_of_aggregate_states));
 
-        _create_agg_status(_agg_data.without_key);
-
         if (_is_merge) {
             _executor.execute = std::bind<Status>(&AggregationNode::_merge_without_key, this,
                                                   std::placeholders::_1);
@@ -347,7 +343,12 @@ Status AggregationNode::open(RuntimeState* state) {
 
     // Streaming preaggregations do all processing in GetNext().
     if (_is_streaming_preagg) return Status::OK();
-
+    // move _create_agg_status to open not in during prepare,
+    // because during prepare and open thread is not the same one,
+    // this could cause unable to get JVM
+    if (_probe_expr_ctxs.empty()) {
+        _create_agg_status(_agg_data.without_key);
+    }
     bool eos = false;
     Block block;
     while (!eos) {
@@ -406,10 +407,11 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 Status AggregationNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
 
-    RETURN_IF_ERROR(ExecNode::close(state));
+    for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
     VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
-    return Status::OK();
+
+    return ExecNode::close(state);
 }
 
 Status AggregationNode::_create_agg_status(AggregateDataPtr data) {

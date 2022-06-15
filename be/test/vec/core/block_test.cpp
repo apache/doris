@@ -26,15 +26,22 @@
 #include "exec/schema_scanner.h"
 #include "gen_cpp/data.pb.h"
 #include "runtime/row_batch.h"
+#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/exception.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 
 using vectorized::Int32;
@@ -156,13 +163,10 @@ TEST(BlockTest, RowBatchCovertToBlock) {
 void block_to_pb(const vectorized::Block& block, PBlock* pblock) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    std::string column_values_buffer;
-    Status st =
-            block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, &column_values_buffer);
+    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
-    EXPECT_EQ(compressed_bytes, column_values_buffer.size());
-    pblock->set_column_values(column_values_buffer);
+    EXPECT_EQ(compressed_bytes, pblock->column_values().size());
 
     const vectorized::ColumnWithTypeAndName& type_and_name =
             block.get_columns_with_type_and_name()[0];

@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <functional>
 #include <memory>
 #include <string>
-#include <parallel_hashmap/phmap.h>
 
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"
@@ -28,11 +29,11 @@
 #include "olap/column_vector.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "olap/rowset/segment_v2/bitshuffle_page.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -46,7 +47,7 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 // Either header + embedded codeword page, which can be encoded with any
 //        int PageBuilder, when mode_ = DICT_ENCODING.
 // Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCODING.
-// Data pages start with mode_ = DICT_ENCODING, when the the size of dictionary
+// Data pages start with mode_ = DICT_ENCODING, when the size of dictionary
 // page go beyond the option_->dict_page_size, the subsequent data pages will switch
 // to string plain page automatically.
 class BinaryDictPageBuilder : public PageBuilder {

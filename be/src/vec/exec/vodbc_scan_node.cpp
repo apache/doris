@@ -58,6 +58,7 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     do {
         RETURN_IF_CANCELLED(state);
 
+        columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
             if (mem_reuse) {
                 columns[i] = std::move(*block->get_by_position(i).column).mutate();

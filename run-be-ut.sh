@@ -119,6 +119,10 @@ if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
 
+if [[ -z ${USE_DWARF} ]]; then
+    USE_DWARF=OFF
+fi
+
 
 MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
@@ -132,7 +136,9 @@ ${CMAKE_CMD} -G "${GENERATOR}" \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DBUILD_META_TOOL=OFF \
     -DWITH_MYSQL=OFF \
-    ${CMAKE_USE_CCACHE} ../
+    -DUSE_DWARF=${USE_DWARF} \
+    -DUSE_MEM_TRACKER=ON \
+    ${CMAKE_USE_CCACHE} ${DORIS_HOME}/be/
 ${BUILD_SYSTEM} -j ${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then

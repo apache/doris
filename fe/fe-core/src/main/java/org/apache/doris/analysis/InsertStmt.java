@@ -55,7 +55,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -420,7 +419,8 @@ public class InsertStmt extends DdlStmt {
             // hll column mush in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
                 if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
-                    throw new AnalysisException (" object-stored column " + col.getName() + " mush in insert into columns");
+                    throw new AnalysisException(" object-stored column " + col.getName()
+                            + " mush in insert into columns");
                 }
             }
         }
@@ -433,7 +433,7 @@ public class InsertStmt extends DdlStmt {
          * processing, targetColumns: (A, B, C, __doris_shadow_B), and
          * origColIdxsForExtendCols has 1 element: "1", which is the index of column B
          * in targetColumns.
-         * 
+         *
          * Rule A: If the column which the shadow column related to is not mentioned,
          * then do not add the shadow column to targetColumns. They will be filled by
          * null or default value when loading.
@@ -484,8 +484,8 @@ public class InsertStmt extends DdlStmt {
         }
 
         // Check if all columns mentioned is enough
-        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
-        
+        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
+
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -600,7 +600,7 @@ public class InsertStmt extends DdlStmt {
              */
             ArrayList<Expr> extentedRow = Lists.newArrayList();
             extentedRow.addAll(row);
-            
+
             for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                 if (entry != null) {
                     if (entry.second == null) {
@@ -687,10 +687,15 @@ public class InsertStmt extends DdlStmt {
                      */
                     Preconditions.checkState(col.isAllowNull());
                     resultExprs.add(NullLiteral.create(col.getType()));
-                }
-                else {
-                    StringLiteral defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                    resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+
+                } else {
+                    if (col.getDefaultValueExprDef() != null) {
+                        resultExprs.add(col.getDefaultValueExpr());
+                    } else {
+                        StringLiteral defaultValueExpr;
+                        defaultValueExpr = new StringLiteral(col.getDefaultValue());
+                        resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                    }
                 }
             }
         }

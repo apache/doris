@@ -17,10 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
-
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.FeConstants;
@@ -28,7 +24,9 @@ import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
 
 import com.google.common.collect.Lists;
-
+import com.google.common.collect.Maps;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -42,7 +40,7 @@ public class OlapTableTest {
 
     @Test
     public void test() throws IOException {
-        
+
         new MockUp<Catalog>() {
             @Mock
             int getCurrentCatalogJournalVersion() {
@@ -52,7 +50,7 @@ public class OlapTableTest {
 
         Database db = UnitTestUtil.createDb(1, 2, 3, 4, 5, 6, 7);
         List<Table> tables = db.getTables();
-        
+
         for (Table table : tables) {
             if (table.getType() != TableType.OLAP) {
                 continue;
@@ -73,7 +71,7 @@ public class OlapTableTest {
             Table copiedTbl = OlapTable.read(in);
             System.out.println("copied table id: " + copiedTbl.getId());
         }
-        
+
     }
 
     @Test
@@ -88,10 +86,13 @@ public class OlapTableTest {
 
         OlapTable olapTable = new OlapTable();
         olapTable.setTableProperty(tableProperty);
+        olapTable.setColocateGroup("test_group");
+        Assert.assertTrue(olapTable.isColocateTable());
 
         olapTable.resetPropertiesForRestore();
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assert.assertFalse(olapTable.isColocateTable());
 
         // restore with dynamic partition keys
         properties = Maps.newHashMap();

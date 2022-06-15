@@ -16,18 +16,18 @@
 // under the License.
 
 #include "beta_rowset_reader.h"
+
 #include <utility>
+
 #include "olap/delete_handler.h"
 #include "olap/generic_iterators.h"
-#include "vec/olap/vgeneric_iterators.h"
-
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
-
 #include "vec/core/block.h"
+#include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
 
@@ -71,10 +71,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                               read_context->predicates->begin(),
                                               read_context->predicates->end());
     }
-    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
-    // value column predicates can be pushdown on rowset [0-x] or [2-y]
-    if (_rowset->keys_type() == UNIQUE_KEYS &&
-        (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
+
+    if (_should_push_down_value_predicates()) {
         if (read_context->value_predicates != nullptr) {
             read_options.column_predicates.insert(read_options.column_predicates.end(),
                                                   read_context->value_predicates->begin(),
@@ -114,15 +112,16 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     if (config::enable_storage_vectorization && read_context->is_vec) {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator =
-                    vectorized::new_merge_iterator(iterators, read_context->sequence_id_idx);
+            final_iterator = vectorized::new_merge_iterator(
+                    iterators, read_context->sequence_id_idx, read_context->is_unique);
         } else {
             final_iterator = vectorized::new_union_iterator(iterators);
         }
     } else {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx);
+            final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx,
+                                                read_context->is_unique);
         } else {
             final_iterator = new_union_iterator(iterators);
         }
@@ -234,6 +233,14 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
     }
 
     return Status::OK();
+}
+
+bool BetaRowsetReader::_should_push_down_value_predicates() const {
+    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
+    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
+    return _rowset->keys_type() == UNIQUE_KEYS &&
+           (_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
+           !_rowset->_rowset_meta->is_segments_overlapping();
 }
 
 } // namespace doris

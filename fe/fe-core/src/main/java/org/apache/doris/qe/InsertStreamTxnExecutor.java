@@ -26,10 +26,11 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -63,13 +64,11 @@ public class InsertStreamTxnExecutor {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                new SystemInfoService.BeAvailablePredicate(false, true, true);
-        List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                1, beAvailablePredicate, false,
-                txnEntry.getDb().getClusterName(), null, null);
-        if (beIds == null || beIds.isEmpty()) {
-            throw new UserException("there is no backend load available or scanNode backend available.");
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
+                .needLoadAvailable().needQueryAvailable().build();
+        List<Long> beIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (beIds.isEmpty()) {
+            throw new UserException("No available backend to match the policy: " + policy);
         }
 
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
@@ -87,8 +86,10 @@ public class InsertStreamTxnExecutor {
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            Future<InternalService.PExecPlanFragmentResult> future = BackendServiceProxy.getInstance().execPlanFragmentAsync(
-                    address, tRequest);
+            TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
+            paramsList.addToParamsList(tRequest);
+            Future<InternalService.PExecPlanFragmentResult> future =
+                    BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList, false);
             InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {

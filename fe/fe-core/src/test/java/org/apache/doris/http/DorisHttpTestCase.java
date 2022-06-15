@@ -55,7 +55,14 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
+import junit.framework.AssertionFailedError;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import okhttp3.Credentials;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -70,15 +77,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-
-import junit.framework.AssertionFailedError;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import okhttp3.Credentials;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
 
 abstract public class DorisHttpTestCase {
 
@@ -308,6 +306,7 @@ abstract public class DorisHttpTestCase {
                 try {
                     socket.close();
                 } catch (Exception e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
             }
         }

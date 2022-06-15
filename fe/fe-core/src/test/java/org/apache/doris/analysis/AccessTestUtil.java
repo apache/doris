@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -44,7 +43,7 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
 
 import java.util.LinkedList;
 import java.util.List;
@@ -56,7 +55,7 @@ public class AccessTestUtil {
         SystemInfoService clusterInfo = new SystemInfoService();
         return clusterInfo;
     }
-    
+
     public static PaloAuth fetchAdminAccess() {
         PaloAuth auth = new PaloAuth();
         try {
@@ -322,11 +321,11 @@ public class AccessTestUtil {
             {
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = withCluster? prefix + "testDb" : "testDb";
+                result = withCluster ? prefix + "testDb" : "testDb";
 
                 analyzer.getQualifiedUser();
-                minTimes = 0 ;
-                result = withCluster? prefix + "testUser" : "testUser";
+                minTimes = 0;
+                result = withCluster ? prefix + "testUser" : "testUser";
 
                 analyzer.getClusterName();
                 minTimes = 0;
@@ -521,4 +520,3 @@ public class AccessTestUtil {
         return analyzer;
     }
 }
-

@@ -31,7 +31,6 @@ import org.apache.doris.statistics.StatsCategoryDesc.StatsCategory;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -64,7 +63,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
 
         if (!tasks.isEmpty()) {
             ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(tasks.size(),
-                "statistic-pool", false);
+                    "statistic-pool", false);
             StatisticsJobManager jobManager = Catalog.getCurrentCatalog().getStatisticsJobManager();
             Map<Long, StatisticsJob> statisticsJobs = jobManager.getIdToStatisticsJob();
             Map<Long, List<Map<Long, Future<StatisticsTaskResult>>>> resultMap = Maps.newLinkedHashMap();

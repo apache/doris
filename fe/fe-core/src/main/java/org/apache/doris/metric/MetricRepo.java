@@ -42,7 +42,6 @@ import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,7 +58,7 @@ public final class MetricRepo {
 
     private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
     public static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
-    
+
     public static volatile boolean isInit = false;
     public static final SystemMetrics SYSTEM_METRICS = new SystemMetrics();
 
@@ -345,8 +344,8 @@ public final class MetricRepo {
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
 
         METRIC_REGISTER.register(MetricRegistry.name("palo", "fe", "query", "max_instances_num_per_user"), (Gauge<Integer>) () -> {
-            try{
-                return ((QeProcessorImpl)QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
+            try {
+                return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
                         .reduce(-1, BinaryOperator.maxBy(Integer::compareTo));
             } catch (Throwable ex) {
                 LOG.warn("Get max_instances_num_per_user error", ex);
@@ -540,7 +539,7 @@ public final class MetricRepo {
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
             visitor.visitHistogram(sb, entry.getKey(), entry.getValue());
         }
-        
+
         // node info
         visitor.getNodeInfo(sb);
 
@@ -556,4 +555,3 @@ public final class MetricRepo {
         return PALO_METRIC_REGISTER.getPaloMetricsByName(name);
     }
 }
-

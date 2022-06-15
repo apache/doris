@@ -28,19 +28,20 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Representation of an analytic function call with OVER clause.
@@ -62,6 +63,7 @@ import java.util.List;
  */
 public class AnalyticExpr extends Expr {
     private final static Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
+    private static String NTILE = "NTILE";
 
     private FunctionCallExpr fnCall;
     private final List<Expr> partitionExprs;
@@ -143,12 +145,17 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), fnCall, orderByElements, window);
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
             return false;
         }
 
-        AnalyticExpr o = (AnalyticExpr)obj;
+        AnalyticExpr o = (AnalyticExpr) obj;
 
         if (!fnCall.equals(o.getFnCall())) {
             return false;
@@ -171,7 +178,9 @@ public class AnalyticExpr extends Expr {
      * Analytic exprs cannot be constant.
      */
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
 
     @Override
     public Expr clone() {
@@ -228,7 +237,8 @@ public class AnalyticExpr extends Expr {
 
         return fn.functionName().equalsIgnoreCase(RANK)
                || fn.functionName().equalsIgnoreCase(DENSERANK)
-               || fn.functionName().equalsIgnoreCase(ROWNUMBER);
+               || fn.functionName().equalsIgnoreCase(ROWNUMBER)
+               || fn.functionName().equalsIgnoreCase(NTILE);
     }
 
     static private boolean isHllAggFn(Function fn) {
@@ -239,10 +249,16 @@ public class AnalyticExpr extends Expr {
         return fn.functionName().equalsIgnoreCase(HLL_UNION_AGG);
     }
 
+    private static boolean isNTileFn(Function fn) {
+        if (!isAnalyticFn(fn)) {
+            return false;
+        }
+
+        return fn.functionName().equalsIgnoreCase(NTILE);
+    }
+
     /**
-     * Rewrite the following analytic functions:
-     * percent_rank(), cume_dist() and ntile()
-     *
+     * Rewrite the following analytic functions: ntile().
      * Returns a new Expr if the analytic expr is rewritten, returns null if it's not one
      * that we want to equal.
      */
@@ -256,15 +272,92 @@ public class AnalyticExpr extends Expr {
         // } else if (AnalyticExpr.isNtileFn(fn)) {
         //     return createNtile(analyticExpr);
         // }
+        if (isNTileFn(fn) && !VectorizedUtil.isVectorized()) {
+            return createNTile(analyticExpr);
+        }
         return null;
+    }
+
+    /**
+     * Rewrite ntile().
+     * The logic is translated from be class WindowFunctionNTile.
+     * count = bigBucketNum * (smallBucketSize + 1) + smallBucketNum * smallBucketSize
+     * bigBucketNum + smallBucketNum = bucketNum
+     */
+    private static Expr createNTile(AnalyticExpr analyticExpr) {
+        Preconditions.checkState(AnalyticExpr.isNTileFn(analyticExpr.getFnCall().getFn()));
+        Expr bucketNum = analyticExpr.getChild(0);
+        AnalyticExpr rowNum = create("row_number", analyticExpr, true, false);
+        AnalyticExpr count = create("count", analyticExpr, false, false);
+
+        IntLiteral one = new IntLiteral(1);
+        ArithmeticExpr smallBucketSize = new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                count, bucketNum);
+        ArithmeticExpr bigBucketNum = new ArithmeticExpr(ArithmeticExpr.Operator.MOD,
+                count, bucketNum);
+        ArithmeticExpr firstSmallBucketRowIndex = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY,
+                bigBucketNum,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                        smallBucketSize, one));
+        ArithmeticExpr rowIndex = new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT,
+                rowNum, one);
+
+
+        List<Expr> ifParams = new ArrayList<>();
+        ifParams.add(
+            new BinaryPredicate(BinaryPredicate.Operator.GE, rowIndex, firstSmallBucketRowIndex));
+
+        ArithmeticExpr rowInSmallBucket = new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                        bigBucketNum, one),
+                new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT,
+                                rowIndex, firstSmallBucketRowIndex),
+                        smallBucketSize));
+        ArithmeticExpr rowInBigBucket = new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                        rowIndex,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                                smallBucketSize, one)),
+                one);
+        ifParams.add(rowInSmallBucket);
+        ifParams.add(rowInBigBucket);
+
+        return new FunctionCallExpr("if", ifParams);
+    }
+
+    /**
+     * Create a new Analytic Expr and associate it with a new function.
+     * Takes a reference analytic expression and clones the partition expressions and the
+     * order by expressions if 'copyOrderBy' is set and optionally reverses it if
+     * 'reverseOrderBy' is set. The new function that it will be associated with is
+     * specified by fnName.
+     */
+    private static AnalyticExpr create(String fnName,
+                                       AnalyticExpr referenceExpr, boolean copyOrderBy, boolean reverseOrderBy) {
+        FunctionCallExpr fnExpr = new FunctionCallExpr(fnName, new ArrayList<>());
+        fnExpr.setIsAnalyticFnCall(true);
+        List<OrderByElement> orderByElements = null;
+        if (copyOrderBy) {
+            if (reverseOrderBy) {
+                orderByElements = OrderByElement.reverse(referenceExpr.getOrderByElements());
+            } else {
+                orderByElements = new ArrayList<>();
+                for (OrderByElement elem : referenceExpr.getOrderByElements()) {
+                    orderByElements.add(elem.clone());
+                }
+            }
+        }
+        AnalyticExpr analyticExpr = new AnalyticExpr(fnExpr,
+                Expr.cloneList(referenceExpr.getPartitionExprs()), orderByElements, null);
+        return analyticExpr;
     }
 
     /**
      * Checks that the value expr of an offset boundary of a RANGE window is compatible
      * with orderingExprs (and that there's only a single ordering expr).
      */
-    private void checkRangeOffsetBoundaryExpr(AnalyticWindow.Boundary boundary)
-    throws AnalysisException {
+    private void checkRangeOffsetBoundaryExpr(AnalyticWindow.Boundary boundary) throws AnalysisException {
         Preconditions.checkState(boundary.getType().isOffset());
 
         if (orderByElements.size() > 1) {
@@ -326,12 +419,12 @@ public class AnalyticExpr extends Expr {
                 out = true;
             }
         } else {
-            return ;
+            return;
         }
 
         if (out) {
             throw new AnalysisException("Column type="
-                                        + getFnCall().getChildren().get(0).getType() + ", value is out of range ") ;
+                    + getFnCall().getChildren().get(0).getType() + ", value is out of range ");
         }
     }
 
@@ -359,10 +452,10 @@ public class AnalyticExpr extends Expr {
             double value = 0;
 
             if (offset instanceof IntLiteral) {
-                IntLiteral intl = (IntLiteral)offset;
+                IntLiteral intl = (IntLiteral) offset;
                 value = intl.getDoubleValue();
             } else if (offset instanceof LargeIntLiteral) {
-                LargeIntLiteral intl = (LargeIntLiteral)offset;
+                LargeIntLiteral intl = (LargeIntLiteral) offset;
                 value = intl.getDoubleValue();
             }
 
@@ -480,12 +573,12 @@ public class AnalyticExpr extends Expr {
         standardize(analyzer);
 
         // But in Vectorized mode, after calculate a window, will be call reset() to reset state,
-        // And then restarted calculate next new window; 
+        // And then restarted calculate next new window;
         if (!VectorizedUtil.isVectorized()) {
             // min/max is not currently supported on sliding windows (i.e. start bound is not
             // unbounded).
-            if (window != null && isMinMax(fn) &&
-                    window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
+            if (window != null && isMinMax(fn)
+                    && window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
                 throw new AnalysisException(
                     "'" + getFnCall().toSql() + "' is only supported with an "
                     + "UNBOUNDED PRECEDING start bound.");
@@ -546,6 +639,24 @@ public class AnalyticExpr extends Expr {
             return;
         }
 
+        if (analyticFnName.getFunction().equalsIgnoreCase(NTILE)) {
+            Preconditions.checkState(window == null, "Unexpected window set for ntile()");
+
+            Expr bucketExpr = getFnCall().getFnParams().exprs().get(0);
+            if (bucketExpr instanceof LiteralExpr && bucketExpr.getType().getPrimitiveType().isIntegerType()) {
+                Preconditions.checkState(((LiteralExpr) bucketExpr).getLongValue() > 0,
+                        "Parameter n in ntile(n) should be positive.");
+            } else {
+                throw new AnalysisException("Parameter n in ntile(n) should be constant positive integer.");
+            }
+
+            window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
+                    new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
+                    new Boundary(BoundaryType.CURRENT_ROW, null));
+            resetWindow = true;
+            return;
+        }
+
         // Explicitly set the default arguments to lead()/lag() for BE simplicity.
         // Set a window for lead(): UNBOUNDED PRECEDING to OFFSET FOLLOWING,
         // Set a window for lag(): UNBOUNDED PRECEDING to OFFSET PRECEDING.
@@ -579,10 +690,10 @@ public class AnalyticExpr extends Expr {
             try {
                 getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
             }  catch (Exception e) {
-                LOG.warn("" , e);
+                LOG.warn("", e);
                 throw new AnalysisException("Convert type error in offset fn(default value); old_type="
                                             + getFnCall().getChildren().get(2).getType() + " new_type="
-                                            + getFnCall().getChildren().get(0).getType()) ;
+                                            + getFnCall().getChildren().get(0).getType());
             }
 
             if (getFnCall().getChildren().get(2) instanceof CastExpr) {
@@ -596,7 +707,7 @@ public class AnalyticExpr extends Expr {
             try {
                 getFnCall().uncheckedCastChild(Type.BIGINT, 1);
             }  catch (Exception e) {
-                LOG.warn("" , e);
+                LOG.warn("", e);
                 throw new AnalysisException("Convert type error in offset fn(default offset); type="
                                             + getFnCall().getChildren().get(1).getType());
             }
@@ -640,26 +751,24 @@ public class AnalyticExpr extends Expr {
             } else {
                 //TODO: Now we don't want to first_value to rewrite in vectorized mode;
                 //if have to rewrite in future, could exec this rule;
-                if(!VectorizedUtil.isVectorized()) {
-                List<Expr> paramExprs = Expr.cloneList(getFnCall().getParams().exprs());
+                if (!VectorizedUtil.isVectorized()) {
+                    List<Expr> paramExprs = Expr.cloneList(getFnCall().getParams().exprs());
 
-                if (window.getRightBoundary().getType() == BoundaryType.PRECEDING) {
-                    // The number of rows preceding for the end bound determines the number of
-                    // rows at the beginning of each partition that should have a NULL value.
-                    paramExprs.add(window.getRightBoundary().getExpr());
-                } else {
-                    // -1 indicates that no NULL values are inserted even though we set the end
-                    // bound to the start bound (which is PRECEDING) below; this is different from
-                    // the default behavior of windows with an end bound PRECEDING.
-                    paramExprs.add(new IntLiteral(-1, Type.BIGINT));
-                }
+                    if (window.getRightBoundary().getType() == BoundaryType.PRECEDING) {
+                        // The number of rows preceding for the end bound determines the number of
+                        // rows at the beginning of each partition that should have a NULL value.
+                        paramExprs.add(window.getRightBoundary().getExpr());
+                    } else {
+                        // -1 indicates that no NULL values are inserted even though we set the end
+                        // bound to the start bound (which is PRECEDING) below; this is different from
+                        // the default behavior of windows with an end bound PRECEDING.
+                        paramExprs.add(new IntLiteral(-1, Type.BIGINT));
+                    }
 
-                window = new AnalyticWindow(window.getType(),
-                                            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
-                                            window.getLeftBoundary());
-                fnCall = new FunctionCallExpr("FIRST_VALUE_REWRITE",
-                                              new FunctionParams(paramExprs));
-                //        fnCall_.setIsInternalFnCall(true);
+                    window = new AnalyticWindow(window.getType(),
+                            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
+                            window.getLeftBoundary());
+                    fnCall = new FunctionCallExpr("FIRST_VALUE_REWRITE", new FunctionParams(paramExprs));
                 }
             }
 
@@ -710,14 +819,13 @@ public class AnalyticExpr extends Expr {
             resetWindow = true;
         }
 
-       // Change first_value/last_value RANGE windows to ROWS 
-       if ((analyticFnName.getFunction().equalsIgnoreCase(FIRSTVALUE)
-                || analyticFnName.getFunction().equalsIgnoreCase(LASTVALUE))
+        // Change first_value RANGE windows to ROWS
+        if ((analyticFnName.getFunction().equalsIgnoreCase(FIRSTVALUE))
                 && window != null
                 && window.getType() == AnalyticWindow.Type.RANGE) {
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS, window.getLeftBoundary(),
                         window.getRightBoundary());
-        } 
+        }
     }
 
     /**
@@ -838,12 +946,54 @@ public class AnalyticExpr extends Expr {
         return sb.toString();
     }
 
+    @Override
+    public String toDigestImpl() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(fnCall.toDigest()).append(" OVER (");
+        boolean needsSpace = false;
+        if (!partitionExprs.isEmpty()) {
+            sb.append("PARTITION BY ").append(exprListToDigest(partitionExprs));
+            needsSpace = true;
+        }
+        if (!orderByElements.isEmpty()) {
+            List<String> orderByStrings = Lists.newArrayList();
+            for (OrderByElement e : orderByElements) {
+                orderByStrings.add(e.toDigest());
+            }
+            if (needsSpace) {
+                sb.append(" ");
+            }
+            sb.append("ORDER BY ").append(Joiner.on(", ").join(orderByStrings));
+            needsSpace = true;
+        }
+        if (window != null) {
+            if (needsSpace) {
+                sb.append(" ");
+            }
+            sb.append(window.toDigest());
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
     private String exprListToSql(List<? extends Expr> exprs) {
-        if (exprs == null || exprs.isEmpty())
+        if (exprs == null || exprs.isEmpty()) {
             return "";
+        }
         List<String> strings = Lists.newArrayList();
         for (Expr expr : exprs) {
             strings.add(expr.toSql());
+        }
+        return Joiner.on(", ").join(strings);
+    }
+
+    private String exprListToDigest(List<? extends Expr> exprs) {
+        if (exprs == null || exprs.isEmpty()) {
+            return "";
+        }
+        List<String> strings = Lists.newArrayList();
+        for (Expr expr : exprs) {
+            strings.add(expr.toDigest());
         }
         return Joiner.on(", ").join(strings);
     }

@@ -18,17 +18,17 @@
 #include "olap/task/engine_checksum_task.h"
 
 #include "olap/row.h"
-#include "runtime/thread_context.h"
 #include "olap/tuple_reader.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
                                        TVersion version, uint32_t* checksum)
         : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
-    _mem_tracker = MemTracker::create_tracker(-1, "compute checksum: " + std::to_string(tablet_id),
-                                              StorageEngine::instance()->consistency_mem_tracker(),
-                                              MemTrackerLevel::TASK);
+    _mem_tracker = MemTracker::create_tracker(
+            -1, "EngineChecksumTask#tabletId=" + std::to_string(tablet_id),
+            StorageEngine::instance()->consistency_mem_tracker(), MemTrackerLevel::TASK);
 }
 
 Status EngineChecksumTask::execute() {
@@ -43,14 +43,14 @@ Status EngineChecksumTask::_compute_checksum() {
     Status res = Status::OK();
 
     if (_checksum == nullptr) {
-        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+        LOG(WARNING) << "invalid output parameter which is null pointer.";
         return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
     if (nullptr == tablet.get()) {
-        OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
-                         _schema_hash);
+        LOG(WARNING) << "can't find tablet. [tablet_id=" << _tablet_id
+                     << " schema_hash=" << _schema_hash << "]";
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 

@@ -29,11 +29,10 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
+import com.google.common.collect.Lists;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,7 +46,7 @@ public class IcebergScanNode extends BrokerScanNode {
 
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, desc, planNodeName, fileStatusesList, filesAdded, NodeType.ICEBREG_SCAN_NODE);
+        super(id, desc, planNodeName, fileStatusesList, filesAdded, NodeType.ICEBERG_SCAN_NODE);
         icebergTable = (IcebergTable) desc.getTable();
     }
 
@@ -58,7 +57,10 @@ public class IcebergScanNode extends BrokerScanNode {
 
     @Override
     protected void initFileGroup() throws UserException {
-        fileGroups = Lists.newArrayList(new BrokerFileGroup(icebergTable));
+        fileGroups = Lists.newArrayList(
+            new BrokerFileGroup(icebergTable.getId(),
+                null,
+                icebergTable.getFileFormat()));
         brokerDesc = new BrokerDesc("IcebergTableDesc", icebergTable.getStorageType(),
                 icebergTable.getIcebergProperties());
         targetTable = icebergTable;

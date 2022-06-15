@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.servlet.view.RedirectView;
@@ -39,7 +38,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -75,11 +73,20 @@ public class RestBaseController extends BaseController {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            // Fix username@cluster:passwod is modified to cluster: username:passwod causes authentication failure
-            // @see https://github.com/apache/incubator-doris/issues/8100
-            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName) +
-                    "@" + ClusterNamespace.getClusterNameFromFullName(authInfo.fullUserName) +
-                    ":" + authInfo.password;
+            //username@cluster:password
+            //This is a Doris-specific parsing format in the parseAuthInfo of BaseController.
+            //This is to go directly to BE, but in fact,
+            //BE still needs to take this authentication information and send RPC
+            // to FE to parse the authentication information,
+            //so in the end, the format of this authentication information is parsed on the FE side.
+            //The normal format for fullUserName is actually default_cluster:username
+            //I don't know why the format username@default_cluster is used in parseAuthInfo.
+            //It is estimated that it is compatible with the standard format of username:password.
+            //So here we feel that we can assemble it completely by hand.
+            String clusterName = ConnectContext.get() == null
+                    ? SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
+            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
+                    + "@" + clusterName  + ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);

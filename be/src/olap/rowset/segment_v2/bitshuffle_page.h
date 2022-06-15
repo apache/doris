@@ -93,13 +93,48 @@ public:
     bool is_page_full() override { return _remain_element_capacity == 0; }
 
     Status add(const uint8_t* vals, size_t* count) override {
+        return add_internal<false>(vals, count);
+    }
+
+    Status single_add(const uint8_t* vals, size_t* count) {
+        return add_internal<true>(vals, count);
+    }
+
+    template <bool single>
+    inline Status add_internal(const uint8_t* vals, size_t* count) {
         DCHECK(!_finished);
+        if (_remain_element_capacity <= 0) {
+            *count = 0;
+            return Status::OK();
+        }
         int to_add = std::min<int>(_remain_element_capacity, *count);
-        _data.append(vals, to_add * SIZE_OF_TYPE);
+        int to_add_size = to_add * SIZE_OF_TYPE;
+        size_t orig_size = _data.size();
+        _data.resize(orig_size + to_add_size);
         _count += to_add;
         _remain_element_capacity -= to_add;
         // return added number through count
         *count = to_add;
+        if constexpr (single) {
+            if constexpr (SIZE_OF_TYPE == 1) {
+                *reinterpret_cast<uint8_t*>(&_data[orig_size]) = *vals;
+                return Status::OK();
+            } else if constexpr (SIZE_OF_TYPE == 2) {
+                *reinterpret_cast<uint16_t*>(&_data[orig_size]) =
+                        *reinterpret_cast<const uint16_t*>(vals);
+                return Status::OK();
+            } else if constexpr (SIZE_OF_TYPE == 4) {
+                *reinterpret_cast<uint32_t*>(&_data[orig_size]) =
+                        *reinterpret_cast<const uint32_t*>(vals);
+                return Status::OK();
+            } else if constexpr (SIZE_OF_TYPE == 8) {
+                *reinterpret_cast<uint64_t*>(&_data[orig_size]) =
+                        *reinterpret_cast<const uint64_t*>(vals);
+                return Status::OK();
+            }
+        }
+        // when single is true and SIZE_OF_TYPE > 8 or single is false
+        memcpy(&_data[orig_size], vals, to_add_size);
         return Status::OK();
     }
 
@@ -184,7 +219,7 @@ private:
         return _buffer.build();
     }
 
-    typedef typename TypeTraits<Type>::CppType CppType;
+    using CppType = typename TypeTraits<Type>::CppType;
 
     CppType cell(int idx) const {
         DCHECK_GE(idx, 0);
@@ -204,6 +239,44 @@ private:
     CppType _last_value;
 };
 
+inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
+                                       size_t& compressed_size, size_t& num_element_after_padding,
+                                       int& size_of_element) {
+    if (data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
+        std::stringstream ss;
+        ss << "file corruption: invalid data size:" << data.size
+           << ", header size:" << BITSHUFFLE_PAGE_HEADER_SIZE;
+        return Status::InternalError(ss.str());
+    }
+
+    num_elements = decode_fixed32_le((const uint8_t*)&data[0]);
+    compressed_size = decode_fixed32_le((const uint8_t*)&data[4]);
+    num_element_after_padding = decode_fixed32_le((const uint8_t*)&data[8]);
+    if (num_element_after_padding != ALIGN_UP(num_elements, 8)) {
+        std::stringstream ss;
+        ss << "num of element information corrupted,"
+           << " _num_element_after_padding:" << num_element_after_padding
+           << ", _num_elements:" << num_elements;
+        return Status::InternalError(ss.str());
+    }
+    size_of_element = decode_fixed32_le((const uint8_t*)&data[12]);
+    switch (size_of_element) {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 8:
+    case 12:
+    case 16:
+        break;
+    default:
+        std::stringstream ss;
+        ss << "invalid size_of_elem:" << size_of_element;
+        return Status::InternalError(ss.str());
+    }
+    return Status::OK();
+}
+
 template <FieldType Type>
 class BitShufflePageDecoder : public PageDecoder {
 public:
@@ -212,50 +285,22 @@ public:
               _options(options),
               _parsed(false),
               _num_elements(0),
-              _compressed_size(0),
               _num_element_after_padding(0),
               _size_of_element(0),
               _cur_index(0) {}
 
-    ~BitShufflePageDecoder() { ChunkAllocator::instance()->free(_chunk); }
-
     Status init() override {
         CHECK(!_parsed);
-        if (_data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
+        size_t unused;
+        RETURN_IF_ERROR(parse_bit_shuffle_header(_data, _num_elements, unused,
+                                                 _num_element_after_padding, _size_of_element));
+
+        if (_data.size !=
+            _num_element_after_padding * _size_of_element + BITSHUFFLE_PAGE_HEADER_SIZE) {
             std::stringstream ss;
-            ss << "file corruption: invalid data size:" << _data.size
-               << ", header size:" << BITSHUFFLE_PAGE_HEADER_SIZE;
-            return Status::InternalError(ss.str());
-        }
-        _num_elements = decode_fixed32_le((const uint8_t*)&_data[0]);
-        _compressed_size = decode_fixed32_le((const uint8_t*)&_data[4]);
-        if (_compressed_size != _data.size) {
-            std::stringstream ss;
-            ss << "Size information unmatched, _compressed_size:" << _compressed_size
-               << ", _num_elements:" << _num_elements << ", data size:" << _data.size;
-            return Status::InternalError(ss.str());
-        }
-        _num_element_after_padding = decode_fixed32_le((const uint8_t*)&_data[8]);
-        if (_num_element_after_padding != ALIGN_UP(_num_elements, 8)) {
-            std::stringstream ss;
-            ss << "num of element information corrupted,"
-               << " _num_element_after_padding:" << _num_element_after_padding
-               << ", _num_elements:" << _num_elements;
-            return Status::InternalError(ss.str());
-        }
-        _size_of_element = decode_fixed32_le((const uint8_t*)&_data[12]);
-        switch (_size_of_element) {
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 8:
-        case 12:
-        case 16:
-            break;
-        default:
-            std::stringstream ss;
-            ss << "invalid size_of_elem:" << _size_of_element;
+            ss << "Size information unmatched, _data.size:" << _data.size
+               << ", _num_elements:" << _num_elements << ", expected size is "
+               << _num_element_after_padding * _size_of_element + BITSHUFFLE_PAGE_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
 
@@ -272,8 +317,6 @@ public:
                << ", SIZE_OF_TYPE:" << SIZE_OF_TYPE;
             return Status::InternalError(ss.str());
         }
-
-        RETURN_IF_ERROR(_decode());
         _parsed = true;
         return Status::OK();
     }
@@ -307,7 +350,7 @@ public:
         // - left == _num_elements when not found (all values < target)
         while (left < right) {
             size_t mid = left + (right - left) / 2;
-            mid_value = &_chunk.data[mid * SIZE_OF_TYPE];
+            mid_value = get_data(mid);
             if (TypeTraits<Type>::cmp(mid_value, value) < 0) {
                 left = mid + 1;
             } else {
@@ -317,7 +360,7 @@ public:
         if (left >= _num_elements) {
             return Status::NotFound("all value small than the value");
         }
-        void* find_value = &_chunk.data[left * SIZE_OF_TYPE];
+        void* find_value = get_data(left);
         if (TypeTraits<Type>::cmp(find_value, value) == 0) {
             *exact_match = true;
         } else {
@@ -357,7 +400,7 @@ public:
 
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
 
-        dst->insert_many_fix_len_data((char*)&_chunk.data[_cur_index * SIZE_OF_TYPE], max_fetch);
+        dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
 
         *n = max_fetch;
         _cur_index += max_fetch;
@@ -373,31 +416,16 @@ public:
 
     size_t current_index() const override { return _cur_index; }
 
+    char* get_data(size_t index) const {
+        return &_data.data[BITSHUFFLE_PAGE_HEADER_SIZE + index * SIZE_OF_TYPE];
+    }
+
 private:
     void _copy_next_values(size_t n, void* data) {
-        memcpy(data, &_chunk.data[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
+        memcpy(data, get_data(_cur_index), n * SIZE_OF_TYPE);
     }
 
-    Status _decode() {
-        if (_num_elements > 0) {
-            int64_t bytes;
-            if (!ChunkAllocator::instance()->allocate_align(
-                        _num_element_after_padding * _size_of_element, &_chunk)) {
-                return Status::RuntimeError("Decoded Memory Alloc failed");
-            }
-            char* in = const_cast<char*>(&_data[BITSHUFFLE_PAGE_HEADER_SIZE]);
-            bytes = bitshuffle::decompress_lz4(in, _chunk.data, _num_element_after_padding,
-                                               _size_of_element, 0);
-            if (PREDICT_FALSE(bytes < 0)) {
-                // Ideally, this should not happen.
-                warn_with_bitshuffle_error(bytes);
-                return Status::RuntimeError("Unshuffle Process failed");
-            }
-        }
-        return Status::OK();
-    }
-
-    typedef typename TypeTraits<Type>::CppType CppType;
+    using CppType = typename TypeTraits<Type>::CppType;
 
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
 
@@ -405,12 +433,11 @@ private:
     PageDecoderOptions _options;
     bool _parsed;
     size_t _num_elements;
-    size_t _compressed_size;
     size_t _num_element_after_padding;
 
     int _size_of_element;
     size_t _cur_index;
-    Chunk _chunk;
+
     friend class BinaryDictPageDecoder;
 };
 

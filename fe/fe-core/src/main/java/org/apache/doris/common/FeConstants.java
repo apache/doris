@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.persist.meta.FeMetaFormat;
+
 public class FeConstants {
     // Database and table's default configurations, we will never change them
     public static short default_replication_num = 3;
@@ -60,4 +62,6 @@ public class FeConstants {
     public static String csv = "csv";
     public static String csv_with_names = "csv_with_names";
     public static String csv_with_names_and_types = "csv_with_names_and_types";
+
+    public static String text = "text";
 }

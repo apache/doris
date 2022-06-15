@@ -33,7 +33,6 @@ import org.apache.doris.load.sync.canal.CanalSyncJob;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -259,7 +258,7 @@ public class SyncJobManager implements Writable {
             Map<String, List<SyncJob>> jobNameToSyncJobs = dbIdToJobNameToSyncJobs.get(db.getId());
             if (jobNameToSyncJobs != null && jobNameToSyncJobs.containsKey(jobName)) {
                 List<SyncJob> matchJobs = jobNameToSyncJobs.get(jobName);
-                for(SyncJob syncJob : matchJobs) {
+                for (SyncJob syncJob : matchJobs) {
                     if (!syncJob.isCancelled()) {
                         result = true;
                     }
@@ -365,7 +364,7 @@ public class SyncJobManager implements Writable {
             writeUnlock();
         }
     }
-    
+
     public void replayUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
         writeLock();
         try {

@@ -32,7 +32,7 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
             return false;
         }
         String fnNameString = fnExpr.getFnName().getFunction();
-        if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)){
+        if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)) {
             return false;
         }
         if (fnExpr.getChild(0) instanceof SlotRef) {

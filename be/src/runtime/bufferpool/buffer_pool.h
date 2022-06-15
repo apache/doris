@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFER_POOL_H
-#define DORIS_BE_RUNTIME_BUFFER_POOL_H
+#pragma once
 
 #include <stdint.h>
 
@@ -28,7 +27,6 @@
 #include "common/status.h"
 #include "gutil/dynamic_annotations.h"
 #include "gutil/macros.h"
-//#include "runtime/tmp_file_mgr.h"
 #include "util/aligned_new.h"
 #include "util/internal_queue.h"
 #include "util/mem_range.h"
@@ -542,5 +540,3 @@ inline void BufferPool::BufferHandle::Reset() {
     home_core_ = -1;
 }
 } // namespace doris
-
-#endif

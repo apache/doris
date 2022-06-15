@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -30,7 +29,9 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -39,10 +40,6 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class CreateDataSyncJobStmtTest {
     private static final Logger LOG = LogManager.getLogger(CreateDataSyncJobStmtTest.class);
@@ -93,8 +90,6 @@ public class CreateDataSyncJobStmtTest {
                 result = catalog;
             }
         };
-
-        Config.enable_create_sync_job = true;
     }
     @Test
     public void testNoDb() {
@@ -178,6 +173,7 @@ public class CreateDataSyncJobStmtTest {
             Assert.assertEquals("testCluster:testDb", stmt.getDbName());
             Assert.assertEquals(DataSyncJobType.CANAL, stmt.getDataSyncJobType());
         } catch (UserException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 }

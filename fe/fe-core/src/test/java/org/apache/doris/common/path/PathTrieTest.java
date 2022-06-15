@@ -17,18 +17,11 @@
 
 package org.apache.doris.common.path;
 
-import static com.google.common.collect.Maps.newHashMap;
-
-import org.apache.doris.service.ExecuteEnv;
-
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Map;
-
-import mockit.Injectable;
 
 public class PathTrieTest {
     @Test
@@ -52,27 +45,27 @@ public class PathTrieTest {
         Assert.assertEquals(trie.retrieve("a/b/c/d"), null);
         Assert.assertEquals(trie.retrieve("g/t/x"), "three");
 
-        Map<String, String> params = newHashMap();
+        Map<String, String> params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("index1/insert/12", params), "bingo");
         Assert.assertEquals(params.size(), 2);
         Assert.assertEquals(params.get("index"), "index1");
         Assert.assertEquals(params.get("docId"), "12");
     }
-    
+
     @Test
     public void testEmptyPath() {
         PathTrie<String> trie = new PathTrie<>();
         trie.insert("/", "walla");
         Assert.assertEquals(trie.retrieve(""), "walla");
     }
-    
+
     @Test
     public void testDifferentNamesOnDifferentPath() {
         PathTrie<String> trie = new PathTrie<>();
         trie.insert("/a/{type}", "test1");
         trie.insert("/b/{name}", "test2");
 
-        Map<String, String> params = newHashMap();
+        Map<String, String> params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/a/test", params), "test1");
         Assert.assertEquals(params.get("type"), "test");
 
@@ -87,7 +80,7 @@ public class PathTrieTest {
         trie.insert("/a/c/{name}", "test1");
         trie.insert("/b/{name}", "test2");
 
-        Map<String, String> params = newHashMap();
+        Map<String, String> params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/a/c/test", params), "test1");
         Assert.assertEquals(params.get("name"), "test");
 
@@ -106,7 +99,7 @@ public class PathTrieTest {
         trie.insert("{test}/{testB}", "test5");
         trie.insert("{test}/x/{testC}", "test6");
 
-        Map<String, String> params = newHashMap();
+        Map<String, String> params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/b", params), "test2");
         Assert.assertEquals(trie.retrieve("/b/a", params), "test4");
         Assert.assertEquals(trie.retrieve("/v/x", params), "test5");
@@ -119,7 +112,7 @@ public class PathTrieTest {
         trie.insert("{x}/{y}/{z}", "test1");
         trie.insert("{x}/_y/{k}", "test2");
 
-        Map<String, String> params = newHashMap();
+        Map<String, String> params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/a/b/c", params), "test1");
         Assert.assertEquals(params.get("x"), "a");
         Assert.assertEquals(params.get("y"), "b");
@@ -139,25 +132,24 @@ public class PathTrieTest {
         trie.insert("/{test}/_endpoint", "test4");
         trie.insert("/*/{test}/_endpoint", "test5");
 
-        Map<String, String> params = newHashMap();
+        Map<String, String> params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/x/*", params), "test1");
         Assert.assertEquals(params.get("test"), "*");
 
-        params = newHashMap();
+        params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/b/a", params), "test2");
         Assert.assertEquals(params.get("test"), "b");
 
-        params = newHashMap();
+        params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/*", params), "test3");
         Assert.assertEquals(params.get("test"), "*");
 
-        params = newHashMap();
+        params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("/*/_endpoint", params), "test4");
         Assert.assertEquals(params.get("test"), "*");
 
-        params = newHashMap();
+        params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("a/*/_endpoint", params), "test5");
         Assert.assertEquals(params.get("test"), "*");
     }
-
 }

@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
@@ -34,6 +35,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
@@ -119,7 +121,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -137,8 +139,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-
-import com.google.protobuf.ByteString;
 
 // Do one COM_QUERY process.
 // first: Parse receive byte array to statement struct.
@@ -223,8 +223,8 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
             summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, queryType);
             summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
-                            "RUNNING" : context.getState().toString());
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
+                            ? "RUNNING" : context.getState().toString());
             summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
             summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
             summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
@@ -239,8 +239,8 @@ public class StmtExecutor implements ProfileWriter {
                     waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
             summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
-                            "RUNNING" : context.getState().toString());
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
+                            ? "RUNNING" : context.getState().toString());
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
@@ -338,8 +338,8 @@ public class StmtExecutor implements ProfileWriter {
                         // If goes here, which means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new UserException("The statement has been forwarded to master FE("
-                                + Catalog.getCurrentCatalog().getSelfNode().first + ") and failed to execute" +
-                                " because Master FE is not ready. You may need to check FE's status");
+                                + Catalog.getCurrentCatalog().getSelfNode().first + ") and failed to execute"
+                                + " because Master FE is not ready. You may need to check FE's status");
                     }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
@@ -370,8 +370,11 @@ public class StmtExecutor implements ProfileWriter {
                     for (ScanNode scanNode : scanNodeList) {
                         if (scanNode instanceof OlapScanNode) {
                             OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitaions(olapScanNode.getSelectedPartitionNum().longValue(),
-                                    olapScanNode.getSelectedTabletsNum(), olapScanNode.getCardinality(), analyzer.getQualifiedUser());
+                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitations(
+                                    olapScanNode.getSelectedPartitionNum().longValue(),
+                                    olapScanNode.getSelectedTabletsNum(),
+                                    olapScanNode.getCardinality(),
+                                    context.getQualifiedUser());
                         }
                     }
                 }
@@ -414,6 +417,8 @@ public class StmtExecutor implements ProfileWriter {
                 handleUseStmt();
             } else if (parsedStmt instanceof TransactionStmt) {
                 handleTransactionStmt();
+            } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
+                handleCtasStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
                 try {
                     handleInsertStmt();
@@ -673,6 +678,25 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                 reAnalyze = true;
             }
+            if (parsedStmt instanceof SelectStmt) {
+                if (StmtRewriter.rewriteByPolicy(parsedStmt, analyzer)) {
+                    reAnalyze = true;
+                }
+            }
+            if (parsedStmt instanceof SetOperationStmt) {
+                List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
+                for (SetOperationStmt.SetOperand operand : operands) {
+                    if (StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer)) {
+                        reAnalyze = true;
+                    }
+                }
+            }
+            if (parsedStmt instanceof InsertStmt) {
+                QueryStmt queryStmt = ((InsertStmt) parsedStmt).getQueryStmt();
+                if (queryStmt != null && StmtRewriter.rewriteByPolicy(queryStmt, analyzer)) {
+                    reAnalyze = true;
+                }
+            }
             if (reAnalyze) {
                 // The rewrites should have no user-visible effect. Remember the original result
                 // types and column labels to restore them after the rewritten stmt has been
@@ -697,7 +721,9 @@ public class StmtExecutor implements ProfileWriter {
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
                 }
-                if (explainOptions != null) parsedStmt.setIsExplain(explainOptions);
+                if (explainOptions != null) {
+                    parsedStmt.setIsExplain(explainOptions);
+                }
             }
         }
         plannerProfile.setQueryAnalysisFinishTime();
@@ -1121,8 +1147,8 @@ public class StmtExecutor implements ProfileWriter {
         if (context.isTxnIniting()) { // first time, begin txn
             beginTxn(insertStmt.getDb(), insertStmt.getTbl());
         }
-        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDb()) ||
-                !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {
+        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDb())
+                || !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {
             throw new TException("Only one table can be inserted in one transaction.");
         }
 
@@ -1229,7 +1255,6 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().reset();
         // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
-
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }
@@ -1293,18 +1318,17 @@ public class StmtExecutor implements ProfileWriter {
                 LOG.debug("delta files is {}", coord.getDeltaUrls());
 
                 if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
-                    loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+                    loadedRows = Long.parseLong(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
                 }
                 if (coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
-                    filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+                    filteredRows = Integer.parseInt(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
                 }
 
                 // if in strict mode, insert will fail if there are filtered rows
                 if (context.getSessionVariable().getEnableInsertStrict()) {
                     if (filteredRows > 0) {
-                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT, "Insert has filtered data in strict mode, " +
-                                "tracking_url="
-                                + coord.getTrackingUrl());
+                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                                "Insert has filtered data in strict mode, tracking_url=" + coord.getTrackingUrl());
                         return;
                     }
                 }
@@ -1550,6 +1574,37 @@ public class StmtExecutor implements ProfileWriter {
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
     }
 
+    private void handleCtasStmt() {
+        CreateTableAsSelectStmt ctasStmt = (CreateTableAsSelectStmt) this.parsedStmt;
+        try {
+            // create table
+            DdlExecutor.execute(context.getCatalog(), ctasStmt);
+            context.getState().setOk();
+        }  catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
+        // after success create table insert data
+        if (MysqlStateType.OK.equals(context.getState().getStateType())) {
+            try {
+                parsedStmt = ctasStmt.getInsertStmt();
+                execute();
+            } catch (Exception e) {
+                LOG.warn("CTAS insert data error, stmt={}", parsedStmt.toSql(), e);
+                // insert error drop table
+                DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
+                try {
+                    DdlExecutor.execute(context.getCatalog(), dropTableStmt);
+                } catch (Exception ex) {
+                    LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
+                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                            "Unexpected exception: " + ex.getMessage());
+                }
+            }
+        }
+    }
+
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {
             statisticsForAuditLog = Data.PQueryStatistics.newBuilder();
@@ -1573,4 +1628,3 @@ public class StmtExecutor implements ProfileWriter {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
     }
 }
-

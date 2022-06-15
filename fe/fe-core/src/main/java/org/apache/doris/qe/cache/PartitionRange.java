@@ -17,29 +17,27 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.PartitionColumnFilter;
 
-import org.apache.doris.common.AnalysisException;
-
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -119,7 +117,7 @@ public class PartitionRange {
             this.tooNew = false;
         }
 
-        public void Debug() {
+        public void debug() {
             if (partition != null) {
                 LOG.info("partition id {}, cacheKey {}, version {}, time {}, fromCache {}, tooNew {} ",
                         partitionId, cacheKey.realValue(),
@@ -198,6 +196,8 @@ public class PartitionRange {
                     value = expr.getLongValue();
                     keyType = KeyType.LONG;
                     break;
+                default:
+                    return true;
             }
             return true;
         }
@@ -244,6 +244,7 @@ public class PartitionRange {
             try {
                 dt = df8.parse(String.valueOf(value));
             } catch (Exception e) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
             return dt;
         }

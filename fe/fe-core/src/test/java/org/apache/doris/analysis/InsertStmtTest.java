@@ -31,18 +31,17 @@ import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
-
-import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 public class InsertStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -62,7 +61,7 @@ public class InsertStmtTest {
         dorisAssert.withDatabase("db").useDatabase("db");
         dorisAssert.withTable(createTblStmtStr);
 
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        UtFrameUtils.createDefaultCtx();
     }
 
     List<Column> getBaseSchema() {
@@ -127,7 +126,7 @@ public class InsertStmtTest {
         v3.setIsAllowNull(false);
         ArrayList<Expr> params = new ArrayList<>();
 
-        SlotRef slotRef = new SlotRef(null , "k1");
+        SlotRef slotRef = new SlotRef(null, "k1");
         slotRef.setType(Type.BIGINT);
         params.add(slotRef.uncheckedCastTo(Type.VARCHAR));
 
@@ -177,11 +176,16 @@ public class InsertStmtTest {
 
         QueryStmt queryStmt = (QueryStmt) statementBase;
 
-        new Expectations() {{
-            targetTable.getBaseSchema(); result = getBaseSchema();
-            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
-            targetTable.getFullSchema(); result = getFullSchema();
-        }};
+        new Expectations() {
+            {
+                targetTable.getBaseSchema();
+                result = getBaseSchema();
+                targetTable.getBaseSchema(anyBoolean);
+                result = getBaseSchema();
+                targetTable.getFullSchema();
+                result = getFullSchema();
+            }
+        };
 
 
         InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
@@ -235,11 +239,16 @@ public class InsertStmtTest {
 
         QueryStmt queryStmt = (QueryStmt) statementBase;
 
-        new Expectations() {{
-            targetTable.getBaseSchema(); result = getBaseSchema();
-            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
-            targetTable.getFullSchema(); result = getFullSchema();
-        }};
+        new Expectations() {
+            {
+                targetTable.getBaseSchema();
+                result = getBaseSchema();
+                targetTable.getBaseSchema(anyBoolean);
+                result = getBaseSchema();
+                targetTable.getFullSchema();
+                result = getFullSchema();
+            }
+        };
 
 
         InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());

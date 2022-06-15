@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
@@ -169,8 +170,8 @@ public class ListPartitionPruner implements PartitionPruner {
         InPredicate inPredicate = filter.getInPredicate();
         if (null == inPredicate || inPredicate.getChildren().size() * complex > 100) {
             // case: where k1 = 1;
-            if (filter.lowerBoundInclusive && filter.upperBoundInclusive 
-                    && filter.lowerBound != null && filter.upperBound != null 
+            if (filter.lowerBoundInclusive && filter.upperBoundInclusive
+                    && filter.lowerBound != null && filter.upperBound != null
                     && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
@@ -189,7 +190,6 @@ public class ListPartitionPruner implements PartitionPruner {
             BoundType upperType = filter.upperBoundInclusive ? BoundType.CLOSED : BoundType.OPEN;
             boolean isPushMin = false;
             boolean isPushMax = false;
-            int lastColumnId = partitionColumns.size() - 1;
             if (filter.lowerBound != null) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
             } else {

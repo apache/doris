@@ -242,6 +242,12 @@ public:
     /** Get block data in string. */
     std::string dump_data(size_t begin = 0, size_t row_limit = 100) const;
 
+    /** Get one line data from block, only use in load data */
+    std::string dump_one_line(size_t row, int column_end) const;
+
+    // copy a new block by the offset column
+    Block copy_block(const std::vector<int>& column_offset) const;
+
     static Status filter_block(Block* block, int filter_conlumn_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
@@ -252,7 +258,7 @@ public:
 
     // serialize block to PBlock
     Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
-                     std::string* allocated_buf) const;
+                     bool allow_transfer_large_data = false) const;
 
     // serialize block to PRowbatch
     void serialize(RowBatch*, const RowDescriptor&);
@@ -425,6 +431,10 @@ public:
 
     Block to_block(int start_column, int end_column);
 
+    void swap(MutableBlock& other) noexcept;
+
+    void swap(MutableBlock&& other) noexcept;
+
     void add_row(const Block* block, int row);
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
@@ -435,6 +445,9 @@ public:
         _columns.clear();
         _data_types.clear();
     }
+
+    void clear_column_data() noexcept;
+
     size_t allocated_bytes() const;
 };
 

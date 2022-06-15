@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -50,7 +51,7 @@ public class TableFunctionNode extends PlanNode {
     private List<SlotId> outputSlotIds = Lists.newArrayList();
 
     protected TableFunctionNode(PlanNodeId id, PlanNode inputNode, List<LateralViewRef> lateralViewRefs) {
-        super(id, "TABLE FUNCTION NODE");
+        super(id, "TABLE FUNCTION NODE", NodeType.TABLE_FUNCTION_NODE);
         tupleIds.addAll(inputNode.getTupleIds());
         tblRefIds.addAll(inputNode.getTupleIds());
         lateralViewTupleIds = lateralViewRefs.stream().map(e -> e.getDesc().getId())
@@ -131,10 +132,11 @@ public class TableFunctionNode extends PlanNode {
     }
 
     @Override
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
-        // TODO the cardinality = child cardinality * cardinality of list column
-        cardinality = children.get(0).cardinality;
+
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -180,4 +182,3 @@ public class TableFunctionNode extends PlanNode {
         }
     }
 }
-

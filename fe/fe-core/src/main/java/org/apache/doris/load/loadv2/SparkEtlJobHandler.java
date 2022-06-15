@@ -34,19 +34,18 @@ import org.apache.doris.load.loadv2.etl.SparkEtlJob;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
 
-import org.apache.hadoop.yarn.api.records.ApplicationReport;
-import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
-import org.apache.hadoop.yarn.api.records.YarnApplicationState;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.spark.launcher.SparkLauncher;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import org.apache.hadoop.yarn.api.records.ApplicationReport;
+import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
+import org.apache.hadoop.yarn.api.records.YarnApplicationState;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.spark.launcher.SparkLauncher;
 
 import java.io.File;
 import java.io.IOException;
@@ -224,7 +223,7 @@ public class SparkEtlJobHandler {
                     status.setFailMsg("yarn app state: " + state.toString());
                 }
             }
-            status.setTrackingUrl(handle.getUrl() != null? handle.getUrl() : report.getTrackingUrl());
+            status.setTrackingUrl(handle.getUrl() != null ? handle.getUrl() : report.getTrackingUrl());
             status.setProgress((int) (report.getProgress() * 100));
         } else {
             // state from handle

@@ -20,17 +20,17 @@ package org.apache.doris.transaction;
 import org.apache.doris.common.UserException;
 
 public class TransactionException extends UserException {
-    
+
     private long transactionId = -1;
 
     public TransactionException(String msg) {
         super(msg);
     }
-    
+
     public TransactionException(String msg, Throwable e) {
         super(msg, e);
     }
-    
+
     public TransactionException(String msg, long transactionId) {
         super(msg);
         this.transactionId = transactionId;

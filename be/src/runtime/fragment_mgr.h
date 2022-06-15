@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_FRAGMENT_MGR_H
-#define DORIS_BE_RUNTIME_FRAGMENT_MGR_H
+#pragma once
 
 #include <functional>
 #include <memory>
@@ -65,6 +64,8 @@ public:
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
+
+    Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
     Status cancel(const TUniqueId& fragment_id) {
         return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
@@ -119,5 +120,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

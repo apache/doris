@@ -43,8 +43,11 @@ class Config {
     public String feHttpUser
     public String feHttpPassword
 
+    public String beHttpAddress
+
     public String suitePath
     public String dataPath
+    public String pluginPath
 
     public String testGroups
     public String excludeGroups
@@ -76,9 +79,10 @@ class Config {
     Config() {}
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
-           String feHttpAddress, String feHttpUser, String feHttpPassword,
+           String feHttpAddress, String feHttpUser, String feHttpPassword, String beHttpAddress,
            String suitePath, String dataPath, String testGroups, String excludeGroups,
-           String testSuites, String excludeSuites, String testDirectories, String excludeDirectories) {
+           String testSuites, String excludeSuites, String testDirectories, String excludeDirectories,
+           String pluginPath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -86,6 +90,7 @@ class Config {
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
+        this.beHttpAddress = beHttpAddress
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.testGroups = testGroups
@@ -94,6 +99,7 @@ class Config {
         this.excludeSuites = excludeSuites
         this.testDirectories = testDirectories
         this.excludeDirectories = excludeDirectories
+        this.pluginPath = pluginPath
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -113,6 +119,7 @@ class Config {
 
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
+        config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -145,6 +152,7 @@ class Config {
                 .toSet()
 
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
+        config.beHttpAddress = cmd.getOptionValue(beHttpAddressOpt, config.beHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
             int port = Integer.valueOf(config.feHttpAddress.split(":")[1])
@@ -186,6 +194,7 @@ class Config {
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
+            configToString(obj.beHttpAddress),
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.testGroups),
@@ -193,7 +202,8 @@ class Config {
             configToString(obj.testSuites),
             configToString(obj.excludeSuites),
             configToString(obj.testDirectories),
-            configToString(obj.excludeDirectories)
+            configToString(obj.excludeDirectories),
+            configToString(obj.pluginPath)
         )
 
         def declareFileNames = config.getClass()
@@ -235,6 +245,11 @@ class Config {
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
         }
 
+        if (config.beHttpAddress == null) {
+            config.beHttpAddress = "127.0.0.1:8040"
+            log.info("Set beHttpAddress to '${config.beHttpAddress}' because not specify.".toString())
+        }
+
         if (config.feHttpUser == null) {
             config.feHttpUser = "root"
             log.info("Set feHttpUser to '${config.feHttpUser}' because not specify.".toString())
@@ -253,6 +268,11 @@ class Config {
         if (config.dataPath == null) {
             config.dataPath = "regression-test/suites"
             log.info("Set dataPath to '${config.dataPath}' because not specify.".toString())
+        }
+
+        if (config.pluginPath == null) {
+            config.pluginPath = "regression-test/plugins"
+            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.testGroups == null) {

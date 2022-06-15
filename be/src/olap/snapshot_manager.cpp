@@ -20,6 +20,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -32,7 +33,6 @@
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
 #include "runtime/thread_context.h"
@@ -70,19 +70,17 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
-    TabletSharedPtr ref_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.tablet_id, request.schema_hash);
+    TabletSharedPtr ref_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (ref_tablet == nullptr) {
-        LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id
-                     << " schema_hash=" << request.schema_hash;
+        LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
 
     if (!res.ok()) {
-        LOG(WARNING) << "failed to make snapshot. res=" << res << " tablet=" << request.tablet_id
-                     << " schema_hash=" << request.schema_hash;
+        LOG(WARNING) << "failed to make snapshot. res=" << res << " tablet=" << request.tablet_id;
         return res;
     }
 
@@ -121,7 +119,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 // For now, alpha and beta rowset meta have same fields, so we can just use
 // AlphaRowsetMeta here.
 Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
-                                           const int32_t& schema_hash) {
+                                           int64_t replica_id, const int32_t& schema_hash) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
@@ -153,6 +151,7 @@ Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, i
     // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);
+    new_tablet_meta_pb.set_replica_id(replica_id);
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchema tablet_schema;
     tablet_schema.init_from_pb(new_tablet_meta_pb.schema());

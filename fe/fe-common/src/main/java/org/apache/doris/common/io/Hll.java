@@ -83,7 +83,7 @@ public class Hll {
         hashValue >>>= HLL_COLUMN_PRECISION;
         hashValue |= (1L << HLL_ZERO_COUNT_BITS);
         byte firstOneBit = (byte) (getLongTailZeroNum(hashValue) + 1);
-        registers[idx] = registers[idx] > firstOneBit ? registers[idx] : firstOneBit ;
+        registers[idx] = registers[idx] > firstOneBit ? registers[idx] : firstOneBit;
     }
 
     private void mergeRegisters(byte[] other) {
@@ -116,7 +116,7 @@ public class Hll {
     }
 
     public void update(long hashValue) {
-        switch (this.type) {
+        switch (this.type) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case HLL_DATA_EMPTY:
                 hashSet.add(hashValue);
                 type = HLL_DATA_EXPLICIT;
@@ -128,7 +128,7 @@ public class Hll {
                 }
                 convertExplicitToRegister();
                 type = HLL_DATA_FULL;
-            case HLL_DATA_SPARSE:
+            case HLL_DATA_SPARSE: // CHECKSTYLE IGNORE THIS LINE: fall through
             case HLL_DATA_FULL:
                 updateRegisters(hashValue);
                 break;
@@ -139,10 +139,10 @@ public class Hll {
         if (other.type == HLL_DATA_EMPTY) {
             return;
         }
-        switch (this.type) {
+        switch (this.type) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case HLL_DATA_EMPTY:
                 this.type = other.type;
-                switch (other.type) {
+                switch (other.type) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case HLL_DATA_EXPLICIT:
                         this.hashSet.addAll(other.hashSet);
                         break;
@@ -154,7 +154,7 @@ public class Hll {
                 }
                 break;
             case HLL_DATA_EXPLICIT:
-                switch (other.type) {
+                switch (other.type) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case HLL_DATA_EXPLICIT:
                         this.hashSet.addAll(other.hashSet);
                         if (this.hashSet.size() > HLL_EXPLICLIT_INT64_NUM) {
@@ -172,7 +172,7 @@ public class Hll {
                 break;
             case HLL_DATA_SPARSE:
             case HLL_DATA_FULL:
-                switch (other.type) {
+                switch (other.type) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case HLL_DATA_EXPLICIT:
                         for (long value : other.hashSet) {
                             update(value);
@@ -188,7 +188,7 @@ public class Hll {
     }
 
     public void serialize(DataOutput output) throws IOException {
-        switch (type) {
+        switch (type) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case HLL_DATA_EMPTY:
                 output.writeByte(type);
                 break;
@@ -217,7 +217,7 @@ public class Hll {
                     output.writeInt(Integer.reverseBytes(nonZeroRegisterNum));
                     for (int i = 0; i < HLL_REGISTERS_COUNT; i++) {
                         if (registers[i] != 0) {
-                            output.writeShort(Short.reverseBytes((short)i));
+                            output.writeShort(Short.reverseBytes((short) i));
                             output.writeByte(registers[i]);
                         }
                     }
@@ -303,20 +303,20 @@ public class Hll {
         double estimate = alpha * numStreams * numStreams * harmonicMean;
 
         if (estimate <= numStreams * 2.5 && numZeroRegisters != 0) {
-            estimate = numStreams * Math.log(((float)numStreams) / ((float)numZeroRegisters));
+            estimate = numStreams * Math.log(((float) numStreams) / ((float) numZeroRegisters));
         } else if (numStreams == 16384 && estimate < 72000) {
             double bias = 5.9119 * 1.0e-18 * (estimate * estimate * estimate * estimate)
-                    - 1.4253 * 1.0e-12 * (estimate * estimate * estimate) +
-                    1.2940 * 1.0e-7 * (estimate * estimate)
-                    - 5.2921 * 1.0e-3 * estimate +
-                    83.3216;
+                    - 1.4253 * 1.0e-12 * (estimate * estimate * estimate)
+                    + 1.2940 * 1.0e-7 * (estimate * estimate)
+                    - 5.2921 * 1.0e-3 * estimate
+                    + 83.3216;
             estimate -= estimate * (bias / 100);
         }
 
-        return (long)(estimate + 0.5);
+        return (long) (estimate + 0.5);
     }
 
-    public int maxSerializedSize () {
+    public int maxSerializedSize() {
         switch (type) {
             case HLL_DATA_EMPTY:
             default:
@@ -335,14 +335,14 @@ public class Hll {
 
 
     private static long getLittleEndianLong(final byte[] data, final int index) {
-        return (((long) data[index    ] & 0xff)      ) |
-                (((long) data[index + 1] & 0xff) <<  8) |
-                (((long) data[index + 2] & 0xff) << 16) |
-                (((long) data[index + 3] & 0xff) << 24) |
-                (((long) data[index + 4] & 0xff) << 32) |
-                (((long) data[index + 5] & 0xff) << 40) |
-                (((long) data[index + 6] & 0xff) << 48) |
-                (((long) data[index + 7] & 0xff) << 56);
+        return (((long) data[index    ] & 0xff))
+                | (((long) data[index + 1] & 0xff) <<  8)
+                | (((long) data[index + 2] & 0xff) << 16)
+                | (((long) data[index + 3] & 0xff) << 24)
+                | (((long) data[index + 4] & 0xff) << 32)
+                | (((long) data[index + 5] & 0xff) << 40)
+                | (((long) data[index + 6] & 0xff) << 48)
+                | (((long) data[index + 7] & 0xff) << 56);
     }
 
     public static long hash64(final byte[] data, final int length, final int seed) {
@@ -363,20 +363,20 @@ public class Hll {
         }
 
         final int index = (nblocks << 3);
-        switch (length - index) {
+        switch (length - index) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case 7:
                 h ^= ((long) data[index + 6] & 0xff) << 48;
-            case 6:
+            case 6: // CHECKSTYLE IGNORE THIS LINE: fall through
                 h ^= ((long) data[index + 5] & 0xff) << 40;
-            case 5:
+            case 5: // CHECKSTYLE IGNORE THIS LINE: fall through
                 h ^= ((long) data[index + 4] & 0xff) << 32;
-            case 4:
+            case 4: // CHECKSTYLE IGNORE THIS LINE: fall through
                 h ^= ((long) data[index + 3] & 0xff) << 24;
-            case 3:
+            case 3: // CHECKSTYLE IGNORE THIS LINE: fall through
                 h ^= ((long) data[index + 2] & 0xff) << 16;
-            case 2:
+            case 2: // CHECKSTYLE IGNORE THIS LINE: fall through
                 h ^= ((long) data[index + 1] & 0xff) << 8;
-            case 1:
+            case 1: // CHECKSTYLE IGNORE THIS LINE: fall through
                 h ^= ((long) data[index] & 0xff);
                 h *= M64;
         }

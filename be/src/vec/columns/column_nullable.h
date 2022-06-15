@@ -20,6 +20,10 @@
 
 #pragma once
 
+#ifdef __aarch64__
+#include <sse2neon.h>
+#endif
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/columns_number.h"
@@ -163,8 +167,8 @@ public:
         return false;
     }
 
-    bool is_date_type() override { return get_nested_column().is_date_type(); }
-    bool is_datetime_type() override { return get_nested_column().is_datetime_type(); }
+    bool is_date_type() const override { return get_nested_column().is_date_type(); }
+    bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
     void set_date_type() override { get_nested_column().set_date_type(); }
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
@@ -222,7 +226,7 @@ public:
     bool has_null(size_t size) const override {
         const UInt8* null_pos = get_null_map_data().data();
         const UInt8* null_pos_end = get_null_map_data().data() + size;
-#ifdef __SSE2__
+#if defined(__SSE2__) || defined(__aarch64__)
         /** A slightly more optimized version.
         * Based on the assumption that often pieces of consecutive values
         *  completely pass or do not pass the filter.

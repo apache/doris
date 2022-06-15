@@ -39,29 +39,32 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
                           const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                           TabletMetaSharedPtr* tablet_meta) {
     tablet_meta->reset(new TabletMeta(
-            request.table_id, request.partition_id, request.tablet_id,
+            request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
-            request.storage_medium, request.storage_param.storage_name));
+            request.storage_medium, request.storage_param.storage_name, request.compression_type));
     return Status::OK();
 }
 
 TabletMeta::TabletMeta() : _tablet_uid(0, 0), _schema(new TabletSchema) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
-                       int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
-                       uint32_t next_unique_id,
+                       int64_t replica_id, int32_t schema_hash, uint64_t shard_id,
+                       const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
-                       TStorageMedium::type t_storage_medium, const std::string& storage_name)
+                       TStorageMedium::type t_storage_medium, const std::string& storage_name,
+                       TCompressionType::type compression_type)
         : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
     tablet_meta_pb.set_tablet_id(tablet_id);
+    tablet_meta_pb.set_replica_id(replica_id);
     tablet_meta_pb.set_schema_hash(schema_hash);
     tablet_meta_pb.set_shard_id(shard_id);
+    // Persist the creation time, but it is not used
     tablet_meta_pb.set_creation_time(time(nullptr));
     tablet_meta_pb.set_cumulative_layer_point(-1);
     tablet_meta_pb.set_tablet_state(PB_RUNNING);
@@ -89,7 +92,33 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         LOG(WARNING) << "unknown tablet keys type";
         break;
     }
+    // compress_kind used to compress segment files
     schema->set_compress_kind(COMPRESS_LZ4);
+
+    // compression_type used to compress segment page
+    switch (compression_type) {
+    case TCompressionType::NO_COMPRESSION:
+        schema->set_compression_type(NO_COMPRESSION);
+        break;
+    case TCompressionType::SNAPPY:
+        schema->set_compression_type(SNAPPY);
+        break;
+    case TCompressionType::LZ4:
+        schema->set_compression_type(LZ4);
+        break;
+    case TCompressionType::LZ4F:
+        schema->set_compression_type(LZ4F);
+        break;
+    case TCompressionType::ZLIB:
+        schema->set_compression_type(ZLIB);
+        break;
+    case TCompressionType::ZSTD:
+        schema->set_compression_type(ZSTD);
+        break;
+    default:
+        schema->set_compression_type(LZ4F);
+        break;
+    }
 
     switch (tablet_schema.sort_type) {
     case TSortType::type::ZORDER:
@@ -163,7 +192,9 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _stale_rs_metas(b._stale_rs_metas),
           _del_pred_array(b._del_pred_array),
           _in_restore_mode(b._in_restore_mode),
-          _preferred_rowset_type(b._preferred_rowset_type) {}
+          _preferred_rowset_type(b._preferred_rowset_type),
+          _remote_storage_name(b._remote_storage_name),
+          _storage_medium(b._storage_medium) {};
 
 void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                            ColumnPB* column) {
@@ -345,6 +376,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _table_id = tablet_meta_pb.table_id();
     _partition_id = tablet_meta_pb.partition_id();
     _tablet_id = tablet_meta_pb.tablet_id();
+    _replica_id = tablet_meta_pb.replica_id();
     _schema_hash = tablet_meta_pb.schema_hash();
     _shard_id = tablet_meta_pb.shard_id();
     _creation_time = tablet_meta_pb.creation_time();
@@ -413,6 +445,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_partition_id(partition_id());
     tablet_meta_pb->set_tablet_id(tablet_id());
+    tablet_meta_pb->set_replica_id(replica_id());
     tablet_meta_pb->set_schema_hash(schema_hash());
     tablet_meta_pb->set_shard_id(shard_id());
     tablet_meta_pb->set_creation_time(creation_time());
@@ -653,6 +686,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._table_id != b._table_id) return false;
     if (a._partition_id != b._partition_id) return false;
     if (a._tablet_id != b._tablet_id) return false;
+    if (a._replica_id != b._replica_id) return false;
     if (a._schema_hash != b._schema_hash) return false;
     if (a._shard_id != b._shard_id) return false;
     if (a._creation_time != b._creation_time) return false;

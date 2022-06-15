@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -33,18 +34,16 @@ import org.apache.doris.thrift.TResourceInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class RoutineLoadSchedulerTest {
 
@@ -76,8 +75,8 @@ public class RoutineLoadSchedulerTest {
         Deencapsulation.setField(catalog, "routineLoadTaskScheduler", routineLoadTaskScheduler);
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", clusterName, 1L, 1L,
-                "xxx", "test");
-        Deencapsulation.setField(kafkaRoutineLoadJob,"state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+                "xxx", "test", UserIdentity.ADMIN);
+        Deencapsulation.setField(kafkaRoutineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(kafkaRoutineLoadJob);
 
@@ -130,7 +129,7 @@ public class RoutineLoadSchedulerTest {
     public void functionTest(@Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
                              @Injectable Database database) throws DdlException, InterruptedException {
-        new Expectations(){
+        new Expectations() {
             {
                 connectContext.toResourceCtx();
                 minTimes = 0;
@@ -139,14 +138,14 @@ public class RoutineLoadSchedulerTest {
         };
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L,
-                "10.74.167.16:8092", "test");
+                "10.74.167.16:8092", "test", UserIdentity.ADMIN);
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
 
         List<Long> backendIds = new ArrayList<>();
         backendIds.add(1L);
 
-        new Expectations(){
+        new Expectations() {
             {
                 catalog.getRoutineLoadManager();
                 minTimes = 0;
@@ -170,7 +169,7 @@ public class RoutineLoadSchedulerTest {
         executorService.submit(routineLoadTaskScheduler);
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition",
-                "default_cluster", 1L, 1L, "xxx", "test_1");
+                "default_cluster", 1L, 1L, "xxx", "test_1", UserIdentity.ADMIN);
         List<Integer> customKafkaPartitions = new ArrayList<>();
         customKafkaPartitions.add(2);
         Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);

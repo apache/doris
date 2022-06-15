@@ -34,7 +34,6 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -245,8 +244,8 @@ public class MysqlProto {
             // which Doris is using now.
             // Note: Check the authPacket whether support plugin auth firstly, before we check AuthPlugin between doris and client
             // to compatible with older version: like mysql 5.1
-            if (authPacket.getCapability().isPluginAuth() &&
-                    !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
+            if (authPacket.getCapability().isPluginAuth()
+                    && !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
                 // 1. clear the serializer
                 serializer.reset();
                 // 2. build the auth switch request and send to the client

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef ORC_SCANNER_H
-#define ORC_SCANNER_H
+#pragma once
 
 #include <orc/OrcFile.hh>
 
@@ -48,11 +47,7 @@ private:
     Status open_next_reader();
 
 private:
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
     // Reader
-    int _next_range;
     bool _cur_file_eof;
 
     // orc file reader object
@@ -73,4 +68,3 @@ private:
 };
 
 } // namespace doris
-#endif //ORC_SCANNER_H

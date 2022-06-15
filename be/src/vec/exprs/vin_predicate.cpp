@@ -20,7 +20,6 @@
 #include <string_view>
 
 #include "exprs/create_predicate_function.h"
-
 #include "vec/columns/column_set.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"

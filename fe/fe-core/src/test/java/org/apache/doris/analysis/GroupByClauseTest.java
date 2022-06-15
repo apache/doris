@@ -21,7 +21,6 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -97,7 +96,7 @@ public class GroupByClauseTest {
                 + ".`k3`, `testdb`.`t`.`k2`), (`testdb`.`t`.`k1`, `testdb`.`t`.`k3`), (`testdb`.`t`.`k4`), (`testdb`"
                 + ".`t`.`k1`, `testdb`.`t`.`k2`, `testdb`.`t`.`k3`, `testdb`.`t`.`k4`))", groupByClause.toSql());
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             String[] answer = {"{0, 1, 2, 3}", "{0, 1}", "{0, 2}", "{3}"};
             Set<String> answerSet = new HashSet<String>(Arrays.asList(answer));
             Set<String> resultSet = new HashSet<>();
@@ -106,7 +105,7 @@ public class GroupByClauseTest {
                 resultSet.add(s);
             }
             Assert.assertEquals(answerSet, resultSet);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
 
     @Test
@@ -135,7 +134,7 @@ public class GroupByClauseTest {
         Assert.assertEquals("ROLLUP (`testdb`.`t`.`k2`, `testdb`.`t`.`k3`, "
                 + "`testdb`.`t`.`k4`, `testdb`.`t`.`k3`)", groupByClause.toSql());
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             String[] answer = {"{}", "{0}", "{0, 1}", "{0, 1, 2}"};
             Set<String> answerSet = new HashSet<String>(Arrays.asList(answer));
             Set<String> resultSet = new HashSet<>();
@@ -144,7 +143,7 @@ public class GroupByClauseTest {
                 resultSet.add(s);
             }
             Assert.assertEquals(answerSet, resultSet);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
 
     @Test
@@ -172,7 +171,7 @@ public class GroupByClauseTest {
         Assert.assertEquals(4, groupByClause.getGroupingExprs().size());
 
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             String[] answer = {"{}", "{1}", "{0}", "{0, 1}", "{2}", "{1, 2}", "{0, 1, 2}", "{0, 2}"};
             Set<String> answerSet = new HashSet<String>(Arrays.asList(answer));
             Set<String> resultSet = new HashSet<>();
@@ -182,7 +181,7 @@ public class GroupByClauseTest {
             }
 
             Assert.assertEquals(answerSet, resultSet);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
 
     @Test

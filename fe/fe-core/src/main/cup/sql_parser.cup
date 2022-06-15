@@ -48,6 +48,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.policy.PolicyTypeEnum;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -240,7 +241,7 @@ parser code {:
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_QUANTILE_STATE, KW_QUANTILE_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
-    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN,
+    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN, KW_CURRENT_TIMESTAMP,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
@@ -260,7 +261,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
     KW_PARAMETER, KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_LDAP_ADMIN_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
-    KW_PLUGIN, KW_PLUGINS,
+    KW_PLUGIN, KW_PLUGINS, KW_POLICY,
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROFILE, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
     KW_RANDOM, KW_RANGE, KW_READ, KW_REBALANCE, KW_RECOVER, KW_REFRESH, KW_REGEXP, KW_RELEASE, KW_RENAME,
@@ -269,13 +270,14 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW, KW_SIGNED,
     KW_SKEW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
-    KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
+    KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM, KW_SQL_BLOCK_RULE,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TABLETS, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_TEXT, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNLOCK, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
-    KW_YEAR, KW_SQL_BLOCK_RULE;
+    KW_YEAR,
+    KW_NOT_NULL;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -1353,6 +1355,17 @@ create_stmt ::=
     {:
         RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
     :}
+    /* row policy */
+    | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
+    KW_USING LPAREN expr:wherePredicate RPAREN
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
+    :}
+    /* storage policy */
+    | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
+    :}
     ;
 
 channel_desc_list ::=
@@ -2058,6 +2071,18 @@ drop_stmt ::=
     {:
         RESULT = new DropSqlBlockRuleStmt(ruleNames);
     :}
+    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl
+    {:
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, null);
+    :}
+    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR user_identity:user
+    {:
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, user);
+    :}
+    | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
+    :}
     ;
 
 // Recover statement
@@ -2428,6 +2453,10 @@ opt_default_value ::=
     {:
         RESULT = ColumnDef.DefaultValue.NULL_DEFAULT_VALUE;
     :}
+    | KW_DEFAULT KW_CURRENT_TIMESTAMP
+    {:
+        RESULT = ColumnDef.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE;
+    :}
     ;
 
 opt_is_key ::=
@@ -2545,6 +2574,18 @@ show_stmt ::=
     | KW_SHOW KW_SQL_BLOCK_RULE
     {:
         RESULT = new ShowSqlBlockRuleStmt(null);
+    :}
+    | KW_SHOW KW_ROW KW_POLICY KW_FOR user_identity:user
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, user);
+    :}
+    | KW_SHOW KW_ROW KW_POLICY
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null);
     :}
     ;
 
@@ -2894,6 +2935,10 @@ show_param ::=
     | KW_LAST KW_INSERT
     {:
         RESULT = new ShowLastInsertStmt();
+    :}
+    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_ON table_name:tableName
+    {:
+        RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     ;
 
@@ -4318,8 +4363,6 @@ join_operator ::=
   {: RESULT = JoinOperator.INNER_JOIN; :}
   | KW_LEFT opt_outer KW_JOIN
   {: RESULT = JoinOperator.LEFT_OUTER_JOIN; :}
-  | KW_MERGE KW_JOIN
-  {: RESULT = JoinOperator.MERGE_JOIN; :}
   | KW_RIGHT opt_outer KW_JOIN
   {: RESULT = JoinOperator.RIGHT_OUTER_JOIN; :}
   | KW_FULL opt_outer KW_JOIN
@@ -4599,6 +4642,8 @@ type ::=
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
   {: RESULT = new ArrayType(value_type); :}
+  | KW_ARRAY LESSTHAN KW_NOT_NULL LPAREN type:value_type RPAREN GREATERTHAN
+  {: RESULT = new ArrayType(value_type, false); :}
   | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
@@ -5332,11 +5377,11 @@ admin_stmt ::=
     {:
         RESULT = new AdminDiagnoseTabletStmt(tabletId);
     :}
-    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT
+    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(false);
     :}
-    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
+    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(true);
     :}
@@ -5780,6 +5825,10 @@ keyword ::=
     | KW_MAP:id
     {: RESULT = id; :}
     | KW_VARCHAR:id
+    {: RESULT = id; :}
+    | KW_POLICY:id
+    {: RESULT = id; :}
+    | KW_CURRENT_TIMESTAMP:id
     {: RESULT = id; :}
     ;
 

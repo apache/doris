@@ -17,8 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.common.io.Text;
+
+import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -133,6 +134,7 @@ public abstract class ColumnType {
             ArrayType arrayType = (ArrayType) type;
             Text.writeString(out, arrayType.getPrimitiveType().name());
             write(out, arrayType.getItemType());
+            out.writeBoolean(arrayType.getContainsNull());
         }
     }
 
@@ -140,7 +142,8 @@ public abstract class ColumnType {
         PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
         if (primitiveType == PrimitiveType.ARRAY) {
             Type itermType = read(in);
-            return ArrayType.create(itermType);
+            boolean containsNull = in.readBoolean();
+            return ArrayType.create(itermType, containsNull);
         } else {
             int scale = in.readInt();
             int precision = in.readInt();
@@ -151,4 +154,3 @@ public abstract class ColumnType {
         }
     }
 }
-

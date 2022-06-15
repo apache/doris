@@ -47,8 +47,8 @@ import java.util.Map;
  * Doris match different Rewriter framework execution.
  */
 public class ExprRewriter {
-    private int numChanges_ = 0;
-    private final List<ExprRewriteRule> rules_;
+    private int numChanges = 0;
+    private final List<ExprRewriteRule> rules;
 
     // The type of clause that executes the rule.
     // This type is only used in InferFiltersRule, RewriteDateLiteralRule, other rules are not used
@@ -59,19 +59,19 @@ public class ExprRewriter {
     }
 
     // Once-only Rules
-    private List<ExprRewriteRule> onceRules_ = Lists.newArrayList();
+    private List<ExprRewriteRule> onceRules = Lists.newArrayList();
 
     public ExprRewriter(List<ExprRewriteRule> rules) {
-        rules_ = rules;
+        this.rules = rules;
     }
 
     public ExprRewriter(List<ExprRewriteRule> rules, List<ExprRewriteRule> onceRules) {
-        rules_ = rules;
-        onceRules_ = onceRules;
+        this.rules = rules;
+        this.onceRules = onceRules;
     }
 
     public ExprRewriter(ExprRewriteRule rule) {
-        rules_ = Lists.newArrayList(rule);
+        rules = Lists.newArrayList(rule);
     }
 
     public Expr rewrite(Expr expr, Analyzer analyzer) throws AnalysisException {
@@ -84,17 +84,17 @@ public class ExprRewriter {
         int oldNumChanges;
         Expr rewrittenExpr = expr;
         do {
-            oldNumChanges = numChanges_;
-            for (ExprRewriteRule rule: rules_) {
+            oldNumChanges = numChanges;
+            for (ExprRewriteRule rule : rules) {
                 // when foldConstantByBe is on, fold all constant expr by BE instead of applying FoldConstantsRule in FE.
                 if (rule instanceof FoldConstantsRule && analyzer.safeIsEnableFoldConstantByBe()) {
                     continue;
                 }
                 rewrittenExpr = applyRuleRepeatedly(rewrittenExpr, rule, analyzer, clauseType);
             }
-        } while (oldNumChanges != numChanges_);
+        } while (oldNumChanges != numChanges);
 
-        for (ExprRewriteRule rule: onceRules_) {
+        for (ExprRewriteRule rule : onceRules) {
             rewrittenExpr = applyRuleOnce(rewrittenExpr, rule, analyzer, clauseType);
         }
         return rewrittenExpr;
@@ -103,7 +103,7 @@ public class ExprRewriter {
     private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
         Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
         if (rewrittenExpr != expr) {
-            numChanges_++;
+            numChanges++;
         }
         return rewrittenExpr;
     }
@@ -117,13 +117,13 @@ public class ExprRewriter {
         }
         boolean changed = false;
         // rewrite constant expr
-        for (ExprRewriteRule rule : rules_) {
+        for (ExprRewriteRule rule : rules) {
             if (rule instanceof FoldConstantsRule) {
                 changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed);
             }
         }
         if (changed) {
-            ++numChanges_;
+            ++numChanges;
         }
     }
 
@@ -136,9 +136,9 @@ public class ExprRewriter {
         int oldNumChanges;
         Expr rewrittenExpr = expr;
         do {
-            oldNumChanges = numChanges_;
+            oldNumChanges = numChanges;
             rewrittenExpr = applyRuleBottomUp(rewrittenExpr, rule, analyzer, clauseType);
-        } while (oldNumChanges != numChanges_);
+        } while (oldNumChanges != numChanges);
         return rewrittenExpr;
     }
 
@@ -152,15 +152,27 @@ public class ExprRewriter {
             expr.setChild(i, applyRuleBottomUp(expr.getChild(i), rule, analyzer, clauseType));
         }
         Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
-        if (rewrittenExpr != expr) ++numChanges_;
+        if (rewrittenExpr != expr) {
+            ++numChanges;
+        }
         return rewrittenExpr;
     }
 
     public void rewriteList(List<Expr> exprs, Analyzer analyzer) throws AnalysisException {
-        for (int i = 0; i < exprs.size(); ++i) exprs.set(i, rewrite(exprs.get(i), analyzer));
+        for (int i = 0; i < exprs.size(); ++i) {
+            exprs.set(i, rewrite(exprs.get(i), analyzer));
+        }
     }
 
-    public void reset() { numChanges_ = 0; }
-    public boolean changed() { return numChanges_ > 0; }
-    public int getNumChanges() { return numChanges_; }
+    public void reset() {
+        numChanges = 0;
+    }
+
+    public boolean changed() {
+        return numChanges > 0;
+    }
+
+    public int getNumChanges() {
+        return numChanges;
+    }
 }

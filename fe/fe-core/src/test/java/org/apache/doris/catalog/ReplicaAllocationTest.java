@@ -25,7 +25,6 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -120,12 +119,12 @@ public class ReplicaAllocationTest {
         final Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "3");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid replication allocation property: 3",
-                ()->PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
+                () -> PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
 
         properties.clear();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.12321:1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag format: location:12321",
-                ()->PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
+                () -> PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
     }
 
     @Test

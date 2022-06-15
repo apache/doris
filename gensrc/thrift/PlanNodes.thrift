@@ -29,7 +29,7 @@ enum TPlanNodeType {
   CSV_SCAN_NODE, // deprecated
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
-  MERGE_JOIN_NODE,
+  MERGE_JOIN_NODE, // deprecated
   AGGREGATION_NODE,
   PRE_AGGREGATION_NODE,
   SORT_NODE,
@@ -118,10 +118,9 @@ struct THdfsConf {
 struct THdfsParams {
     1: optional string fs_name
     2: optional string user
-    3: optional string kerb_principal
-    4: optional string kerb_ticket_cache_path
-    5: optional string token
-    6: optional list<THdfsConf> hdfs_conf
+    3: optional string hdfs_kerberos_principal
+    4: optional string hdfs_kerberos_keytab
+    5: optional list<THdfsConf> hdfs_conf
 }
 
 // One broker range information.
@@ -213,6 +212,16 @@ struct TEsScanRange {
   4: required i32 shard_id
 }
 
+struct TFileScanRange {
+
+}
+
+// Scan range for external datasource, such as file on hdfs, es datanode, etc.
+struct TExternalScanRange {
+    1: optional TFileScanRange file_scan_range
+    // TODO: add more scan range type?
+}
+
 // Specification of an individual data range which is held in its entirety
 // by a storage server
 struct TScanRange {
@@ -221,6 +230,7 @@ struct TScanRange {
   5: optional binary kudu_scan_token // Decrepated
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
+  8: optional TExternalScanRange ext_scan_range
 }
 
 struct TMySQLScanNode {
@@ -252,7 +262,7 @@ struct TBrokerScanNode {
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
-	4: optional list<Exprs.TExpr> pre_filter_exprs
+    4: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {
@@ -366,7 +376,7 @@ enum TJoinOp {
   RIGHT_OUTER_JOIN,
   FULL_OUTER_JOIN,
   CROSS_JOIN,
-  MERGE_JOIN,
+  MERGE_JOIN, // deprecated
 
   RIGHT_SEMI_JOIN,
   LEFT_ANTI_JOIN,
@@ -431,6 +441,7 @@ enum TAggregationOp {
   LAG,
   HLL_C, 
   BITMAP_UNION,
+  NTILE,
 }
 
 //struct TAggregateFunctionCall {

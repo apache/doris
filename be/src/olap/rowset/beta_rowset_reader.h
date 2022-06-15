@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
+#pragma once
 
 #include "olap/iterators.h"
 #include "olap/row_block.h"
@@ -54,6 +53,8 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
 private:
+    bool _should_push_down_value_predicates() const;
+
     std::unique_ptr<Schema> _schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
@@ -73,5 +74,3 @@ private:
 };
 
 } // namespace doris
-
-#endif //DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H

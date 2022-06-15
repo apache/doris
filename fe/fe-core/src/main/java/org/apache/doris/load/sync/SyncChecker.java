@@ -60,7 +60,7 @@ public class SyncChecker extends MasterDaemon {
             UserException exception = null;
             try {
                 job.execute();
-            } catch (MetaNotFoundException| DdlException e) {
+            } catch (MetaNotFoundException | DdlException e) {
                 msgType = SyncFailMsg.MsgType.SCHEDULE_FAIL;
                 exception = e;
                 LOG.warn(e.getMessage());

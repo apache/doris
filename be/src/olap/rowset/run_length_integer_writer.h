@@ -260,7 +260,7 @@ private:
     EncodingType _encoding;
     uint16_t _num_literals;
     int64_t _zig_zag_literals[MAX_SCOPE];      // for direct encoding
-    int64_t _base_reduced_literals[MAX_SCOPE]; // for for patched base encoding
+    int64_t _base_reduced_literals[MAX_SCOPE]; // for patched base encoding
     int64_t _adj_deltas[MAX_SCOPE - 1];        // for delta encoding
     int64_t _fixed_delta;
     uint32_t _zz_bits_90p;

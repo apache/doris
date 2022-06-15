@@ -152,7 +152,7 @@ public class DynamicPluginLoader extends PluginLoader {
     /**
      * reload plugin if plugin has already been installed, else will re-install.
      * Notice that this method will create a new instance of plugin.
-     * 
+     *
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {
@@ -206,7 +206,7 @@ public class DynamicPluginLoader extends PluginLoader {
 
         Class<? extends Plugin> pluginClass;
         try {
-             pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
+            pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
         } catch (ClassNotFoundException e) {
             throw new UserException("Could not find plugin class [" + pluginInfo.getClassName() + "]", e);
         }

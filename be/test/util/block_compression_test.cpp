@@ -42,8 +42,8 @@ static std::string generate_str(size_t len) {
 }
 
 void test_single_slice(segment_v2::CompressionTypePB type) {
-    const BlockCompressionCodec* codec = nullptr;
-    auto st = get_block_compression_codec(type, &codec);
+    std::unique_ptr<BlockCompressionCodec> codec;
+    auto st = get_block_compression_codec(type, codec);
     EXPECT_TRUE(st.ok());
 
     size_t test_sizes[] = {0, 1, 10, 1000, 1000000};
@@ -101,11 +101,12 @@ TEST_F(BlockCompressionTest, single) {
     test_single_slice(segment_v2::CompressionTypePB::ZLIB);
     test_single_slice(segment_v2::CompressionTypePB::LZ4);
     test_single_slice(segment_v2::CompressionTypePB::LZ4F);
+    test_single_slice(segment_v2::CompressionTypePB::ZSTD);
 }
 
 void test_multi_slices(segment_v2::CompressionTypePB type) {
-    const BlockCompressionCodec* codec = nullptr;
-    auto st = get_block_compression_codec(type, &codec);
+    std::unique_ptr<BlockCompressionCodec> codec;
+    auto st = get_block_compression_codec(type, codec);
     EXPECT_TRUE(st.ok());
 
     size_t test_sizes[] = {0, 1, 10, 1000, 1000000};
@@ -156,6 +157,7 @@ TEST_F(BlockCompressionTest, multi) {
     test_multi_slices(segment_v2::CompressionTypePB::ZLIB);
     test_multi_slices(segment_v2::CompressionTypePB::LZ4);
     test_multi_slices(segment_v2::CompressionTypePB::LZ4F);
+    test_multi_slices(segment_v2::CompressionTypePB::ZSTD);
 }
 
 } // namespace doris

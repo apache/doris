@@ -37,7 +37,6 @@ import org.apache.doris.task.CheckConsistencyTask;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,12 +52,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ConsistencyChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ConsistencyChecker.class);
-    
+
     private static final int MAX_JOB_NUM = 100;
 
     private static final Comparator<MetaObject> COMPARATOR =
             (first, second) -> Long.signum(first.getLastCheckTime() - second.getLastCheckTime());
-    
+
     // tabletId -> job
     private Map<Long, CheckConsistencyJob> jobs;
 
@@ -68,7 +67,7 @@ public class ConsistencyChecker extends MasterDaemon {
      *       jobs lock
      *       CheckConsistencyJob's synchronized
      *       db lock
-     * 
+     *
      * if reversal is inevitable. use db.tryLock() instead to avoid dead lock
      */
     private ReentrantReadWriteLock jobsLock;
@@ -107,14 +106,14 @@ public class ConsistencyChecker extends MasterDaemon {
         LOG.info("consistency checker will work from {}:00 to {}:00", startTime, endTime);
         return true;
     }
-    
+
     @Override
     protected void runAfterCatalogReady() {
         // for each round. try chose enough new tablets to check
         // only add new job when it's work time
         if (itsTime() && getJobNum() == 0) {
             List<Long> chosenTabletIds = chooseTablets();
-            for(Long tabletId: chosenTabletIds) {
+            for (Long tabletId : chosenTabletIds) {
                 CheckConsistencyJob job = new CheckConsistencyJob(tabletId);
                 addJob(job);
             }
@@ -185,7 +184,7 @@ public class ConsistencyChecker extends MasterDaemon {
             LOG.debug("current time is {}:00, waiting to {}:00 to {}:00",
                       currentTime, startTime, endTime);
         }
-        
+
         return isTime;
     }
 

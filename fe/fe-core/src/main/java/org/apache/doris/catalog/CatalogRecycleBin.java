@@ -36,7 +36,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,7 +72,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             LOG.error("db[{}] already in recycle bin.", db.getId());
             return false;
         }
-        
+
         // db should be empty. all tables are recycled before
         Preconditions.checkState(db.getTables().isEmpty());
 
@@ -88,14 +87,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return true;
     }
 
-    public synchronized boolean recycleTable(long dbId, Table table) {
+    public synchronized boolean recycleTable(long dbId, Table table, boolean isReplay) {
         if (idToTable.containsKey(table.getId())) {
             LOG.error("table[{}] already in recycle bin.", table.getId());
             return false;
         }
 
         // erase table with same name
-        eraseTableWithSameName(dbId, table.getName());
+        eraseTableWithSameName(dbId, table.getName(), isReplay);
 
         // recycle table
         RecycleTableInfo tableInfo = new RecycleTableInfo(dbId, table);
@@ -197,7 +196,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         } // end for tables
     }
 
-    private synchronized void eraseTableWithSameName(long dbId, String tableName) {
+    private synchronized void eraseTableWithSameName(long dbId, String tableName, boolean isReplay) {
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
@@ -209,7 +208,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Table table = tableInfo.getTable();
             if (table.getName().equals(tableName)) {
                 if (table.getType() == TableType.OLAP) {
-                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, false);
+                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, isReplay);
                 }
 
                 iterator.remove();
@@ -294,7 +293,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 break;
             }
         }
-        
+
         if (dbInfo == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
@@ -597,7 +596,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         eraseTable(currentTimeMs);
         eraseDatabase(currentTimeMs);
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         int count = idToDatabase.size();
@@ -696,7 +695,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public void readFields(DataInput in) throws IOException {
             db = Database.read(in);
-            
+
             int count  = in.readInt();
             for (int i = 0; i < count; i++) {
                 String tableName = Text.readString(in);
@@ -712,7 +711,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         public RecycleTableInfo() {
             // for persist
         }
-        
+
         public RecycleTableInfo(long dbId, Table table) {
             this.dbId = dbId;
             this.table = table;
@@ -826,7 +825,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             isInMemory = in.readBoolean();
         }
     }
-    
+
     // currently only used when loading image. So no synchronized protected.
     public List<Long> getAllDbIds() {
         return Lists.newArrayList(idToDatabase.keySet());

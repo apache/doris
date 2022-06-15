@@ -29,14 +29,12 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.stream.Collectors;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -45,10 +43,10 @@ import javax.servlet.http.HttpServletResponse;
  * fe_host:fe_http_port/api/check_decommission?host_ports=host:port,host2:port2...
  * return:
  * {
- * 	"msg": "OK",
- * 	"code": 0,
- * 	"data": ["192.168.10.11:9050", "192.168.10.11:9050"],
- * 	"count": 0
+ * "msg": "OK",
+ * "code": 0,
+ * "data": ["192.168.10.11:9050", "192.168.10.11:9050"],
+ * "count": 0
  * }
  */
 @RestController

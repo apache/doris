@@ -17,14 +17,15 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import com.google.common.collect.Lists;
 
 public class ClusterInfo implements Writable {
 
@@ -35,7 +36,7 @@ public class ClusterInfo implements Writable {
     private String newClusterName;
     private long newClusterId;
     private int newInstanceNum;
-    
+
     private List<Long> expandBackendIds = Lists.newArrayList();
 
     public ClusterInfo() {
@@ -46,7 +47,7 @@ public class ClusterInfo implements Writable {
         this.newClusterId = 0L;
         this.newInstanceNum = 0;
     }
-    
+
     public ClusterInfo(String clusterName, long clusterId) {
         this.clusterName = clusterName;
         this.clusterId = clusterId;

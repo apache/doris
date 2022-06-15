@@ -43,7 +43,7 @@ enum class PredicateType {
     IN_LIST = 7,
     NOT_IN_LIST = 8,
     IS_NULL = 9,
-    NOT_IS_NULL = 10,
+    IS_NOT_NULL = 10,
     BF = 11, // BloomFilter
 };
 
@@ -82,7 +82,10 @@ public:
     // used to evaluate pre read column in lazy matertialization
     // now only support integer/float
     // a vectorized eval way
-    virtual void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {};
+    virtual void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+        DCHECK(false) << "should not reach here";
+    }
+
     uint32_t column_id() const { return _column_id; }
 
 protected:

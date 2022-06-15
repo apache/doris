@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_COMMON_RESOURCE_TLS_H
-#define DORIS_BE_SRC_COMMON_COMMON_RESOURCE_TLS_H
+#pragma once
 
 namespace doris {
 
@@ -29,5 +28,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

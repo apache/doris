@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/exchange-node.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_EXCHANGE_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_EXCHANGE_NODE_H
+#pragma once
 
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
@@ -36,7 +35,7 @@ class RuntimeProfile;
 // according to the sort parameters in _sort_exec_exprs. (It is assumed that the rows
 // received from the senders themselves are sorted.)
 // If _is_merging is true, the exchange node creates a DataStreamRecvr with the
-// _is_merging flag and retrieves retrieves rows from the receiver via calls to
+// _is_merging flag and retrieves rows from the receiver via calls to
 // DataStreamRecvr::GetNext(). It also prepares, opens and closes the ordering exprs in
 // its SortExecExprs member that are used to compare rows.
 // If _is_merging is false, the exchange node directly retrieves batches from the row
@@ -116,5 +115,3 @@ private:
 };
 
 }; // namespace doris
-
-#endif

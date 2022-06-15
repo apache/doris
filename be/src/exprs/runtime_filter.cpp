@@ -21,7 +21,6 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/hash_join_node.h"
 #include "exprs/binary_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
@@ -31,15 +30,11 @@
 #include "exprs/in_predicate.h"
 #include "exprs/literal.h"
 #include "exprs/minmax_predicate.h"
-#include "exprs/predicate.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/types.pb.h"
+#include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/type_limit.h"
-#include "udf/udf.h"
-#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 
@@ -981,15 +976,14 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
     DCHECK(is_consumer());
     std::lock_guard<std::mutex> guard(_inner_mutex);
 
-    if (!_push_down_ctxs.empty()) {
-        push_expr_ctxs->insert(push_expr_ctxs->end(), _push_down_ctxs.begin(),
-                               _push_down_ctxs.end());
-        return Status::OK();
+    if (_push_down_ctxs.empty()) {
+        RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
+        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc, tracker));
+        RETURN_IF_ERROR(Expr::open(_push_down_ctxs, _state));
     }
     // push expr
-    RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
-    RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc, tracker));
-    return Expr::open(_push_down_ctxs, _state);
+    push_expr_ctxs->insert(push_expr_ctxs->end(), _push_down_ctxs.begin(), _push_down_ctxs.end());
+    return Status::OK();
 }
 
 bool IRuntimeFilter::await() {

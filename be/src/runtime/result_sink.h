@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_RESULT_SINK_H
-#define DORIS_BE_RUNTIME_RESULT_SINK_H
+#pragma once
 
 #include "common/status.h"
 #include "exec/data_sink.h"
@@ -59,8 +58,6 @@ public:
 private:
     Status prepare_exprs(RuntimeState* state);
     TResultSinkType::type _sink_type;
-    // set file options when sink type is FILE
-    std::unique_ptr<ResultFileOptions> _file_opts;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;
@@ -76,4 +73,3 @@ private:
 };
 
 } // namespace doris
-#endif

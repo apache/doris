@@ -140,7 +140,7 @@ public final class FieldReflection {
         Field found = null;
         Field[] fields = theClass.getDeclaredFields();
 
-        for(Field field : fields) {
+        for (Field field : fields) {
             if (!field.isSynthetic()) {
                 Type fieldType = field.getGenericType();
                 if (instanceField != Modifier.isStatic(field.getModifiers()) && isCompatibleFieldType(fieldType, desiredType, forAssignment)) {
@@ -178,9 +178,10 @@ public final class FieldReflection {
     }
 
     private static String errorMessageForMoreThanOneFieldFound(Type desiredFieldType, boolean instanceField, boolean forAssignment, Field firstField, Field secondField) {
-        return "More than one " + (instanceField ? "instance" : "static") + " field " + (forAssignment ? "to" : "from") + " which a value of type " +
-                getTypeName(desiredFieldType) + (forAssignment ? " can be assigned" : " can be read") + " exists in " +
-                secondField.getDeclaringClass() + ": " + firstField.getName() + ", " + secondField.getName();
+        return "More than one " + (instanceField ? "instance" : "static") + " field " + (forAssignment ? "to" : "from")
+                + " which a value of type "
+                + getTypeName(desiredFieldType) + (forAssignment ? " can be assigned" : " can be read") + " exists in "
+                + secondField.getDeclaringClass() + ": " + firstField.getName() + ", " + secondField.getName();
     }
 
     private static String getTypeName(Type type) {
@@ -207,7 +208,7 @@ public final class FieldReflection {
         makeAccessible(field);
 
         try {
-            return (T)field.get(targetObject);
+            return (T) field.get(targetObject);
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
         }
@@ -244,7 +245,7 @@ public final class FieldReflection {
         } catch (NoSuchFieldException e) {
             throw new RuntimeException(e);
         }
-    
+
         modifiersField.setAccessible(true);
         int nonFinalModifiers = modifiersField.getInt(field) - 16;
         modifiersField.setInt(field, nonFinalModifiers);
@@ -254,19 +255,19 @@ public final class FieldReflection {
     */
 
     public static Class<?> getClassType(Type declaredType) {
-        while(!(declaredType instanceof Class)) {
+        while (!(declaredType instanceof Class)) {
             if (declaredType instanceof ParameterizedType) {
-                return (Class)((ParameterizedType)declaredType).getRawType();
+                return (Class) ((ParameterizedType) declaredType).getRawType();
             }
 
             if (!(declaredType instanceof TypeVariable)) {
                 throw new IllegalArgumentException("Type of unexpected kind: " + declaredType);
             }
 
-            declaredType = ((TypeVariable)declaredType).getBounds()[0];
+            declaredType = ((TypeVariable) declaredType).getBounds()[0];
         }
 
-        return (Class)declaredType;
+        return (Class) declaredType;
     }
 
     // ensure that field is accessible
@@ -278,9 +279,9 @@ public final class FieldReflection {
 
     // return true if the two types are same type.
     private static boolean isSameType(Class<?> firstType, Class<?> secondType) {
-        return firstType == secondType ||
-                firstType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType) ||
-                secondType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType);
+        return firstType == secondType
+                || firstType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType)
+                || secondType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType);
     }
 
 }

@@ -27,10 +27,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class IsNullPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(IsNullPredicate.class);
@@ -38,17 +39,19 @@ public class IsNullPredicate extends Predicate {
     private static final String IS_NOT_NULL = "is_not_null_pred";
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue;
+        for (Type t : Type.getSupportedTypes()) {
+            if (t.isNull()) {
+                continue;
+            }
             String isNullSymbol;
             if (t == Type.BOOLEAN) {
-                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE" +
-                        "EES3_PNS2_15FunctionContextERKT_";
+                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE"
+                        + "EES3_PNS2_15FunctionContextERKT_";
             } else {
                 String udfType = Function.getUdfType(t.getPrimitiveType());
-                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf" +
-                        udfType.length() + udfType +
-                        "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
+                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf"
+                        + udfType.length() + udfType
+                        + "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
             }
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
@@ -97,6 +100,11 @@ public class IsNullPredicate extends Predicate {
         return getChild(0).toSql() + (isNotNull ? " IS NOT NULL" : " IS NULL");
     }
 
+    @Override
+    public String toDigestImpl() {
+        return getChild(0).toDigest() + (isNotNull ? " IS NOT NULL" : " IS NULL");
+    }
+
     public boolean isSlotRefChildren() {
         return (children.get(0) instanceof SlotRef);
     }
@@ -142,7 +150,7 @@ public class IsNullPredicate extends Predicate {
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
         final Expr childValue = getChild(0);
-        if(!(childValue instanceof LiteralExpr)) {
+        if (!(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);

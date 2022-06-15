@@ -17,9 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -32,6 +29,10 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,7 @@ public class RebalancerTestUtil {
             diskInfo.setPathHash(id + i);
             diskInfo.setTotalCapacityB(totalCap);
             diskInfo.setDataUsedCapacityB(usedCaps.get(i));
+            diskInfo.setAvailableCapacityB(totalCap - usedCaps.get(i));
             disks.put(diskInfo.getRootPath(), diskInfo);
         }
         be.setDisks(ImmutableMap.copyOf(disks));
@@ -74,8 +76,8 @@ public class RebalancerTestUtil {
         MaterializedIndex baseIndex = partition.getBaseIndex();
         int schemaHash = olapTable.getSchemaHashByIndexId(baseIndex.getId());
 
-        TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partition.getId(), baseIndex.getId(),
-        schemaHash, medium);
+        TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(),
+                partition.getId(), baseIndex.getId(), schemaHash, medium);
         Tablet tablet = new Tablet(tabletId);
 
         // add tablet to olapTable

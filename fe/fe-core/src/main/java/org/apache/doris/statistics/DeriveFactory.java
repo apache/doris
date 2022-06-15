@@ -24,13 +24,42 @@ public class DeriveFactory {
     public BaseStatsDerive getStatsDerive(PlanNode.NodeType nodeType) {
         switch (nodeType) {
             case AGG_NODE:
+                return new AggStatsDerive();
+            case ANALYTIC_EVAL_NODE:
+                return new AnalyticEvalStatsDerive();
+            case ASSERT_NUM_ROWS_NODE:
+                return new AssertNumRowsStatsDerive();
+            case CROSS_JOIN_NODE:
+                return new CrossJoinStatsDerive();
+            case EMPTY_SET_NODE:
+            case REPEAT_NODE:
+                return new EmptySetStatsDerive();
+            case EXCHANGE_NODE:
+                return new ExchangeStatsDerive();
             case HASH_JOIN_NODE:
-            case MERGE_NODE:
-                break;
+                return new HashJoinStatsDerive();
             case OLAP_SCAN_NODE:
                 return new OlapScanStatsDerive();
+            case MYSQL_SCAN_NODE:
+            case ODBC_SCAN_NODE:
+                return new MysqlStatsDerive();
+            case SELECT_NODE:
+            case SORT_NODE:
+                return new SelectStatsDerive();
+            case TABLE_FUNCTION_NODE:
+                return new TableFunctionStatsDerive();
+            case BROKER_SCAN_NODE:
+            case EXCEPT_NODE:
+            case ES_SCAN_NODE:
+            case HIVE_SCAN_NODE:
+            case ICEBERG_SCAN_NODE:
+            case INTERSECT_NODE:
+            case SCHEMA_SCAN_NODE:
+            case STREAM_LOAD_SCAN_NODE:
+            case UNION_NODE:
             case DEFAULT:
+            default:
+                return new BaseStatsDerive();
         }
-        return new BaseStatsDerive();
     }
 }

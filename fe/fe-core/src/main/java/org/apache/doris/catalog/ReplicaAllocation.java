@@ -99,8 +99,12 @@ public class ReplicaAllocation implements Writable {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         ReplicaAllocation that = (ReplicaAllocation) o;
         return that.allocMap.equals(this.allocMap);
     }

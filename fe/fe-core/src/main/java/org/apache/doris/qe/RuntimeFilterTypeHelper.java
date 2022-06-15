@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,9 +39,10 @@ import java.util.Map;
 public class RuntimeFilterTypeHelper {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilterTypeHelper.class);
 
-    public final static long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue() |
-            TRuntimeFilterType.BLOOM.getValue() | TRuntimeFilterType.MIN_MAX.getValue() |
-            TRuntimeFilterType.IN_OR_BLOOM.getValue());
+    public final static long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue()
+            | TRuntimeFilterType.BLOOM.getValue()
+            | TRuntimeFilterType.MIN_MAX.getValue()
+            | TRuntimeFilterType.IN_OR_BLOOM.getValue());
 
     private final static Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 

@@ -32,11 +32,10 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.sql.Connection;
@@ -125,7 +124,9 @@ public class StatementSubmitter {
                     LOG.warn("failed to close stmt", se2);
                 }
                 try {
-                    if (conn != null) conn.close();
+                    if (conn != null) {
+                        conn.close();
+                    }
                 } catch (SQLException se) {
                     LOG.warn("failed to close connection", se);
                 }
@@ -173,7 +174,7 @@ public class StatementSubmitter {
                 // index start from 1
                 for (int i = 1; i <= colNum; ++i) {
                     String type = rs.getMetaData().getColumnTypeName(i);
-                    if("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)){
+                    if ("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)) {
                         row.add(rs.getString(i));
                     } else {
                         row.add(rs.getObject(i));
@@ -235,4 +236,3 @@ public class StatementSubmitter {
         }
     }
 }
-

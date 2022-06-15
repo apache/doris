@@ -46,7 +46,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table.Cell;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -70,13 +69,15 @@ public class TabletChecker extends MasterDaemon {
     private TabletScheduler tabletScheduler;
     private TabletSchedulerStat stat;
 
-    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>() {{
-        put("total", new AtomicLong(0L));
-        put("unhealthy", new AtomicLong(0L));
-        put("added", new AtomicLong(0L));
-        put("in_sched", new AtomicLong(0L));
-        put("not_ready", new AtomicLong(0L));
-    }};
+    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>() {
+        {
+            put("total", new AtomicLong(0L));
+            put("unhealthy", new AtomicLong(0L));
+            put("added", new AtomicLong(0L));
+            put("in_sched", new AtomicLong(0L));
+            put("not_ready", new AtomicLong(0L));
+        }
+    };
 
     // db id -> (tbl id -> PrioPart)
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
@@ -209,7 +210,7 @@ public class TabletChecker extends MasterDaemon {
         removePriosIfNecessary();
 
         stat.counterTabletCheckRound.incrementAndGet();
-        LOG.info(stat.incrementalBrief());
+        LOG.debug(stat.incrementalBrief());
     }
 
     private static class CheckerCounter {

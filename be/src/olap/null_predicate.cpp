@@ -30,7 +30,7 @@ NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
         : ColumnPredicate(column_id), _is_null(opposite != is_null) {}
 
 PredicateType NullPredicate::type() const {
-    return _is_null ? PredicateType::IS_NULL : PredicateType::NOT_IS_NULL;
+    return _is_null ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL;
 }
 
 void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
@@ -165,4 +165,16 @@ void NullPredicate::evaluate_and(IColumn& column, uint16_t* sel, uint16_t size, 
         if (_is_null) memset(flags, false, size);
     }
 }
+
+void NullPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < size; ++i) {
+            flags[i] = (null_map[i] == _is_null);
+        }
+    } else {
+        if (_is_null) memset(flags, false, size);
+    }
+}
+
 } //namespace doris

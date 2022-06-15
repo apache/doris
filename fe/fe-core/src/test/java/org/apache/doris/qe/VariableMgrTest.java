@@ -24,7 +24,6 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -180,6 +179,7 @@ public class VariableMgrTest {
             Deencapsulation.setField(Catalog.class, "checkpointThreadId", Thread.currentThread().getId());
             currentCatalog.getCheckpointer().doCheckpoint();
         } catch (Throwable e) {
+            e.printStackTrace();
             Assert.fail(e.getMessage());
         } finally {
             // Restore the ckptThreadId
@@ -225,13 +225,10 @@ public class VariableMgrTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testReadOnly() throws AnalysisException, DdlException {
-        SysVariableDesc desc = new SysVariableDesc("version_comment");
-
+    public void testReadOnly() throws DdlException {
         // Set global variable
         SetVar setVar = new SetVar(SetType.SESSION, "version_comment", null);
         VariableMgr.setVar(null, setVar);
         Assert.fail("No exception throws.");
     }
 }
-

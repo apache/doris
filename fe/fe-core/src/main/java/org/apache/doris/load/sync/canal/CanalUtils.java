@@ -23,9 +23,7 @@ import org.apache.doris.load.sync.position.EntryPosition;
 import com.alibaba.otter.canal.common.CanalException;
 import com.alibaba.otter.canal.protocol.CanalEntry;
 import com.alibaba.otter.canal.protocol.Message;
-
 import com.google.protobuf.InvalidProtocolBufferException;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.SystemUtils;
@@ -156,6 +154,7 @@ public class CanalUtils {
                             .append(column.getValue());
                 }
             } catch (UnsupportedEncodingException e) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
             builder.append("    type=").append(column.getMysqlType());
             if (column.getUpdated()) {
@@ -196,7 +195,7 @@ public class CanalUtils {
             throw new CanalException("parse event has an error , data:" + entry.toString(), e);
         }
         // print transaction begin info, thread ID, time consumption
-        logger.info(transaction_format,entry.getHeader().getLogfileName(),
+        logger.info(transaction_format, entry.getHeader().getLogfileName(),
                 String.valueOf(entry.getHeader().getLogfileOffset()),
                 String.valueOf(entry.getHeader().getExecuteTime()), simpleDateFormat.format(date),
                 entry.getHeader().getGtid(), String.valueOf(delayTime));

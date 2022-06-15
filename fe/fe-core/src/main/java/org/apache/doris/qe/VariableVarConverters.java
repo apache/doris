@@ -17,8 +17,9 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.common.DdlException;
+
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 

@@ -14,20 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-//
 
 package org.apache.doris.load.loadv2.dpp;
 
-import org.apache.doris.load.loadv2.dpp.DorisRangePartitioner;
-
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+
 import org.junit.Assert;
 import org.junit.Test;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -120,12 +113,10 @@ public class DorisRangePartitionerTest {
 
     @Test
     public void testUnpartitionedPartitioner() {
-        List<String> partitionColumns = new ArrayList<>();
         List<String> bucketColumns = new ArrayList<>();
         bucketColumns.add("key");
         EtlJobConfig.EtlPartitionInfo partitionInfo = new EtlJobConfig.EtlPartitionInfo(
                 "UNPARTITIONED", null, bucketColumns, null);
-        List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys = new ArrayList<>();
         List<Class> partitionSchema = new ArrayList<>();
         partitionSchema.add(Integer.class);
         List<Integer> partitionKeyIndexes = new ArrayList<>();

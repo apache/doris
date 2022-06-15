@@ -35,12 +35,12 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,7 +188,7 @@ public abstract class SyncJob implements Writable {
     }
 
     private void checkStateTransform(JobState newState) throws UserException {
-        switch (jobState) {
+        switch (jobState) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case PENDING:
                 break;
             case RUNNING:

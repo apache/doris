@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.publish;
 
-import java.util.Collection;
-
 import org.apache.doris.system.Backend;
+
+import java.util.Collection;
 
 // Response handler contain a listener
 public class AckResponseHandler extends ResponseHandler {

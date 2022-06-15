@@ -17,82 +17,64 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.utframe.UtFrameUtils;
 
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
-import java.util.UUID;
+import org.junit.jupiter.api.Test;
 
 public class ListPartitionPrunerTest extends PartitionPruneTestBase {
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        runningDir = "fe/mocked/ListPartitionPrunerTest/" + UUID.randomUUID().toString() + "/";
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        connectContext = UtFrameUtils.createDefaultCtx();
-
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createDatabase("test");
 
         String createSinglePartColWithSinglePartKey =
-            "create table test.t1\n"
-                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1)\n"
-                + "(\n"
-                + "partition p1 values in (\"1\"),\n"
-                + "partition p2 values in (\"2\")\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t1\n"
+                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1)\n"
+                        + "(\n"
+                        + "partition p1 values in (\"1\"),\n"
+                        + "partition p2 values in (\"2\")\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
         String createSinglePartColWithMultiPartKey =
-            "create table test.t2\n"
-                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1)\n"
-                + "(\n"
-                + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
-                + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
-                + "partition p3 values in (\"7\", \"8\")\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t2\n"
+                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1)\n"
+                        + "(\n"
+                        + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
+                        + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
+                        + "partition p3 values in (\"7\", \"8\")\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
         String createMultiPartColWithSinglePartKey =
-            "create table test.t3\n"
-                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1, k2)\n"
-                + "(\n"
-                + "partition p1 values in ((\"1\", \"beijing\")),\n"
-                + "partition p2 values in ((\"2\", \"beijing\"))\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t3\n"
+                        + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1, k2)\n"
+                        + "(\n"
+                        + "partition p1 values in ((\"1\", \"beijing\")),\n"
+                        + "partition p2 values in ((\"2\", \"beijing\"))\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
         String createMultiPartColWithMultiPartKey =
-            "create table test.t4\n"
-                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
-                + "partition by list(k1, k2)\n"
-                + "(\n"
-                + "partition p1 values in ((\"1\", \"beijing\"), (\"2\", \"shanghai\")),\n"
-                + "partition p2 values in ((\"2\", \"beijing\")),\n"
-                + "partition p3 values in ((\"3\", \"tianjin\"), (\"1\", \"shanghai\"))\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 1\n"
-                + "properties('replication_num' = '1');";
+                "create table test.t4\n"
+                        + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1, k2)\n"
+                        + "(\n"
+                        + "partition p1 values in ((\"1\", \"beijing\"), (\"2\", \"shanghai\")),\n"
+                        + "partition p2 values in ((\"2\", \"beijing\")),\n"
+                        + "partition p3 values in ((\"3\", \"tianjin\"), (\"1\", \"shanghai\"))\n"
+                        + ")\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1');";
 
-        createTable(createSinglePartColWithSinglePartKey);
-        createTable(createSinglePartColWithMultiPartKey);
-        createTable(createMultiPartColWithSinglePartKey);
-        createTable(createMultiPartColWithMultiPartKey);
-    }
-
-    @AfterClass
-    public static void tearDown() throws Exception {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
+        createTables(createSinglePartColWithSinglePartKey,
+                createSinglePartColWithMultiPartKey,
+                createMultiPartColWithSinglePartKey,
+                createMultiPartColWithMultiPartKey);
     }
 
     private void initTestCases() {

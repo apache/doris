@@ -165,7 +165,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
-    
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
@@ -179,6 +179,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
+
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
+
+    static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -221,19 +225,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TX_READ_ONLY)
     public boolean txReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
     public boolean transactionReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
     public String transactionIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -408,21 +412,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 1024;
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
-    public boolean enableVectorizedEngine = false;
+    public boolean enableVectorizedEngine = true;
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
 
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
 
-    @VariableMgr.VarAttr(name = ENABLE_LATERAL_VIEW, needForward = true)
-    public boolean enableLateralView = false;
-
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
-    private boolean enableInferPredicate = false;
+    private boolean enableInferPredicate = true;
 
     @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
     public boolean sqlQuoteShowCreate = true;
@@ -438,9 +439,15 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
-  
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
-    private boolean enableProjection = false;
+    private boolean enableProjection = true;
+
+    @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
+    public boolean trimTailingSpacesForExternalTableQuery = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
+    boolean enableArrayType = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -449,6 +456,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setBlockEncryptionMode(String blockEncryptionMode) {
         this.blockEncryptionMode = blockEncryptionMode;
     }
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -477,12 +485,14 @@ public class SessionVariable implements Serializable, Writable {
         this.sqlMode = sqlMode;
     }
 
-    public boolean isEnableJoinReorderBasedCost() { return enableJoinReorderBasedCost; }
+    public boolean isEnableJoinReorderBasedCost() {
+        return enableJoinReorderBasedCost;
+    }
 
     public boolean isAutoCommit() {
         return autoCommit;
     }
-    
+
     public boolean isTxReadonly() {
         return txReadonly;
     }
@@ -490,11 +500,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isTransactionReadonly() {
         return transactionReadonly;
     }
-    
+
     public String getTransactionIsolation() {
         return transactionIsolation;
     }
-    
+
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -594,6 +604,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
         this.sqlQuoteShowCreate = sqlQuoteShowCreate;
     }
+
     public void setLoadMemLimit(long loadMemLimit) {
         this.loadMemLimit = loadMemLimit;
     }
@@ -630,9 +641,13 @@ public class SessionVariable implements Serializable, Writable {
         this.preferJoinMethod = preferJoinMethod;
     }
 
-    public boolean isEnableFoldConstantByBe() { return enableFoldConstantByBe; }
+    public boolean isEnableFoldConstantByBe() {
+        return enableFoldConstantByBe;
+    }
 
-    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {this.enableFoldConstantByBe = foldConstantByBe; }
+    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
+        this.enableFoldConstantByBe = foldConstantByBe;
+    }
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
@@ -876,14 +891,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableParallelOutfile;
     }
 
-    public boolean isEnableLateralView() {
-        return enableLateralView;
-    }
-
-    public void setEnableLateralView(boolean enableLateralView) {
-        this.enableLateralView = enableLateralView;
-    }
-
     public boolean isDisableJoinReorder() {
         return disableJoinReorder;
     }
@@ -900,10 +907,36 @@ public class SessionVariable implements Serializable, Writable {
         return enableInferPredicate;
     }
 
-    public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
+    public void setEnableInferPredicate(boolean enableInferPredicate) {
+        this.enableInferPredicate = enableInferPredicate;
+    }
 
     public boolean isEnableProjection() {
         return enableProjection;
+    }
+
+    public boolean isTrimTailingSpacesForExternalTableQuery() {
+        return trimTailingSpacesForExternalTableQuery;
+    }
+
+    public void setTrimTailingSpacesForExternalTableQuery(boolean trimTailingSpacesForExternalTableQuery) {
+        this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
+    }
+
+    public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
+        this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
+    }
+
+    public void setDisableJoinReorder(boolean disableJoinReorder) {
+        this.disableJoinReorder = disableJoinReorder;
+    }
+
+    public boolean isEnableArrayType() {
+        return enableArrayType;
+    }
+
+    public void setEnableArrayType(boolean enableArrayType) {
+        this.enableArrayType = enableArrayType;
     }
 
     // Serialize to thrift object
@@ -923,6 +956,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
+        tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
@@ -1121,4 +1155,3 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 }
-

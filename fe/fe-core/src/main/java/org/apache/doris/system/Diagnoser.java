@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
-
 import org.json.simple.JSONObject;
 
 import java.util.List;
@@ -140,9 +139,9 @@ public class Diagnoser {
             } while (false);
             // version
             if (replica.getVersion() != partition.getVisibleVersion()) {
-                versionErr.append("Replica on backend " + replica.getBackendId() + "'s version (" +
-                        replica.getVersion() + ") does not equal" +
-                        " to partition visible version (" + partition.getVisibleVersion() + ")");
+                versionErr.append("Replica on backend " + replica.getBackendId() + "'s version ("
+                        + replica.getVersion() + ") does not equal"
+                        + " to partition visible version (" + partition.getVisibleVersion() + ")");
             }
             // status
             if (!replica.isAlive()) {

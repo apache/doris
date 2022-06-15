@@ -84,7 +84,7 @@ public class ExportPendingTask extends MasterTask {
             return;
         }
     }
-    
+
     private Status makeSnapshots() {
         List<TScanRangeLocations> tabletLocations = job.getTabletLocations();
         if (tabletLocations == null) {

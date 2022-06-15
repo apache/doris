@@ -31,12 +31,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.GlobalVariable;
+
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDateTime;
-
-import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -338,7 +338,7 @@ public class FEFunctions {
 
     @FEFunction(name = "floor", argTypes = { "DOUBLE"}, returnType = "BIGINT")
     public static IntLiteral floor(LiteralExpr expr) throws AnalysisException {
-        long result = (long)Math.floor(expr.getDoubleValue());
+        long result = (long) Math.floor(expr.getDoubleValue());
         return new IntLiteral(result, Type.BIGINT);
     }
 
@@ -493,8 +493,8 @@ public class FEFunctions {
 
     @FEFunction(name = "divide", argTypes = { "DOUBLE", "DOUBLE" }, returnType = "DOUBLE")
     public static FloatLiteral divideDouble(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        if (second.getDoubleValue() == 0.0) {	
-            return null;	
+        if (second.getDoubleValue() == 0.0) {
+            return null;
         }
         double result = first.getDoubleValue() / second.getDoubleValue();
         return new FloatLiteral(result, Type.DOUBLE);
@@ -504,8 +504,8 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimalV2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-        if (right.compareTo(BigDecimal.ZERO) == 0) {	
-            return null;	
+        if (right.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
         }
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
@@ -542,6 +542,20 @@ public class FEFunctions {
         @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
     })
     public static LiteralExpr ifNull(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        return first instanceof NullLiteral ? second : first;
+    }
+
+    // maybe use alias info to reduce redundant code
+    @FEFunctionList({
+        @FEFunction(name = "nvl", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR"),
+        @FEFunction(name = "nvl", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT"),
+        @FEFunction(name = "nvl", argTypes = {"INT", "INT"}, returnType = "INT"),
+        @FEFunction(name = "nvl", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT"),
+        @FEFunction(name = "nvl", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME"),
+        @FEFunction(name = "nvl", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME"),
+        @FEFunction(name = "nvl", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
+    })
+    public static LiteralExpr nvl(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         return first instanceof NullLiteral ? second : first;
     }
 

@@ -29,7 +29,7 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
         : _alter_tablet_req(request) {
     _mem_tracker = MemTracker::create_tracker(
             config::memory_limitation_per_thread_for_schema_change_bytes,
-            fmt::format("EngineAlterTabletTask: {}-{}",
+            fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                         std::to_string(_alter_tablet_req.base_tablet_id),
                         std::to_string(_alter_tablet_req.new_tablet_id)),
             StorageEngine::instance()->schema_change_mem_tracker(), MemTrackerLevel::TASK);

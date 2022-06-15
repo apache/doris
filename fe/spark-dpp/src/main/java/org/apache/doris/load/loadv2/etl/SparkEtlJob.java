@@ -26,6 +26,9 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.map.MultiValueMap;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
@@ -33,10 +36,6 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -122,9 +121,9 @@ public class SparkEtlJob {
                     if (funcName.equalsIgnoreCase(BITMAP_HASH)) {
                         throw new SparkDppException("spark load not support bitmap_hash now");
                     }
-                    if(funcName.equalsIgnoreCase(BINARY_BITMAP)){
+                    if (funcName.equalsIgnoreCase(BINARY_BITMAP)) {
                         binaryBitmapColumns.add(columnName.toLowerCase());
-                    }else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
+                    } else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
                         bitmapDictColumns.add(columnName.toLowerCase());
                     } else if (!funcName.equalsIgnoreCase(TO_BITMAP_FUNC)) {
                         newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
@@ -139,7 +138,7 @@ public class SparkEtlJob {
             if (!bitmapDictColumns.isEmpty()) {
                 tableToBitmapDictColumns.put(entry.getKey(), bitmapDictColumns);
             }
-            if(!binaryBitmapColumns.isEmpty()){
+            if (!binaryBitmapColumns.isEmpty()) {
                 tableToBinaryBitmapColumns.put(entry.getKey(), binaryBitmapColumns);
             }
         }
@@ -193,7 +192,7 @@ public class SparkEtlJob {
         LOG.info("global dict builder args, dictColumnMap: " + dictColumnMap
                          + ", dorisOlapTableColumnList: " + dorisOlapTableColumnList
                          + ", sourceHiveDBTableName: " + sourceHiveDBTableName
-                         + ", sourceHiveFilter: "+ sourceHiveFilter
+                         + ", sourceHiveFilter: " + sourceHiveFilter
                          + ", distinctKeyTableName: " + distinctKeyTableName
                          + ", globalDictTableName: " + globalDictTableName
                          + ", dorisIntermediateHiveTable: " + dorisIntermediateHiveTable);

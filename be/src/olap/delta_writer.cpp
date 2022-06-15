@@ -20,7 +20,6 @@
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
@@ -115,33 +114,15 @@ Status DeltaWriter::init() {
                                                                   _req.txn_id, _req.load_id));
     }
 
-    RowsetWriterContext writer_context;
-    writer_context.rowset_id = _storage_engine->next_rowset_id();
-    writer_context.tablet_uid = _tablet->tablet_uid();
-    writer_context.tablet_id = _req.tablet_id;
-    writer_context.partition_id = _req.partition_id;
-    writer_context.tablet_schema_hash = _req.schema_hash;
-    if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-        writer_context.rowset_type = BETA_ROWSET;
-    } else {
-        writer_context.rowset_type = ALPHA_ROWSET;
-    }
-    writer_context.path_desc = _tablet->tablet_path_desc();
-    writer_context.tablet_schema = &(_tablet->tablet_schema());
-    writer_context.rowset_state = PREPARED;
-    writer_context.txn_id = _req.txn_id;
-    writer_context.load_id = _req.load_id;
-    writer_context.segments_overlap = OVERLAPPING;
-    writer_context.data_dir = _tablet->data_dir();
-    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
-
+    RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
+                                                &_rowset_writer));
     _tablet_schema = &(_tablet->tablet_schema());
     _schema.reset(new Schema(*_tablet_schema));
     _reset_mem_table();
 
     // create flush handler
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
-            &_flush_token, writer_context.rowset_type, _req.is_high_priority));
+            &_flush_token, _rowset_writer->type(), _req.is_high_priority));
 
     _is_init = true;
     return Status::OK();
@@ -209,22 +190,14 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    int start = 0, end = 0;
-    const size_t num_rows = row_idxs.size();
-    for (; start < num_rows;) {
-        auto count = end + 1 - start;
-        if (end == num_rows - 1 || (row_idxs[end + 1] - row_idxs[start]) != count) {
-            _mem_table->insert(block, row_idxs[start], count);
-            start += count;
-            end = start;
-        } else {
-            end++;
-        }
-    }
+    _mem_table->insert(block, row_idxs);
 
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_flush_memtable_async());
-        _reset_mem_table();
+    if (_mem_table->need_to_agg()) {
+        _mem_table->shrink_memtable_by_agg();
+        if (_mem_table->is_flush()) {
+            RETURN_NOT_OK(_flush_memtable_async());
+            _reset_mem_table();
+        }
     }
 
     return Status::OK();
@@ -310,8 +283,7 @@ Status DeltaWriter::close() {
     return Status::OK();
 }
 
-Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                               bool is_broken) {
+Status DeltaWriter::close_wait() {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -337,14 +309,6 @@ Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* 
         return res;
     }
 
-#ifndef BE_TEST
-    if (!is_broken) {
-        PTabletInfo* tablet_info = tablet_vec->Add();
-        tablet_info->set_tablet_id(_tablet->tablet_id());
-        tablet_info->set_schema_hash(_tablet->schema_hash());
-    }
-#endif
-
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
@@ -365,6 +329,15 @@ Status DeltaWriter::cancel() {
     }
     _is_cancelled = true;
     return Status::OK();
+}
+
+int64_t DeltaWriter::save_mem_consumption_snapshot() {
+    _mem_consumption_snapshot = mem_consumption();
+    return _mem_consumption_snapshot;
+}
+
+int64_t DeltaWriter::get_mem_consumption_snapshot() const {
+    return _mem_consumption_snapshot;
 }
 
 int64_t DeltaWriter::mem_consumption() const {

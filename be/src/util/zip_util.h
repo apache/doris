@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_ZIP_UTIL_H
-#define DORIS_BE_SRC_UTIL_ZIP_UTIL_H
+#pragma once
 
 #include <string>
 
@@ -70,5 +69,3 @@ private:
     std::vector<std::string> _clean_paths;
 };
 } // namespace doris
-
-#endif //CORE_ZIP_UTIL_H

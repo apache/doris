@@ -48,6 +48,7 @@ Status VMysqlTableSink::init(const TDataSink& t_sink) {
     _conn_info.passwd = t_mysql_sink.passwd;
     _conn_info.db = t_mysql_sink.db;
     _mysql_tbl = t_mysql_sink.table;
+    _conn_info.charset = t_mysql_sink.charset;
 
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));

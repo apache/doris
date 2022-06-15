@@ -22,8 +22,8 @@
 #include <string_view>
 
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
@@ -67,54 +67,25 @@ public:
     }
 
 private:
-    static bool _execute_string(Block& block, const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) {
+    ColumnPtr _execute_string(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
+                              const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
-        auto array_column =
-                check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
-        DCHECK(array_column != nullptr);
-        const ColumnString* nested_column = nullptr;
-        const UInt8* nested_null_map = nullptr;
-        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
-        if (nested_null_column) {
-            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
-            nested_column =
-                    check_and_get_column<ColumnString>(nested_null_column->get_nested_column());
-        } else {
-            nested_column = check_and_get_column<ColumnString>(array_column->get_data());
-        }
-        if (!nested_column) {
-            return false;
-        }
-        const auto& arr_offs = array_column->get_offsets();
-        const auto& str_offs = nested_column->get_offsets();
-        const auto& str_chars = nested_column->get_chars();
+        const auto& str_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
+        const auto& str_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
 
-        // check right column type
-        auto ptr = block.get_by_position(arguments[1]).column;
-        if (is_column_const(*ptr)) {
-            ptr = check_and_get_column<ColumnConst>(ptr)->get_data_column_ptr();
-        }
-        if (!check_and_get_column<ColumnString>(*ptr)) {
-            return false;
-        }
-
-        // expand const column and get data
-        auto right_column = check_and_get_column<ColumnString>(
-                *block.get_by_position(arguments[1]).column->convert_to_full_column_if_const());
-        const auto& right_offs = right_column->get_offsets();
-        const auto& right_chars = right_column->get_chars();
+        // check right column type and get data
+        const auto& right_offs = reinterpret_cast<const ColumnString&>(right_column).get_offsets();
+        const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create();
+        auto dst = ColumnVector<ResultType>::create(offsets.size());
         auto& dst_data = dst->get_data();
-        dst_data.resize(input_rows_count);
 
         // process
-        for (size_t row = 0; row < input_rows_count; ++row) {
+        for (size_t row = 0; row < offsets.size(); ++row) {
             ResultType res = 0;
-            size_t off = arr_offs[row - 1];
-            size_t len = arr_offs[row] - off;
+            size_t off = offsets[row - 1];
+            size_t len = offsets[row] - off;
 
             size_t right_off = right_offs[row - 1];
             size_t right_len = right_offs[row] - right_off;
@@ -135,69 +106,25 @@ private:
             }
             dst_data[row] = res;
         }
-        block.replace_by_position(result, std::move(dst));
-        return true;
+        return dst;
     }
 
-#define NUMBER_TPL_PACK Int8, Int16, Int32, Int64, Float32, Float64
-    template <typename... Number>
-    static bool _execute_number(Block& block, const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) {
-        return (_execute_number_expanded<Number, Number...>(block, arguments, result,
-                                                            input_rows_count) ||
-                ...);
-    }
-    template <typename A, typename... Other>
-    static bool _execute_number_expanded(Block& block, const ColumnNumbers& arguments,
-                                         size_t result, size_t input_rows_count) {
-        return (_execute_number_impl<A, Other>(block, arguments, result, input_rows_count) || ...);
-    }
-    template <typename LeftElementType, typename RightType>
-    static bool _execute_number_impl(Block& block, const ColumnNumbers& arguments, size_t result,
-                                     size_t input_rows_count) {
+    template <typename NestedColumnType, typename RightColumnType>
+    ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
+                              const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
-        auto array_column =
-                check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
-        DCHECK(array_column != nullptr);
-        const ColumnVector<LeftElementType>* nested_column = nullptr;
-        const UInt8* nested_null_map = nullptr;
-        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
-        if (nested_null_column) {
-            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
-            nested_column = check_and_get_column<ColumnVector<LeftElementType>>(
-                    nested_null_column->get_nested_column());
-        } else {
-            nested_column =
-                    check_and_get_column<ColumnVector<LeftElementType>>(array_column->get_data());
-        }
-        if (!nested_column) {
-            return false;
-        }
-        const auto& offsets = array_column->get_offsets();
-        const auto& nested_data = nested_column->get_data();
+        const auto& nested_data =
+                reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
 
-        // check right column type
-        auto ptr = block.get_by_position(arguments[1]).column;
-        if (is_column_const(*ptr)) {
-            ptr = check_and_get_column<ColumnConst>(ptr)->get_data_column_ptr();
-        }
-        if (!check_and_get_column<ColumnVector<RightType>>(*ptr)) {
-            return false;
-        }
-
-        // expand const column and get data
-        auto right_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        const auto& right_data =
-                check_and_get_column<ColumnVector<RightType>>(*right_column)->get_data();
+        // check right column type and get data
+        const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create();
+        auto dst = ColumnVector<ResultType>::create(offsets.size());
         auto& dst_data = dst->get_data();
-        dst_data.resize(input_rows_count);
 
         // process
-        for (size_t row = 0; row < input_rows_count; ++row) {
+        for (size_t row = 0; row < offsets.size(); ++row) {
             ResultType res = 0;
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
@@ -213,24 +140,130 @@ private:
             }
             dst_data[row] = res;
         }
-        block.replace_by_position(result, std::move(dst));
-        return true;
+        return dst;
+    }
+
+    template <typename NestedColumnType>
+    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets& offsets,
+                                       const UInt8* nested_null_map, const IColumn& nested_column,
+                                       const IColumn& right_column) {
+        if (check_column<ColumnUInt8>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnUInt8>(offsets, nested_null_map,
+                                                                  nested_column, right_column);
+        } else if (check_column<ColumnInt8>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnInt8>(offsets, nested_null_map,
+                                                                 nested_column, right_column);
+        } else if (check_column<ColumnInt16>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnInt16>(offsets, nested_null_map,
+                                                                  nested_column, right_column);
+        } else if (check_column<ColumnInt32>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnInt32>(offsets, nested_null_map,
+                                                                  nested_column, right_column);
+        } else if (check_column<ColumnInt64>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnInt64>(offsets, nested_null_map,
+                                                                  nested_column, right_column);
+        } else if (check_column<ColumnInt128>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnInt128>(offsets, nested_null_map,
+                                                                   nested_column, right_column);
+        } else if (check_column<ColumnFloat32>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnFloat32>(offsets, nested_null_map,
+                                                                    nested_column, right_column);
+        } else if (check_column<ColumnFloat64>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnFloat64>(offsets, nested_null_map,
+                                                                    nested_column, right_column);
+        } else if (right_column.is_date_type()) {
+            return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_null_map,
+                                                                 nested_column, right_column);
+        } else if (right_column.is_datetime_type()) {
+            return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_null_map,
+                                                                     nested_column, right_column);
+        } else if (check_column<ColumnDecimal128>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDecimal128>(offsets, nested_null_map,
+                                                                       nested_column, right_column);
+        }
+        return nullptr;
     }
 
     Status _execute_non_nullable(Block& block, const ColumnNumbers& arguments, size_t result,
                                  size_t input_rows_count) {
-        WhichDataType right_type(block.get_by_position(arguments[1]).type);
-        if ((right_type.is_string() &&
-             _execute_string(block, arguments, result, input_rows_count)) ||
-            _execute_number<NUMBER_TPL_PACK>(block, arguments, result, input_rows_count)) {
+        // extract array offsets and nested data
+        auto left_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
+        const auto& offsets = array_column.get_offsets();
+        const UInt8* nested_null_map = nullptr;
+        ColumnPtr nested_column = nullptr;
+        if (array_column.get_data().is_nullable()) {
+            const auto& nested_null_column =
+                    reinterpret_cast<const ColumnNullable&>(array_column.get_data());
+            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
+            nested_column = nested_null_column.get_nested_column_ptr();
+        } else {
+            nested_column = array_column.get_data_ptr();
+        }
+
+        // get right column
+        auto right_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        // execute
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
+                        .get_nested_type());
+        auto right_type = remove_nullable(block.get_by_position(arguments[1]).type);
+
+        ColumnPtr return_column = nullptr;
+        if (is_string(right_type) && is_string(left_element_type)) {
+            return_column =
+                    _execute_string(offsets, nested_null_map, *nested_column, *right_column);
+        } else if (is_number(right_type) && is_number(left_element_type)) {
+            if (check_column<ColumnUInt8>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnUInt8>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnInt8>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnInt8>(offsets, nested_null_map,
+                                                                     *nested_column, *right_column);
+            } else if (check_column<ColumnInt16>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnInt16>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnInt32>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnInt32>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnInt64>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnInt64>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnInt128>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnInt128>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnFloat32>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnFloat32>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnFloat64>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnFloat64>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnDecimal128>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnDecimal128>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            }
+        } else if (is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)) {
+            if (nested_column->is_date_type()) {
+                return_column = _execute_number_expanded<ColumnDate>(offsets, nested_null_map,
+                                                                     *nested_column, *right_column);
+            } else if (nested_column->is_datetime_type()) {
+                return_column = _execute_number_expanded<ColumnDateTime>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            }
+        }
+
+        if (return_column) {
+            block.replace_by_position(result, std::move(return_column));
             return Status::OK();
         }
         return Status::RuntimeError(
-                fmt::format("unsupported types for function {}({}, {})", get_name(),
-                            block.get_by_position(arguments[0]).type->get_name(),
+                fmt::format("execute failed or unsupported types for function {}({}, {})",
+                            get_name(), block.get_by_position(arguments[0]).type->get_name(),
                             block.get_by_position(arguments[1]).type->get_name()));
     }
-#undef NUMBER_TPL_PACK
 };
 
 } // namespace doris::vectorized

@@ -20,9 +20,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -42,8 +39,9 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.glassfish.jersey.internal.guava.Sets;
@@ -66,8 +64,7 @@ abstract public class ScanNode extends PlanNode {
     protected Analyzer analyzer;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
-        super(id, desc.getId().asList(), planNodeName);
-        super.nodeType = nodeType;
+        super(id, desc.getId().asList(), planNodeName, nodeType);
         this.desc = desc;
     }
 
@@ -155,8 +152,8 @@ abstract public class ScanNode extends PlanNode {
                 continue;
             }
 
-            if (expr instanceof CompoundPredicate &&
-                ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
+            if (expr instanceof CompoundPredicate
+                    && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
                 // Try to get column filter from disjunctive predicates.
                 List<Expr> disjunctivePredicates = PredicateUtils.splitDisjunctivePredicates(expr);
                 if (disjunctivePredicates.isEmpty()) {
@@ -193,6 +190,7 @@ abstract public class ScanNode extends PlanNode {
                         break;
                     case CONVERT_SUCCESS:
                         result.intersect(ranges.ranges);
+                        break;
                     case CONVERT_FAILURE:
                     default:
                         break;
@@ -216,8 +214,7 @@ abstract public class ScanNode extends PlanNode {
             BinaryPredicate binPred = (BinaryPredicate) expr;
             Expr slotBinding = binPred.getSlotBinding(desc.getId());
 
-            if (slotBinding == null || !slotBinding.isConstant() ||
-                !(slotBinding instanceof LiteralExpr)) {
+            if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                 return ColumnRanges.createFailure();
             }
 
@@ -260,8 +257,7 @@ abstract public class ScanNode extends PlanNode {
             }
 
             for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
-                ColumnBound bound =
-                    ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
+                ColumnBound bound = ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
                 result.add(Range.closed(bound, bound));
             }
         }

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_CLIENT_CACHE_H
-#define DORIS_BE_RUNTIME_CLIENT_CACHE_H
+#pragma once
 
 #include <list>
 #include <mutex>
@@ -290,10 +289,5 @@ using FrontendServiceConnection = ClientConnection<FrontendServiceClient>;
 class TPaloBrokerServiceClient;
 using BrokerServiceClientCache = ClientCache<TPaloBrokerServiceClient>;
 using BrokerServiceConnection = ClientConnection<TPaloBrokerServiceClient>;
-class TExtDataSourceServiceClient;
-using ExtDataSourceServiceClientCache = ClientCache<TExtDataSourceServiceClient>;
-using ExtDataSourceServiceConnection = ClientConnection<TExtDataSourceServiceClient>;
 
 } // namespace doris
-
-#endif

@@ -23,8 +23,8 @@
 #include <sys/file.h>
 #include <sys/statfs.h>
 #include <utime.h>
-#include <atomic>
 
+#include <atomic>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -37,7 +37,6 @@
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
@@ -47,7 +46,6 @@
 #include "util/file_utils.h"
 #include "util/storage_backend.h"
 #include "util/storage_backend_mgr.h"
-
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -237,7 +235,7 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path="
                          << _path_desc.filepath;
-            if (is_io_error(res)) {
+            if (res.is_io_error()) {
                 _is_used = false;
             }
         }
@@ -407,9 +405,8 @@ Status DataDir::load() {
                                     const std::string& value) -> bool {
         Status status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash, value,
                                                                false, false, false, false);
-        if (!status.ok() &&
-            status != Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR) &&
-            status != Status::OLAPInternalError(OLAP_ERR_ENGINE_INSERT_OLD_TABLET)) {
+        if (!status.ok() && status.precise_code() != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR &&
+            status.precise_code() != OLAP_ERR_ENGINE_INSERT_OLD_TABLET) {
             // load_tablet_from_meta() may return Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR)
             // which means the tablet status is DELETED
             // This may happen when the tablet was just deleted before the BE restarted,
@@ -461,8 +458,7 @@ Status DataDir::load() {
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     int64_t invalid_rowset_counter = 0;
     for (auto rowset_meta : dir_rowset_metas) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id(),
-                                                             rowset_meta->tablet_schema_hash());
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet == nullptr) {
             VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
@@ -472,8 +468,7 @@ Status DataDir::load() {
             continue;
         }
         RowsetSharedPtr rowset;
-        Status create_status = RowsetFactory::create_rowset(
-                &tablet->tablet_schema(), tablet->tablet_path_desc(), rowset_meta, &rowset);
+        Status create_status = tablet->create_rowset(rowset_meta, &rowset);
         if (!create_status) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
@@ -501,9 +496,9 @@ Status DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            Status publish_status = tablet->add_rowset(rowset, false);
+            Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status &&
-                publish_status != Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
+                publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
                 LOG(WARNING) << "add visible rowset to tablet failed rowset_id:"
                              << rowset->rowset_id() << " tablet id: " << rowset_meta->tablet_id()
                              << " txn id:" << rowset_meta->txn_id()
@@ -815,8 +810,9 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     std::filesystem::path trash_local_path(trash_local_file);
     string trash_local_dir = trash_local_path.parent_path().string();
     if (!FileUtils::check_exist(trash_local_dir) && !FileUtils::create_dir(trash_local_dir).ok()) {
-        OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
-                         segment_path_desc.filepath.c_str(), trash_local_dir.c_str());
+        LOG(WARNING) << "delete file failed. due to mkdir failed. [file="
+                     << segment_path_desc.filepath.c_str() << " new_dir=" << trash_local_dir.c_str()
+                     << "]";
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 
@@ -844,9 +840,9 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
             Status rename_status = storage_backend->rename_dir(segment_path_desc.remote_path,
                                                                trash_path_desc.remote_path);
             if (!rename_status.ok()) {
-                OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s']",
-                                 segment_path_desc.remote_path.c_str(),
-                                 trash_path_desc.remote_path.c_str());
+                LOG(WARNING) << "Move remote file to trash failed. [file="
+                             << segment_path_desc.remote_path << " target='"
+                             << trash_path_desc.remote_path << "']";
                 return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
             }
         } else if (status.is_not_found()) {
@@ -861,8 +857,8 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     VLOG_NOTICE << "move file to trash. " << segment_path_desc.filepath << " -> "
                 << trash_local_file;
     if (rename(segment_path_desc.filepath.c_str(), trash_local_file.c_str()) < 0) {
-        OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
-                         segment_path_desc.filepath.c_str(), trash_local_file.c_str());
+        LOG(WARNING) << "move file to trash failed. [file=" << segment_path_desc.filepath
+                     << " target='" << trash_local_file << "' err='" << Errno::str() << "']";
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 

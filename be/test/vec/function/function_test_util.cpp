@@ -17,8 +17,12 @@
 
 #include "vec/function/function_test_util.h"
 
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_decimal.h"
+
 namespace doris::vectorized {
-int64_t str_to_data_time(std::string datetime_str, bool data_time) {
+int64_t str_to_date_time(std::string datetime_str, bool data_time) {
     VecDateTimeValue v;
     v.from_date_str(datetime_str.c_str(), datetime_str.size());
     if (data_time) { //bool data_time only to simplifly means data_time or data to cast, just use in time-functions uint test
@@ -70,6 +74,10 @@ size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t 
         desc.type = doris_udf::FunctionContext::TYPE_LARGEINT;
         type = std::make_shared<DataTypeInt128>();
         return 1;
+    case TypeIndex::Float32:
+        desc.type = doris_udf::FunctionContext::TYPE_FLOAT;
+        type = std::make_shared<DataTypeFloat32>();
+        return 1;
     case TypeIndex::Float64:
         desc.type = doris_udf::FunctionContext::TYPE_DOUBLE;
         type = std::make_shared<DataTypeFloat64>();
@@ -84,7 +92,7 @@ size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t 
         return 1;
     case TypeIndex::Date:
         desc.type = doris_udf::FunctionContext::TYPE_DATE;
-        type = std::make_shared<DataTypeDateTime>();
+        type = std::make_shared<DataTypeDate>();
         return 1;
     case TypeIndex::Array: {
         desc.type = doris_udf::FunctionContext::TYPE_ARRAY;
@@ -151,6 +159,9 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any&
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_int128()) {
         auto value = std::any_cast<ut_type::LARGEINT>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_float32()) {
+        auto value = std::any_cast<ut_type::FLOAT>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_float64()) {
         auto value = std::any_cast<ut_type::DOUBLE>(cell);

@@ -24,7 +24,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +42,9 @@ public class AddColumnClause extends AlterTableClause {
     // set in analyze
     private Column column;
 
-    public Column getColumn() { return column; }
+    public Column getColumn() {
+        return column;
+    }
 
     public ColumnPosition getColPos() {
         return colPos;

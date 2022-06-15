@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -56,7 +55,7 @@ public class PropertyAnalyzerTest {
         columns.add(new Column("k2", PrimitiveType.TINYINT));
         columns.add(new Column("v1",
                         ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("v2", 
+        columns.add(new Column("v2",
                         ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
         columns.get(0).setIsKey(true);
         columns.get(1).setIsKey(true);
@@ -85,8 +84,8 @@ public class PropertyAnalyzerTest {
         // no bf columns
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "");
         try {
-            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns,
-                KeysType.AGG_KEYS));
+            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(
+                    properties, columns, KeysType.AGG_KEYS));
         } catch (AnalysisException e) {
             Assert.fail();
         }
@@ -165,8 +164,8 @@ public class PropertyAnalyzerTest {
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14," +
-                " please use V2 instead");
+        expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14,"
+                + " please use V2 instead");
         PropertyAnalyzer.analyzeStorageFormat(propertiesV1);
     }
 }

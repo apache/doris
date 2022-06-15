@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,12 +76,12 @@ public class AnalyticPlanner {
     private final AnalyticInfo analyticInfo;
     private final Analyzer analyzer;
 
-    private final PlannerContext ctx_;
+    private final PlannerContext ctx;
 
     public AnalyticPlanner(AnalyticInfo analyticInfo, Analyzer analyzer, PlannerContext ctx) {
         this.analyticInfo = analyticInfo;
         this.analyzer = analyzer;
-        this.ctx_ = ctx;
+        this.ctx = ctx;
     }
 
     /**
@@ -122,8 +121,7 @@ public class AnalyticPlanner {
 
         if (groupingExprs != null) {
             Preconditions.checkNotNull(inputPartitionExprs);
-            computeInputPartitionExprs(
-                partitionGroups, groupingExprs, root.getNumNodes(), inputPartitionExprs);
+            computeInputPartitionExprs(partitionGroups, groupingExprs, root.getNumNodes(), inputPartitionExprs);
         }
 
         PlanNode newRoot = root;
@@ -171,8 +169,7 @@ public class AnalyticPlanner {
      * partition exprs has ndv estimate > numNodes, so that the resulting plan
      * still parallelizes across all nodes.
      */
-    private void mergePartitionGroups(
-        List<PartitionGroup> partitionGroups, int numNodes) {
+    private void mergePartitionGroups(List<PartitionGroup> partitionGroups, int numNodes) {
         boolean hasMerged = false;
 
         do {
@@ -274,14 +271,11 @@ public class AnalyticPlanner {
         }
 
         // order by ascending combined output tuple size
-        Collections.sort(partitionGroups,
-        new Comparator<PartitionGroup>() {
-            public int compare(PartitionGroup pg1, PartitionGroup pg2) {
-                Preconditions.checkState(pg1.totalOutputTupleSize > 0);
-                Preconditions.checkState(pg2.totalOutputTupleSize > 0);
-                int diff = pg1.totalOutputTupleSize - pg2.totalOutputTupleSize;
-                return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
-            }
+        partitionGroups.sort((pg1, pg2) -> {
+            Preconditions.checkState(pg1.totalOutputTupleSize > 0);
+            Preconditions.checkState(pg2.totalOutputTupleSize > 0);
+            int diff = pg1.totalOutputTupleSize - pg2.totalOutputTupleSize;
+            return (Integer.compare(diff, 0));
         });
 
         if (nonPartitioning != null) {
@@ -299,8 +293,8 @@ public class AnalyticPlanner {
      * @throws AnalysisException
      */
     private SortInfo createSortInfo(
-        PlanNode input, List<Expr> sortExprs, List<Boolean> isAsc,
-        List<Boolean> nullsFirst) throws AnalysisException {
+            PlanNode input, List<Expr> sortExprs, List<Boolean> isAsc,
+            List<Boolean> nullsFirst) throws AnalysisException {
         // create tuple for sort output = the entire materialized input in a single tuple
         TupleDescriptor sortTupleDesc =
                 analyzer.getDescTbl().createTupleDescriptor("sort-tuple");
@@ -343,13 +337,15 @@ public class AnalyticPlanner {
             for (int i = 0; i < inputSmap.size(); ++i) {
                 Expr rhsExpr = inputSmap.getRhs().get(i);
                 // Ignore substitutions that are irrelevant at this plan node and its ancestors.
-                if (!rhsExpr.isBoundByTupleIds(input.getTupleIds())) continue;
+                if (!rhsExpr.isBoundByTupleIds(input.getTupleIds())) {
+                    continue;
+                }
                 rhsExpr.collect(TupleIsNullPredicate.class, tupleIsNullPredsToMaterialize);
             }
             Expr.removeDuplicates(tupleIsNullPredsToMaterialize);
 
             // Materialize relevant unique TupleIsNullPredicates.
-            for (Expr tupleIsNullPred: tupleIsNullPredsToMaterialize) {
+            for (Expr tupleIsNullPred : tupleIsNullPredsToMaterialize) {
                 SlotDescriptor sortSlotDesc = analyzer.addSlotDescriptor(sortTupleDesc);
                 sortSlotDesc.setType(tupleIsNullPred.getType());
                 sortSlotDesc.setIsMaterialized(true);
@@ -415,7 +411,7 @@ public class AnalyticPlanner {
             }
 
             SortInfo sortInfo = createSortInfo(newRoot, sortExprs, isAsc, nullsFirst);
-            SortNode sortNode = new SortNode(ctx_.getNextNodeId(), newRoot, sortInfo, false, false, 0);
+            SortNode sortNode = new SortNode(ctx.getNextNodeId(), newRoot, sortInfo, false, false, 0);
 
             // if this sort group does not have partitioning exprs, we want the sort
             // to be executed like a regular distributed sort
@@ -428,8 +424,7 @@ public class AnalyticPlanner {
                 DataPartition inputPartition = DataPartition.UNPARTITIONED;
 
                 if (!partitionExprs.isEmpty()) {
-                    inputPartition =
-                        new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs);
+                    inputPartition = new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs);
                 }
 
                 sortNode.setInputPartition(inputPartition);
@@ -483,7 +478,7 @@ public class AnalyticPlanner {
                 LOG.trace("orderByEq: " + orderByEq.debugString());
             }
 
-            AnalyticEvalNode node = new AnalyticEvalNode(ctx_.getNextNodeId(), newRoot,
+            AnalyticEvalNode node = new AnalyticEvalNode(ctx.getNextNodeId(), newRoot,
                     windowGroup.analyticFnCalls, windowGroup.partitionByExprs,
                     windowGroup.orderByElements,
                     windowGroup.window,
@@ -591,8 +586,7 @@ public class AnalyticPlanner {
          * match ours.
          */
         public boolean isCompatible(AnalyticExpr analyticExpr) {
-            if (requiresIndependentEval(analyticExprs.get(0)) ||
-                    requiresIndependentEval(analyticExpr)) {
+            if (requiresIndependentEval(analyticExprs.get(0)) || requiresIndependentEval(analyticExpr)) {
                 return false;
             }
 
@@ -638,11 +632,10 @@ public class AnalyticPlanner {
             Preconditions.checkState(physicalIntermediateTuple == null);
             Preconditions.checkState(analyticFnCalls.size() == analyticExprs.size());
 
-            //          If needed, create the intermediate tuple first to maintain
-            //          intermediateTupleId < outputTupleId for debugging purposes and consistency with
-            //          tuple creation for aggregations.
-            boolean requiresIntermediateTuple =
-                AnalyticInfo.requiresIntermediateTuple(analyticFnCalls);
+            // If needed, create the intermediate tuple first to maintain
+            // intermediateTupleId < outputTupleId for debugging purposes and consistency with
+            // tuple creation for aggregations.
+            boolean requiresIntermediateTuple = AnalyticInfo.requiresIntermediateTuple(analyticFnCalls);
 
             if (requiresIntermediateTuple) {
                 physicalIntermediateTuple =
@@ -897,14 +890,11 @@ public class AnalyticPlanner {
          * volume of data that needs to be sorted.
          */
         public void orderSortGroups() {
-            Collections.sort(sortGroups,
-            new Comparator<SortGroup>() {
-                public int compare(SortGroup sg1, SortGroup sg2) {
-                    Preconditions.checkState(sg1.totalOutputTupleSize > 0);
-                    Preconditions.checkState(sg2.totalOutputTupleSize > 0);
-                    int diff = sg1.totalOutputTupleSize - sg2.totalOutputTupleSize;
-                    return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
-                }
+            sortGroups.sort((sg1, sg2) -> {
+                Preconditions.checkState(sg1.totalOutputTupleSize > 0);
+                Preconditions.checkState(sg2.totalOutputTupleSize > 0);
+                int diff = sg1.totalOutputTupleSize - sg2.totalOutputTupleSize;
+                return (Integer.compare(diff, 0));
             });
 
             for (SortGroup sortGroup : sortGroups) {

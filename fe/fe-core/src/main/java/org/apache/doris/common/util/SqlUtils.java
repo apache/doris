@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.parquet.Strings;
+import com.google.common.base.Strings;
 
 public class SqlUtils {
     public static String escapeUnquote(String ident) {

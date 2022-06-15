@@ -106,9 +106,11 @@ public:
         }
 
         // Now, Doris only support precision:27, scale: 9
-        DCHECK(precision_ == 27);
-        DCHECK(scale_ == 9);
+        DCHECK(precision == 27);
+        DCHECK(scale == 9);
     }
+
+    DataTypeDecimal(const DataTypeDecimal& rhs) : precision(rhs.precision), scale(rhs.scale) {}
 
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
@@ -143,6 +145,7 @@ public:
     bool can_be_inside_nullable() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     /// Decimal specific
 

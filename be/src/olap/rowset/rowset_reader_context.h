@@ -63,6 +63,7 @@ struct RowsetReaderContext {
     int sequence_id_idx = -1;
     int batch_size = 1024;
     bool is_vec = false;
+    bool is_unique = false;
 };
 
 } // namespace doris

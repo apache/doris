@@ -21,20 +21,22 @@
 #include <deque>
 #include <mutex>
 
-#include "exec/file_reader.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "io/file_reader.h"
 #include "runtime/message_body_sink.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
 
 namespace doris {
 
+const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 // StreamLoadPipe use to transfer data from producer to consumer
 // Data in pip is stored in chunks.
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
-    StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024,
-                   int64_t total_length = -1, bool use_proto = false)
+    StreamLoadPipe(size_t max_buffered_bytes = kMaxPipeBufferedBytes,
+                   size_t min_chunk_size = 64 * 1024, int64_t total_length = -1,
+                   bool use_proto = false)
             : _buffered_bytes(0),
               _proto_buffered_bytes(0),
               _max_buffered_bytes(max_buffered_bytes),

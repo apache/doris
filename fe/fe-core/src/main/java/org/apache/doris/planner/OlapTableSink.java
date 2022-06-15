@@ -66,7 +66,6 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -302,7 +301,7 @@ public class OlapTableSink extends DataSink {
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
-        } else if (partitionItem instanceof ListPartitionItem){
+        } else if (partitionItem instanceof ListPartitionItem) {
             List<PartitionKey> partitionKeys = partitionItem.getItems();
             // set in keys
             for (PartitionKey partitionKey : partitionKeys) {
@@ -337,7 +336,7 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
-        
+
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check
         Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
@@ -358,4 +357,3 @@ public class OlapTableSink extends DataSink {
     }
 
 }
-

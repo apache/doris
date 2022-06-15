@@ -24,9 +24,9 @@
 #include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
-#include "vec/core/block.h"
-#include "vec/common/string_ref.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -50,9 +50,15 @@ public:
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     std::shared_ptr<MemTracker>& mem_tracker() { return _mem_tracker; }
 
-    void insert(const Tuple* tuple);
+    inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    void insert(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    void insert(const vectorized::Block* block, const std::vector<int>& row_idxs);
+
+    void shrink_memtable_by_agg();
+
+    bool is_flush() const;
+
+    bool need_to_agg();
 
     /// Flush
     Status flush();
@@ -66,7 +72,7 @@ private:
     class RowCursorComparator : public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
-        int operator()(const char* left, const char* right) const;
+        int operator()(const char* left, const char* right) const override;
 
     private:
         const Schema* _schema;
@@ -115,9 +121,9 @@ private:
     };
 
 private:
-    typedef SkipList<char*, RowComparator> Table;
-    typedef Table::key_type TableKey;
-    typedef SkipList<RowInBlock*, RowInBlockComparator> VecTable;
+    using Table = SkipList<char*, RowComparator>;
+    using TableKey = Table::key_type;
+    using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
 
 public:
     /// The iterator of memtable, so that the data in this memtable
@@ -140,6 +146,9 @@ public:
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _aggregate_two_row_with_sequence(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _insert_dup(const Tuple* tuple);
+    void _insert_agg(const Tuple* tuple);
     // for vectorized
     void _insert_one_row_from_block(RowInBlock* row_in_block);
     void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
@@ -171,11 +180,14 @@ private:
     ObjectPool _agg_object_pool;
 
     size_t _schema_size;
-    Table* _skip_list;
+    std::unique_ptr<Table> _skip_list;
     Table::Hint _hint;
 
-    VecTable* _vec_skip_list;
+    std::unique_ptr<VecTable> _vec_skip_list;
     VecTable::Hint _vec_hint;
+    void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
+                                            const TupleDescriptor* tuple_desc);
+    std::vector<int> _column_offset;
 
     RowsetWriter* _rowset_writer;
 
@@ -185,11 +197,16 @@ private:
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggragate key model.
     int64_t _rows = 0;
+    void (MemTable::*_insert_fn)(const Tuple* tuple) = nullptr;
+    void (MemTable::*_aggregate_two_row_fn)(const ContiguousRow& new_row,
+                                            TableKey row_in_skiplist) = nullptr;
 
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
-    vectorized::Block _collect_vskiplist_results();
+
+    template <bool is_final>
+    void _collect_vskiplist_results();
     bool _is_first_insertion;
 
     void _init_agg_functions(const vectorized::Block* block);

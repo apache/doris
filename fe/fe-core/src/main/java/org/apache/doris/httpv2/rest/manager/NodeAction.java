@@ -44,7 +44,8 @@ import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
-
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -61,12 +62,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import lombok.Getter;
-import lombok.Setter;
 
 /*
  * Used to return all node information, configuration information and modify node config.
@@ -129,14 +126,14 @@ public class NodeAction extends RestBaseController {
     }
 
     // {
-    //		"column_names": [
-    //			""
-    //		],
-    //	    "rows": [
-    //		    [
-    //			    ""
-    //		    ]
-    //	    ]
+    //   "column_names": [
+    //     ""
+    //   ],
+    //   "rows": [
+    //     [
+    //       ""
+    //     ]
+    //   ]
     // }
     private Object fetchNodeInfo(HttpServletRequest request, HttpServletResponse response, String procPath)
             throws AnalysisException {
@@ -157,24 +154,24 @@ public class NodeAction extends RestBaseController {
     @Getter
     @Setter
     public static class NodeInfo {
-        public List<String> column_names;
+        public List<String> columnNames;
         public List<List<String>> rows;
 
-        public NodeInfo(List<String> column_names, List<List<String>> rows) {
-            this.column_names = column_names;
+        public NodeInfo(List<String> columnNames, List<List<String>> rows) {
+            this.columnNames = columnNames;
             this.rows = rows;
         }
     }
 
     // Return fe and be all configuration names.
     // {
-    //		"frontend": [
-    //			""
-    //		],
-    //		"backend": [
-    //			""
-    //		]
-    //	}
+    //   "frontend": [
+    //     ""
+    //   ],
+    //   "backend": [
+    //     ""
+    //   ]
+    // }
     @RequestMapping(path = "/configuration_name", method = RequestMethod.GET)
     public Object configurationName(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
@@ -207,13 +204,13 @@ public class NodeAction extends RestBaseController {
 
     // Return all fe and be nodes.
     // {
-    //		"frontend": [
-    //			"host:httpPort"
-    //		],
-    //		"backend": [
-    //			"host:httpPort""
-    //		]
-    //	}
+    //   "frontend": [
+    //     "host:httpPort"
+    //   ],
+    //   "backend": [
+    //     "host:httpPort""
+    //   ]
+    // }
     @RequestMapping(path = "/node_list", method = RequestMethod.GET)
     public Object nodeList(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
@@ -271,38 +268,38 @@ public class NodeAction extends RestBaseController {
     //
     // for fe:
     // {
-    //		"column_names": [
-    //			"配置项",
-    //			"节点",
-    //			"节点类型",
-    //			"配置类型",
-    //			"仅master",
-    //			"配置值",
-    //			"可修改"
-    //		],
-    //		"rows": [
-    //			[
-    //				""
-    //			]
-    //		]
-    //	}
+    //   "column_names": [
+    //     "配置项",
+    //     "节点",
+    //     "节点类型",
+    //     "配置类型",
+    //     "仅master",
+    //     "配置值",
+    //     "可修改"
+    //   ],
+    //   "rows": [
+    //     [
+    //       ""
+    //     ]
+    //   ]
+    // }
     //
     // for be:
     // {
-    //		"column_names": [
-    //			"配置项",
-    //			"节点",
-    //			"节点类型",
-    //			"配置类型",
-    //			"配置值",
-    //			"可修改"
-    //		],
-    //		"rows": [
-    //			[
-    //				""
-    //			]
-    //		]
-    //	}
+    //   "column_names": [
+    //     "配置项",
+    //     "节点",
+    //     "节点类型",
+    //     "配置类型",
+    //     "配置值",
+    //     "可修改"
+    //   ],
+    //   "rows": [
+    //     [
+    //       ""
+    //     ]
+    //   ]
+    // }
     @RequestMapping(path = "/configuration_info", method = RequestMethod.POST)
     public Object configurationInfo(HttpServletRequest request, HttpServletResponse response,
                                     @RequestParam(value = "type") String type,
@@ -345,8 +342,8 @@ public class NodeAction extends RestBaseController {
             }
             return ResponseEntityBuilder.ok(new NodeInfo(BE_CONFIG_TITLE_NAMES, data));
         }
-        return ResponseEntityBuilder.badRequest("Unsupported type: " + type + ". Only types of fe or be are " +
-                "supported");
+        return ResponseEntityBuilder.badRequest("Unsupported type: " + type + ". Only types of fe or be are "
+                + "supported");
     }
 
     // Use thread pool to concurrently fetch configuration information from specified fe or be nodes.
@@ -457,27 +454,27 @@ public class NodeAction extends RestBaseController {
     // Modify fe configuration.
     //
     // request body:
-    //{
-    //	"config_name":{
-    //		"node":[
-    //			""
-    //		],
-    //		"value":"",
-    //		"persist":""
-    //	}
-    //}
+    // {
+    //   "config_name":{
+    //     "node":[
+    //       ""
+    //     ],
+    //     "value":"",
+    //     "persist":""
+    //   }
+    // }
     //
     // return data:
     // {
-    //		"failed":[
-    //			{
-    //				"config_name":"",
-    //				"value"="",
-    //				"node":"",
-    //				"err_info":""
-    //			}
-    //		]
-    //	}
+    //   "failed":[
+    //     {
+    //       "config_name":"",
+    //       "value"="",
+    //       "node":"",
+    //       "err_info":""
+    //     }
+    //   ]
+    //  }
     @RequestMapping(path = "/set_config/fe", method = RequestMethod.POST)
     public Object setConfigFe(HttpServletRequest request, HttpServletResponse response,
                               @RequestBody Map<String, SetConfigRequestBody> requestBody) {
@@ -526,8 +523,8 @@ public class NodeAction extends RestBaseController {
                                      List<Map<String, String>> failedTotal) {
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             Map<String, String> failed = Maps.newHashMap();
-            addFailedConfig(entry.getKey(), entry.getValue(), hostPort.first + ":" +
-                    hostPort.second, err, failed);
+            addFailedConfig(entry.getKey(), entry.getValue(), hostPort.first + ":"
+                    + hostPort.second, err, failed);
             failedTotal.add(failed);
         }
     }

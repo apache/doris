@@ -36,4 +36,3 @@ public class TableAliasGenerator extends AliasGenerator {
         // } while (currentAnalyzer != null);
     }
 }
-

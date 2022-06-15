@@ -78,40 +78,40 @@ public class ModifyBackendTest {
         Assert.assertEquals(1, backends.size());
 
         // create table
-        String createStr = "create table test.tbl1(\n" +
-                "k1 int\n" +
-                ") distributed by hash(k1)\n" +
-                "buckets 3 properties(\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");";
+        String createStr = "create table test.tbl1(\n"
+                + "k1 int\n"
+                + ") distributed by hash(k1)\n"
+                + "buckets 3 properties(\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find enough host with storage medium and tag(HDD/{\"location\" : \"default\"}) in all backends. need: 1",
+                "Failed to find 1 backends for policy:",
                 () -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt));
 
-        createStr = "create table test.tbl1(\n" +
-                "k1 int\n" +
-                ") distributed by hash(k1)\n" +
-                "buckets 3 properties(\n" +
-                "\"replication_allocation\" = \"tag.location.zone1: 1\"\n" +
-                ");";
+        createStr = "create table test.tbl1(\n"
+                + "k1 int\n"
+                + ") distributed by hash(k1)\n"
+                + "buckets 3 properties(\n"
+                + "\"replication_allocation\" = \"tag.location.zone1: 1\"\n"
+                + ");";
         CreateTableStmt createStmt2 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt2));
 
         // create dynamic partition tbl
-        createStr = "create table test.tbl3(\n" +
-                "k1 date, k2 int\n" +
-                ") partition by range(k1)()\n" +
-                "distributed by hash(k1)\n" +
-                "buckets 3 properties(\n" +
-                "    \"dynamic_partition.enable\" = \"true\",\n" +
-                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
-                "    \"dynamic_partition.start\" = \"-3\",\n" +
-                "    \"dynamic_partition.end\" = \"3\",\n" +
-                "    \"dynamic_partition.prefix\" = \"p\",\n" +
-                "    \"dynamic_partition.buckets\" = \"1\",\n" +
-                "    \"dynamic_partition.replication_num\" = \"1\"\n" +
-                ");";
+        createStr = "create table test.tbl3(\n"
+                + "k1 date, k2 int\n"
+                + ") partition by range(k1)()\n"
+                + "distributed by hash(k1)\n"
+                + "buckets 3 properties(\n"
+                + "    \"dynamic_partition.enable\" = \"true\",\n"
+                + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "    \"dynamic_partition.start\" = \"-3\",\n"
+                + "    \"dynamic_partition.end\" = \"3\",\n"
+                + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n"
+                + "    \"dynamic_partition.replication_num\" = \"1\"\n"
+                + ");";
         CreateTableStmt createStmt3 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         // although there is no exception throw, but partition create failed, because there is no BE
         // with "default" tag
@@ -119,24 +119,23 @@ public class ModifyBackendTest {
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
         Table tbl3 = db.getTableNullable("tbl3");
         String err = Catalog.getCurrentCatalog().getDynamicPartitionScheduler().getRuntimeInfo(tbl3.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG);
-        Assert.assertTrue(err.contains("Failed to find enough host with storage medium and tag"));
+        Assert.assertTrue(err.contains("Failed to find 1 backends for policy:"));
 
-        createStr = "create table test.tbl4(\n" +
-                "k1 date, k2 int\n" +
-                ") partition by range(k1)()\n" +
-                "distributed by hash(k1)\n" +
-                "buckets 3 properties(\n" +
-                "    \"dynamic_partition.enable\" = \"true\",\n" +
-                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
-                "    \"dynamic_partition.start\" = \"-3\",\n" +
-                "    \"dynamic_partition.end\" = \"3\",\n" +
-                "    \"dynamic_partition.prefix\" = \"p\",\n" +
-                "    \"dynamic_partition.buckets\" = \"1\",\n" +
-                "    \"dynamic_partition.replication_allocation\" = \"tag.location.zone1:1\"\n" +
-                ");";
+        createStr = "create table test.tbl4(\n"
+                + "k1 date, k2 int\n"
+                + ") partition by range(k1)()\n"
+                + "distributed by hash(k1)\n"
+                + "buckets 3 properties(\n"
+                + "    \"dynamic_partition.enable\" = \"true\",\n"
+                + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "    \"dynamic_partition.start\" = \"-3\",\n"
+                + "    \"dynamic_partition.end\" = \"3\",\n"
+                + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n"
+                + "    \"dynamic_partition.replication_allocation\" = \"tag.location.zone1:1\"\n"
+                + ");";
         CreateTableStmt createStmt4 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt4));
-        DynamicPartitionScheduler scheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl4");
         PartitionInfo partitionInfo = tbl.getPartitionInfo();
         Assert.assertEquals(4, partitionInfo.idToItem.size());
@@ -171,7 +170,7 @@ public class ModifyBackendTest {
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
         AlterTableStmt alterStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find enough host with tag({\"location\" : \"zonex\"}) in all backends. need: 1",
+                "Failed to find enough host with tag",
                 () -> DdlExecutor.execute(Catalog.getCurrentCatalog(), alterStmt2));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
@@ -204,4 +203,3 @@ public class ModifyBackendTest {
         Assert.assertTrue(backend.isLoadAvailable());
     }
 }
-

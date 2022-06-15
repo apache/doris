@@ -97,4 +97,3 @@ public class MapType extends Type {
         valueType.toThrift(container);
     }
 }
-

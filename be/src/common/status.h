@@ -5,12 +5,12 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <boost/stacktrace.hpp>
 #include <iostream>
 #include <string>
 #include <vector>
-
-#include <boost/stacktrace.hpp>
-#include <glog/logging.h>
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
@@ -201,7 +201,7 @@ namespace doris {
     M(OLAP_ERR_DELETE_SAVE_HEADER_FAILED, -1902, "", true)               \
     M(OLAP_ERR_DELETE_INVALID_PARAMETERS, -1903, "", true)               \
     M(OLAP_ERR_DELETE_INVALID_VERSION, -1904, "", true)                  \
-    M(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, -2000, "", true)          \
+    M(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, -2000, "", false)         \
     M(OLAP_ERR_CUMULATIVE_REPEAT_INIT, -2001, "", true)                  \
     M(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS, -2002, "", true)           \
     M(OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE, -2003, "", true)   \
@@ -394,7 +394,14 @@ public:
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
     bool is_already_exist() const { return code() == TStatusCode::ALREADY_EXIST; }
-    bool is_io_error() const { return code() == TStatusCode::IO_ERROR; }
+    bool is_io_error() const {
+        auto p_code = precise_code();
+        return code() == TStatusCode::IO_ERROR ||
+               ((OLAP_ERR_IO_ERROR == p_code || OLAP_ERR_READ_UNENOUGH == p_code) &&
+                errno == EIO) ||
+               OLAP_ERR_CHECKSUM_ERROR == p_code || OLAP_ERR_FILE_DATA_ERROR == p_code ||
+               OLAP_ERR_TEST_FILE_ERROR == p_code || OLAP_ERR_ROWBLOCK_READ_INFO_ERROR == p_code;
+    }
 
     /// @return @c true iff the status indicates Uninitialized.
     bool is_uninitialized() const { return code() == TStatusCode::UNINITIALIZED; }
@@ -431,6 +438,9 @@ public:
     /// @return A string representation of this status suitable for printing.
     ///   Returns the string "OK" for success.
     std::string to_string() const;
+
+    /// @return A json representation of this status.
+    std::string to_json() const;
 
     /// @return A string representation of the status code, without the message
     ///   text or sub code information.

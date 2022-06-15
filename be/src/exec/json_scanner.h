@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_JSON_SCANNER_H_
-#define BE_SRC_JSON_SCANNER_H_
+#pragma once
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -65,19 +64,24 @@ public:
     // Get next tuple
     Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
 
+    Status get_next(vectorized::Block* block, bool* eof) override {
+        return Status::NotSupported("Not Implemented get block");
+    }
+
     // Close this scanner
     void close() override;
 
-private:
+protected:
     Status open_file_reader();
     Status open_line_reader();
     Status open_json_reader();
     Status open_next_reader();
 
-private:
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
+    Status open_based_reader();
+    Status get_range_params(std::string& jsonpath, std::string& json_root, bool& strip_outer_array,
+                            bool& num_as_string, bool& fuzzy_parse);
 
+protected:
     std::string _jsonpath;
     std::string _jsonpath_file;
 
@@ -85,19 +89,15 @@ private:
     int _line_delimiter_length;
 
     // Reader
-    FileReader* _cur_file_reader;
+    std::shared_ptr<FileReader> _cur_file_reader;
     LineReader* _cur_line_reader;
     JsonReader* _cur_json_reader;
-    int _next_range;
     bool _cur_reader_eof;
     bool _read_json_by_line;
 
     // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line
     bool _skip_next_line;
-
-    // used to hold current StreamLoadPipe
-    std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
 };
 
 class JsonDataInternal {
@@ -130,7 +130,7 @@ public:
     Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                          MemPool* tuple_pool, bool* is_empty_row, bool* eof);
 
-private:
+protected:
     Status (JsonReader::*_handle_json_callback)(Tuple* tuple,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
                                                 MemPool* tuple_pool, bool* is_empty_row, bool* eof);
@@ -159,8 +159,9 @@ private:
     void _close();
     Status _generate_json_paths(const std::string& jsonpath,
                                 std::vector<std::vector<JsonPath>>* vect);
+    Status _parse_jsonpath_and_json_root(const std::string& jsonpath, const std::string& json_root);
 
-private:
+protected:
     int _next_line;
     int _total_lines;
     RuntimeState* _state;
@@ -188,4 +189,3 @@ private:
 };
 
 } // namespace doris
-#endif

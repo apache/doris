@@ -32,7 +32,6 @@ public enum JoinOperator {
     RIGHT_ANTI_JOIN("RIGHT ANTI JOIN", TJoinOp.RIGHT_ANTI_JOIN),
     RIGHT_OUTER_JOIN("RIGHT OUTER JOIN", TJoinOp.RIGHT_OUTER_JOIN),
     FULL_OUTER_JOIN("FULL OUTER JOIN", TJoinOp.FULL_OUTER_JOIN),
-    MERGE_JOIN("MERGE JOIN", TJoinOp.MERGE_JOIN),
     CROSS_JOIN("CROSS JOIN", TJoinOp.CROSS_JOIN),
     // Variant of the LEFT ANTI JOIN that is used for the equal of
     // NOT IN subqueries. It can have a single equality join conjunct
@@ -66,9 +65,9 @@ public enum JoinOperator {
     }
 
     public boolean isSemiJoin() {
-        return this == JoinOperator.LEFT_SEMI_JOIN || this == JoinOperator.LEFT_ANTI_JOIN ||
-                this == JoinOperator.RIGHT_SEMI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN ||
-                this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+        return this == JoinOperator.LEFT_SEMI_JOIN || this == JoinOperator.LEFT_ANTI_JOIN
+                || this == JoinOperator.RIGHT_SEMI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN
+                || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public boolean isLeftSemiJoin() {
@@ -80,8 +79,8 @@ public enum JoinOperator {
     }
 
     public boolean isAntiJoin() {
-        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN ||
-                this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN
+                || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public boolean isCrossJoin() {
@@ -93,12 +92,10 @@ public enum JoinOperator {
     }
 
     public boolean isLeftOuterJoin() {
-        return this == LEFT_OUTER_JOIN; 
+        return this == LEFT_OUTER_JOIN;
     }
 
     public boolean isRightOuterJoin() {
         return this == RIGHT_OUTER_JOIN;
     }
 }
-
-

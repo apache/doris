@@ -21,7 +21,6 @@ import org.apache.doris.ha.FrontendNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -125,7 +124,7 @@ public class Storage {
             String name = child.getName();
             try {
                 if (!name.equals(EDITS) && !name.equals(IMAGE_NEW)
-                    && !name.endsWith(".part") && name.contains(".")) {
+                        && !name.endsWith(".part") && name.contains(".")) {
                     if (name.startsWith(IMAGE)) {
                         long fileSeq = Long.parseLong(name.substring(name.lastIndexOf('.') + 1));
                         if (latestImageSeq < fileSeq) {
@@ -235,7 +234,7 @@ public class Storage {
 
         writePropertiesToFile(properties, ROLE_FILE);
     }
-    
+
     private void writePropertiesToFile(Properties properties, String fileName) throws IOException {
         RandomAccessFile file = new RandomAccessFile(new File(metaDir, fileName), "rws");
         FileOutputStream out = null;
@@ -320,4 +319,3 @@ public class Storage {
     }
 
 }
-

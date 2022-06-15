@@ -18,8 +18,9 @@
 #include "olap/tablet_schema.h"
 
 #include "tablet_meta.h"
+#include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -271,7 +272,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DECIMALV2:
         return 12; // use 12 bytes in olap engine.
     default:
-        OLAP_LOG_WARNING("unknown field type. [type=%d]", type);
+        LOG(WARNING) << "unknown field type. [type=" << type << "]";
         return 0;
     }
 }
@@ -386,8 +387,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
 
 uint32_t TabletColumn::mem_size() const {
     auto size = sizeof(TabletColumn);
+    size += _col_name.size();
     if (_has_default_value) {
         size += _default_value.size();
+    }
+    if (_has_referenced_column) {
+        size += _referenced_column.size();
     }
     for (auto& sub_column : _sub_columns) {
         size += sub_column.mem_size();
@@ -399,6 +404,16 @@ void TabletColumn::add_sub_column(TabletColumn& sub_column) {
     _sub_columns.push_back(sub_column);
     sub_column._parent = this;
     _sub_column_count += 1;
+}
+
+vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
+        vectorized::DataTypes argument_types, std::string suffix) const {
+    std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
+    std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    return vectorized::AggregateFunctionSimpleFactory::instance().get(
+            agg_name, argument_types, {}, argument_types.back()->is_nullable());
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
@@ -437,6 +452,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _sequence_col_idx = schema.sequence_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
+    _compression_type = schema.compression_type();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
@@ -457,6 +473,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_meta_pb->set_sort_type(_sort_type);
     tablet_meta_pb->set_sort_col_num(_sort_col_num);
+    tablet_meta_pb->set_compression_type(_compression_type);
 }
 
 uint32_t TabletSchema::mem_size() const {
@@ -515,6 +532,15 @@ vectorized::Block TabletSchema::create_block(
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
         auto column = data_type->create_column();
         block.insert({std::move(column), data_type, col.name()});
+    }
+    return block;
+}
+
+vectorized::Block TabletSchema::create_block() const {
+    vectorized::Block block;
+    for (const auto& col : _cols) {
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        block.insert({data_type->create_column(), data_type, col.name()});
     }
     return block;
 }

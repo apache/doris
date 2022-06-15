@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <future>
 #include <variant>
 
 #include "common/object_pool.h"
@@ -123,7 +124,6 @@ using JoinOpVariants =
                      std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::MERGE_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
@@ -136,7 +136,6 @@ using JoinOpVariants =
     M(FULL_OUTER_JOIN)               \
     M(RIGHT_OUTER_JOIN)              \
     M(CROSS_JOIN)                    \
-    M(MERGE_JOIN)                    \
     M(RIGHT_SEMI_JOIN)               \
     M(RIGHT_ANTI_JOIN)               \
     M(NULL_AWARE_LEFT_ANTI_JOIN)
@@ -239,7 +238,10 @@ private:
     std::vector<bool> _right_output_slot_flags;
 
 private:
+    void _hash_table_build_thread(RuntimeState* state, std::promise<Status>* status);
+
     Status _hash_table_build(RuntimeState* state);
+
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
     Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,

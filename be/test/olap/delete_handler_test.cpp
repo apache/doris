@@ -261,16 +261,14 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         EXPECT_EQ(Status::OK(), res);
-        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
-                                                        _create_tablet.tablet_schema.schema_hash);
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_NE(tablet.get(), nullptr);
         _tablet_path = tablet->tablet_path_desc().filepath;
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
         res = k_engine->create_tablet(_create_dup_tablet);
         EXPECT_EQ(Status::OK(), res);
-        dup_tablet = k_engine->tablet_manager()->get_tablet(
-                _create_dup_tablet.tablet_id, _create_dup_tablet.tablet_schema.schema_hash);
+        dup_tablet = k_engine->tablet_manager()->get_tablet(_create_dup_tablet.tablet_id);
         EXPECT_TRUE(dup_tablet.get() != NULL);
         _dup_tablet_path = tablet->tablet_path_desc().filepath;
     }
@@ -279,8 +277,8 @@ protected:
         // Remove all dir.
         tablet.reset();
         dup_tablet.reset();
-        StorageEngine::instance()->tablet_manager()->drop_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
+                                                                 _create_tablet.replica_id);
         EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -438,8 +436,7 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         EXPECT_EQ(Status::OK(), res);
-        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
-                                                        _create_tablet.tablet_schema.schema_hash);
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet.get() != nullptr);
         _tablet_path = tablet->tablet_path_desc().filepath;
     }
@@ -448,7 +445,7 @@ protected:
         // Remove all dir.
         tablet.reset();
         k_engine->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
-                                                _create_tablet.tablet_schema.schema_hash);
+                                                _create_tablet.replica_id);
         EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -813,8 +810,7 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         EXPECT_EQ(Status::OK(), res);
-        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
-                                                        _create_tablet.tablet_schema.schema_hash);
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path_desc().filepath;
 
@@ -826,8 +822,8 @@ protected:
         // Remove all dir.
         tablet.reset();
         _delete_handler.finalize();
-        StorageEngine::instance()->tablet_manager()->drop_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
+                                                                 _create_tablet.replica_id);
         EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 

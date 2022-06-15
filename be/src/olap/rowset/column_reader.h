@@ -18,15 +18,12 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_COLUMN_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_COLUMN_READER_H
 
-#include "olap/byte_buffer.h"
-#include "olap/field.h"
 #include "olap/file_stream.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/row_cursor.h"
 #include "olap/rowset/run_length_byte_reader.h"
 #include "olap/rowset/run_length_integer_reader.h"
 #include "olap/stream_name.h"
+#include "runtime/large_int_value.h"
 #include "runtime/vectorized_row_batch.h"
 #include "util/date_func.h"
 
@@ -461,7 +458,7 @@ public:
                 return res;
             }
             res = _reader.seek(positions);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to seek int stream. res = " << res;
                 return res;
             }
@@ -474,7 +471,7 @@ public:
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -505,7 +502,7 @@ public:
         }
         _stats->bytes_read += sizeof(T) * size;
 
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
         return res;
@@ -558,7 +555,7 @@ public:
                 return res;
             }
             res = _reader.seek(positions);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to read fixed string stream. res = " << res;
                 return res;
             }
@@ -570,7 +567,7 @@ public:
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -622,7 +619,7 @@ public:
                 return res;
             }
             res = _reader.seek(position);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to seek varchar stream. res = " << res;
                 return res;
             }
@@ -635,7 +632,7 @@ public:
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -666,7 +663,7 @@ public:
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                         MemPool* mem_pool, OlapReaderStatistics* stats) {
         if (nullptr == streams) {
-            OLAP_LOG_WARNING("input streams is nullptr");
+            LOG(WARNING) << "input streams is nullptr";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
@@ -675,7 +672,7 @@ public:
         _data_stream = extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
         if (nullptr == _data_stream) {
-            OLAP_LOG_WARNING("specified stream not exist");
+            LOG(WARNING) << "specified stream not exist";
             return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
         }
 
@@ -684,12 +681,12 @@ public:
     }
     virtual Status seek(PositionProvider* position) {
         if (nullptr == position) {
-            OLAP_LOG_WARNING("input positions is nullptr");
+            LOG(WARNING) << "input positions is nullptr";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         if (nullptr == _data_stream) {
-            OLAP_LOG_WARNING("reader not init.");
+            LOG(WARNING) << "reader not init.";
             return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
         }
 
@@ -706,7 +703,7 @@ public:
                 return res;
             }
             res = _data_stream->seek(position);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to seek float stream. res = " << res;
                 return res;
             }
@@ -716,7 +713,7 @@ public:
     }
     virtual Status skip(uint64_t row_count) {
         if (nullptr == _data_stream) {
-            OLAP_LOG_WARNING("reader not init.");
+            LOG(WARNING) << "reader not init.";
             return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
         }
 
@@ -726,13 +723,13 @@ public:
 
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         if (nullptr == _data_stream) {
-            OLAP_LOG_WARNING("reader not init.");
+            LOG(WARNING) << "reader not init.";
             return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
         }
 
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -764,7 +761,7 @@ public:
         }
         _stats->bytes_read += sizeof(FLOAT_TYPE) * size;
 
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
 

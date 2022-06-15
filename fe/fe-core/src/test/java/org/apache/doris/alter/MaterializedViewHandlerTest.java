@@ -32,15 +32,13 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class MaterializedViewHandlerTest {
     @Test
@@ -278,7 +276,6 @@ public class MaterializedViewHandlerTest {
                                            @Injectable OlapTable olapTable) throws DdlException {
         final String mvName = "mv1";
         final String columnName1 = "k1";
-        Column baseColumn1 = new Column(columnName1, Type.VARCHAR, true, null, "", "");
         MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
         mvColumnItem.setIsKey(false);
         mvColumnItem.setAggregationType(AggregateType.SUM, false);

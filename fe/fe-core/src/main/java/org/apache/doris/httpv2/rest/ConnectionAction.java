@@ -25,7 +25,6 @@ import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,7 +32,6 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -43,12 +41,12 @@ import javax.servlet.http.HttpServletResponse;
  * So we can get query_id firstly, and get query by query_id.
  *
  * {
- * 	"msg": "OK",
- * 	"code": 0,
- * 	"data": {
- * 		"query_id": "b52513ce3f0841ca-9cb4a96a268f2dba"
- *  },
- * 	"count": 0
+ *   "msg": "OK",
+ *   "code": 0,
+ *   "data": {
+ *     "query_id": "b52513ce3f0841ca-9cb4a96a268f2dba"
+ *   },
+ *   "count": 0
  * }
  */
 @RestController

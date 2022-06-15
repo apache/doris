@@ -20,7 +20,6 @@ package org.apache.doris.metric;
 import org.apache.doris.common.FeConstants;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -115,7 +114,7 @@ public class SystemMetrics {
         Map<String, Long> memInfoMap = Maps.newHashMap();
 
         try (FileReader fileReader = new FileReader(procFile);
-             BufferedReader br = new BufferedReader(fileReader)) {
+                BufferedReader br = new BufferedReader(fileReader)) {
             String[] parts;
             String line = null;
             while ((line = br.readLine()) != null) {

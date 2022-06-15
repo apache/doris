@@ -30,6 +30,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 public class DataProperty implements Writable {
     public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
@@ -107,6 +108,11 @@ public class DataProperty implements Writable {
         cooldownTimeMs = in.readLong();
         remoteStorageResourceName = "";
         remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(storageMedium, cooldownTimeMs, remoteStorageResourceName, remoteCooldownTimeMs);
     }
 
     @Override

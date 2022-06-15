@@ -31,7 +31,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -298,12 +297,12 @@ public class SmallFileMgr implements Writable {
             }
             urlConnection.setReadTimeout(10000); // 10s
             urlConnection.getInputStream();
-            
+
             int contentLength = urlConnection.getContentLength();
             if (contentLength == -1 || contentLength > Config.max_small_file_size_bytes) {
                 throw new DdlException("Failed to download file from url: " + url + ", invalid content length: " + contentLength);
             }
-            
+
             int bytesRead = 0;
             String base64Content = null;
             MessageDigest digest = MessageDigest.getInstance("MD5");
@@ -424,7 +423,8 @@ public class SmallFileMgr implements Writable {
             outputStream.close();
 
             if (!checkMd5(file, smallFile.md5)) {
-                throw new DdlException("write file " + fileName +" failed. md5 is invalid. expected: " + smallFile.md5);
+                throw new DdlException("write file " + fileName
+                        + " failed. md5 is invalid. expected: " + smallFile.md5);
             }
         } catch (IOException e) {
             LOG.warn("failed to write file: {}", fileName, e);

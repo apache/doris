@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_DATETIME_VALUE_H
-#define DORIS_BE_RUNTIME_DATETIME_VALUE_H
+#pragma once
 
 #include <re2/re2.h>
 #include <stdint.h>
@@ -31,6 +30,7 @@
 #include "util/hash_util.hpp"
 #include "util/timezone_utils.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 
 enum TimeUnit {
@@ -288,11 +288,11 @@ public:
         case YEAR: {
             int year = (ts_value2.year() - ts_value1.year());
             if (year > 0) {
-                year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) <
-                        0;
+                year -= (ts_value2.to_datetime_int64() % 10000000000 -
+                         ts_value1.to_datetime_int64() % 10000000000) < 0;
             } else if (year < 0) {
-                year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) >
-                        0;
+                year += (ts_value2.to_datetime_int64() % 10000000000 -
+                         ts_value1.to_datetime_int64() % 10000000000) > 0;
             }
             return year;
         }
@@ -300,9 +300,11 @@ public:
             int month = (ts_value2.year() - ts_value1.year()) * 12 +
                         (ts_value2.month() - ts_value1.month());
             if (month > 0) {
-                month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
+                month -= (ts_value2.to_datetime_int64() % 100000000 -
+                          ts_value1.to_datetime_int64() % 100000000) < 0;
             } else if (month < 0) {
-                month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
+                month += (ts_value2.to_datetime_int64() % 100000000 -
+                          ts_value1.to_datetime_int64() % 100000000) > 0;
             }
             return month;
         }
@@ -412,7 +414,7 @@ public:
     // WEEK_YEAR (1)
     //  If not set:
     //      Week is in range 0-53
-    //      Week 0 is returned for the the last week of the previous year (for
+    //      Week 0 is returned for the last week of the previous year (for
     //      a date at start of january) In this case one can get 53 for the
     //      first week of next year.  This flag ensures that the week is
     //      relevant for the given year. Note that this flag is only
@@ -677,5 +679,3 @@ struct hash<doris::DateTimeValue> {
     size_t operator()(const doris::DateTimeValue& v) const { return doris::hash_value(v); }
 };
 } // namespace std
-
-#endif

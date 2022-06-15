@@ -56,7 +56,6 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -92,7 +91,6 @@ public class BackupJob extends AbstractJob {
 
     // all objects which need backup
     private List<TableRef> tableRefs = Lists.newArrayList();
-//    private BackupContent content = BackupContent.ALL;
 
     private BackupJobState state;
 
@@ -158,7 +156,7 @@ public class BackupJob extends AbstractJob {
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
-        
+
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTaskStatus().getErrorMsgs()));
             // snapshot task could not finish if status_code is OLAP_ERR_VERSION_ALREADY_MERGED,
@@ -181,7 +179,7 @@ public class BackupJob extends AbstractJob {
                 task.getIndexId(), task.getTabletId(), task.getBackendId(),
                 task.getSchemaHash(), request.getSnapshotPath(),
                 request.getSnapshotFiles());
-        
+
         snapshotInfos.put(task.getTabletId(), info);
         taskProgress.remove(task.getTabletId());
         Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
@@ -292,7 +290,7 @@ public class BackupJob extends AbstractJob {
                 return;
             }
         }
-        
+
         LOG.debug("run backup job: {}", this);
 
         // run job base on current state
@@ -365,7 +363,7 @@ public class BackupJob extends AbstractJob {
                 status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
                 return;
             }
-            switch (tbl.getType()){
+            switch (tbl.getType()) {
                 case OLAP:
                     checkOlapTable((OlapTable) tbl, tableRef);
                     if (getContent() == BackupContent.ALL) {
@@ -507,6 +505,8 @@ public class BackupJob extends AbstractJob {
                         status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
                         return;
                     }
+
+                    removeUnsupportProperties(copiedTbl);
                     copiedTables.add(copiedTbl);
                 } else if (table.getType() == TableType.VIEW) {
                     View view = (View) table;
@@ -543,6 +543,11 @@ public class BackupJob extends AbstractJob {
         backupMeta = new BackupMeta(copiedTables, copiedResources);
     }
 
+    private void removeUnsupportProperties(OlapTable tbl) {
+        // We cannot support the colocate attribute because the colocate information is not backed up
+        // synchronously when backing up.
+        tbl.setColocateGroup(null);
+    }
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
@@ -587,7 +592,7 @@ public class BackupJob extends AbstractJob {
                 return;
             }
             Preconditions.checkState(brokers.size() == 1);
-            
+
             // allot tasks
             int index = 0;
             for (int batch = 0; batch < batchNum; batch++) {
@@ -764,7 +769,7 @@ public class BackupJob extends AbstractJob {
         for (Replica replica : tablet.getReplicas()) {
             replicaIds.add(replica.getId());
         }
-        
+
         Collections.sort(replicaIds);
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
@@ -818,7 +823,7 @@ public class BackupJob extends AbstractJob {
         catalog.getEditLog().logBackupJob(this);
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
-    
+
     public List<String> getInfo() {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
@@ -965,4 +970,3 @@ public class BackupJob extends AbstractJob {
         return sb.toString();
     }
 }
-

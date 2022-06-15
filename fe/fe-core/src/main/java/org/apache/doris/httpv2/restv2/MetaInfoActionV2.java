@@ -38,7 +38,8 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -47,12 +48,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import lombok.Getter;
-import lombok.Setter;
 
 /**
  * And meta info like databases, tables and schema
@@ -71,14 +68,14 @@ public class MetaInfoActionV2 extends RestBaseController {
     /**
      * Get all databases
      * {
-     * 	"msg": "success",
-     * 	"code": 0,
-     * 	"data": [
-     * 		"default_cluster:db1",
-     * 		"default_cluster:doris_audit_db__",
-     * 		"default_cluster:information_schema"
-     * 	],
-     * 	"count": 0
+     *   "msg": "success",
+     *   "code": 0,
+     *   "data": [
+     *     "default_cluster:db1",
+     *     "default_cluster:doris_audit_db__",
+     *     "default_cluster:information_schema"
+     *   ],
+     *   "count": 0
      * }
      */
     @RequestMapping(path = "/api/meta/" + NAMESPACES + "/{" + NS_KEY + "}/" + DATABASES,
@@ -118,13 +115,13 @@ public class MetaInfoActionV2 extends RestBaseController {
 
     /** Get all tables of a database
      * {
-     * 	"msg": "success",
-     * 	"code": 0,
-     * 	"data": [
-     * 		"tbl1",
-     * 		"tbl2"
-     * 	],
-     * 	"count": 0
+     *   "msg": "success",
+     *   "code": 0,
+     *   "data": [
+     *     "tbl1",
+     *     "tbl2"
+     *   ],
+     *   "count": 0
      * }
      */
 
@@ -276,8 +273,8 @@ public class MetaInfoActionV2 extends RestBaseController {
             schema.setIsNull(String.valueOf(column.isAllowNull()));
             schema.setDefaultVal(column.getDefaultValue());
             schema.setKey(String.valueOf(column.isKey()));
-            schema.setAggrType(column.getAggregationType() == null ?
-                    "None" : column.getAggregationType().toString());
+            schema.setAggrType(column.getAggregationType() == null
+                    ? "None" : column.getAggregationType().toString());
             schema.setComment(column.getComment());
         }
         return schema;
@@ -294,7 +291,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         propMap.put("isBase", isBaseIndex);
         propMap.put("tableType", tbl.getEngine());
         if (tbl.getType() == Table.TableType.OLAP) {
-            propMap.put("keyType", ((OlapTable)tbl).getKeysType());
+            propMap.put("keyType", ((OlapTable) tbl).getKeysType());
         }
         propMap.put("schema", generateSchema(tbl.getBaseSchema()));
     }

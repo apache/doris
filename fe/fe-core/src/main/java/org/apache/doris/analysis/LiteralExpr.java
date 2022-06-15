@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -77,6 +76,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case HLL:
             case STRING:
                 literalExpr = new StringLiteral(value);
+                literalExpr.setType(type);
                 break;
             case DATE:
             case DATETIME:
@@ -198,6 +198,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return buffer;
     }
 
+    @Override
+    public String toDigestImpl() {
+        return " ? ";
+    }
+
     // Swaps the sign of numeric literals.
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
@@ -215,7 +220,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     public void readFields(DataInput in) throws IOException {
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -239,4 +244,3 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return this instanceof NullLiteral;
     }
 }
-

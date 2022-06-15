@@ -17,7 +17,6 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 
-#include "common/logging.h"
 #include "gutil/strings/substitute.h"                // for Substitute
 #include "olap/column_block.h"                       // for ColumnBlockView
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
@@ -28,8 +27,9 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/types.h"                          // for TypeInfo
 #include "util/block_compression.h"
-#include "util/coding.h"       // for get_varint32
 #include "util/rle_encoding.h" // for RleDecoder
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
@@ -104,7 +104,6 @@ Status ColumnReader::init() {
                 strings::Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
-    RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
 
     for (int i = 0; i < _meta.indexes_size(); i++) {
         auto& index_meta = _meta.indexes(i);
@@ -144,17 +143,19 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 }
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
-                               PageHandle* handle, Slice* page_body, PageFooterPB* footer) {
+                               PageHandle* handle, Slice* page_body, PageFooterPB* footer,
+                               BlockCompressionCodec* codec) {
     iter_opts.sanity_check();
     PageReadOptions opts;
     opts.rblock = iter_opts.rblock;
     opts.page_pointer = pp;
-    opts.codec = _compress_codec;
+    opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.verify_checksum = _opts.verify_checksum;
     opts.use_page_cache = iter_opts.use_page_cache;
     opts.kept_in_memory = _opts.kept_in_memory;
     opts.type = iter_opts.type;
+    opts.encoding_info = _encoding_info;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -353,10 +354,10 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
         auto type = (FieldType)_meta.type();
         switch (type) {
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            ColumnIterator* item_iterator;
+            ColumnIterator* item_iterator = nullptr;
             RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&item_iterator));
 
-            ColumnIterator* offset_iterator;
+            ColumnIterator* offset_iterator = nullptr;
             RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator));
 
             ColumnIterator* null_iterator = nullptr;
@@ -461,11 +462,58 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     return Status::OK();
 }
 
+Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                           bool* has_null) {
+    const auto* column_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
+                               : *dst);
+
+    bool offsets_has_null = false;
+    auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
+    ssize_t start = column_offsets_ptr->size();
+    RETURN_IF_ERROR(_length_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
+    if (*n == 0) {
+        return Status::OK();
+    }
+    auto& column_offsets =
+            static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
+    auto& offsets_data = column_offsets.get_data();
+    for (ssize_t i = start; i < offsets_data.size(); ++i) {
+        offsets_data[i] += offsets_data[i - 1]; // -1 is ok
+    }
+
+    auto column_items_ptr = column_array->get_data().assume_mutable();
+    size_t num_items = offsets_data.back() - offsets_data[start - 1];
+    if (num_items > 0) {
+        size_t num_read = num_items;
+        bool items_has_null = false;
+        RETURN_IF_ERROR(_item_iterator->next_batch(&num_read, column_items_ptr, &items_has_null));
+        DCHECK(num_read == num_items);
+    }
+
+    if (dst->is_nullable()) {
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        size_t num_read = *n;
+        bool null_signs_has_null = false;
+        RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        DCHECK(num_read == *n);
+    }
+
+    return Status::OK();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}
 
-FileColumnIterator::~FileColumnIterator() {}
+Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    _opts = opts;
+    RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), _compress_codec));
+    return Status::OK();
+}
+
+FileColumnIterator::~FileColumnIterator() = default;
 
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
@@ -491,7 +539,7 @@ Status FileColumnIterator::seek_to_page_start() {
     return seek_to_ordinal(_page.first_ordinal);
 }
 
-void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) {
+void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const {
     if (page->offset_in_page == offset_in_page) {
         // fast path, do nothing
         return;
@@ -653,7 +701,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
-    RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
+    RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer,
+                                       _compress_codec.get()));
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
@@ -673,7 +722,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 PageFooterPB dict_footer;
                 _opts.type = INDEX_PAGE;
                 RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
-                                                   &_dict_page_handle, &dict_data, &dict_footer));
+                                                   &_dict_page_handle, &dict_data, &dict_footer,
+                                                   _compress_codec.get()));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
                 _dict_decoder = std::make_unique<BinaryPlainPageDecoder>(dict_data);
@@ -793,7 +843,6 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
         dst->insert_many_defaults(n);
         break;
     }
-
     case OLAP_FIELD_TYPE_DATE: {
         assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
         std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(_mem_value);
@@ -823,6 +872,14 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
                sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
         decimal12_t* d = (decimal12_t*)_mem_value;
         int128 = DecimalV2Value(d->integer, d->fraction).value();
+        insert_column_data();
+        break;
+    }
+    case OLAP_FIELD_TYPE_STRING:
+    case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_CHAR: {
+        data_ptr = ((Slice*)_mem_value)->data;
+        data_len = ((Slice*)_mem_value)->size;
         insert_column_data();
         break;
     }

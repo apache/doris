@@ -32,7 +32,7 @@ void SegmentLoader::create_global_instance(size_t capacity) {
 
 SegmentLoader::SegmentLoader(size_t capacity) {
     _cache = std::unique_ptr<Cache>(
-            new_typed_lru_cache("SegmentLoader:SegmentCache", capacity, LRUCacheType::NUMBER));
+            new_lru_cache("SegmentLoader:SegmentCache", capacity, LRUCacheType::NUMBER));
 }
 
 bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle) {

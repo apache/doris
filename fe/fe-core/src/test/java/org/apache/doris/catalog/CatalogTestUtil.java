@@ -173,7 +173,6 @@ public class CatalogTestUtil {
         Catalog.getCurrentInvertedIndex().clear();
 
         // replica
-        long replicaId = 0;
         Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
         Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L,
@@ -230,7 +229,7 @@ public class CatalogTestUtil {
         Database db = new Database(dbId, testDb1);
         db.createTable(table);
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        
+
         // add a es table to catalog
         try {
             createEsTable(db);

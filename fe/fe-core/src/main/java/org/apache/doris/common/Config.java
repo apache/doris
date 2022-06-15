@@ -335,10 +335,10 @@ public class Config extends ConfigBase {
      * and one thread can handle the read and write of many sockets, so the number of thread pools is small.
      *
      * For most projects, only 1-2 acceptors threads are needed, and 2 to 4 selectors threads are sufficient.
-     * Workers are obstructive business logic, often have more database operations, and require a large number of threads. T
-     * he specific number depends on the proportion of QPS and IO events of the application. The higher the QPS,
-     * the more threads are required, the higher the proportion of IO,
-     * the more threads waiting, and the more total threads required.
+     * Workers are obstructive business logic, often have more database operations, and require a large number of
+     * threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the
+     * QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more
+     * total threads required.
      */
     @ConfField public static int jetty_server_acceptors = 2;
     @ConfField public static int jetty_server_selectors = 4;
@@ -354,7 +354,7 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_threadPool_maxThreads = 400;
 
     /**
-     * jetty Maximum number of bytes in put or post method,default:100MB
+     * Jetty maximum number of bytes in put or post method,default:100MB
      */
     @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
@@ -856,12 +856,15 @@ public class Config extends ConfigBase {
     // Configurations for consistency check
     /**
      * Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*.
-     * Default is from 23:00 to 04:00
+     * If start time == end time, the checker will stop scheduling.
+     * And default is disabled.
+     * TODO(cmy): Disable by default because current checksum logic has some bugs.
+     * And it will also bring some overhead.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static String consistency_check_start_time = "23";
     @ConfField(mutable = true, masterOnly = true)
-    public static String consistency_check_end_time = "4";
+    public static String consistency_check_end_time = "23";
     /**
      * Default timeout of a single consistency check task. Set long enough to fit your tablet size.
      */
@@ -1042,15 +1045,6 @@ public class Config extends ConfigBase {
      * */
     @ConfField(mutable = true)
     public static boolean enable_local_replica_selection_fallback = false;
-
-
-    /**
-     * The timeout of executing async remote fragment.
-     * In normal case, the async remote fragment will be executed in a short time. If system are under high load
-     * condition，try to set this timeout longer.
-     */
-    @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
 
     /**
      * The number of query retries.
@@ -1289,18 +1283,6 @@ public class Config extends ConfigBase {
     public static boolean check_java_version = true;
 
     /**
-     * control materialized view
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_materialized_view = true;
-
-    /**
-     * enable create sync job
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_sync_job = false;
-
-    /**
      * it can't auto-resume routine load job as long as one of the backends is down
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1312,11 +1294,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
-    /*
-     * If set to true, Doris will support complex type
-     */
-    @ConfField
-    public static boolean enable_complex_type_support = false;
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
      * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
@@ -1660,4 +1637,25 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_vectorized_load = false;
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static int backend_rpc_timeout_ms = 60000; // 1 min
+
+    /**
+     * Temp config for multi catalog feature.
+     * Should be removed when this feature is ready.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_multi_catalog = false; // 1 min
+
+    /**
+     * If set to TRUE, FE will: 
+     * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
+     * 2. ignore whether the cluster can be more balanced during tablet scheduling;
+     *
+     * It's used to test the reliability in single replica case when tablet scheduling are frequent. 
+     * Default is false.
+     */    
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean be_rebalancer_fuzzy_test = false;
 }

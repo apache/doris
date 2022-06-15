@@ -18,12 +18,12 @@
 package org.apache.doris.common;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -45,7 +45,7 @@ import java.util.stream.Stream;
 
 public class ConfigBase {
     private static final Logger LOG = LogManager.getLogger(ConfigBase.class);
-    
+
     @Retention(RetentionPolicy.RUNTIME)
     public @interface ConfField {
         String value() default "";
@@ -61,7 +61,7 @@ public class ConfigBase {
 
     static class DefaultConfHandler implements ConfHandler {
         @Override
-        public void handle(Field field, String confVal) throws Exception{
+        public void handle(Field field, String confVal) throws Exception {
             setConfigField(field, confVal);
         }
     }
@@ -190,14 +190,14 @@ public class ConfigBase {
             if (anno == null) {
                 continue;
             }
-            
+
             // ensure that field has property string
             String confKey = anno.value().equals("") ? f.getName() : anno.value();
             String confVal = props.getProperty(confKey);
             if (Strings.isNullOrEmpty(confVal)) {
                 continue;
             }
-            
+
             setConfigField(f, confVal);
 
             // to be compatible with old version
@@ -299,7 +299,7 @@ public class ConfigBase {
         if (!anno.mutable()) {
             throw new DdlException("Config '" + key + "' is not mutable");
         }
-        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()){
+        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
             throw new DdlException("Config '" + key + "' is master only");
         }
 
@@ -347,7 +347,7 @@ public class ConfigBase {
         File file = new File(customConfFile);
         if (!file.exists()) {
             file.createNewFile();
-        } else if (resetPersist){
+        } else if (resetPersist) {
             // clear the customConfFile content
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print("");
@@ -368,4 +368,3 @@ public class ConfigBase {
         }
     }
 }
-
