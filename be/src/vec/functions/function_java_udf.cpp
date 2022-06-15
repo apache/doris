@@ -160,7 +160,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         ColumnString::Offsets& offsets =                                                           \
                 const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
         int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JavaFunctionCall::IncreaseReservedBufferSize(increase_buffer_size);  \
+        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
         chars.reserve(buffer_size);                                                                \
         chars.resize(buffer_size);                                                                 \
         offsets.reserve(num_rows);                                                                 \
@@ -173,8 +173,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                                        nullptr);                                                   \
         while (jni_ctx->output_intermediate_state_ptr->row_idx < num_rows) {                       \
             increase_buffer_size++;                                                                \
-            int32_t buffer_size =                                                                  \
-                    JavaFunctionCall::IncreaseReservedBufferSize(increase_buffer_size);            \
+            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
             chars.resize(buffer_size);                                                             \
             *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());             \
             jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                     \
