@@ -27,7 +27,7 @@ under the License.
       <div class="bText">
         <h1>Welcome to</h1> 
         <p class="description">Apache Doris</p> 
-        <p class="sum">Modern, high-performance MPP analytical database</p> 
+        <p class="sum">A Modern, high-performance MPP analytical database</p> 
         <div class="bannerHref">
           <a href="/en/docs/get-starting/get-starting.html" class="button1">GET STARTED</a> 
           <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2 black"><i class="doris doris-github-fill"></i>GITHUB</a>
@@ -100,7 +100,7 @@ under the License.
   <div class="newsdownData wow fadeInUp">
     <div class="newsleft">
       <p class="t wow fadeInUp">A modern, high-performance and real-time analytical database based on MPP.</p>
-      <p class="s wow fadeInUp">Apache Doris is known for its high-performance and ease of use, requiring only sub-second response times to return query results under massive amounts of data, and can support not only highly concurrent point queries but also high-throughput complex ad-hoc queries.</p>
+      <p class="s wow fadeInUp">Apache Doris is known for its high-performance and ease of use, can return query results under massive amounts of data within only sub-second response times and can support not only highly concurrent point queries but also high-throughput complex ad-hoc queries.</p>
       <div class="fataImg">
         <img src="/blog-images/data.png" alt="Data" />
         <div class="dim"><img src="/blog-images/data-1.png" alt="Data" /></div>
@@ -126,7 +126,7 @@ under the License.
   </div>
   <div class="appright">
     <div class="apptitle">
-      <p class="t wow fadeInUp">External Data Source</p>
+      <p class="t wow fadeInUp">Data Access</p>
       <p class="s wow fadeInUp">Apache Doris supports dozens of external data sources such as MySQL, Oracle, PostgreSQL, Apache Hive, Apache Iceberg, Elasticsearch, etc, so that you can query directly via Apache Doris even though the data is not stored in Apache Doris storage.</p>
       <div class="al wow fadeInUp"><a href="/en/docs/ecosystem/external-table/doris-on-es.html">Learn More</a></div>
     </div>
@@ -159,7 +159,7 @@ under the License.
           <img src="/blog-images/i1.png" alt="doris" />
         </div>
         <div class="icotitle">
-          <p class="t">Extremely<br>Performance</p>
+          <p class="t">Ultimate Query<br>Performance</p>
           <p class="s">A highly efficient columnar storage engine and modern MPP architecture combine with intelligent materialized views, vectorized execution engine, and various index acceleration to achieve the ultimate query performance.</p>
         </div>
       </li>
@@ -186,7 +186,7 @@ under the License.
           <img src="/blog-images/i4.png" alt="doris" />
         </div>
         <div class="icotitle">
-          <p class="t">Simple<br>Maintenance</p>
+          <p class="t">Easy to<br>Maintenance</p>
           <p class="s">Highly integrated, with no external component dependencies. Online elastic scaling of cluster size. The highly available system with automatic data recovery for a node failure, and automatic load balancing for data and requests.</p>
         </div>
       </li>
@@ -195,7 +195,7 @@ under the License.
           <img src="/blog-images/i5.png" alt="doris" />
         </div>
         <div class="icotitle">
-          <p class="t">data ecological<br> compatibility</p>
+          <p class="t">Data Ecological<br>Diversity</p>
           <p class="s">Support a variety of heterogeneous data sources to load access, with a wide range of big data ecological compatibility, and with the mainstream BI tools to complete the adaptation, to achieve the ecological closure of data processing to data analysis.</p>
         </div>
       </li>
@@ -252,7 +252,7 @@ under the License.
             <svg t="1650610850334" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2665" width="200" height="200"><path d="M512 230.4c-63.5136 0-115.2-51.6864-115.2-115.2s51.6864-115.2 115.2-115.2c63.5264 0 115.2 51.6864 115.2 115.2s-51.6736 115.2-115.2 115.2z m0-179.2c-35.2896 0-64 28.7104-64 64s28.7104 64 64 64 64-28.7104 64-64-28.7104-64-64-64zM512 1024c-63.5136 0-115.2-51.6736-115.2-115.2s51.6864-115.2 115.2-115.2c63.5264 0 115.2 51.6736 115.2 115.2s-51.6736 115.2-115.2 115.2z m0-179.2c-35.2896 0-64 28.7104-64 64s28.7104 64 64 64 64-28.7104 64-64-28.7104-64-64-64zM908.8 627.2c-63.5264 0-115.2-51.6736-115.2-115.2 0-63.5136 51.6736-115.2 115.2-115.2s115.2 51.6864 115.2 115.2c0 63.5264-51.6736 115.2-115.2 115.2z m0-179.2c-35.2896 0-64 28.7104-64 64s28.7104 64 64 64 64-28.7104 64-64-28.7104-64-64-64zM115.2 627.2c-63.5136 0-115.2-51.6736-115.2-115.2 0-63.5136 51.6864-115.2 115.2-115.2s115.2 51.6864 115.2 115.2c0 63.5264-51.6864 115.2-115.2 115.2z m0-179.2c-35.2896 0-64 28.7104-64 64s28.7104 64 64 64 64-28.7104 64-64-28.7104-64-64-64z" p-id="2666"></path><path d="M320.5376 219.392a25.6 25.6 0 0 1-13.184-47.5648 392.256 392.256 0 0 1 116.5184-46.6688 25.6 25.6 0 0 1 11.1488 49.984 341.5552 341.5552 0 0 0-101.3376 40.6016 25.6384 25.6384 0 0 1-13.1456 3.648zM703.4624 219.4048c-4.4928 0-9.024-1.1776-13.1456-3.6608a341.2736 341.2736 0 0 0-101.3248-40.6016 25.6256 25.6256 0 0 1-19.4176-30.5664 25.664 25.664 0 0 1 30.5664-19.4176 392.3968 392.3968 0 0 1 116.5312 46.6688 25.6128 25.6128 0 0 1-13.2096 47.5776zM429.4656 899.456c-1.8432 0-3.7248-0.2048-5.5936-0.6144a392.64 392.64 0 0 1-116.5184-46.656 25.6 25.6 0 0 1 26.3296-43.9296 341.2096 341.2096 0 0 0 101.3376 40.6016 25.6 25.6 0 0 1-5.5552 50.5984zM594.5344 899.456a25.6 25.6 0 0 1-5.5424-50.5856 341.1712 341.1712 0 0 0 101.3248-40.6144 25.6 25.6 0 1 1 26.3424 43.904 392.0256 392.0256 0 0 1-116.5312 46.6816 26.0864 26.0864 0 0 1-5.5936 0.6144zM150.1696 455.04a25.6256 25.6256 0 0 1-25.024-31.1808 391.808 391.808 0 0 1 46.6816-116.5184 25.6 25.6 0 0 1 43.904 26.3424 341.184 341.184 0 0 0-40.6144 101.3376 25.5872 25.5872 0 0 1-24.9472 20.0192zM193.8176 729.088c-8.704 0-17.1776-4.4288-21.9776-12.4288a392.1664 392.1664 0 0 1-46.6816-116.5312 25.6 25.6 0 0 1 49.984-11.1488 341.0304 341.0304 0 0 0 40.6144 101.3248 25.6 25.6 0 0 1-21.9392 38.784zM830.1952 729.088a25.5744 25.5744 0 0 1-21.9392-38.7584 341.2096 341.2096 0 0 0 40.6016-101.3248 25.6768 25.6768 0 0 1 30.5536-19.4304 25.6 25.6 0 0 1 19.4304 30.5536 392.512 392.512 0 0 1-46.656 116.5312 25.6256 25.6256 0 0 1-21.9904 12.4288zM873.8304 455.04a25.6128 25.6128 0 0 1-24.96-20.032 341.4912 341.4912 0 0 0-40.6016-101.3376 25.6128 25.6128 0 0 1 43.9296-26.3296 392.64 392.64 0 0 1 46.656 116.5184 25.6 25.6 0 0 1-25.024 31.1808z" p-id="2667"></path><path d="M231.424 913.0496a102.016 102.016 0 0 1-72.3712-29.9264l-18.176-18.176c-39.9104-39.9104-39.9104-104.832 0-144.7552l34.816-34.816a25.6 25.6 0 0 1 36.2112 36.1984l-34.816 34.816a51.2256 51.2256 0 0 0 0 72.3456l18.176 18.176a51.2256 51.2256 0 0 0 72.3456 0l34.816-34.8288a25.6 25.6 0 0 1 36.2112 36.1984l-34.816 34.8288a102.0928 102.0928 0 0 1-72.3968 29.9392zM830.1952 346.112a25.6 25.6 0 0 1-18.0992-43.712l34.8288-34.816a50.7648 50.7648 0 0 0 14.9632-36.16 50.8416 50.8416 0 0 0-14.9632-36.1856l-18.176-18.176a51.2256 51.2256 0 0 0-72.3456 0l-34.816 34.816a25.6 25.6 0 1 1-36.1984-36.2112l34.816-34.816c39.8976-39.9104 104.8448-39.9104 144.7552 0l18.176 18.176a101.6832 101.6832 0 0 1 29.9648 72.384 101.632 101.632 0 0 1-29.9648 72.3712l-34.8288 34.816a25.4848 25.4848 0 0 1-18.112 7.5136zM792.576 913.0624a101.952 101.952 0 0 1-72.3712-29.9392l-34.816-34.8288a25.6 25.6 0 1 1 36.1984-36.1984l34.816 34.8288c19.3024 19.3024 53.056 19.3024 72.3456 0l18.176-18.176c9.6512-9.6512 14.9632-22.5024 14.9632-36.1728s-5.312-26.5216-14.9632-36.1728l-34.8288-34.816a25.6 25.6 0 1 1 36.1984-36.1984l34.8288 34.816c39.9104 39.9104 39.9104 104.832 0 144.7552l-18.176 18.176a101.9904 101.9904 0 0 1-72.3712 29.9264zM193.792 346.112a25.472 25.472 0 0 1-18.0992-7.5008l-34.816-34.816c-19.328-19.3152-29.9648-45.0304-29.9648-72.3712s10.6496-53.056 29.9648-72.3712l18.176-18.1632c39.9104-39.8976 104.8576-39.8976 144.7424 0l34.816 34.816a25.6 25.6 0 1 1-36.1984 36.1984l-34.816-34.816a51.2256 51.2256 0 0 0-72.3456 0l-18.176 18.1632c-9.6512 9.6512-14.9632 22.4896-14.9632 36.1728s5.312 26.5216 14.9632 36.1728l34.816 34.816a25.6 25.6 0 0 1-18.0992 43.6992zM512 665.6c-84.6976 0-153.6-68.9024-153.6-153.6s68.9024-153.6 153.6-153.6 153.6 68.9024 153.6 153.6-68.9024 153.6-153.6 153.6z m0-256c-56.4608 0-102.4 45.9392-102.4 102.4s45.9392 102.4 102.4 102.4 102.4-45.9392 102.4-102.4-45.9392-102.4-102.4-102.4z" p-id="2668"></path></svg>
           </div>
           <div class="coretitle">
-            <p class="t">Index Structure</p>
+            <p class="t">Rich Index Structure</p>
             <p class="s">Apache Doris has a rich index structure to speed up data reading and filtering and can support ultra-high concurrency of online service business, a single node can support up to thousands of QPS.</p>
           </div>
         </li>
