@@ -546,6 +546,12 @@ CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查
 
 用于向前兼容，稍后将被删除
 
+### `enable_stream_load_record`
+
+默认值：false
+
+是否开启 stream load 操作记录，默认是不启用
+
 ### `es_http_timeout_ms`
 
 默认值：5000 (ms)

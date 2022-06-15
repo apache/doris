@@ -19,6 +19,11 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.TreeNode;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Equal to expression: a = b.
@@ -38,5 +43,11 @@ public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extend
     @Override
     public String toString() {
         return "(" + left() + " = " + right() + ")";
+    }
+
+    @Override
+    public EqualTo newChildren(List<TreeNode> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new EqualTo((Expression) children.get(0), (Expression) children.get(1));
     }
 }

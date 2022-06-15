@@ -48,6 +48,7 @@ import java.util.List;
  *   SELECT COUNT(*) FROM (SELECT DISTINCT a, b, ..., x, y, ...) GROUP BY x, y, ...
  *
  * The tree structure looks as follows:
+ * <pre>
  * - for non-distinct aggregation:
  *   - aggInfo: contains the original aggregation functions and grouping exprs
  *   - aggInfo.mergeAggInfo: contains the merging aggregation functions (grouping
@@ -61,7 +62,7 @@ import java.util.List;
  *     computation (grouping exprs are identical)
  *   - aggInfo.2ndPhaseDistinctAggInfo.mergeAggInfo: contains the merging aggregate
  *     functions for the phase 2 computation (grouping exprs are identical)
- *
+ * </pre>
  * In general, merging aggregate computations are idempotent; in other words,
  * aggInfo.mergeAggInfo == aggInfo.mergeAggInfo.mergeAggInfo.
  *
@@ -224,6 +225,17 @@ public final class AggregateInfo extends AggregateInfoBase {
         return result;
     }
 
+    /**
+     * Used by new optimizer.
+     */
+    public static AggregateInfo create(
+            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
+            TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
+        AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, phase);
+        result.outputTupleDesc = tupleDesc;
+        result.intermediateTupleDesc = intermediateTupleDesc;
+        return result;
+    }
 
     /**
      * estimate if functions contains multi distinct
@@ -856,4 +868,5 @@ public final class AggregateInfo extends AggregateInfoBase {
     public List<Expr> getInputPartitionExprs() {
         return partitionExprs != null ? partitionExprs : groupingExprs;
     }
+
 }

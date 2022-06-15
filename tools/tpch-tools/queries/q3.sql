@@ -23,16 +23,15 @@ select /*+SET_VAR(parallel_fragment_exec_instance_num=8, enable_vectorized_engin
     o_orderdate,
     o_shippriority
 from
-    customer c join
     (
         select l_orderkey, l_extendedprice, l_discount, o_orderdate, o_shippriority, o_custkey from
         lineitem join orders
         where l_orderkey = o_orderkey
         and o_orderdate < date '1995-03-15'
         and l_shipdate > date '1995-03-15'
-    ) t1
+    ) t1 join customer c 
+    on c.c_custkey = t1.o_custkey
     where c_mktsegment = 'BUILDING'
-    and c.c_custkey = t1.o_custkey
 group by
     l_orderkey,
     o_orderdate,

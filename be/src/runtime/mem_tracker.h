@@ -401,8 +401,7 @@ public:
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     /// If 'state' is non-nullptr, logs the error to 'state'.
     Status mem_limit_exceeded(RuntimeState* state, const std::string& details = std::string(),
-                              int64_t failed_allocation = -1,
-                              Status failed_alloc = Status::OK()) WARN_UNUSED_RESULT;
+                              int64_t failed_allocation = -1, Status failed_alloc = Status::OK());
 
     // Usually, a negative values means that the statistics are not accurate,
     // 1. The released memory is not consumed.

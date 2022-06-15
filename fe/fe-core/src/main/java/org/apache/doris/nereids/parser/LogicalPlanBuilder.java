@@ -23,6 +23,7 @@ import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
+import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.DorisParser.JoinRelationContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
+import org.apache.doris.nereids.DorisParser.NotContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
@@ -146,6 +148,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.whereClause(),
                     from);
         };
+        return ParserUtils.withOrigin(ctx, f);
+    }
+
+    @Override
+    public Expression visitExpression(ExpressionContext ctx) {
+        Supplier<Expression> f = () -> (Expression) visit(ctx.booleanExpression());
         return ParserUtils.withOrigin(ctx, f);
     }
 
@@ -385,6 +393,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             default:
                 return null;
         }
+    }
+
+    /**
+     * Create a not expression.
+     * format: NOT Expression
+     * for example:
+     * not 1
+     * not 1=1
+     */
+    @Override
+    public Expression visitNot(NotContext ctx) {
+        Expression child = expression(ctx.booleanExpression());
+        return new Not(child);
     }
 
     /**
