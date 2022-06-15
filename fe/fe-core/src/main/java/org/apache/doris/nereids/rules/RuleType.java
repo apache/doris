@@ -37,6 +37,11 @@ public enum RuleType {
 
     // implementation rules
     LOGICAL_JOIN_TO_HASH_JOIN_RULE(RuleTypeClass.IMPLEMENTATION),
+    Projection(RuleTypeClass.IMPLEMENTATION),
+    Filter(RuleTypeClass.IMPLEMENTATION),
+    Limit(RuleTypeClass.IMPLEMENTATION),
+    HashAgg(RuleTypeClass.IMPLEMENTATION),
+    OLAP_SCAN(RuleTypeClass.IMPLEMENTATION),
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
 
     // sentinel, use to count rules

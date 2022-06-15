@@ -15,28 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.properties;
+package org.apache.doris.nereids.operators.plans.logical;
+
+import org.apache.doris.nereids.operators.OperatorType;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
- * Physical properties used in cascades.
+ * Abstract class for logical scan plan operator.
  */
-public class PhysicalProperties {
-    private DistributionSpec distributionDesc;
-    private SortSpec sortSpec;
+public abstract class LogicalScan extends LogicalLeafOperator {
+    protected final List<String> qualifier;
 
-    public DistributionSpec getDistributionDesc() {
-        return distributionDesc;
+    /**
+     * Constructor for LogicalScan.
+     *
+     * @param type      node type
+     * @param qualifier table's name
+     */
+    public LogicalScan(OperatorType type, List<String> qualifier) {
+        super(type);
+        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }
 
-    public void setDistributionDesc(DistributionSpec distributionDesc) {
-        this.distributionDesc = distributionDesc;
-    }
-
-    public SortSpec getSortSpec() {
-        return sortSpec;
-    }
-
-    public void setSortSpec(SortSpec sortSpec) {
-        this.sortSpec = sortSpec;
+    public List<String> getQualifier() {
+        return qualifier;
     }
 }

@@ -15,28 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 package org.apache.doris.nereids.properties;
 
 /**
- * Physical properties used in cascades.
+ * Base class for Sort.
  */
-public class PhysicalProperties {
-    private DistributionSpec distributionDesc;
-    private SortSpec sortSpec;
-
-    public DistributionSpec getDistributionDesc() {
-        return distributionDesc;
-    }
-
-    public void setDistributionDesc(DistributionSpec distributionDesc) {
-        this.distributionDesc = distributionDesc;
-    }
-
-    public SortSpec getSortSpec() {
-        return sortSpec;
-    }
-
-    public void setSortSpec(SortSpec sortSpec) {
-        this.sortSpec = sortSpec;
-    }
+public class SortSpec {
 }

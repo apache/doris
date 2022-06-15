@@ -20,7 +20,10 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.nereids.rules.analysis.AnalysisUnboundRelation;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommutative;
 import org.apache.doris.nereids.rules.exploration.join.JoinLeftAssociative;
+import org.apache.doris.nereids.rules.implementation.FilterImplementation;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
+import org.apache.doris.nereids.rules.implementation.OlapScanImplementation;
+import org.apache.doris.nereids.rules.implementation.ProjectionImplementation;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -44,6 +47,9 @@ public class RuleSet {
 
     public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalJoinToHashJoin())
+            .add(new ProjectionImplementation())
+            .add(new FilterImplementation())
+            .add(new OlapScanImplementation())
             .build();
 
     public List<Rule<Plan>> getAnalysisRules() {

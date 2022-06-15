@@ -15,28 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.properties;
+package org.apache.doris.nereids.rules.implementation;
+
+import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Physical properties used in cascades.
+ * Implementation rule that convert logical join to physical hash join.
  */
-public class PhysicalProperties {
-    private DistributionSpec distributionDesc;
-    private SortSpec sortSpec;
-
-    public DistributionSpec getDistributionDesc() {
-        return distributionDesc;
-    }
-
-    public void setDistributionDesc(DistributionSpec distributionDesc) {
-        this.distributionDesc = distributionDesc;
-    }
-
-    public SortSpec getSortSpec() {
-        return sortSpec;
-    }
-
-    public void setSortSpec(SortSpec sortSpec) {
-        this.sortSpec = sortSpec;
+public class ProjectionImplementation extends OneImplementationRuleFactory {
+    @Override
+    public Rule<Plan> build() {
+        return logicalProject().then(projection -> plan(
+                new PhysicalProject(projection.getOperator().getProjects()),
+                projection.getLogicalProperties(),
+                projection.child()
+        )).toRule(RuleType.Projection);
     }
 }

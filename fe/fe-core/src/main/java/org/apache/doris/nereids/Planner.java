@@ -21,12 +21,17 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
+
+import com.clearspring.analytics.util.Lists;
+
+import java.util.List;
 
 /**
  * Planner to do query plan in Nereids.
@@ -44,10 +49,8 @@ public class Planner {
      * @throws AnalysisException throw exception if failed in ant stage
      */
     // TODO: refactor, just demo code here
-    public PhysicalPlan plan(
-            LogicalPlan plan,
-            PhysicalProperties outputProperties,
-            ConnectContext connectContext) throws AnalysisException {
+    public PhysicalPlan plan(LogicalPlan plan, PhysicalProperties outputProperties, ConnectContext connectContext)
+            throws AnalysisException {
         Memo<Plan> memo = new Memo<>();
         memo.initialize(plan);
 
@@ -59,14 +62,33 @@ public class Planner {
 
         plannerContext.getOptimizerContext().pushJob(new OptimizeGroupJob(getRoot(), plannerContext));
         plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
-        return getBestPlan();
+
+        return chooseBestPlan(memo.getRoot(), new PhysicalProperties());
     }
 
     public Group getRoot() {
         return plannerContext.getOptimizerContext().getMemo().getRoot();
     }
 
-    private PhysicalPlan getBestPlan() {
-        return null;
+    private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties) throws AnalysisException {
+        GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
+                () -> new AnalysisException("lowestCostPlans with physicalProperties doesn't exist")).second;
+        List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+
+        List<Plan> planChildren = Lists.newArrayList();
+        for (int i = 0; i < groupExpression.arity(); i++) {
+            planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+        }
+
+        Plan plan = ((PhysicalPlan) groupExpression.getOperator().toTreeNode(groupExpression)).newChildren(
+                planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("generate logical plan");
+        }
+        PhysicalPlan physicalPlan = (PhysicalPlan) plan;
+
+        // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
+
+        return physicalPlan;
     }
 }

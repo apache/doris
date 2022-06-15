@@ -17,7 +17,8 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalBroadcastHashJoin;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -25,13 +26,15 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * Implementation rule that convert logical join to physical hash join.
  */
-public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
+public class OlapScanImplementation extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalJoin().then(join -> plan(
-            new PhysicalBroadcastHashJoin(join.operator.getJoinType(), join.operator.getOnClause()),
-            join.getLogicalProperties(),
-            join.left(), join.right()
-        )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+        return logicalOlapScan().then(scan -> plan(
+            new PhysicalOlapScan(
+                scan.getOperator().getOlapTable(),
+                scan.getOperator().getQualifier()
+            ),
+            scan.getLogicalProperties()
+        )).toRule(RuleType.OLAP_SCAN);
     }
 }

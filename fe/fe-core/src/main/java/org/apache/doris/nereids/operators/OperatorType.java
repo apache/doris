@@ -34,6 +34,7 @@ public enum OperatorType {
     LOGICAL_PROJECT,
     LOGICAL_FILTER,
     LOGICAL_JOIN,
+    LOGICAL_OLAP_SCAN,
 
     // physical plan
     PHYSICAL_OLAP_SCAN,
