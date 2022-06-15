@@ -787,7 +787,7 @@ build_bitshuffle() {
 build_croaringbitmap() {
     avx_flag=
     if [ ! -z "$USE_AVX2" -a "$USE_AVX2" -eq 0 ];then
-        echo "FORCE disable AVX for croaringbitmap"
+        echo "set USE_AVX2=$USE_AVX2 to FORCE disable AVX2 in croaringbitmap"
         avx_flag="-DROARING_DISABLE_AVX=ON"
     fi
 
