@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DROP-POLICY",
-    "language": "zh-CN"
+    "title": "DROP-MATERIALIZED-VIEW",
+    "language": "en"
 }
 ---
 
@@ -32,37 +32,37 @@ DROP POLICY
 
 ### Description
 
-删除安全策略
+drop policy for row or storage
 
-#### 行安全策略
+#### ROW POLICY
 
-语法：
+Grammar：
 
-1. 删除行安全策略
+1. Drop row policy
 ```sql
 DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
 ```
 
-2. 删除冷热数据存储策略
+2. Drop storage policy
 ```sql
 DROP STORAGE POLICY policy_name1
 ```
 
 ### Example
 
-1. 删除 table1 的 test_row_policy_1
+1. Drop the row policy for table1 named test_row_policy_1
 
    ```sql
    DROP ROW POLICY test_row_policy_1 on table1
    ```
 
-2. 删除 table1 作用于 test 的 test_row_policy_1 行安全策略
+2. Drop the row policy for table1 using by user test
 
    ```sql
    DROP ROW POLICY test_row_policy_1 on table1 for test
    ```
 
-3. 删除 policy_name1 对应的冷热数据存储策略
+3. Drop the storage policy named policy_name1
    ```sql
    DROP STORAGE POLICY policy_name1
    ```
