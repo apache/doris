@@ -28,9 +28,7 @@ import java.util.Optional;
 /**
  * Physical operator represents broadcast hash join.
  */
-public class PhysicalBroadcastHashJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends Plan>
-        extends PhysicalBinaryOperator<PhysicalBroadcastHashJoin<LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
-            LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
+public class PhysicalBroadcastHashJoin extends PhysicalBinaryOperator {
 
     private final JoinType joinType;
     private final Optional<Expression> onClause;

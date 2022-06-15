@@ -23,16 +23,15 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 
 import java.util.List;
 
 /**
  * Abstract class for all logical operator that have no input.
  */
-public abstract class LogicalLeafOperator<TYPE extends LogicalLeafOperator<TYPE>>
-        extends AbstractOperator<TYPE>
-        implements LogicalOperator<TYPE>, LeafPlanOperator<TYPE> {
+public abstract class LogicalLeafOperator extends AbstractOperator
+        implements LogicalOperator, LeafPlanOperator {
 
     public LogicalLeafOperator(OperatorType type) {
         super(type);
@@ -46,7 +45,7 @@ public abstract class LogicalLeafOperator<TYPE extends LogicalLeafOperator<TYPE>
     public abstract List<Slot> doComputeOutput();
 
     @Override
-    public LogicalLeaf toTreeNode(GroupExpression groupExpression) {
-        return new LogicalLeaf(this, groupExpression, groupExpression.getParent().getLogicalProperties());
+    public LogicalLeafPlan toTreeNode(GroupExpression groupExpression) {
+        return new LogicalLeafPlan(this, groupExpression, groupExpression.getParent().getLogicalProperties());
     }
 }

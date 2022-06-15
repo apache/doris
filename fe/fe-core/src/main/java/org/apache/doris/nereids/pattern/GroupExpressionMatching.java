@@ -32,11 +32,11 @@ import java.util.Objects;
  * TODO: adapt ANY and MULTI
  * TODO: add ut
  */
-public class GroupExpressionMatching<NODE_TYPE extends TreeNode> implements Iterable<NODE_TYPE> {
-    private final Pattern pattern;
+public class GroupExpressionMatching<NODE_TYPE extends TreeNode<NODE_TYPE>> implements Iterable<NODE_TYPE> {
+    private final Pattern<? extends NODE_TYPE, NODE_TYPE> pattern;
     private final GroupExpression groupExpression;
 
-    public GroupExpressionMatching(Pattern pattern, GroupExpression groupExpression) {
+    public GroupExpressionMatching(Pattern<? extends NODE_TYPE, NODE_TYPE> pattern, GroupExpression groupExpression) {
         this.pattern = Objects.requireNonNull(pattern);
         this.groupExpression = Objects.requireNonNull(groupExpression);
     }
@@ -49,7 +49,7 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode> implements Iter
     /**
      * Iterator to get all subtrees.
      */
-    public static class GroupExpressionIterator<NODE_TYPE extends TreeNode> implements Iterator<NODE_TYPE> {
+    public static class GroupExpressionIterator<NODE_TYPE extends TreeNode<NODE_TYPE>> implements Iterator<NODE_TYPE> {
         private final List<NODE_TYPE> results;
         private int resultIndex = 0;
 
@@ -59,7 +59,8 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode> implements Iter
          * @param pattern pattern to match
          * @param groupExpression group expression to be matched
          */
-        public GroupExpressionIterator(Pattern pattern, GroupExpression groupExpression) {
+        public GroupExpressionIterator(Pattern<? extends NODE_TYPE, NODE_TYPE> pattern,
+                GroupExpression groupExpression) {
             results = Lists.newArrayList();
 
             if (!pattern.matchOperator(groupExpression.getOperator())) {
@@ -74,7 +75,7 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode> implements Iter
                 return;
             }
 
-            NODE_TYPE root = (NODE_TYPE) groupExpression.getOperator().toTreeNode(groupExpression);
+            NODE_TYPE root = groupExpression.getOperator().toTreeNode(groupExpression);
 
             List<List<NODE_TYPE>> childrenResults = Lists.newArrayListWithCapacity(groupExpression.arity());
             for (int i = 0; i < groupExpression.arity(); ++i) {
@@ -96,7 +97,7 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode> implements Iter
                     for (int i = 0; i < childrenResults.size(); i++) {
                         children.add(childrenResults.get(i).get(childrenResultsIndex[i]));
                     }
-                    NODE_TYPE result = (NODE_TYPE) root.newChildren(children);
+                    NODE_TYPE result = root.newChildren(children);
                     results.add(result);
                     offset = 0;
                     while (true) {

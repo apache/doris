@@ -37,6 +37,8 @@ header:
     - 'tsan_suppressions'
     - 'docs/.markdownlintignore'
     - 'fe/fe-core/src/test/resources/data/net_snmp_normal'
+    - 'fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaLexer.g4'
+    - 'fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaParser.g4'
     - 'be/src/common/signal_handler.h'
     - 'be/src/olap/lru_cache.cpp'
     - 'be/src/olap/lru_cache.h'

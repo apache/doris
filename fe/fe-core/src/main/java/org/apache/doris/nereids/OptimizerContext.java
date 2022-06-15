@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.TreeNode;
 /**
  * Context used in memo.
  */
-public class OptimizerContext<NODE_TYPE extends TreeNode> {
+public class OptimizerContext<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     private final Memo<NODE_TYPE> memo;
     private RuleSet ruleSet;
     private JobPool jobPool;

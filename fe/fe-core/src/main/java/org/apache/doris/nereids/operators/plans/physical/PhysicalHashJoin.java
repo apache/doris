@@ -22,12 +22,12 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 
 /**
  * Physical hash join plan operator.
  */
-public class PhysicalHashJoin extends PhysicalBinaryOperator<PhysicalHashJoin, PhysicalPlan, PhysicalPlan> {
+public class PhysicalHashJoin extends PhysicalBinaryOperator {
 
     private final JoinType joinType;
 
@@ -54,9 +54,8 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator<PhysicalHashJoin, P
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalHashJoinPlan(
-                (PhysicalPlan<? extends PhysicalPlan, PhysicalHashJoin>) plan, context);
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalHashJoinPlan((PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan>) plan, context);
     }
 
 }
