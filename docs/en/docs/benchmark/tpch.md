@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# TPC-H 基准测试
+# TPC-H benchmark
 
 TPC-H is a Decision Support Benchmark consisting of a set of business-oriented ad hoc queries and concurrent data modifications. The data that queries and populates the database has broad industry relevance. This benchmark demonstrates a decision support system that examines large amounts of data, executes highly complex queries, and answers critical business questions. The performance metric reported by TPC-H is called the TPC-H Hourly Compound Query Performance Metric (QphH@Size) and reflects multiple aspects of the system's ability to process queries. These aspects include the database size chosen when executing the query, the query processing power when the query is submitted by a single stream, and the query throughput when the query is submitted by multiple concurrent users.
 
@@ -59,16 +59,16 @@ On 22 queries on the TPC-H standard test dataset, we tested the upcoming Doris 1
 
 The entire test simulation generates 100G of data and is imported into Doris 0.15.0 RC04 and Doris 1.1 versions for testing. The following is the relevant description of the table and the amount of data.
 
-| TPC-H Table Name | Rows   | data size  | remark |
-| :--------------- | :----- | ---------- | :----- |
-| REGION           | 5      | 400KB      |        |
-| NATION           | 25     | 7.714 KB   |        |
-| SUPPLIER         | 100万  | 85.528 MB  |        |
-| PART             | 2000万 | 752.330 MB |        |
-| PARTSUPP         | 8000万 | 4.375 GB   |        |
-| CUSTOMER         | 1500万 | 1.317 GB   |        |
-| ORDERS           | 1.5亿  | 6.301 GB   |        |
-| LINEITEM         | 6亿    | 20.882 GB  |        |
+| TPC-H Table Name | Rows        | data size  | remark |
+| :--------------- | :---------- | ---------- | :----- |
+| REGION           | 5           | 400KB      |        |
+| NATION           | 25          | 7.714 KB   |        |
+| SUPPLIER         | 100 million | 85.528 MB  |        |
+| PART             | 20 million  | 752.330 MB |        |
+| PARTSUPP         | 80 million  | 4.375 GB   |        |
+| CUSTOMER         | 15 million  | 1.317 GB   |        |
+| ORDERS           | 1.5 billion | 6.301 GB   |        |
+| LINEITEM         | 6 billion   | 20.882 GB  |        |
 
 ## 4. Test SQL
 
