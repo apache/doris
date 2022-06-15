@@ -17,7 +17,6 @@
 
 #include "olap/tablet_meta.h"
 
-#include <boost/algorithm/string.hpp>
 #include <sstream>
 
 #include "olap/file_helper.h"
