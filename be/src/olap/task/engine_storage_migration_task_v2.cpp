@@ -28,7 +28,7 @@ EngineStorageMigrationTaskV2::EngineStorageMigrationTaskV2(const TStorageMigrati
         : _storage_migration_req(request) {
     _mem_tracker = MemTracker::create_tracker(
             config::memory_limitation_per_thread_for_storage_migration_bytes,
-            fmt::format("EngineStorageMigrationTaskV2: {}-{}",
+            fmt::format("EngineStorageMigrationTaskV2#baseTabletId{}:newTabletId{}",
                         std::to_string(_storage_migration_req.base_tablet_id),
                         std::to_string(_storage_migration_req.new_tablet_id)),
             StorageEngine::instance()->storage_migration_mem_tracker(), MemTrackerLevel::TASK);

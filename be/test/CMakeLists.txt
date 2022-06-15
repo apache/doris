@@ -58,7 +58,7 @@ set(EXEC_TEST_FILES
     exec/es_scan_reader_test.cpp
     exec/s3_reader_test.cpp
     exec/multi_bytes_separator_test.cpp
-    # exec/hdfs_file_reader_test.cpp
+    exec/hdfs_file_reader_test.cpp
     # exec/new_olap_scan_node_test.cpp
     # exec/pre_aggregation_node_test.cpp
     # exec/partitioned_hash_table_test.cpp

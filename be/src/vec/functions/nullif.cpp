@@ -50,7 +50,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return arguments[0];
+        return make_nullable(arguments[0]);
     }
 
     NullPresence get_null_resense(const ColumnsWithTypeAndName& args) const {
@@ -103,7 +103,9 @@ public:
 
         auto equals_func =
                 SimpleFunctionFactory::instance().get_function("eq", eq_columns, result_type);
-        equals_func->execute(context, eq_temporary_block, {0, 1}, 2, input_rows_count);
+        DCHECK(equals_func);
+        RETURN_IF_ERROR(
+                equals_func->execute(context, eq_temporary_block, {0, 1}, 2, input_rows_count));
 
         const ColumnWithTypeAndName new_result_column {
                 block.get_by_position(result),
@@ -127,18 +129,13 @@ public:
                   block.get_by_position(result).type, "NULL"},
                  block.get_by_position(arguments[0]),
                  new_result_column});
+
         auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns,
                                                                       new_result_column.type);
-        func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count);
-        /// need to handle nullable type and not nullable type differently,
-        /// because `IF` function always return nullable type, but result type is not always
-        if (block.get_by_position(result).type->is_nullable()) {
-            block.get_by_position(result).column = temporary_block.get_by_position(3).column;
-        } else {
-            auto cols = check_and_get_column<ColumnNullable>(
-                    temporary_block.get_by_position(3).column.get());
-            block.replace_by_position(result, std::move(cols->get_nested_column_ptr()));
-        }
+        DCHECK(func_if);
+        RETURN_IF_ERROR(func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count));
+        block.get_by_position(result).column = temporary_block.get_by_position(3).column;
+
         return Status::OK();
     }
 };

@@ -64,4 +64,16 @@ public class UnboundSlot extends Slot<UnboundSlot> {
     public String toString() {
         return "'" + getName();
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        UnboundSlot other = (UnboundSlot) o;
+        return nameParts.containsAll(other.getNameParts());
+    }
 }

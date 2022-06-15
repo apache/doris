@@ -123,12 +123,6 @@ private:
         static void SetInputNullsBufferElement(JniContext* jni_ctx, int index, uint8_t value);
         static uint8_t* GetInputValuesBufferAtOffset(JniContext* jni_ctx, int offset);
     };
-
-    static const int32_t INITIAL_RESERVED_BUFFER_SIZE = 1024;
-    // TODO: we need a heuristic strategy to increase buffer size for variable-size output.
-    static inline int32_t IncreaseReservedBufferSize(int n) {
-        return INITIAL_RESERVED_BUFFER_SIZE << n;
-    }
 };
 
 } // namespace vectorized

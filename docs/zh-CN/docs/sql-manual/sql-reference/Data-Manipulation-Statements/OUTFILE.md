@@ -75,10 +75,20 @@ INTO OUTFILE "file_path"
         broker.kerberos_principal: 指定 kerberos 的 principal
         broker.kerberos_keytab: 指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问
         
-        HDFS 相关属性需加前缀 `hdfs.`:
-        hdfs.fs.defaultFS: namenode 地址和端口
-        hdfs.hdfs_user: hdfs 用户名
-        
+        HDFS 相关属性:
+        fs.defaultFS: namenode 地址和端口
+        hadoop.username: hdfs 用户名
+        dfs.nameservices: name service名称，与hdfs-site.xml保持一致
+        dfs.ha.namenodes.[nameservice ID]: namenode的id列表,与hdfs-site.xml保持一致
+        dfs.namenode.rpc-address.[nameservice ID].[name node ID]: Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保
+持一致
+        dfs.client.failover.proxy.provider.[nameservice ID]: HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+
+        对于开启kerberos认证的Hadoop 集群，还需要额外设置如下 PROPERTIES 属性:
+        dfs.namenode.kerberos.principal: HDFS namenode 服务的 principal 名称
+        hadoop.security.authentication: 认证方式设置为 kerberos
+        hadoop.kerberos.principal: 设置 Doris 连接 HDFS 时使用的 Kerberos 主体
+        hadoop.kerberos.keytab: 设置 keytab 本地文件路径
         S3 协议则直接执行 S3 协议配置即可:
         AWS_ENDPOINT
         AWS_ACCESS_KEY
@@ -239,8 +249,29 @@ INTO OUTFILE "file_path"
     FORMAT AS CSV
     PROPERTIES
     (
-        "hdfs.fs.defaultFS" = "hdfs://ip:port",
-        "hdfs.hdfs_user" = "work"
+        "fs.defaultFS" = "hdfs://ip:port",
+        "hadoop.username" = "work"
+    );
+    ```
+
+    如果Hadoop 集群开启高可用并且启用 Kerberos 认证，可以参考如下SQL语句：
+
+    ```sql
+    SELECT * FROM tbl
+    INTO OUTFILE "hdfs://path/to/result_"
+    FORMAT AS CSV
+    PROPERTIES
+    (
+    'fs.defaultFS'='hdfs://hacluster/',
+    'dfs.nameservices'='hacluster',
+    'dfs.ha.namenodes.hacluster'='n1,n2',
+    'dfs.namenode.rpc-address.hacluster.n1'='192.168.0.1:8020',
+    'dfs.namenode.rpc-address.hacluster.n2'='192.168.0.2:8020',
+    'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'dfs.namenode.kerberos.principal'='hadoop/_HOST@REALM.COM'
+    'hadoop.security.authentication'='kerberos',
+    'hadoop.kerberos.principal'='doris_test@REALM.COM',
+    'hadoop.kerberos.keytab'='/path/to/doris_test.keytab'
     );
     ```
     

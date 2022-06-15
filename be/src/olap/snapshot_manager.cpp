@@ -119,7 +119,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 // For now, alpha and beta rowset meta have same fields, so we can just use
 // AlphaRowsetMeta here.
 Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
-                                           const int32_t& schema_hash) {
+                                           int64_t replica_id, const int32_t& schema_hash) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
@@ -151,6 +151,7 @@ Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, i
     // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);
+    new_tablet_meta_pb.set_replica_id(replica_id);
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchema tablet_schema;
     tablet_schema.init_from_pb(new_tablet_meta_pb.schema());

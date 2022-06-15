@@ -28,4 +28,14 @@ public interface BinaryExpression<
             RIGHT_CHILD_TYPE extends Expression>
         extends BinaryNode<EXPR_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
+    @Override
+    default LEFT_CHILD_TYPE left() {
+        return child(0);
+    }
+
+    @Override
+    default RIGHT_CHILD_TYPE right() {
+        return child(1);
+    }
+
 }

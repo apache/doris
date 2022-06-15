@@ -59,7 +59,7 @@ public enum JoinType {
      * @return legacy join type in Doris
      * @throws AnalysisException throw this exception when input join type cannot convert to legacy join type in Doris
      */
-    public static JoinOperator toJoinOperator(JoinType joinType) throws AnalysisException {
+    public static JoinOperator toJoinOperator(JoinType joinType) {
         switch (joinType) {
             case INNER_JOIN:
                 return JoinOperator.INNER_JOIN;
@@ -80,7 +80,7 @@ public enum JoinType {
             case CROSS_JOIN:
                 return JoinOperator.CROSS_JOIN;
             default:
-                throw new AnalysisException("Not support join operator: " + joinType.name());
+                throw new RuntimeException("Unexpected join operator: " + joinType.name());
         }
     }
 

@@ -25,6 +25,13 @@ import org.apache.doris.nereids.trees.NodeType;
 public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>> extends NamedExpression<EXPR_TYPE>
         implements LeafExpression<EXPR_TYPE> {
 
+    private int id;
+
+    public Slot(NodeType type, int id, Expression... children) {
+        super(type, children);
+        this.id = id;
+    }
+
     public Slot(NodeType type) {
         super(type);
     }
@@ -32,5 +39,9 @@ public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>> extends NamedExpre
     @Override
     public Slot toSlot() {
         return this;
+    }
+
+    public int getId() {
+        return id;
     }
 }

@@ -22,4 +22,13 @@ package org.apache.doris.nereids.properties;
  */
 public class PhysicalProperties {
 
+    private DistributionSpec distributionDesc;
+
+    public DistributionSpec getDistributionDesc() {
+        return distributionDesc;
+    }
+
+    public void setDistributionDesc(DistributionSpec distributionDesc) {
+        this.distributionDesc = distributionDesc;
+    }
 }

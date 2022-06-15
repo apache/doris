@@ -35,4 +35,5 @@ public interface PhysicalPlan<
 
     @Override
     Plan child(int index);
+
 }

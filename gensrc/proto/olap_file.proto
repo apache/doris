@@ -262,6 +262,7 @@ message TabletMetaPB {
     repeated RowsetMetaPB stale_rs_metas = 18;
     optional StorageMediumPB storage_medium = 19 [default = HDD];
     optional string remote_storage_name = 20;
+    optional int64 replica_id = 21 [default = 0];
 }
 
 message OLAPIndexHeaderMessage {
