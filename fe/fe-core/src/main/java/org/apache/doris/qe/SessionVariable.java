@@ -37,9 +37,11 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 
-// System variable
+/**
+ * System variable.
+ **/
 public class SessionVariable implements Serializable, Writable {
-    static final Logger LOG = LogManager.getLogger(SessionVariable.class);
+    public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
@@ -112,6 +114,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
     public static final String EVENT_SCHEDULER = "event_scheduler";
     public static final String STORAGE_ENGINE = "storage_engine";
+    // Compatible with datagrip mysql
+    public static final String DEFAULT_STORAGE_ENGINE = "default_storage_engine";
+    public static final String DEFAULT_TMP_STORAGE_ENGINE = "default_tmp_storage_engine";
+
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
     // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
@@ -160,7 +166,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
 
-    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
+    // If user set a very small value, use this value instead.
+    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
@@ -180,7 +187,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
-    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY =
+            "trim_tailing_spaces_for_external_table_query";
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
@@ -322,9 +330,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
 
-    @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
-    private boolean enableFoldConstantByBe = false;
-
     /*
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
@@ -343,9 +348,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
     public boolean enablePartitionCache = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
-    private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
@@ -368,6 +370,10 @@ public class SessionVariable implements Serializable, Writable {
     public String eventScheduler = "OFF";
     @VariableMgr.VarAttr(name = STORAGE_ENGINE)
     public String storageEngine = "olap";
+    @VariableMgr.VarAttr(name = DEFAULT_STORAGE_ENGINE)
+    public String defaultStorageEngine = "olap";
+    @VariableMgr.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
+    public String defaultTmpStorageEngine = "olap";
     @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
     public int divPrecisionIncrement = 4;
 
@@ -394,45 +400,21 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARTITION_PRUNE_ALGORITHM_VERSION, needForward = true)
     public int partitionPruneAlgorithmVersion = 2;
 
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
-    private String runtimeFilterMode = "GLOBAL";
-    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE)
-    private int runtimeBloomFilterSize = 2097152;
-    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE)
-    private int runtimeBloomFilterMinSize = 1048576;
-    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE)
-    private int runtimeBloomFilterMaxSize = 16777216;
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS)
-    private int runtimeFilterWaitTimeMs = 1000;
-    @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM)
-    private int runtimeFiltersMaxNum = 10;
-    // Set runtimeFilterType to IN_OR_BLOOM filter
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
-    private int runtimeFilterType = 8;
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
-    private int runtimeFilterMaxInNum = 1024;
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
     public boolean enableVectorizedEngine = true;
+
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
 
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
 
-    @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
-    private boolean disableJoinReorder = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
-    private boolean enableInferPredicate = true;
-
     @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
     public boolean sqlQuoteShowCreate = true;
 
-    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
-    private boolean returnObjectDataAsBinary = false;
+    @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
+    public boolean trimTailingSpacesForExternalTableQuery = false;
 
-    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
-    private String blockEncryptionMode = "";
 
     // the maximum size in bytes for a table that will be broadcast to all be nodes
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
@@ -440,14 +422,54 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
 
+    @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
+    private boolean enableJoinReorderBasedCost = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
+    private boolean enableFoldConstantByBe = false;
+
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
+    private String runtimeFilterMode = "GLOBAL";
+
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE)
+    private int runtimeBloomFilterSize = 2097152;
+
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE)
+    private int runtimeBloomFilterMinSize = 1048576;
+
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE)
+    private int runtimeBloomFilterMaxSize = 16777216;
+
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS)
+    private int runtimeFilterWaitTimeMs = 1000;
+
+    @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM)
+    private int runtimeFiltersMaxNum = 10;
+
+    // Set runtimeFilterType to IN_OR_BLOOM filter
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
+    private int runtimeFilterType = 8;
+
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
+    private int runtimeFilterMaxInNum = 1024;
+
+    @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
+    private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
+    private boolean enableInferPredicate = true;
+
+    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    private boolean returnObjectDataAsBinary = false;
+
+    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
+    private String blockEncryptionMode = "";
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
-    @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
-    public boolean trimTailingSpacesForExternalTableQuery = false;
-
     @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
-    boolean enableArrayType = false;
+    private boolean enableArrayType = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -589,6 +611,9 @@ public class SessionVariable implements Serializable, Writable {
         return codegenLevel;
     }
 
+    /**
+     * setMaxExecMemByte.
+     **/
     public void setMaxExecMemByte(long maxExecMemByte) {
         if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
             this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
@@ -831,6 +856,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableVectorizedEngine = enableVectorizedEngine;
     }
 
+    /**
+     * getInsertVisibleTimeoutMs.
+     **/
     public long getInsertVisibleTimeoutMs() {
         if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
             return MIN_INSERT_VISIBLE_TIMEOUT_MS;
@@ -839,6 +867,9 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    /**
+     * setInsertVisibleTimeoutMs.
+     **/
     public void setInsertVisibleTimeoutMs(long insertVisibleTimeoutMs) {
         if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
             this.insertVisibleTimeoutMs = MIN_INSERT_VISIBLE_TIMEOUT_MS;
@@ -939,8 +970,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableArrayType = enableArrayType;
     }
 
-    // Serialize to thrift object
-    // used for rest api
+    /**
+     * Serialize to thrift object.
+     * Used for rest api.
+     **/
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
@@ -1072,7 +1105,9 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    // Get all variables which need to forward along with statement
+    /**
+     * Get all variables which need to forward along with statement.
+     **/
     public Map<String, String> getForwardVariables() {
         HashMap<String, String> map = new HashMap<String, String>();
         try {
@@ -1090,6 +1125,9 @@ public class SessionVariable implements Serializable, Writable {
         return map;
     }
 
+    /**
+     * Set forwardedSessionVariables for variables.
+     **/
     public void setForwardedSessionVariables(Map<String, String> variables) {
         try {
             Field[] fields = SessionVariable.class.getFields();
@@ -1134,15 +1172,9 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    // Get all variables which need to be set in TQueryOptions
-    public TQueryOptions getQueryOptionVariables() {
-        TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setMemLimit(maxExecMemByte);
-        queryOptions.setQueryTimeout(queryTimeoutS);
-        queryOptions.setLoadMemLimit(loadMemLimit);
-        return queryOptions;
-    }
-
+    /**
+     * Set forwardedSessionVariables for queryOptions.
+     **/
     public void setForwardedSessionVariables(TQueryOptions queryOptions) {
         if (queryOptions.isSetMemLimit()) {
             setMaxExecMemByte(queryOptions.getMemLimit());
@@ -1154,4 +1186,16 @@ public class SessionVariable implements Serializable, Writable {
             setLoadMemLimit(queryOptions.getLoadMemLimit());
         }
     }
+
+    /**
+     * Get all variables which need to be set in TQueryOptions.
+     **/
+    public TQueryOptions getQueryOptionVariables() {
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.setMemLimit(maxExecMemByte);
+        queryOptions.setQueryTimeout(queryTimeoutS);
+        queryOptions.setLoadMemLimit(loadMemLimit);
+        return queryOptions;
+    }
+
 }
