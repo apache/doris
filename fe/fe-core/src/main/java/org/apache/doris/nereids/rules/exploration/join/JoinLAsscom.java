@@ -22,7 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 
 /**
  * Rule for change inner join left associative to right.
@@ -38,7 +38,7 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), any()).then(topJoin -> {
-            LogicalBinary<LogicalJoin, Plan, Plan> bottomJoin = topJoin.left();
+            LogicalBinaryPlan<LogicalJoin, Plan, Plan> bottomJoin = topJoin.left();
 
             Plan a = bottomJoin.left();
             Plan b = bottomJoin.right();

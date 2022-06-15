@@ -22,14 +22,14 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import java.util.List;
 
 /**
  * Physical aggregation plan operator.
  */
-public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregation, PhysicalPlan> {
+public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
 
@@ -80,8 +80,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator<PhysicalAggregati
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalAggregationPlan(
-                (PhysicalPlan<? extends PhysicalPlan, PhysicalAggregation>) plan, context);
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalAggregationPlan((PhysicalUnaryPlan<PhysicalAggregation, Plan>) plan, context);
     }
 }

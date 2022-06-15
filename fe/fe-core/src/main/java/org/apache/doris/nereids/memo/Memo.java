@@ -33,7 +33,7 @@ import java.util.Map;
  *
  * @param <NODE_TYPE> should be {@link Plan} or {@link Expression}
  */
-public class Memo<NODE_TYPE extends TreeNode> {
+public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     private final List<Group> groups = Lists.newArrayList();
     // we could not use Set, because Set has no get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
@@ -59,12 +59,11 @@ public class Memo<NODE_TYPE extends TreeNode> {
     public GroupExpression copyIn(NODE_TYPE node, Group target, boolean rewrite) {
         Preconditions.checkArgument(!rewrite || target != null);
         List<Group> childrenGroups = Lists.newArrayList();
-        for (Object object : node.children()) {
-            NODE_TYPE child = (NODE_TYPE) object;
+        for (NODE_TYPE child : node.children()) {
             childrenGroups.add(copyIn(child, null, rewrite).getParent());
         }
-        if (node.getGroupExpression() != null && groupExpressions.containsKey(node.getGroupExpression())) {
-            return node.getGroupExpression();
+        if (node.getGroupExpression().isPresent() && groupExpressions.containsKey(node.getGroupExpression().get())) {
+            return node.getGroupExpression().get();
         }
         GroupExpression newGroupExpression = new GroupExpression(node.getOperator());
         newGroupExpression.setChildren(childrenGroups);

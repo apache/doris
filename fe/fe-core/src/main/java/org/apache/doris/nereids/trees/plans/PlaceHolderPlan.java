@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.PlanOperator;
+import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * A virtual node that represents a fixed plan.
@@ -34,8 +34,8 @@ import java.util.List;
 public class PlaceHolderPlan implements LeafPlan {
 
     @Override
-    public GroupExpression getGroupExpression() {
-        return null;
+    public Optional<GroupExpression> getGroupExpression() {
+        return Optional.empty();
     }
 
     @Override
@@ -44,12 +44,12 @@ public class PlaceHolderPlan implements LeafPlan {
     }
 
     @Override
-    public TreeNode newChildren(List children) {
+    public Plan newChildren(List children) {
         throw new RuntimeException();
     }
 
     @Override
-    public PlanOperator getOperator() {
+    public LeafPlanOperator getOperator() {
         throw new RuntimeException();
     }
 

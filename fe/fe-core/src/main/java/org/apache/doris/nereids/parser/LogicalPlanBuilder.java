@@ -66,10 +66,10 @@ import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -95,7 +95,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     private final BiFunction<WhereClauseContext, LogicalPlan, LogicalPlan> withWhereClause =
             (WhereClauseContext ctx, LogicalPlan plan)
-                    -> new LogicalUnary(new LogicalFilter(expression((ctx.booleanExpression()))), plan);
+                    -> new LogicalUnaryPlan(new LogicalFilter(expression((ctx.booleanExpression()))), plan);
 
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
@@ -213,7 +213,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         LogicalPlan withProject;
         if (CollectionUtils.isNotEmpty(namedExpressions)) {
-            withProject = new LogicalUnary(new LogicalProject(namedExpressions), withFilter);
+            withProject = new LogicalUnaryPlan(new LogicalProject(namedExpressions), withFilter);
         } else {
             withProject = withFilter;
         }
@@ -229,7 +229,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (left == null) {
                 left = right;
             } else {
-                left = new LogicalBinary(new LogicalJoin(JoinType.INNER_JOIN, null), left, right);
+                left = new LogicalBinaryPlan(new LogicalJoin(JoinType.INNER_JOIN, null), left, right);
             }
             left = withJoinRelations(left, relation);
         }
@@ -269,7 +269,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = expression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalBinary(
+            last = new LogicalBinaryPlan(
                     new LogicalJoin(joinType, Optional.ofNullable(condition)),
                     last, plan(join.relationPrimary())
             );
@@ -285,7 +285,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
         UnboundRelation relation = new UnboundRelation(tableId);
         // TODO: sample and time travel, alias, sub query
-        return new LogicalLeaf(relation);
+        return new LogicalLeafPlan(relation);
     }
 
     /**

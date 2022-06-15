@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot<UnboundSlot> {
+public class UnboundSlot extends Slot {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {
