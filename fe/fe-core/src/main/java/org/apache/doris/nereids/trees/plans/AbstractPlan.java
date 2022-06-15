@@ -21,10 +21,15 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -35,6 +40,8 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
         extends AbstractTreeNode<Plan> implements Plan {
 
     public final OP_TYPE operator;
+    protected StatsDeriveResult statsDeriveResult;
+    protected long limit;
 
     public AbstractPlan(NodeType type, OP_TYPE operator, Plan... children) {
         super(type, children);
@@ -85,5 +92,35 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
             newLasts.add(i + 1 == children.size());
             treeString(lines, depth + 1, newLasts, children.get(i));
         }
+    }
+
+    @Override
+    public List<Plan> getChildrenStats() {
+        return children();
+    }
+
+    @Override
+    public StatsDeriveResult getStatsDeriveResult() {
+        return statsDeriveResult;
+    }
+
+    @Override
+    public PlanNode.NodeType getNodeType() {
+        return null;
+    }
+
+    @Override
+    public void setStatsDeriveResult(StatsDeriveResult result) {
+        this.statsDeriveResult = result;
+    }
+
+    @Override
+    public long getLimit() {
+        return limit;
+    }
+
+    @Override
+    public List<? extends ExprStats> getConjuncts() {
+        return Collections.emptyList();
     }
 }

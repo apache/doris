@@ -15,16 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.statistics;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.planner.PlanNode.NodeType;
+
+import java.util.List;
 
 /**
- * interface for all physical plan.
+ * Used to abstract a common operator interface for statistics deduction to fit both optimizers.
  */
-public interface PhysicalPlan extends Plan {
-    @Override
-    PhysicalOperator getOperator();
+public interface PlanStats {
+
+    List<? extends PlanStats> getChildrenStats();
+
+    StatsDeriveResult getStatsDeriveResult();
+
+    NodeType getNodeType();
+
+    void setStatsDeriveResult(StatsDeriveResult result);
+
+    long getLimit();
+
+    List<? extends ExprStats> getConjuncts();
+
 }

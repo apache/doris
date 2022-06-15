@@ -21,13 +21,14 @@ import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.statistics.PlanStats;
 
 import java.util.List;
 
 /**
  * Abstract class for all plan node.
  */
-public interface Plan extends TreeNode<Plan> {
+public interface Plan extends TreeNode<Plan>, PlanStats {
 
     PlanOperator getOperator();
 

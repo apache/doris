@@ -20,7 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -42,14 +41,14 @@ public class BaseStatsDerive {
     protected long rowCount = -1;
     protected long limit = -1;
 
-    protected List<Expr> conjuncts = Lists.newArrayList();
+    protected List<ExprStats> conjuncts = Lists.newArrayList();
     protected List<StatsDeriveResult> childrenStatsResult = Lists.newArrayList();
 
-    protected void init(PlanNode node) throws UserException {
+    protected void init(PlanStats node) throws UserException {
         limit = node.getLimit();
         conjuncts.addAll(node.getConjuncts());
 
-        for (PlanNode childNode : node.getChildren()) {
+        for (PlanStats childNode : node.getChildrenStats()) {
             StatsDeriveResult result = childNode.getStatsDeriveResult();
             if (result == null) {
                 throw new UserException(
@@ -87,7 +86,7 @@ public class BaseStatsDerive {
     }
 
     protected double computeSelectivity() {
-        for (Expr expr : conjuncts) {
+        for (ExprStats expr : conjuncts) {
             expr.setSelectivity();
         }
         return computeCombinedSelectivity(conjuncts);
@@ -110,10 +109,10 @@ public class BaseStatsDerive {
      * * additional selectivity into the final result.
      * </p>
      */
-    protected double computeCombinedSelectivity(List<Expr> conjuncts) {
+    protected double computeCombinedSelectivity(List<ExprStats> conjuncts) {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
-        for (Expr e : conjuncts) {
+        for (ExprStats e : conjuncts) {
             if (e.hasSelectivity()) {
                 selectivities.add(e.getSelectivity());
             }

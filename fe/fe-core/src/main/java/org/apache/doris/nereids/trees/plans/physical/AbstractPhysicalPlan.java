@@ -25,7 +25,12 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatsDeriveResult;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -80,4 +85,5 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
     public PhysicalProperties getPhysicalProperties() {
         return physicalProperties;
     }
+
 }

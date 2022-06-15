@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.statistics.ExprStats;
 
 import java.util.List;
 

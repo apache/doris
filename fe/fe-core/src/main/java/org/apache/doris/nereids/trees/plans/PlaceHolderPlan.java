@@ -22,6 +22,10 @@ import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.List;
 import java.util.Optional;
@@ -77,4 +81,34 @@ public class PlaceHolderPlan implements LeafPlan {
     public Plan child(int index) {
         throw new RuntimeException();
     }
+
+    @Override
+    public List<? extends PlanStats> getChildrenStats() {
+        return null;
+    }
+
+    @Override
+    public StatsDeriveResult getStatsDeriveResult() {
+        return null;
+    }
+
+    @Override
+    public PlanNode.NodeType getNodeType() {
+        return null;
+    }
+
+    @Override
+    public void setStatsDeriveResult(StatsDeriveResult result) {
+    }
+
+    @Override
+    public long getLimit() {
+        return 0;
+    }
+
+    @Override
+    public List<? extends ExprStats> getConjuncts() {
+        return null;
+    }
+
 }
