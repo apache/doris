@@ -136,7 +136,22 @@ public class PolicyMgr implements Writable {
         return userPolicySet.contains(user);
     }
 
-    private boolean existPolicy(Policy checkedPolicy) {
+    /**
+     * Get policy by type and name
+     * @param checkedPolicy condition to get policy
+     * @return Policy in typeToPolicyMap
+     */
+    public Policy getPolicy(Policy checkedPolicy) {
+        List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
+        for (Policy policy : policies) {
+            if (policy.matchPolicy(checkedPolicy)) {
+                return policy;
+            }
+        }
+        return null;
+    }
+
+    public boolean existPolicy(Policy checkedPolicy) {
         List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
         return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedPolicy));
     }

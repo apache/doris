@@ -680,10 +680,7 @@ public class Alter {
             DateLiteral dateLiteral = new DateLiteral(dataProperty.getCooldownTimeMs(),
                     TimeUtils.getTimeZone(), Type.DATETIME);
             newProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, dateLiteral.getStringValue());
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE, dataProperty.getRemoteStorageResourceName());
-            DateLiteral dateLiteral1 = new DateLiteral(dataProperty.getRemoteCooldownTimeMs(),
-                    TimeUtils.getTimeZone(), Type.DATETIME);
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME, dateLiteral1.getStringValue());
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, dataProperty.getRemoteStoragePolicy());
             newProperties.putAll(properties);
             // 4.3 analyze new properties
             DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(newProperties, null);

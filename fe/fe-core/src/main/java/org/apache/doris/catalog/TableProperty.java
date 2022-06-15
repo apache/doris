@@ -72,8 +72,8 @@ public class TableProperty implements Writable {
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
-    // remote storage resource, for cold data
-    private String remoteStorageResource;
+    // remote storage policy, for cold data
+    private String remoteStoragePolicy;
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -162,8 +162,8 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildRemoteStorageResource() {
-        remoteStorageResource = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE, "");
+    public TableProperty buildRemoteStoragePolicy() {
+        remoteStoragePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, "");
         return this;
     }
 
@@ -184,10 +184,9 @@ public class TableProperty implements Writable {
                 replicaAlloc.toCreateStmt());
     }
 
-    public void setRemoteStorageResource(String resourceName) {
-        this.remoteStorageResource = resourceName;
-        properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE,
-                resourceName);
+    public void setRemoteStoragePolicy(String remotePolicyName) {
+        this.remoteStoragePolicy = remotePolicyName;
+        properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, remotePolicyName);
     }
 
     public ReplicaAllocation getReplicaAllocation() {
@@ -232,8 +231,8 @@ public class TableProperty implements Writable {
         return dataSortInfo;
     }
 
-    public String getRemoteStorageResource() {
-        return remoteStorageResource;
+    public String getRemoteStoragePolicy() {
+        return remoteStoragePolicy;
     }
 
     public TCompressionType getCompressionType() {
@@ -264,7 +263,7 @@ public class TableProperty implements Writable {
                 .buildInMemory()
                 .buildStorageFormat()
                 .buildDataSortInfo()
-                .buildRemoteStorageResource()
+                .buildRemoteStoragePolicy()
                 .buildCompressionType();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation

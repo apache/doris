@@ -1811,8 +1811,8 @@ public class InternalDataSource implements DataSourceIf {
         olapTable.setIsInMemory(isInMemory);
 
         // set remote storage
-        String resourceName = PropertyAnalyzer.analyzeRemoteStorageResource(properties);
-        olapTable.setRemoteStorageResource(resourceName);
+        String remoteStoragePolicy = PropertyAnalyzer.analyzeRemoteStoragePolicy(properties);
+        olapTable.setRemoteStoragePolicy(remoteStoragePolicy);
 
         TTabletType tabletType;
         try {
@@ -1820,7 +1820,6 @@ public class InternalDataSource implements DataSourceIf {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.

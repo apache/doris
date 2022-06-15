@@ -2810,11 +2810,11 @@ public class Catalog {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
 
-            // remote storage resource
-            String remoteStorageResource = olapTable.getRemoteStorageResource();
-            if (!Strings.isNullOrEmpty(remoteStorageResource)) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE).append("\" = \"");
-                sb.append(remoteStorageResource).append("\"");
+            // remote storage
+            String remoteStoragePolicy = olapTable.getRemoteStoragePolicy();
+            if (!Strings.isNullOrEmpty(remoteStoragePolicy)) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY).append("\" = \"");
+                sb.append(remoteStoragePolicy).append("\"");
             }
             // compression type
             if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
