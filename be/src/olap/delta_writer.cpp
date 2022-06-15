@@ -94,8 +94,10 @@ Status DeltaWriter::init() {
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
+    // Only consume mem tracker manually in mem table. Using the virtual tracker can avoid
+    // frequent recursive consumption of the parent tracker, thereby improving performance.
+    _mem_tracker = MemTracker::create_virtual_tracker(
+            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()

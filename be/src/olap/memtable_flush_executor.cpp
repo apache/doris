@@ -61,6 +61,7 @@ Status FlushToken::wait() {
 }
 
 void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t submit_task_time) {
+#ifndef BE_TEST
     // The memtable mem tracker needs to be completely accurate,
     // because DeltaWriter judges whether to flush memtable according to the memtable memory usage.
     // The macro of attach thread mem tracker is affected by the destructuring order of local variables,
@@ -69,6 +70,7 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t sub
     DCHECK(memtable->mem_tracker()->parent_task_mem_tracker_no_own());
     SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::LOAD,
                               memtable->mem_tracker()->parent_task_mem_tracker_no_own());
+#endif
     _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
     SCOPED_CLEANUP({ memtable.reset(); });
     // If previous flush has failed, return directly
