@@ -270,15 +270,15 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req,
         }
     }
     if (!http_req->header(HTTP_NEGATIVE).empty() &&
-        boost::iequals(http_req->header(HTTP_NEGATIVE), "true")) {
+        iequal(http_req->header(HTTP_NEGATIVE), "true")) {
         (*params)[HTTP_NEGATIVE] = "true";
     } else {
         (*params)[HTTP_NEGATIVE] = "false";
     }
     if (!http_req->header(HTTP_STRICT_MODE).empty()) {
-        if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "false")) {
+        if (iequal(http_req->header(HTTP_STRICT_MODE), "false")) {
             (*params)[HTTP_STRICT_MODE] = "false";
-        } else if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "true")) {
+        } else if (iequal(http_req->header(HTTP_STRICT_MODE), "true")) {
             (*params)[HTTP_STRICT_MODE] = "true";
         } else {
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
@@ -297,7 +297,7 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req,
         (*params)[HTTP_JSONROOT] = http_req->header(HTTP_JSONROOT);
     }
     if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
-        if (boost::iequals(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
+        if (iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
             (*params)[HTTP_STRIP_OUTER_ARRAY] = "true";
         } else {
             (*params)[HTTP_STRIP_OUTER_ARRAY] = "false";
@@ -306,7 +306,7 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req,
         (*params)[HTTP_STRIP_OUTER_ARRAY] = "false";
     }
     if (!http_req->header(HTTP_FUZZY_PARSE).empty()) {
-        if (boost::iequals(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+        if (iequal(http_req->header(HTTP_FUZZY_PARSE), "true")) {
             (*params)[HTTP_FUZZY_PARSE] = "true";
         } else {
             (*params)[HTTP_FUZZY_PARSE] = "false";
@@ -315,7 +315,7 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req,
         (*params)[HTTP_FUZZY_PARSE] = "false";
     }
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
             (*params)[HTTP_READ_JSON_BY_LINE] = "true";
         } else {
             (*params)[HTTP_READ_JSON_BY_LINE] = "false";
@@ -817,9 +817,9 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
     auto strict_mode_it = params.find(STRICT_MODE_KEY);
     if (strict_mode_it != params.end()) {
         std::string strict_mode_value = strict_mode_it->second;
-        if (boost::iequals(strict_mode_value, "false")) {
+        if (iequal(strict_mode_value, "false")) {
             put_request.__set_strictMode(false);
-        } else if (boost::iequals(strict_mode_value, "true")) {
+        } else if (iequal(strict_mode_value, "true")) {
             put_request.__set_strictMode(true);
         } else {
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");

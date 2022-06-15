@@ -25,6 +25,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "util/string_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
 
@@ -151,7 +152,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             for (auto& index : tablet_schema.indexes) {
                 if (index.index_type == TIndexType::type::BITMAP) {
                     DCHECK_EQ(index.columns.size(), 1);
-                    if (boost::iequals(tcolumn.column_name, index.columns[0])) {
+                    if (iequal(tcolumn.column_name, index.columns[0])) {
                         column->set_has_bitmap_index(true);
                         break;
                     }
