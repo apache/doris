@@ -38,11 +38,11 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
