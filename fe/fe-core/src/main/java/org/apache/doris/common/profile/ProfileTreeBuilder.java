@@ -31,6 +31,7 @@ import lombok.Setter;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 
+import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.List;
 import java.util.Map;
@@ -265,6 +266,14 @@ public class ProfileTreeBuilder {
         node.setActiveTime(RuntimeProfile.printCounter(activeCounter.getValue(), activeCounter.getType()));
         try (Formatter fmt = new Formatter()) {
             node.setNonChild(fmt.format("%.2f", profile.getLocalTimePercent()).toString());
+        }
+
+        if (!profile.getInfoStrings().isEmpty()) {
+            ArrayList<String> infoStrings = new ArrayList<String>();
+            for (Map.Entry<String, String> entry : profile.getInfoStrings().entrySet()) {
+                infoStrings.add(entry.getKey() +  ": " + entry.getValue());
+            }
+            node.setInfoStrings(infoStrings);
         }
         CounterNode rootCounterNode = new CounterNode();
         buildCounterNode(profile, RuntimeProfile.ROOT_COUNTER, rootCounterNode);
