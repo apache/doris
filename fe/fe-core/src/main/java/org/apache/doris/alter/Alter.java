@@ -683,7 +683,8 @@ public class Alter {
             newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, dataProperty.getRemoteStoragePolicy());
             newProperties.putAll(properties);
             // 4.3 analyze new properties
-            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(newProperties, null);
+            DataProperty newDataProperty =
+                    PropertyAnalyzer.analyzeDataProperty(newProperties, DataProperty.DEFAULT_DATA_PROPERTY);
 
             // 1. date property
             if (newDataProperty != null) {

@@ -152,7 +152,7 @@ public class PropertyAnalyzer {
 
         // Check properties
 
-        if (!hasCooldown && !hasMedium) {
+        if (!hasCooldown && !hasMedium && !hasRemoteStoragePolicy) {
             return oldDataProperty;
         }
 

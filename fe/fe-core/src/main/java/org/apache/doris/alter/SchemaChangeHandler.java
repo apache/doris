@@ -33,6 +33,7 @@ import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -1504,6 +1505,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
                         Catalog.getCurrentCatalog().modifyTableReplicaAllocation(db, olapTable, properties);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY)) {
+                        Preconditions.checkNotNull(PropertyAnalyzer.analyzeDataProperty(
+                                                   properties, DataProperty.DEFAULT_DATA_PROPERTY));
+                        olapTable.setRemoteStoragePolicy(
+                                properties.get(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY));
                         return;
                     }
                 }

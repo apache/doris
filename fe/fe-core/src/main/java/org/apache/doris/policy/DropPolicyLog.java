@@ -72,7 +72,8 @@ public class DropPolicyLog implements Writable {
                 }
                 Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(curDb);
                 Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(), stmt.getPolicyName(), stmt.getUser());
+                return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(),
+                                         stmt.getPolicyName(), stmt.getUser());
             default:
                 throw new AnalysisException("Invalid policy type: " + stmt.getType().name());
         }
