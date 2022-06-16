@@ -66,7 +66,7 @@ public class UnboundRelation extends LogicalLeafOperator {
     @Override
     public List<Slot> doComputeOutput() {
         // fixme: throw unchecked exception
-        throw new IllegalStateException(new UnboundException("output"));
+        throw new UnboundException("output");
     }
 
     @Override

@@ -19,14 +19,20 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.PlanOperator;
+import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Abstract class for all concrete plan node.
@@ -36,14 +42,20 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
 
     public final OP_TYPE operator;
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, children);
-        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    protected final Supplier<LogicalProperties> logicalProperties;
+
+    public AbstractPlan(NodeType type, OP_TYPE operator,
+                        Optional<LogicalProperties> logicalProperties, Plan... children) {
+        this(type, operator, Optional.empty(), logicalProperties, children);
     }
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression, Plan... children) {
+    /** all parameter constructor. */
+    public AbstractPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
+                        Optional<LogicalProperties> logicalProperties, Plan... children) {
         super(type, groupExpression, children);
         this.operator = Objects.requireNonNull(operator, "operator can not be null");
+        this.logicalProperties = toLogicalPropsSupplier(
+            Objects.requireNonNull(logicalProperties, "logicalProperties can not be null"));
     }
 
     @Override
@@ -84,6 +96,22 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
             List<Boolean> newLasts = new ArrayList<>(lastChildren);
             newLasts.add(i + 1 == children.size());
             treeString(lines, depth + 1, newLasts, children.get(i));
+        }
+    }
+
+    private Supplier<LogicalProperties> toLogicalPropsSupplier(Optional<LogicalProperties> logicalProperties) {
+        if (logicalProperties.isPresent()) {
+            return Suppliers.ofInstance(logicalProperties.get());
+        } else if (operator instanceof LogicalOperator) {
+            // lazy compute logical properties. supplier can prevent throw exception by UnboundRelation.
+            return Suppliers.memoize(() ->
+                new LogicalProperties(((LogicalOperator) operator).computeOutput(children))
+            );
+        } else if (operator instanceof PhysicalOperator) {
+            throw new IllegalStateException("Missing logical properties for physical plan");
+        } else {
+            throw new IllegalStateException("Unsupported compute logical properties for operator: "
+                + operator.getClass());
         }
     }
 }

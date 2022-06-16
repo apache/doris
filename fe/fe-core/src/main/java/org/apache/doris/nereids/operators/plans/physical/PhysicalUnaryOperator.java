@@ -27,7 +27,10 @@ import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical operator that have one input.
@@ -40,8 +43,9 @@ public abstract class PhysicalUnaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
-        return doComputeOutput(logicalProperties, inputs[0]);
+    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, List<Plan> inputs) {
+        Preconditions.checkArgument(inputs.size() == 1);
+        return doComputeOutput(logicalProperties, inputs.get(0));
     }
 
     public List<Slot> doComputeOutput(LogicalProperties logicalProperties, Plan input) {
@@ -51,6 +55,7 @@ public abstract class PhysicalUnaryOperator extends AbstractOperator
     @Override
     public PhysicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalUnaryPlan(this, groupExpression, logicalProperties, new PlaceHolderPlan());
+        return new PhysicalUnaryPlan(this, Optional.of(groupExpression),
+            logicalProperties, new PlaceHolderPlan());
     }
 }

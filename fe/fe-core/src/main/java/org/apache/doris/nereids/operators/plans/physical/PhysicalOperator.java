@@ -29,6 +29,6 @@ import java.util.List;
  */
 public interface PhysicalOperator extends PlanOperator {
 
-    List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs);
+    List<Slot> computeOutputs(LogicalProperties logicalProperties, List<Plan> inputs);
 
 }

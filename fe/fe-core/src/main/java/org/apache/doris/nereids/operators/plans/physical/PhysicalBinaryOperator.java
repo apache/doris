@@ -27,7 +27,10 @@ import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical operator that have two inputs.
@@ -40,8 +43,9 @@ public abstract class PhysicalBinaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
-        return doComputeOutput(logicalProperties, inputs[0], inputs[1]);
+    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, List<Plan> inputs) {
+        Preconditions.checkArgument(inputs.size() == 2);
+        return doComputeOutput(logicalProperties, inputs.get(0), inputs.get(1));
     }
 
     public List<Slot> doComputeOutput(LogicalProperties logicalProperties, Plan left, Plan right) {
@@ -51,7 +55,7 @@ public abstract class PhysicalBinaryOperator extends AbstractOperator
     @Override
     public PhysicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalBinaryPlan(this, groupExpression, logicalProperties,
+        return new PhysicalBinaryPlan(this, Optional.of(groupExpression), logicalProperties,
                 new PlaceHolderPlan(), new PlaceHolderPlan());
     }
 }

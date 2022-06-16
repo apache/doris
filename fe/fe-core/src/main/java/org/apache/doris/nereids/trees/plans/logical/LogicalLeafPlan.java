@@ -21,12 +21,14 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all logical plan that have no child.
@@ -36,16 +38,27 @@ public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
         implements LeafPlan {
 
     public LogicalLeafPlan(OP_TYPE operator) {
-        super(NodeType.LOGICAL, operator);
+        super(NodeType.LOGICAL, operator, Optional.empty(), Optional.empty());
     }
 
-    public LogicalLeafPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+    public LogicalLeafPlan(OP_TYPE operator, Optional<LogicalProperties> logicalProperties) {
+        super(NodeType.LOGICAL, operator, Optional.empty(), logicalProperties);
+    }
+
+    public LogicalLeafPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
+                           Optional<LogicalProperties> logicalProperties) {
         super(NodeType.LOGICAL, operator, groupExpression, logicalProperties);
     }
 
     @Override
-    public LogicalLeafPlan<OP_TYPE> newChildren(List<Plan> children) {
+    public LogicalLeafPlan<OP_TYPE> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 0);
-        return new LogicalLeafPlan(operator, groupExpression.orElse(null), logicalProperties);
+        return new LogicalLeafPlan(operator, groupExpression, Optional.empty());
+    }
+
+    @Override
+    public LogicalLeafPlan<OP_TYPE> withOutput(List<Slot> output) {
+        LogicalProperties logicalProperties = new LogicalProperties(output);
+        return new LogicalLeafPlan<>(operator, groupExpression, Optional.of(logicalProperties));
     }
 }

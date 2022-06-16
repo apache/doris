@@ -44,7 +44,12 @@ public class PlaceHolderPlan implements LeafPlan {
     }
 
     @Override
-    public Plan newChildren(List children) {
+    public Plan withOutput(List<Slot> output) {
+        throw new RuntimeException();
+    }
+
+    @Override
+    public Plan withChildren(List children) {
         throw new RuntimeException();
     }
 

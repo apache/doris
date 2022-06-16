@@ -26,7 +26,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical operator that have no input.
@@ -39,7 +42,8 @@ public abstract class PhysicalLeafOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
+    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, List<Plan> inputs) {
+        Preconditions.checkArgument(inputs.size() == 0);
         return doComputeOutput(logicalProperties);
     }
 
@@ -49,6 +53,7 @@ public abstract class PhysicalLeafOperator extends AbstractOperator
 
     @Override
     public PhysicalLeafPlan toTreeNode(GroupExpression groupExpression) {
-        return new PhysicalLeafPlan(this, groupExpression, groupExpression.getParent().getLogicalProperties());
+        LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        return new PhysicalLeafPlan(this, Optional.of(groupExpression), logicalProperties);
     }
 }

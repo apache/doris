@@ -97,7 +97,7 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode<NODE_TYPE>> impl
                     for (int i = 0; i < childrenResults.size(); i++) {
                         children.add(childrenResults.get(i).get(childrenResultsIndex[i]));
                     }
-                    NODE_TYPE result = root.newChildren(children);
+                    NODE_TYPE result = root.withChildren(children);
                     results.add(result);
                     offset = 0;
                     while (true) {

@@ -37,4 +37,5 @@ public interface Plan extends TreeNode<Plan> {
 
     String treeString();
 
+    Plan withOutput(List<Slot> output);
 }
