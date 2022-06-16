@@ -91,7 +91,7 @@ class TUniqueId;
 extern bthread_key_t btls_key;
 
 // The thread context saves some info about a working thread.
-// 2 requried info:
+// 2 required info:
 //   1. thread_id:   Current thread id, Auto generated.
 //   2. type:        The type is a enum value indicating which type of task current thread is running.
 //                   For example: QUERY, LOAD, COMPACTION, ...

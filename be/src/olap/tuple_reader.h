@@ -20,26 +20,11 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <list>
-#include <memory>
-#include <queue>
-#include <sstream>
-#include <stack>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "exprs/bloomfilter_predicate.h"
 #include "olap/collect_iterator.h"
-#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
-#include "olap/olap_cond.h"
-#include "olap/olap_define.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/tablet.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 

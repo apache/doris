@@ -36,19 +36,12 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 * Performance: Compared with native UDF, Java UDF will bring additional JNI overhead, but through batch execution, we have minimized the JNI overhead as much as possible.
 * Vectorized engine: Java UDF is only supported on vectorized engine now.
 
-## Write UDF functions
+### Type correspondence
 
-This section mainly introduces how to develop a Java UDF. Samples for the Java version are provided under `samples/doris-demo/java-udf-demo/` for your reference, Check it out [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
-
-To use Java UDF, the main entry of UDF must be the `evaluate` function. This is consistent with other engines such as Hive. In the example of `AddOne`, we have completed the operation of adding an integer as the UDF.
-
-It is worth mentioning that this example is not only the Java UDF supported by Doris, but also the UDF supported by Hive, that's to say, for users, Hive UDF can be directly migrated to Doris.
-
-#### Type correspondence
-
-|UDF Type|Argument Type|
+|Type|UDF Argument Type|
 |----|---------|
-|TinyInt|TinyIntVal|
+|Bool|Boolean|
+|TinyInt|Byte|
 |SmallInt|Short|
 |Int|Integer|
 |BigInt|Long|
@@ -61,9 +54,15 @@ It is worth mentioning that this example is not only the Java UDF supported by D
 |Varchar|String|
 |Decimal|BigDecimal|
 
-## Create UDF
+## Write UDF functions
 
-Currently, UDAF and UDTF are not supported.
+This section mainly introduces how to develop a Java UDF. Samples for the Java version are provided under `samples/doris-demo/java-udf-demo/` for your reference, Check it out [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
+
+To use Java UDF, the main entry of UDF must be the `evaluate` function. This is consistent with other engines such as Hive. In the example of `AddOne`, we have completed the operation of adding an integer as the UDF.
+
+It is worth mentioning that this example is not only the Java UDF supported by Doris, but also the UDF supported by Hive, that's to say, for users, Hive UDF can be directly migrated to Doris.
+
+## Create UDF
 
 ```sql
 CREATE FUNCTION 
@@ -86,6 +85,83 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
     "type"="JAVA_UDF"
 );
 ```
+
+## Create UDAF
+<br/>
+When using Java code to write UDAF, there are some functions that must be implemented (mark required) and an inner class State, which will be explained with a specific example below.
+The following SimpleDemo will implement a simple function similar to sum, the input parameter is INT, and the output parameter is INT
+
+```JAVA
+package org.apache.doris.udf;
+
+public class SimpleDemo {
+    //Need an inner class to store data
+    /*required*/  
+    public static class State {
+        /*some variables if you need */
+        public int sum = 0;
+    }
+
+    /*required*/
+    public State create() {
+        /* here could do some init work if needed */
+        return new State();
+    }
+
+    /*required*/
+    public void destroy(State state) {
+      /* here could do some destroy work if needed */
+    }
+
+    /*required*/ 
+    //first argument is State, then other types your input
+    public void add(State state, Integer val) {
+      /* here doing update work when input data*/
+        if (val != null) {
+            state.sum += val;
+        }
+    }
+
+    /*required*/
+    public void serialize(State state, DataOutputStream out) {
+      /* serialize some data into buffer */
+        out.writeInt(state.sum);
+    }
+
+    /*required*/
+    public void deserialize(State state, DataInputStream in) {
+      /* deserialize get data from buffer before you put */
+        int val = in.readInt();
+        state.sum = val;
+    }
+
+    /*required*/
+    public void merge(State state, State rhs) {
+      /* merge data from state */
+        state.sum += rhs.sum;
+    }
+
+    /*required*/
+    //return Type you defined
+    public Integer getValue(State state) {
+      /* return finally result */
+        return state.sum;
+    }
+}
+
+```
+
+```sql
+CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
+    "file"="file:///pathTo/java-udaf.jar",
+    "symbol"="org.apache.doris.udf.SimpleDemo",
+    "type"="JAVA_UDF"
+);
+```
+
+Currently, UDTF are not supported.
+
+<br/>
 
 ## Use UDF
 

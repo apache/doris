@@ -24,7 +24,7 @@ under the License.
 </template>
 
 <script>
-import { defineComponent, computed, onMounted } from 'vue-demi'
+import { defineComponent, computed, onMounted, onUpdated } from 'vue-demi'
 import Home from '@theme/components/Home'
 import HomeBlog from '@theme/components/HomeBlog'
 import Page from '@theme/components/Page'

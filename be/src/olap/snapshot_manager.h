@@ -61,7 +61,7 @@ public:
     static SnapshotManager* instance();
 
     Status convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
-                              const int32_t& schema_hash);
+                              int64_t replica_id, const int32_t& schema_hash);
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {

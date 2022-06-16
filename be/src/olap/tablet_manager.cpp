@@ -17,6 +17,7 @@
 
 #include "olap/tablet_manager.h"
 
+#include <gen_cpp/Types_types.h>
 #include <rapidjson/document.h>
 #include <re2/re2.h>
 #include <thrift/protocol/TDebugProtocol.h>
@@ -184,7 +185,8 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     if (drop_old) {
         // If the new tablet is fresher than the existing one, then replace
         // the existing tablet with the new one.
-        RETURN_NOT_OK_LOG(_drop_tablet_unlocked(tablet_id, keep_files),
+        // Use default replica_id to ignore whether replica_id is match when drop tablet.
+        RETURN_NOT_OK_LOG(_drop_tablet_unlocked(tablet_id, /* replica_id */ 0, keep_files),
                           strings::Substitute("failed to drop old tablet when add new tablet. "
                                               "tablet_id=$0",
                                               tablet_id));
@@ -368,7 +370,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     }
     // something is wrong, we need clear environment
     if (is_tablet_added) {
-        Status status = _drop_tablet_unlocked(new_tablet_id, false);
+        Status status = _drop_tablet_unlocked(new_tablet_id, request.replica_id, false);
         if (!status.ok()) {
             LOG(WARNING) << "fail to drop tablet when create tablet failed. res=" << res;
         }
@@ -446,22 +448,21 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
     return nullptr;
 }
 
-Status TabletManager::drop_tablet(TTabletId tablet_id, bool keep_files) {
-    std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
+Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files) {
+    auto& shard = _get_tablets_shard(tablet_id);
+    std::lock_guard wrlock(shard.lock);
+    if (shard.tablets_under_clone.count(tablet_id) > 0) {
+        LOG(INFO) << "tablet " << tablet_id << " is under clone, skip drop task";
+        return Status::OK();
+    }
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    return _drop_tablet_unlocked(tablet_id, keep_files);
+    return _drop_tablet_unlocked(tablet_id, replica_id, keep_files);
 }
 
-// Drop specified tablet, the main logical is as follows:
-// 1. tablet not in schema change:
-//      drop specified tablet directly;
-// 2. tablet in schema change:
-//      a. schema change not finished && the dropping tablet is a base-tablet:
-//          base-tablet cannot be dropped;
-//      b. other cases:
-//          drop specified tablet directly and clear schema change info.
-Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, bool keep_files) {
-    LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id;
+// Drop specified tablet.
+Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id,
+                                            bool keep_files) {
+    LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
     // Fetch tablet which need to be dropped
@@ -471,8 +472,39 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, bool keep_files
                      << "tablet_id=" << tablet_id;
         return Status::OK();
     }
+    // We should compare replica id to avoid dropping new cloned tablet.
+    // Iff request replica id is 0, FE may be an older release, then we drop this tablet as before.
+    if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
+        LOG(WARNING) << "fail to drop tablet because replica id not match. "
+                     << "tablet_id=" << tablet_id << ", replica_id=" << to_drop_tablet->replica_id()
+                     << ", request replica_id=" << replica_id;
+        return Status::OK();
+    }
 
-    return _drop_tablet_directly_unlocked(tablet_id, keep_files);
+    _remove_tablet_from_partition(to_drop_tablet);
+    tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
+    tablet_map.erase(tablet_id);
+    if (!keep_files) {
+        // drop tablet will update tablet meta, should lock
+        std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
+        LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
+                  << "tablet_id=" << tablet_id
+                  << ", tablet_path=" << to_drop_tablet->tablet_path_desc().filepath;
+        // NOTE: has to update tablet here, but must not update tablet meta directly.
+        // because other thread may hold the tablet object, they may save meta too.
+        // If update meta directly here, other thread may override the meta
+        // and the tablet will be loaded at restart time.
+        // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
+        to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN);
+        to_drop_tablet->save_meta();
+        {
+            std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
+            _shutdown_tablets.push_back(to_drop_tablet);
+        }
+    }
+
+    to_drop_tablet->deregister_tablet_from_dir();
+    return Status::OK();
 }
 
 Status TabletManager::drop_tablets_on_error_root_path(
@@ -1218,39 +1250,6 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
         }
     }
     return res;
-}
-
-Status TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files) {
-    TabletSharedPtr dropped_tablet = _get_tablet_unlocked(tablet_id);
-    if (dropped_tablet == nullptr) {
-        LOG(WARNING) << "fail to drop tablet because it does not exist. "
-                     << " tablet_id=" << tablet_id;
-        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
-    }
-    _remove_tablet_from_partition(dropped_tablet);
-    tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
-    tablet_map.erase(tablet_id);
-    if (!keep_files) {
-        // drop tablet will update tablet meta, should lock
-        std::lock_guard<std::shared_mutex> wrlock(dropped_tablet->get_header_lock());
-        LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
-                  << "tablet_id=" << tablet_id
-                  << ", tablet_path=" << dropped_tablet->tablet_path_desc().filepath;
-        // NOTE: has to update tablet here, but must not update tablet meta directly.
-        // because other thread may hold the tablet object, they may save meta too.
-        // If update meta directly here, other thread may override the meta
-        // and the tablet will be loaded at restart time.
-        // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
-        dropped_tablet->set_tablet_state(TABLET_SHUTDOWN);
-        dropped_tablet->save_meta();
-        {
-            std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
-            _shutdown_tablets.push_back(dropped_tablet);
-        }
-    }
-
-    dropped_tablet->deregister_tablet_from_dir();
-    return Status::OK();
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {

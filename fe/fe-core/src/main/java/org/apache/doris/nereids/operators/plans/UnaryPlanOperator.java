@@ -17,12 +17,8 @@
 
 package org.apache.doris.nereids.operators.plans;
 
-import org.apache.doris.nereids.trees.plans.Plan;
-
 /**
  * interface for all concrete unary plan operator.
  */
-public interface UnaryPlanOperator<
-            TYPE extends UnaryPlanOperator<TYPE, INPUT_TYPE>,
-            INPUT_TYPE extends Plan> extends PlanOperator<TYPE> {
+public interface UnaryPlanOperator extends PlanOperator {
 }

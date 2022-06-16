@@ -29,7 +29,7 @@ import java.util.Objects;
 /**
  * Reference to slot in expression.
  */
-public class SlotReference extends Slot<SlotReference> {
+public class SlotReference extends Slot {
     private final ExprId exprId;
     private final String name;
     private final List<String> qualifier;

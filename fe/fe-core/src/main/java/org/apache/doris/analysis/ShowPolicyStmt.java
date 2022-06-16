@@ -25,6 +25,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.RowPolicy;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -48,18 +50,6 @@ public class ShowPolicyStmt extends ShowStmt {
         this.user = user;
     }
 
-    private static final ShowResultSetMetaData ROW_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
-                    .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
-                    .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
-                    .addColumn(new Column("User", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
-                    .build();
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -76,14 +66,26 @@ public class ShowPolicyStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW ").append(type).append(" POLICY");
-        if (user != null) {
-            sb.append(" FOR ").append(user);
+        switch (type) {
+            case STORAGE:
+                break;
+            case ROW:
+            default:
+                if (user != null) {
+                    sb.append(" FOR ").append(user);
+                }
         }
         return sb.toString();
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return ROW_META_DATA;
+        switch (type) {
+            case STORAGE:
+                return StoragePolicy.STORAGE_META_DATA;
+            case ROW:
+            default:
+                return RowPolicy.ROW_META_DATA;
+        }
     }
 }

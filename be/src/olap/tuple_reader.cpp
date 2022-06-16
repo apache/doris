@@ -23,14 +23,10 @@
 #include <unordered_set>
 
 #include "olap/collect_iterator.h"
+#include "olap/olap_common.h"
 #include "olap/row.h"
-#include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/schema.h"
-#include "olap/storage_engine.h"
 #include "runtime/mem_pool.h"
-#include "util/date_func.h"
 
 using std::nothrow;
 using std::set;

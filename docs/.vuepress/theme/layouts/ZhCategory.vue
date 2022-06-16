@@ -57,7 +57,6 @@ import { useInstance } from "@theme/helpers/composable";
 export default defineComponent({
   mixins: [moduleTransitonMixin],
   components: { Common, NoteAbstract, ModuleTransition },
-
   setup(props, ctx) {
     const instance = useInstance();
     const categories = computed(() => {

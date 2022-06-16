@@ -166,7 +166,9 @@ public:
 
     /// Appends one element from other column with the same type multiple times.
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
-        for (size_t i = 0; i < length; ++i) insert_from(src, position);
+        for (size_t i = 0; i < length; ++i) {
+            insert_from(src, position);
+        }
     }
 
     /// Appends a batch elements from other column with the same type
@@ -199,6 +201,12 @@ public:
         LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
 
+    void insert_many_data(const char* pos, size_t length, size_t data_num) {
+        for (size_t i = 0; i < data_num; ++i) {
+            insert_data(pos, length);
+        }
+    }
+
     /// Appends "default value".
     /// Is used when there are need to increase column size, but inserting value doesn't make sense.
     /// For example, ColumnNullable(Nested) absolutely ignores values of nested column if it is marked as NULL.
@@ -206,7 +214,9 @@ public:
 
     /// Appends "default value" multiple times.
     virtual void insert_many_defaults(size_t length) {
-        for (size_t i = 0; i < length; ++i) insert_default();
+        for (size_t i = 0; i < length; ++i) {
+            insert_default();
+        }
     }
 
     virtual void insert_elements(void* elements, size_t num) {
