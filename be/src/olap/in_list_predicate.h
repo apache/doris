@@ -290,14 +290,43 @@ private:
                         uint16_t* sel, uint16_t* size) const {
         uint16_t new_size = 0;
 
-        auto decorator = [&](bool f) {
-            if constexpr (is_opposite) {
-                return !f;
-            }
-            return f;
-        };
+        if (column->is_column_dictionary()) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                auto* nested_col_ptr = vectorized::check_and_get_column<
+                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                auto& data_array = nested_col_ptr->get_data();
+                std::vector<vectorized::UInt8> selected;
+                nested_col_ptr->find_codes(_values, selected);
 
-        auto inner_loop = [&](std::function<bool(int)> checker) {
+                for (uint16_t i = 0; i < *size; i++) {
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if constexpr (is_opposite) {
+                                sel[new_size++] = idx;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
+                        if (selected[data_array[idx]]) {
+                            sel[new_size++] = idx;
+                        }
+                    } else {
+                        if (!selected[data_array[idx]]) {
+                            sel[new_size++] = idx;
+                        }
+                    }
+                }
+            } else {
+                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+            }
+        } else {
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
+            auto& data_array = nested_col_ptr->get_data();
+
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
                 if constexpr (is_nullable) {
@@ -309,39 +338,18 @@ private:
                     }
                 }
 
-                if (decorator(checker(idx))) {
-                    sel[new_size++] = idx;
+                if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
+                    if (_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                  _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                } else {
+                    if (!_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                   _values.end())) {
+                        sel[new_size++] = idx;
+                    }
                 }
             }
-        };
-
-        if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
-                auto* nested_col_ptr = vectorized::check_and_get_column<
-                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
-                auto& data_array = nested_col_ptr->get_data();
-                std::vector<bool> selected;
-                nested_col_ptr->find_codes(_values, selected);
-
-                auto checker = [&](int index) {
-                    return _operator(selected[data_array[index]], false);
-                };
-
-                inner_loop(checker);
-            } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
-            }
-        } else {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
-            auto& data_array = nested_col_ptr->get_data();
-
-            auto checker = [&](int index) {
-                return _operator(_values.find(reinterpret_cast<const T&>(data_array[index])),
-                                 _values.end());
-            };
-
-            inner_loop(checker);
         }
 
         *size = new_size;
