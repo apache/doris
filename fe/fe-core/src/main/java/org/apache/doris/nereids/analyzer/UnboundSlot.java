@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.Utils;
@@ -28,7 +29,7 @@ import java.util.List;
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot {
+public class UnboundSlot extends Slot implements Unbound {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {
@@ -75,5 +76,10 @@ public class UnboundSlot extends Slot {
         }
         UnboundSlot other = (UnboundSlot) o;
         return nameParts.containsAll(other.getNameParts());
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitUnboundSlot(this, context);
     }
 }

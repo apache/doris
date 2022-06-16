@@ -54,4 +54,9 @@ public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
         Preconditions.checkArgument(children.size() == 2);
         return new LessThan<>(children.get(0), children.get(1));
     }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitLessThan(this, context);
+    }
 }

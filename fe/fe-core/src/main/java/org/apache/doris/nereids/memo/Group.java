@@ -50,13 +50,14 @@ public class Group {
      *
      * @param groupExpression first {@link GroupExpression} in this Group
      */
-    public Group(GroupExpression groupExpression) {
+    public Group(GroupExpression groupExpression, LogicalProperties logicalProperties) {
         if (groupExpression.getOperator() instanceof LogicalOperator) {
             this.logicalExpressions.add(groupExpression);
         } else {
             this.physicalExpressions.add(groupExpression);
         }
         groupExpression.setParent(this);
+        this.logicalProperties = logicalProperties;
     }
 
     public GroupId getGroupId() {
@@ -106,6 +107,7 @@ public class Group {
         GroupExpression oldExpression = getLogicalExpression();
         logicalExpressions.clear();
         logicalExpressions.add(newExpression);
+        newExpression.setParent(this);
         return oldExpression;
     }
 
@@ -141,6 +143,10 @@ public class Group {
 
     public LogicalProperties getLogicalProperties() {
         return logicalProperties;
+    }
+
+    public void setLogicalProperties(LogicalProperties logicalProperties) {
+        this.logicalProperties = logicalProperties;
     }
 
     public boolean isExplored() {
@@ -180,5 +186,10 @@ public class Group {
     @Override
     public int hashCode() {
         return Objects.hash(groupId);
+    }
+
+    @Override
+    public String toString() {
+        return "Group{" + getLogicalExpression().getOperator() + "}";
     }
 }

@@ -69,6 +69,13 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode<NODE_TYPE>> impl
             if (pattern.arity() > groupExpression.arity()) {
                 return;
             }
+
+            if (pattern.isFixed()) {
+                NODE_TYPE root = (NODE_TYPE) groupExpression.getOperator().toTreeNode(groupExpression);
+                results.add(root);
+                return;
+            }
+
             if (pattern.arity() < groupExpression.arity()
                     && (!pattern.children().contains(Pattern.MULTI)
                     || !pattern.children().contains(Pattern.MULTI_FIXED))) {
@@ -81,8 +88,8 @@ public class GroupExpressionMatching<NODE_TYPE extends TreeNode<NODE_TYPE>> impl
             for (int i = 0; i < groupExpression.arity(); ++i) {
                 childrenResults.add(Lists.newArrayList());
                 int patternChildIndex = i >= pattern.arity() ? pattern.arity() - 1 : i;
-                for (NODE_TYPE child : new GroupMatching<NODE_TYPE>(
-                        pattern.child(patternChildIndex), groupExpression.child(i))) {
+                for (NODE_TYPE child : new GroupMatching<NODE_TYPE>(pattern.child(patternChildIndex),
+                        groupExpression.child(i))) {
                     childrenResults.get(i).add(child);
                 }
             }

@@ -20,8 +20,10 @@ package org.apache.doris.nereids.operators.plans.physical;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -31,7 +33,7 @@ import java.util.Optional;
 public class PhysicalBroadcastHashJoin extends PhysicalBinaryOperator {
 
     private final JoinType joinType;
-    private final Optional<Expression> onClause;
+    private final Optional<Expression> condition;
 
     /**
      * Constructor for PhysicalBroadcastHashJoin.
@@ -46,28 +48,30 @@ public class PhysicalBroadcastHashJoin extends PhysicalBinaryOperator {
      * Constructor for PhysicalBroadcastHashJoin.
      *
      * @param joinType logical join type in Nereids
-     * @param onClause on clause expression
+     * @param condition on clause expression
      */
-    public PhysicalBroadcastHashJoin(JoinType joinType, Optional<Expression> onClause) {
+    public PhysicalBroadcastHashJoin(JoinType joinType, Optional<Expression> condition) {
         super(OperatorType.PHYSICAL_BROADCAST_HASH_JOIN);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.onClause = Objects.requireNonNull(onClause, "onClause can not be null");
+        this.condition = Objects.requireNonNull(condition, "condition can not be null");
     }
 
     public JoinType getJoinType() {
         return joinType;
     }
 
-    public Optional<Expression> getOnClause() {
-        return onClause;
+    public Optional<Expression> getCondition() {
+        return condition;
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("Broadcast Hash Join (").append(joinType);
-        if (onClause != null) {
-            sb.append(", ").append(onClause);
-        }
-        return sb.append(")").toString();
+        return "Broadcast Hash Join (" + joinType
+                + ", " + condition + ")";
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
 }

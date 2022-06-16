@@ -17,7 +17,8 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.rules.analysis.AnalysisUnboundRelation;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommutative;
 import org.apache.doris.nereids.rules.exploration.join.JoinLeftAssociative;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
@@ -34,7 +35,7 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule<Plan>> ANALYSIS_RULES = planRuleFactories()
-            .add(new AnalysisUnboundRelation())
+            .add(new BindRelation())
             .build();
 
     public static final List<Rule<Plan>> EXPLORATION_RULES = planRuleFactories()

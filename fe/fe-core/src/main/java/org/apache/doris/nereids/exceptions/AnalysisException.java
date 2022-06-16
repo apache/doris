@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,19 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.exceptions;
 
-import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.Plan;
+public class AnalysisException extends RuntimeException {
 
-import java.util.List;
+    public AnalysisException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
 
-/**
- * interface for all concrete physical operator.
- */
-public interface PhysicalOperator extends PlanOperator {
-    List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs);
+    public AnalysisException(String message) {
+        super(message);
+    }
 
+    // TODO: support ErrorCode
 }

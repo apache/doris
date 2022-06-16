@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -29,9 +28,8 @@ import java.util.Objects;
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
         extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
     /**
      * Constructor of ComparisonPredicate.
      *
@@ -73,5 +71,24 @@ public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD
         ComparisonPredicate other = (ComparisonPredicate) o;
         return (type == other.getType()) && Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
+    }
+
+    public ComparisonPredicate copy(Expression left, Expression right) {
+        switch (type) {
+            case EQUAL_TO:
+                return new EqualTo(left, right);
+            case GREATER_THAN:
+                return new GreaterThan(left, right);
+            case GREATER_THAN_EQUAL:
+                return new GreaterThanEqual(left, right);
+            case LESS_THAN:
+                return new LessThan(left, right);
+            case LESS_THAN_EQUAL:
+                return new LessThanEqual(left, right);
+            case NULL_SAFE_EQUAL:
+                return new NullSafeEqual(left, right);
+            default:
+                throw new IllegalStateException("Invalid type for ComparisonPredicate: " + type);
+        }
     }
 }

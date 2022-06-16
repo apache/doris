@@ -17,12 +17,16 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.PlanOperatorVisitor;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Physical hash join plan operator.
@@ -31,7 +35,7 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
 
     private final JoinType joinType;
 
-    private final Expression predicate;
+    private final Expression condition;
 
     /**
      * Constructor of PhysicalHashJoinNode.
@@ -42,20 +46,24 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
     public PhysicalHashJoin(JoinType joinType, Expression predicate) {
         super(OperatorType.PHYSICAL_HASH_JOIN);
         this.joinType = joinType;
-        this.predicate = predicate;
+        this.condition = predicate;
     }
 
     public JoinType getJoinType() {
         return joinType;
     }
 
-    public Expression getPredicate() {
-        return predicate;
+    public Expression getCondition() {
+        return condition;
     }
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalHashJoinPlan((PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan>) plan, context);
+        return visitor.visitPhysicalHashJoin((PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan>) plan, context);
     }
 
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of(condition);
+    }
 }

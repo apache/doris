@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.PlanOperatorVisitor;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -43,13 +46,12 @@ public class PhysicalFilter extends PhysicalUnaryOperator {
 
     @Override
     public String toString() {
-        String cond;
-        if (predicates == null) {
-            cond = "<null>";
-        } else {
-            cond = predicates.toString();
-        }
-        return "Filter (" + cond + ")";
+        return "Filter (" + predicates + ")";
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of(predicates);
     }
 
     @Override

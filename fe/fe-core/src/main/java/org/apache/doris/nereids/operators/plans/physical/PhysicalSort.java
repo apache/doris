@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.PlanOperatorVisitor;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -71,6 +74,12 @@ public class PhysicalSort extends PhysicalUnaryOperator {
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalSortPlan((PhysicalUnaryPlan<PhysicalSort, Plan>) plan, context);
+        return visitor.visitPhysicalSort((PhysicalUnaryPlan<PhysicalSort, Plan>) plan, context);
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        // todo: make `OrderKey` an expression and fill in this.
+        return ImmutableList.of();
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -29,7 +30,7 @@ import java.util.List;
 /**
  * Star expression.
  */
-public class UnboundStar extends NamedExpression implements LeafExpression {
+public class UnboundStar extends NamedExpression implements LeafExpression, Unbound {
     private final List<String> target;
 
     public UnboundStar(List<String> target) {
@@ -50,5 +51,10 @@ public class UnboundStar extends NamedExpression implements LeafExpression {
     @Override
     public String toString() {
         return sql();
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitUnboundStar(this, context);
     }
 }

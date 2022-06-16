@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
 
 import com.google.common.base.Preconditions;

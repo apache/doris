@@ -56,10 +56,10 @@ public class RewriteBottomUpJob<NODE_TYPE extends TreeNode<NODE_TYPE>> extends J
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
+            pushTask(new RewriteBottomUpJob<>(group, rules, context, true));
             for (Group childGroup : logicalExpression.children()) {
                 pushTask(new RewriteBottomUpJob<>(childGroup, rules, context, false));
             }
-            pushTask(new RewriteBottomUpJob<>(group, rules, context, true));
             return;
         }
 
@@ -72,12 +72,12 @@ public class RewriteBottomUpJob<NODE_TYPE extends TreeNode<NODE_TYPE>> extends J
                 Preconditions.checkArgument(afters.size() == 1);
                 NODE_TYPE after = afters.get(0);
                 if (after != before) {
-                    context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
+                    GroupExpression gexpr = context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
+                    gexpr.setApplied(rule);
                     pushTask(new RewriteBottomUpJob<>(group, rules, context, false));
                     return;
                 }
             }
-            logicalExpression.setApplied(rule);
         }
     }
 }

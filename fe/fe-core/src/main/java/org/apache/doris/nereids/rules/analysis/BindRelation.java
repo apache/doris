@@ -21,9 +21,11 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -33,7 +35,7 @@ import java.util.List;
 /**
  * Rule to bind relations in query plan.
  */
-public class AnalysisUnboundRelation extends OneAnalysisRuleFactory {
+public class BindRelation extends OneAnalysisRuleFactory {
     @Override
     public Rule<Plan> build() {
         // fixme, just for example now
@@ -44,17 +46,19 @@ public class AnalysisUnboundRelation extends OneAnalysisRuleFactory {
                 case 1: {
                     List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
                     Table table = getTable(qualifier, connectContext.getCatalog());
-                    return plan(new LogicalRelation(table, qualifier));
+                    LogicalRelation relation = new LogicalRelation(table, qualifier);
+                    return new LogicalLeafPlan<>(relation, null, new LogicalProperties(relation.doComputeOutput()));
                 }
                 case 2: {
                     Table table = getTable(nameParts, connectContext.getCatalog());
-                    return plan(new LogicalRelation(table, nameParts));
+                    LogicalRelation relation = new LogicalRelation(table, nameParts);
+                    return new LogicalLeafPlan<>(relation, null, new LogicalProperties(relation.doComputeOutput()));
                 }
                 default:
                     throw new IllegalStateException("Table name ["
                             + ctx.root.operator.getTableName() + "] is invalid.");
             }
-        }).toRule(RuleType.BINDING_UNBOUND_RELATION_RULE);
+        }).toRule(RuleType.BINDING_RELATION);
     }
 
     private Table getTable(List<String> qualifier, Catalog catalog) {

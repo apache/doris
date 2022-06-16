@@ -54,4 +54,9 @@ public class GreaterThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ex
         Preconditions.checkArgument(children.size() == 2);
         return new GreaterThan<>(children.get(0), children.get(1));
     }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitGreaterThan(this, context);
+    }
 }

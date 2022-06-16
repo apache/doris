@@ -48,7 +48,7 @@ public class RewriteTopDownJobTest implements Plans {
         public Rule<Plan> build() {
             return unboundRelation().then(unboundRelation -> plan(
                 new LogicalRelation(new OlapTable(), Lists.newArrayList("test"))
-            )).toRule(RuleType.BINDING_UNBOUND_RELATION_RULE);
+            )).toRule(RuleType.BINDING_RELATION);
         }
     }
 

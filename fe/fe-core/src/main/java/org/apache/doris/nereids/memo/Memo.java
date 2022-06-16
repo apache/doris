@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
@@ -57,9 +59,14 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @return Reference of node in Memo
      */
     public GroupExpression copyIn(NODE_TYPE node, Group target, boolean rewrite) {
-        Preconditions.checkArgument(!rewrite || target != null);
+//        Preconditions.checkArgument(!rewrite || target != null);
+//        Preconditions.checkArgument(!(rewrite && target == null));
         List<Group> childrenGroups = Lists.newArrayList();
-        for (NODE_TYPE child : node.children()) {
+        for (Object object : node.children()) {
+            if (object instanceof PlaceHolderPlan) {
+                continue;
+            }
+            NODE_TYPE child = (NODE_TYPE) object;
             childrenGroups.add(copyIn(child, null, rewrite).getParent());
         }
         if (node.getGroupExpression().isPresent() && groupExpressions.containsKey(node.getGroupExpression().get())) {
@@ -67,8 +74,29 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         }
         GroupExpression newGroupExpression = new GroupExpression(node.getOperator());
         newGroupExpression.setChildren(childrenGroups);
-        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite);
+        LogicalProperties logicalProperties;
+        if (node instanceof Plan) {
+            logicalProperties = ((Plan) node).getLogicalProperties();
+        } else {
+            logicalProperties = null;
+        }
+        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, logicalProperties);
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
+    }
+
+    public NODE_TYPE copyOut() {
+        return groupToTreeNode(root);
+    }
+
+    private NODE_TYPE groupToTreeNode(Group group) {
+        GroupExpression logicalExpression = group.getLogicalExpression();
+        List<NODE_TYPE> childrenNode = Lists.newArrayList();
+        List<Group> children = logicalExpression.children();
+        for (Group child : logicalExpression.children()) {
+            childrenNode.add(groupToTreeNode(child));
+        }
+        NODE_TYPE result = (NODE_TYPE) logicalExpression.getOperator().toTreeNode(logicalExpression);
+        return (NODE_TYPE) result.newChildren(childrenNode);
     }
 
     /**
@@ -83,7 +111,7 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @return existing groupExpression in memo or newly generated groupExpression
      */
     private GroupExpression insertOrRewriteGroupExpression(
-            GroupExpression groupExpression, Group target, boolean rewrite) {
+            GroupExpression groupExpression, Group target, boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getParent().getGroupId())) {
@@ -94,12 +122,13 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         if (target != null) {
             if (rewrite) {
                 GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression);
+                target.setLogicalProperties(logicalProperties);
                 groupExpressions.remove(oldExpression);
             } else {
                 target.addGroupExpression(groupExpression);
             }
         } else {
-            Group group = new Group(groupExpression);
+            Group group = new Group(groupExpression, logicalProperties);
             Preconditions.checkArgument(!groups.contains(group), "new group with already exist output");
             groups.add(group);
         }
