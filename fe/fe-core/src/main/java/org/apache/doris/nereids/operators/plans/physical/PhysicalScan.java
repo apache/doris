@@ -25,7 +25,7 @@ import java.util.Objects;
 /**
  * Abstract class for all physical scan operator.
  */
-public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>> extends PhysicalLeafOperator<TYPE> {
+public abstract class PhysicalScan extends PhysicalLeafOperator {
 
 
     protected final List<String> qualifier;

@@ -815,7 +815,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         Backend destBe = infoService.getBackend(destBackendId);
         if (destBe == null) {
             throw new SchedException(Status.SCHEDULE_FAILED,
-                "dest backend " + srcReplica.getBackendId() + " does not exist");
+                "dest backend " + destBackendId + " does not exist");
         }
 
         taskTimeoutMs = getApproximateTimeoutMs();
@@ -830,11 +830,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // another clone task.
         // That is, we may need to use 2 clone tasks to create a new replica. It is inefficient,
         // but there is no other way now.
-        TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
-        cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
-                tabletId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, (int) (taskTimeoutMs / 1000));
-        cloneTask.setPathHash(srcPathHash, destPathHash);
 
         // if this is a balance task, or this is a repair task with
         // REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
@@ -851,6 +846,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     committedVersion, /* use committed version as last failed version */
                     -1 /* last success version */);
 
+            TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
+            cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
+                tabletId, cloneReplica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
+                visibleVersion, (int) (taskTimeoutMs / 1000));
+            cloneTask.setPathHash(srcPathHash, destPathHash);
+
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
         } else if (tabletStatus == TabletStatus.VERSION_INCOMPLETE) {
@@ -865,6 +866,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 throw new SchedException(Status.SCHEDULE_FAILED, "dest replica's path hash is changed. "
                         + "current: " + replica.getPathHash() + ", scheduled: " + destPathHash);
             }
+
+            TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
+            cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
+                tabletId, replica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
+                visibleVersion, (int) (taskTimeoutMs / 1000));
+            cloneTask.setPathHash(srcPathHash, destPathHash);
         }
 
         this.state = State.RUNNING;

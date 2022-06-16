@@ -54,4 +54,6 @@ under the License.
     <suppress files="org[\\/]apache[\\/]doris[\\/]load[\\/]loadv2[\\/]dpp[\\/]SparkRDDAggregator\.java" checks="OneTopLevelClass" />
     <suppress files="org[\\/]apache[\\/]doris[\\/]catalog[\\/]FunctionSet\.java" checks="LineLength" />
     <suppress files="org[\\/]apache[\\/]doris[\\/]common[\\/]ErrorCode\.java" checks="LineLength" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/]udf[\\/]UdafExecutor\.java" checks="NoFinalizer" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/]udf[\\/]UdfExecutor\.java" checks="NoFinalizer" />
 </suppressions>

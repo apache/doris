@@ -25,7 +25,7 @@ import java.util.Objects;
 /**
  * Abstract class for all concrete operator.
  */
-public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> implements Operator<TYPE> {
+public abstract class AbstractOperator implements Operator {
     protected final OperatorType type;
     protected final long limited;
 
@@ -52,7 +52,7 @@ public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> impl
      *                 (PhysicalPlan<? extends PhysicalPlan, PhysicalOlapScan>) plan, context);
      * </code>
      */
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
         return null;
     }
 

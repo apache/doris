@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.Operator;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * interface for all node in Nereids, include plan node and expression.
@@ -32,15 +33,16 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     Operator getOperator();
 
-    GroupExpression getGroupExpression();
+    // cache GroupExpression for fast exit from Memo.copyIn.
+    Optional<GroupExpression> getGroupExpression();
 
     NodeType getType();
 
-    <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children();
+    List<NODE_TYPE> children();
 
-    <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index);
+    NODE_TYPE child(int index);
 
     int arity();
 
-    NODE_TYPE newChildren(List<TreeNode> children);
+    NODE_TYPE newChildren(List<NODE_TYPE> children);
 }

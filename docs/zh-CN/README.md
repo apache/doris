@@ -33,6 +33,8 @@ under the License.
         <div class="bannerHref">
           <a href="/zh-CN/docs/get-starting/get-starting.html" class="button1">快速开始</a> 
           <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
+          <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-18u6vjopj-Th15vTVfmCzVfhhL5rz26A" target="_blank" class="button2 white">
+          <i><img style="width: 20px; position: relative; left: 4px; top: 2px; margin: 0;" src="/images/slack.png" alt="Slack" /></i>SLACK</a>
         </div>
       </div> 
       <div class="bImg">
@@ -223,7 +225,7 @@ under the License.
           </div>
           <div class="coretitle">
             <p class="t">向量化执行引擎</p>
-            <p class="s">通过向量化执行引擎充分发挥现代化CPU并行计划能力。</p>
+            <p class="s">采用最先进的向量化执行技术，可以充分发挥现代CPU的并行规划能力，在多个查询场景中都可以显著提高性能。</p>
           </div>
         </li>
         <li class="wow fadeInUp">
@@ -232,7 +234,7 @@ under the License.
           </div>
           <div class="coretitle">
             <p class="t">智能物化视图</p>
-            <p class="s">用户可以创建智能物化视图加速预聚合查询，并且查询时会自动匹配最优的物化视图。</p>
+            <p class="s">将提前计算好的数据集存储在物化视图表中，查询时将获得更快的响应速度，并会自动匹配最优的物化视图。</p>
           </div>
         </li>
         <li class="wow fadeInUp">
@@ -241,7 +243,7 @@ under the License.
           </div>
           <div class="coretitle">
             <p class="t">列式存储引擎</p>
-            <p class="s">Apache Doris 自带高效的列式存储引擎，减少数据扫描量的同时还实现了超高的数据压缩比。</p>
+            <p class="s">自带高效的列式存储引擎，更适合于数据分析场景，减少数据扫描量的同时还实现了超高的数据压缩比。</p>
           </div>
         </li>
         <li class="wow fadeInUp">
@@ -250,7 +252,7 @@ under the License.
           </div>
           <div class="coretitle">
             <p class="t">丰富的索引结构</p>
-            <p class="s">Doris提供了丰富的索引结构来加速数据读取与过滤，利用分区分桶裁剪功能，Doris可以支持在线服务业务的超高并发，单节点最高可支持上千QPS。</p>
+            <p class="s">提供了丰富的索引结构来加速数据读取与过滤，利用分区分桶裁剪功能，可以支持在线服务业务的超高并发，单节点最高可支持上千QPS。</p>
           </div>
         </li>
       </ul>

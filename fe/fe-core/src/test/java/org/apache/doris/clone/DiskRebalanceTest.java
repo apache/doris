@@ -190,9 +190,12 @@ public class DiskRebalanceTest {
     @Test
     public void testDiskRebalancerWithDiffUsageDisk() {
         // init system
-        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10001L, 2048, Lists.newArrayList(1024L), 1));
-        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10002L, 2048, Lists.newArrayList(1024L, 512L), 2));
-        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10003L, 2048, Lists.newArrayList(1024L, 512L, 513L), 3));
+        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10001L, 2048,
+                Lists.newArrayList(1024L), 1));
+        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10002L, 2048,
+                Lists.newArrayList(1024L, 512L), 2));
+        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10003L, 2048,
+                Lists.newArrayList(1024L, 512L, 1024L), 3));
 
         olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS,
                 new RangePartitionInfo(), new HashDistributionInfo());
@@ -221,6 +224,12 @@ public class DiskRebalanceTest {
         Rebalancer rebalancer = new DiskRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
         generateStatisticMap();
         rebalancer.updateLoadStatistic(statisticMap);
+        for (Table.Cell<String, Tag, ClusterLoadStatistic> s : statisticMap.cellSet()) {
+            if (s.getValue() != null) {
+                LOG.info("cluster = {}, tag = {}, statistic = {}",
+                        s.getRowKey(), s.getColumnKey(), s.getValue().getBrief());
+            }
+        }
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
         Assert.assertEquals(2, alternativeTablets.size());

@@ -18,25 +18,23 @@
 package org.apache.doris.udf;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.MalformedURLException;
-import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -208,13 +206,11 @@ public class UdfExecutor {
         init(jarFile, className, retType, parameterTypes);
     }
 
-    // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
         close();
         super.finalize();
     }
-    // CHECKSTYLE ON
 
     /**
      * Close the class loader we may have created.
@@ -363,25 +359,21 @@ public class UdfExecutor {
             case DATE: {
                 LocalDate date = (LocalDate) obj;
                 long time =
-                        convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), 0, 0, 0,
-                                true);
-                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
-                        time);
+                        UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), 0, 0,
+                                0, true);
+                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }
             case DATETIME: {
                 LocalDateTime date = (LocalDateTime) obj;
-                long time =
-                        convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                                date.getHour(),
-                                date.getMinute(), date.getSecond(), false);
-                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
-                        time);
+                long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+                        date.getHour(), date.getMinute(), date.getSecond(), false);
+                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }
             case LARGEINT: {
                 BigInteger data = (BigInteger) obj;
-                byte[] bytes = convertByteOrder(data.toByteArray());
+                byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
 
                 //here value is 16 bytes, so if result data greater than the maximum of 16 bytes
                 //it will return a wrong num to backend;
@@ -400,7 +392,7 @@ public class UdfExecutor {
             }
             case DECIMALV2: {
                 BigInteger data = ((BigDecimal) obj).unscaledValue();
-                byte[] bytes = convertByteOrder(data.toByteArray());
+                byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
                 //TODO: here is maybe overflow also, and may find a better way to handle
                 byte[] value = new byte[16];
                 if (data.signum() == -1) {
@@ -476,13 +468,13 @@ public class UdfExecutor {
                 case DATE: {
                     long data = UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
-                    inputObjects[i] = convertToDate(data);
+                    inputObjects[i] = UdfUtils.convertToDate(data);
                     break;
                 }
                 case DATETIME: {
                     long data = UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
-                    inputObjects[i] = convertToDateTime(data);
+                    inputObjects[i] = UdfUtils.convertToDateTime(data);
                     break;
                 }
                 case LARGEINT: {
@@ -491,7 +483,7 @@ public class UdfExecutor {
                     byte[] bytes = new byte[16];
                     UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
 
-                    inputObjects[i] = new BigInteger(convertByteOrder(bytes));
+                    inputObjects[i] = new BigInteger(UdfUtils.convertByteOrder(bytes));
                     break;
                 }
                 case DECIMALV2: {
@@ -500,7 +492,7 @@ public class UdfExecutor {
                     byte[] bytes = new byte[16];
                     UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
 
-                    BigInteger value = new BigInteger(convertByteOrder(bytes));
+                    BigInteger value = new BigInteger(UdfUtils.convertByteOrder(bytes));
                     inputObjects[i] = new BigDecimal(value, 9);
                     break;
                 }
@@ -527,58 +519,16 @@ public class UdfExecutor {
         }
     }
 
-    private URLClassLoader getClassLoader(String jarPath) throws MalformedURLException {
-        URL url = new File(jarPath).toURI().toURL();
-        return URLClassLoader.newInstance(new URL[] {url}, getClass().getClassLoader());
-    }
-
-    /**
-     * Sets the return type of a Java UDF. Returns true if the return type is compatible
-     * with the return type from the function definition. Throws an UdfRuntimeException
-     * if the return type is not supported.
-     */
-    private boolean setReturnType(Type retType, Class<?> udfReturnType)
-            throws InternalException {
-        if (!JavaUdfDataType.isSupported(retType)) {
-            throw new InternalException("Unsupported return type: " + retType.toSql());
-        }
-        JavaUdfDataType javaType = JavaUdfDataType.getType(udfReturnType);
-        // Check if the evaluate method return type is compatible with the return type from
-        // the function definition. This happens when both of them map to the same primitive
-        // type.
-        if (retType.getPrimitiveType().toThrift() != javaType.getPrimitiveType()) {
-            return false;
-        }
-        this.retType = javaType;
-        return true;
-    }
-
-    /**
-     * Sets the argument types of a Java UDF. Returns true if the argument types specified
-     * in the UDF are compatible with the argument types of the evaluate() function loaded
-     * from the associated JAR file.
-     */
-    private boolean setArgTypes(Type[] parameterTypes, Class<?>[] udfArgTypes) {
-        Preconditions.checkNotNull(argTypes);
-        for (int i = 0; i < udfArgTypes.length; ++i) {
-            argTypes[i] = JavaUdfDataType.getType(udfArgTypes[i]);
-            if (argTypes[i].getPrimitiveType()
-                    != parameterTypes[i].getPrimitiveType().toThrift()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private void init(String jarPath, String udfPath,
-                      Type retType, Type... parameterTypes) throws UdfRuntimeException {
+    private void init(String jarPath, String udfPath, Type funcRetType, Type... parameterTypes)
+            throws UdfRuntimeException {
         ArrayList<String> signatures = Lists.newArrayList();
         try {
             LOG.debug("Loading UDF '" + udfPath + "' from " + jarPath);
             ClassLoader loader;
             if (jarPath != null) {
                 // Save for cleanup.
-                classLoader = getClassLoader(jarPath);
+                ClassLoader parent = getClass().getClassLoader();
+                classLoader = UdfUtils.getClassLoader(jarPath, parent);
                 loader = classLoader;
             } else {
                 loader = ClassLoader.getSystemClassLoader();
@@ -586,7 +536,6 @@ public class UdfExecutor {
             Class<?> c = Class.forName(udfPath, true, loader);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
-            argTypes = new JavaUdfDataType[parameterTypes.length];
             Method[] methods = c.getMethods();
             for (Method m : methods) {
                 // By convention, the udf must contain the function "evaluate"
@@ -601,19 +550,30 @@ public class UdfExecutor {
                     continue;
                 }
                 method = m;
+                Pair<Boolean, JavaUdfDataType> returnType;
                 if (methodTypes.length == 0 && parameterTypes.length == 0) {
                     // Special case where the UDF doesn't take any input args
-                    if (!setReturnType(retType, m.getReturnType())) {
+                    returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
+                    if (!returnType.first) {
                         continue;
+                    } else {
+                        retType = returnType.second;
                     }
+                    argTypes = new JavaUdfDataType[0];
                     LOG.debug("Loaded UDF '" + udfPath + "' from " + jarPath);
                     return;
                 }
-                if (!setReturnType(retType, m.getReturnType())) {
+                returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
+                if (!returnType.first) {
                     continue;
+                } else {
+                    retType = returnType.second;
                 }
-                if (!setArgTypes(parameterTypes, methodTypes)) {
+                Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, methodTypes, false);
+                if (!inputType.first) {
                     continue;
+                } else {
+                    argTypes = inputType.second;
                 }
                 LOG.debug("Loaded UDF '" + udfPath + "' from " + jarPath);
                 return;
@@ -642,66 +602,5 @@ public class UdfExecutor {
         } catch (Exception e) {
             throw new UdfRuntimeException("Unable to call create UDF instance.", e);
         }
-    }
-
-    // input is a 64bit num from backend, and then get year, month, day, hour, minus, second by the order of bits
-    // return a new LocalDateTime data to evaluate method;
-    private LocalDateTime convertToDateTime(long date) {
-        int year = (int) (date >> 48);
-        int yearMonth = (int) (date >> 40);
-        int yearMonthDay = (int) (date >> 32);
-
-        int month = (yearMonth & 0XFF);
-        int day = (yearMonthDay & 0XFF);
-
-        int hourMinuteSecond = (int) (date % (1 << 31));
-        int minuteTypeNeg = (hourMinuteSecond % (1 << 16));
-
-        int hour = (hourMinuteSecond >> 24);
-        int minute = ((hourMinuteSecond >> 16) & 0XFF);
-        int second = (minuteTypeNeg >> 4);
-        //here don't need those bits are type = ((minus_type_neg >> 1) & 0x7);
-
-        LocalDateTime value = LocalDateTime.of(year, month, day, hour, minute, second);
-        return value;
-    }
-
-    private LocalDate convertToDate(long date) {
-        int year = (int) (date >> 48);
-        int yearMonth = (int) (date >> 40);
-        int yearMonthDay = (int) (date >> 32);
-
-        int month = (yearMonth & 0XFF);
-        int day = (yearMonthDay & 0XFF);
-        LocalDate value = LocalDate.of(year, month, day);
-        return value;
-    }
-
-    //input is the second, minute, hours, day , month and year respectively
-    //and then combining all num to a 64bit value return to backend;
-    private long convertDateTimeToLong(int year, int month, int day, int hour, int minute, int second, boolean isDate) {
-        long time = 0;
-        time = time + year;
-        time = (time << 8) + month;
-        time = (time << 8) + day;
-        time = (time << 8) + hour;
-        time = (time << 8) + minute;
-        time = (time << 12) + second;
-        int type = isDate ? 2 : 3;
-        time = (time << 3) + type;
-        //this bit is int neg = 0;
-        time = (time << 1);
-        return time;
-    }
-
-    // Change the order of the bytes, Because JVM is Big-Endian , x86 is Little-Endian
-    private byte[] convertByteOrder(byte[] bytes) {
-        int length = bytes.length;
-        for (int i = 0; i < length / 2; ++i) {
-            byte temp = bytes[i];
-            bytes[i] = bytes[length - 1 - i];
-            bytes[length - 1 - i] = temp;
-        }
-        return bytes;
     }
 }

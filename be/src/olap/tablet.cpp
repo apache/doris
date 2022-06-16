@@ -872,8 +872,57 @@ void Tablet::calculate_cumulative_point() {
     if (ret_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
-
     set_cumulative_layer_point(ret_cumulative_point);
+}
+
+//find rowsets that rows less then "config::quick_compaction_max_rows"
+Status Tablet::pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
+                                             int64_t* permits) {
+    int max_rows = config::quick_compaction_max_rows;
+    if (!config::enable_quick_compaction || max_rows <= 0) {
+        return Status::OK();
+    }
+    if (!init_succeeded()) {
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
+    }
+    int max_series_num = 1000;
+
+    std::vector<std::vector<RowsetSharedPtr>> quick_compaction_rowsets(max_series_num);
+    int idx = 0;
+    std::shared_lock rdlock(_meta_lock);
+    std::vector<RowsetSharedPtr> sortedRowset;
+    for (auto& rs : _rs_version_map) {
+        sortedRowset.push_back(rs.second);
+    }
+    std::sort(sortedRowset.begin(), sortedRowset.end(), Rowset::comparator);
+    if (tablet_state() == TABLET_RUNNING) {
+        for (int i = 0; i < sortedRowset.size(); i++) {
+            bool is_delete = version_for_delete_predicate(sortedRowset[i]->version());
+            if (!is_delete && sortedRowset[i]->start_version() > 0 &&
+                sortedRowset[i]->start_version() > cumulative_layer_point()) {
+                if (sortedRowset[i]->num_rows() < max_rows) {
+                    quick_compaction_rowsets[idx].push_back(sortedRowset[i]);
+                } else {
+                    idx++;
+                    if (idx > max_series_num) {
+                        break;
+                    }
+                }
+            }
+        }
+        if (quick_compaction_rowsets.size() == 0) return Status::OK();
+        std::vector<RowsetSharedPtr> result = quick_compaction_rowsets[0];
+        for (int i = 0; i < quick_compaction_rowsets.size(); i++) {
+            if (quick_compaction_rowsets[i].size() > result.size()) {
+                result = quick_compaction_rowsets[i];
+            }
+        }
+        for (int i = 0; i < result.size(); i++) {
+            *permits += result[i]->num_segments();
+            input_rowsets->push_back(result[i]);
+        }
+    }
+    return Status::OK();
 }
 
 Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
@@ -1350,6 +1399,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
+    tablet_info->__set_replica_id(replica_id());
 }
 
 // should use this method to get a copy of current tablet meta

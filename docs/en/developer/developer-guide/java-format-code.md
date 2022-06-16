@@ -89,5 +89,11 @@ After add the `build-support/IntelliJ-code-format.xml` file. Click `Code/Rearran
 
 ![](/images/idea-rearrange-code.png)
 
+## Remove unused header
 
+**CTRL + ALT + O --->** to remove the unused imports in windows.
+
+Auto remove unused header and reorder according to configure xml:
+
+Click `Preferences->Editor->Auto Import->Optimize Imports on the Fly`
 

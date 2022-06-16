@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -283,8 +284,9 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
-                if (!clusterStat.isMoreBalanced(tabletCtx.getSrcBackendId(), beStat.getBeId(),
-                        tabletCtx.getTabletId(), tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
+                if (!Config.be_rebalancer_fuzzy_test && !clusterStat.isMoreBalanced(
+                        tabletCtx.getSrcBackendId(), beStat.getBeId(), tabletCtx.getTabletId(),
+                        tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
                     continue;
                 }
 

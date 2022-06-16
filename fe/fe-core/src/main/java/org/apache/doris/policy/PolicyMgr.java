@@ -207,6 +207,9 @@ public class PolicyMgr implements Writable {
         long currentDbId = ConnectContext.get().getCurrentDbId();
         Policy checkedPolicy = null;
         switch (showStmt.getType()) {
+            case STORAGE:
+                checkedPolicy = new StoragePolicy();
+                break;
             case ROW:
             default:
                 RowPolicy rowPolicy = new RowPolicy();
