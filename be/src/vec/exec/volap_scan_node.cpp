@@ -17,9 +17,12 @@
 
 #include "vec/exec/volap_scan_node.h"
 
+#include "common/resource_tls.h"
+#include "exec/scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/large_int_value.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/priority_thread_pool.hpp"
 #include "vec/core/block.h"
@@ -27,11 +30,233 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
+using doris::operator<<;
+
 VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : OlapScanNode(pool, tnode, descs),
+        : ScanNode(pool, tnode, descs),
+          _tuple_id(tnode.olap_scan_node.tuple_id),
+          _olap_scan_node(tnode.olap_scan_node),
+          _tuple_desc(nullptr),
+          _tuple_idx(0),
+          _eos(false),
+          _max_materialized_row_batches(config::doris_scanner_queue_size),
+          _start(false),
+          _scanner_done(false),
+          _transfer_done(false),
+          _status(Status::OK()),
+          _resource_info(nullptr),
+          _buffered_bytes(0),
+          _eval_conjuncts_fn(nullptr),
+          _runtime_filter_descs(tnode.runtime_filters),
           _max_materialized_blocks(config::doris_scanner_queue_size) {
     _materialized_blocks.reserve(_max_materialized_blocks);
     _free_blocks.reserve(_max_materialized_blocks);
+}
+
+Status VOlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
+    _direct_conjunct_size = _conjunct_ctxs.size();
+
+    const TQueryOptions& query_options = state->query_options();
+    if (query_options.__isset.max_scan_key_num) {
+        _max_scan_key_num = query_options.max_scan_key_num;
+    } else {
+        _max_scan_key_num = config::doris_max_scan_key_num;
+    }
+
+    if (query_options.__isset.max_pushdown_conditions_per_column) {
+        _max_pushdown_conditions_per_column = query_options.max_pushdown_conditions_per_column;
+    } else {
+        _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
+    }
+
+    _max_scanner_queue_size_bytes = query_options.mem_limit / 20; //TODO: session variable percent
+
+    /// TODO: could one filter used in the different scan_node ?
+    int filter_size = _runtime_filter_descs.size();
+    _runtime_filter_ctxs.resize(filter_size);
+    for (int i = 0; i < filter_size; ++i) {
+        IRuntimeFilter* runtime_filter = nullptr;
+        const auto& filter_desc = _runtime_filter_descs[i];
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+                RuntimeFilterRole::CONSUMER, filter_desc, state->query_options(), id()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
+                                                                        &runtime_filter));
+
+        _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
+    }
+
+    return Status::OK();
+}
+
+void VOlapScanNode::init_scan_profile() {
+    std::string scanner_profile_name = "VOlapScanner";
+    if (_olap_scan_node.__isset.table_name) {
+        scanner_profile_name = fmt::format("VOlapScanner({0})", _olap_scan_node.table_name);
+    }
+    _scanner_profile.reset(new RuntimeProfile(scanner_profile_name));
+    runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
+
+    _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
+    _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
+}
+
+void VOlapScanNode::_init_counter(RuntimeState* state) {
+    ADD_TIMER(_scanner_profile, "ShowHintsTime_V1");
+
+    _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
+    _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
+    _read_uncompressed_counter =
+            ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
+    _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
+    _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
+    _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
+    _block_seek_timer = ADD_TIMER(_segment_profile, "BlockSeekTime");
+    _block_seek_counter = ADD_COUNTER(_segment_profile, "BlockSeekCount", TUnit::UNIT);
+
+    _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
+    _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
+    _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
+    _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
+    _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
+
+    _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
+    _conditions_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
+    _key_range_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
+
+    _io_timer = ADD_TIMER(_segment_profile, "IOTimer");
+    _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");
+    _index_load_timer = ADD_TIMER(_segment_profile, "IndexLoadTime_V1");
+
+    _scan_timer = ADD_TIMER(_scanner_profile, "ScanTime");
+    _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScanCpuTime");
+
+    _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
+    _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
+
+    _bitmap_index_filter_counter =
+            ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
+    _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
+
+    _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
+
+    _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
+    _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
+
+    // time of transfer thread to wait for row batch from scan thread
+    _scanner_wait_batch_timer = ADD_TIMER(_runtime_profile, "ScannerBatchWaitTime");
+    // time of scan thread to wait for worker thread of the thread pool
+    _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
+
+    // time of node to wait for batch/block queue
+    _olap_wait_batch_queue_timer = ADD_TIMER(_runtime_profile, "BatchQueueWaitTime");
+
+    // for the purpose of debugging or profiling
+    for (int i = 0; i < GENERAL_DEBUG_COUNT; ++i) {
+        char name[64];
+        snprintf(name, sizeof(name), "GeneralDebugTimer%d", i);
+        _general_debug_timer[i] = ADD_TIMER(_segment_profile, name);
+    }
+}
+
+Status VOlapScanNode::prepare(RuntimeState* state) {
+    init_scan_profile();
+    RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    // create scanner profile
+    // create timer
+    _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
+    _scanner_sched_counter = ADD_COUNTER(runtime_profile(), "ScannerSchedCount ", TUnit::UNIT);
+
+    _rows_pushed_cond_filtered_counter =
+            ADD_COUNTER(_scanner_profile, "RowsPushedCondFiltered", TUnit::UNIT);
+    _init_counter(state);
+    _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+
+    _scanner_mem_tracker = MemTracker::create_tracker(state->instance_mem_tracker()->limit(),
+                                                      "Scanners", mem_tracker());
+
+    if (_tuple_desc == nullptr) {
+        // TODO: make sure we print all available diagnostic output to our error log
+        return Status::InternalError("Failed to get tuple descriptor.");
+    }
+
+    const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
+
+    for (int i = 0; i < slots.size(); ++i) {
+        if (!slots[i]->is_materialized()) {
+            continue;
+        }
+
+        if (slots[i]->type().is_collection_type()) {
+            _collection_slots.push_back(slots[i]);
+        }
+
+        if (slots[i]->type().is_string_type()) {
+            _string_slots.push_back(slots[i]);
+        }
+    }
+
+    _runtime_state = state;
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        IRuntimeFilter* runtime_filter = nullptr;
+        state->runtime_filter_mgr()->get_consume_filter(_runtime_filter_descs[i].filter_id,
+                                                        &runtime_filter);
+        DCHECK(runtime_filter != nullptr);
+        runtime_filter->init_profile(_runtime_profile.get());
+    }
+    return Status::OK();
+}
+
+Status VOlapScanNode::open(RuntimeState* state) {
+    VLOG_CRITICAL << "VOlapScanNode::Open";
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    RETURN_IF_CANCELLED(state);
+    RETURN_IF_ERROR(ExecNode::open(state));
+
+    _resource_info = ResourceTls::get_resource_tls();
+
+    // acquire runtime filter
+    _runtime_filter_ctxs.resize(_runtime_filter_descs.size());
+
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        auto& filter_desc = _runtime_filter_descs[i];
+        IRuntimeFilter* runtime_filter = nullptr;
+        state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
+        DCHECK(runtime_filter != nullptr);
+        if (runtime_filter == nullptr) {
+            continue;
+        }
+        bool ready = runtime_filter->is_ready();
+        if (!ready) {
+            ready = runtime_filter->await();
+        }
+        if (ready) {
+            std::list<ExprContext*> expr_context;
+            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&expr_context));
+            _runtime_filter_ctxs[i].apply_mark = true;
+            _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
+
+            for (auto ctx : expr_context) {
+                ctx->prepare(state, row_desc(), _expr_mem_tracker);
+                ctx->open(state);
+                int index = _conjunct_ctxs.size();
+                _conjunct_ctxs.push_back(ctx);
+                // it's safe to store address from a fix-resized vector
+                _conjunctid_to_runtime_filter_ctxs[index] = &_runtime_filter_ctxs[i];
+            }
+        }
+    }
+
+    return Status::OK();
 }
 
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
@@ -219,7 +444,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         status = scanner->get_block(_runtime_state, block, &eos);
         VLOG_ROW << "VOlapScanNode input rows: " << block->rows();
         if (!status.ok()) {
-            LOG(WARNING) << "Scan thread read OlapScanner failed: " << status.to_string();
+            LOG(WARNING) << "Scan thread read VOlapScanner failed: " << status.to_string();
             // Add block ptr in blocks, prevent mem leak in read failed
             blocks.push_back(block);
             eos = true;
@@ -317,6 +542,750 @@ Status VOlapScanNode::_add_blocks(std::vector<Block*>& block) {
     }
     // remove one block, notify main thread
     _block_added_cv.notify_one();
+    return Status::OK();
+}
+
+void VOlapScanNode::eval_const_conjuncts() {
+    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        // if conjunct is constant, compute direct and set eos = true
+        if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
+            void* value = _conjunct_ctxs[conj_idx]->get_value(nullptr);
+            if (value == nullptr || *reinterpret_cast<bool*>(value) == false) {
+                _eos = true;
+                break;
+            }
+        }
+    }
+}
+
+Status VOlapScanNode::normalize_conjuncts() {
+    std::vector<SlotDescriptor*> slots = _tuple_desc->slots();
+
+    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        switch (slots[slot_idx]->type().type) {
+        case TYPE_TINYINT: {
+            ColumnValueRange<int8_t> range(slots[slot_idx]->col_name(),
+                                           slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_SMALLINT: {
+            ColumnValueRange<int16_t> range(slots[slot_idx]->col_name(),
+                                            slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_INT: {
+            ColumnValueRange<int32_t> range(slots[slot_idx]->col_name(),
+                                            slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_BIGINT: {
+            ColumnValueRange<int64_t> range(slots[slot_idx]->col_name(),
+                                            slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_LARGEINT: {
+            ColumnValueRange<__int128> range(slots[slot_idx]->col_name(),
+                                             slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_HLL:
+        case TYPE_STRING: {
+            ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
+                                                slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DATE:
+        case TYPE_DATETIME: {
+            ColumnValueRange<DateTimeValue> range(slots[slot_idx]->col_name(),
+                                                  slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DECIMALV2: {
+            ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
+                                                   slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_BOOLEAN: {
+            ColumnValueRange<bool> range(slots[slot_idx]->col_name(), slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        default: {
+            VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slots[slot_idx]->col_name()
+                          << "]";
+            break;
+        }
+        }
+    }
+
+    return Status::OK();
+}
+
+Status VOlapScanNode::build_olap_filters() {
+    for (auto& iter : _column_value_ranges) {
+        std::vector<TCondition> filters;
+        std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
+
+        for (const auto& filter : filters) {
+            _olap_filter.push_back(std::move(filter));
+        }
+    }
+
+    return Status::OK();
+}
+
+Status VOlapScanNode::build_scan_key() {
+    const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
+    const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
+    DCHECK(column_types.size() == column_names.size());
+
+    // 1. construct scan key except last olap engine short key
+    _scan_keys.set_is_convertible(limit() == -1);
+
+    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
+         ++column_index) {
+        auto iter = _column_value_ranges.find(column_names[column_index]);
+        if (_column_value_ranges.end() == iter) {
+            break;
+        }
+
+        RETURN_IF_ERROR(std::visit(
+                [&](auto&& range) { return _scan_keys.extend_scan_key(range, _max_scan_key_num); },
+                iter->second));
+    }
+
+    VLOG_CRITICAL << _scan_keys.debug_string();
+
+    return Status::OK();
+}
+
+Status VOlapScanNode::start_scan(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
+
+    VLOG_CRITICAL << "Eval Const Conjuncts";
+    // 1. Eval const conjuncts to find whether eos = true
+    eval_const_conjuncts();
+
+    VLOG_CRITICAL << "NormalizeConjuncts";
+    // 2. Convert conjuncts to ColumnValueRange in each column, some conjuncts may
+    // set eos = true
+    RETURN_IF_ERROR(normalize_conjuncts());
+
+    // 1 and 2 step dispose find conjuncts set eos = true, return directly
+    if (_eos) {
+        return Status::OK();
+    }
+
+    VLOG_CRITICAL << "BuildOlapFilters";
+    // 3. Using ColumnValueRange to Build StorageEngine filters
+    RETURN_IF_ERROR(build_olap_filters());
+
+    VLOG_CRITICAL << "BuildScanKey";
+    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
+    RETURN_IF_ERROR(build_scan_key());
+
+    VLOG_CRITICAL << "Filter idle conjuncts";
+    // 5. Filter idle conjunct which already trans to olap filters
+    // this must be after build_scan_key, it will free the StringValue memory
+    remove_pushed_conjuncts(state);
+
+    VLOG_CRITICAL << "StartScanThread";
+    // 6. Start multi thread to read several `Sub Sub ScanRange`
+    RETURN_IF_ERROR(start_scan_thread(state));
+
+    return Status::OK();
+}
+
+template <class T>
+Status VOlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot) {
+    // 1. Normalize InPredicate, add to ColumnValueRange
+    RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
+
+    // 2. Normalize NotInPredicate, add to ColumnValueRange
+    RETURN_IF_ERROR(normalize_not_in_and_not_eq_predicate(slot, &range));
+
+    // 3. Normalize BinaryPredicate , add to ColumnValueRange
+    RETURN_IF_ERROR(normalize_noneq_binary_predicate(slot, &range));
+
+    // 3. Normalize BloomFilterPredicate, push down by hash join node
+    RETURN_IF_ERROR(normalize_bloom_filter_predicate(slot));
+
+    // 4. Check whether range is empty, set _eos
+    if (range.is_empty_value_range()) _eos = true;
+
+    // 5. Add range to Column->ColumnValueRange map
+    _column_value_ranges[slot->col_name()] = range;
+
+    return Status::OK();
+}
+
+static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
+    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+        return true;
+    }
+    if (slot->type().is_string_type() && expr->type().is_string_type()) {
+        return true;
+    }
+    return false;
+}
+
+bool VOlapScanNode::should_push_down_in_predicate(doris::SlotDescriptor* slot,
+                                                  doris::InPredicate* pred) {
+    if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
+        // not a slot ref(column)
+        return false;
+    }
+
+    std::vector<SlotId> slot_ids;
+    if (pred->get_child(0)->get_slot_ids(&slot_ids) != 1) {
+        // not a single column predicate
+        return false;
+    }
+
+    if (slot_ids[0] != slot->id()) {
+        // predicate not related to current column
+        return false;
+    }
+
+    if (pred->get_child(0)->type().type != slot->type().type) {
+        if (!ignore_cast(slot, pred->get_child(0))) {
+            // the type of predicate not match the slot's type
+            return false;
+        }
+    }
+
+    VLOG_CRITICAL << slot->col_name() << " fixed_values add num: " << pred->hybrid_set()->size();
+
+    // if there are too many elements in InPredicate, exceed the limit,
+    // we will not push any condition of this column to storage engine.
+    // because too many conditions pushed down to storage engine may even
+    // slow down the query process.
+    // ATTN: This is just an experience value. You may need to try
+    // different thresholds to improve performance.
+    if (pred->hybrid_set()->size() > _max_pushdown_conditions_per_column) {
+        VLOG_NOTICE << "Predicate value num " << pred->hybrid_set()->size() << " exceed limit "
+                    << _max_pushdown_conditions_per_column;
+        return false;
+    }
+
+    return true;
+}
+
+std::pair<bool, void*> VOlapScanNode::should_push_down_eq_predicate(doris::SlotDescriptor* slot,
+                                                                    doris::Expr* pred, int conj_idx,
+                                                                    int child_idx) {
+    auto result_pair = std::make_pair<bool, void*>(false, nullptr);
+
+    // Do not get slot_ref of column, should not push_down to Storage Engine
+    if (Expr::type_without_cast(pred->get_child(child_idx)) != TExprNodeType::SLOT_REF) {
+        return result_pair;
+    }
+
+    std::vector<SlotId> slot_ids;
+    if (pred->get_child(child_idx)->get_slot_ids(&slot_ids) != 1) {
+        // not a single column predicate
+        return result_pair;
+    }
+
+    if (slot_ids[0] != slot->id()) {
+        // predicate not related to current column
+        return result_pair;
+    }
+
+    if (pred->get_child(child_idx)->type().type != slot->type().type) {
+        if (!ignore_cast(slot, pred->get_child(child_idx))) {
+            // the type of predicate not match the slot's type
+            return result_pair;
+        }
+    }
+
+    Expr* expr = pred->get_child(1 - child_idx);
+    if (!expr->is_constant()) {
+        // only handle constant value
+        return result_pair;
+    }
+
+    // get value in result pair
+    result_pair = std::make_pair(true, _conjunct_ctxs[conj_idx]->get_value(expr, nullptr));
+
+    return result_pair;
+}
+
+template <typename T, typename ChangeFixedValueRangeFunc>
+Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, PrimitiveType type,
+                                               void* value, const ChangeFixedValueRangeFunc& func) {
+    switch (type) {
+    case TYPE_DATE: {
+        DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
+        // There is must return empty data in olap_scan_node,
+        // Because data value loss accuracy
+        if (!date_value.check_loss_accuracy_cast_to_date()) {
+            func(temp_range, reinterpret_cast<T*>(&date_value));
+        }
+        break;
+    }
+    case TYPE_DECIMALV2:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_HLL:
+    case TYPE_DATETIME:
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_LARGEINT:
+    case TYPE_STRING: {
+        func(temp_range, reinterpret_cast<T*>(value));
+        break;
+    }
+    case TYPE_BOOLEAN: {
+        bool v = *reinterpret_cast<bool*>(value);
+        func(temp_range, reinterpret_cast<T*>(&v));
+        break;
+    }
+    default: {
+        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type=" << type << "]";
+        return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
+    }
+    }
+    return Status::OK();
+}
+
+bool VOlapScanNode::is_key_column(const std::string& key_name) {
+    // all column in dup_keys table olap scan node threat
+    // as key column
+    if (_olap_scan_node.keyType == TKeysType::DUP_KEYS) {
+        return true;
+    }
+
+    auto res = std::find(_olap_scan_node.key_column_name.begin(),
+                         _olap_scan_node.key_column_name.end(), key_name);
+    return res != _olap_scan_node.key_column_name.end();
+}
+
+void VOlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
+    if (_pushed_conjuncts_index.empty()) {
+        return;
+    }
+
+    // dispose direct conjunct first
+    std::vector<ExprContext*> new_conjunct_ctxs;
+    for (int i = 0; i < _direct_conjunct_size; ++i) {
+        if (std::find(_pushed_conjuncts_index.cbegin(), _pushed_conjuncts_index.cend(), i) ==
+            _pushed_conjuncts_index.cend()) {
+            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        } else {
+            _conjunct_ctxs[i]->close(state);
+        }
+    }
+    auto new_direct_conjunct_size = new_conjunct_ctxs.size();
+
+    // dispose hash join push down conjunct second
+    for (int i = _direct_conjunct_size; i < _conjunct_ctxs.size(); ++i) {
+        if (std::find(_pushed_conjuncts_index.cbegin(), _pushed_conjuncts_index.cend(), i) ==
+            _pushed_conjuncts_index.cend()) {
+            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        } else {
+            _conjunct_ctxs[i]->close(state);
+        }
+    }
+
+    _conjunct_ctxs = std::move(new_conjunct_ctxs);
+    _direct_conjunct_size = new_direct_conjunct_size;
+
+    // TODO: support vbloom_filter_predicate/vbinary_predicate and merge unpushed predicate to _vconjunct_ctx
+    for (auto push_down_ctx : _pushed_conjuncts_index) {
+        auto iter = _conjunctid_to_runtime_filter_ctxs.find(push_down_ctx);
+        if (iter != _conjunctid_to_runtime_filter_ctxs.end()) {
+            iter->second->runtimefilter->set_push_down_profile();
+        }
+    }
+
+    // set vconjunct_ctx is empty, if all conjunct
+    if (_direct_conjunct_size == 0) {
+        if (_vconjunct_ctx_ptr != nullptr) {
+            (*_vconjunct_ctx_ptr)->close(state);
+            _vconjunct_ctx_ptr = nullptr;
+        }
+    }
+
+    // filter idle conjunct in vexpr_contexts
+    auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
+    std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
+    _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
+}
+
+// Construct the ColumnValueRange for one specified column
+// It will only handle the InPredicate and eq BinaryPredicate in conjunct_ctxs.
+// It will try to push down conditions of that column as much as possible,
+// But if the number of conditions exceeds the limit, none of conditions will be pushed down.
+template <class T>
+Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
+                                                    ColumnValueRange<T>* range) {
+    std::vector<uint32_t> filter_conjuncts_index;
+    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        // create empty range as temp range, temp range should do intersection on range
+        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+
+        // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
+        if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
+            InPredicate* pred = static_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
+            if (!should_push_down_in_predicate(slot, pred)) {
+                continue;
+            }
+
+            // begin to push InPredicate value into ColumnValueRange
+            HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
+            while (iter->has_next()) {
+                // column in (nullptr) is always false so continue to
+                // dispose next item
+                if (nullptr == iter->get_value()) {
+                    continue;
+                }
+                auto value = const_cast<void*>(iter->get_value());
+                RETURN_IF_ERROR(
+                        change_fixed_value_range(temp_range, slot->type().type, value,
+                                                 ColumnValueRange<T>::add_fixed_value_range));
+                iter->next();
+            }
+
+            if (is_key_column(slot->col_name())) {
+                filter_conjuncts_index.emplace_back(conj_idx);
+            }
+            range->intersection(temp_range);
+        } // end of handle in predicate
+        // 2. Normalize eq conjuncts like 'where col = value'
+        else if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type() &&
+                 FILTER_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
+            Expr* pred = _conjunct_ctxs[conj_idx]->root();
+            DCHECK(pred->get_num_children() == 2);
+
+            for (int child_idx = 0; child_idx < 2; ++child_idx) {
+                // TODO: should use C++17 structured bindlings to refactor this code in the future:
+                // 'auto [should_push_down, value] = should_push_down_eq_predicate(slot, pred, conj_idx, child_idx);'
+                // make code tidier and readabler
+                auto result_pair = should_push_down_eq_predicate(slot, pred, conj_idx, child_idx);
+                if (!result_pair.first) {
+                    continue;
+                }
+
+                auto value = result_pair.second;
+                // where A = nullptr should return empty result set
+                if (value != nullptr) {
+                    RETURN_IF_ERROR(
+                            change_fixed_value_range(temp_range, slot->type().type, value,
+                                                     ColumnValueRange<T>::add_fixed_value_range));
+                }
+
+                if (is_key_column(slot->col_name())) {
+                    filter_conjuncts_index.emplace_back(conj_idx);
+                }
+                range->intersection(temp_range);
+            } // end for each binary predicate child
+        }     // end of handling eq binary predicate
+    }
+
+    // exceed limit, no conditions will be pushed down to storage engine.
+    if (range->get_fixed_value_size() > _max_pushdown_conditions_per_column) {
+        range->set_whole_value_range();
+    } else {
+        std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
+                  std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
+    }
+    return Status::OK();
+}
+
+// Construct the ColumnValueRange for one specified column
+// It will only handle the NotInPredicate and not eq BinaryPredicate in conjunct_ctxs.
+// It will try to push down conditions of that column as much as possible,
+// But if the number of conditions exceeds the limit, none of conditions will be pushed down.
+template <class T>
+Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
+                                                            ColumnValueRange<T>* range) {
+    // If the conjunct of slot is fixed value, will change the fixed value set of column value range
+    // else add value to not in range and push down predicate directly
+    bool is_fixed_range = range->is_fixed_value_range();
+    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name(),
+                                                                             range->type());
+
+    std::vector<uint32_t> filter_conjuncts_index;
+    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        // 1. Normalize in conjuncts like 'where col not in (v1, v2, v3)'
+        if (TExprOpcode::FILTER_NOT_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
+            InPredicate* pred = static_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
+            if (!should_push_down_in_predicate(slot, pred)) {
+                continue;
+            }
+
+            // begin to push InPredicate value into ColumnValueRange
+            auto iter = pred->hybrid_set()->begin();
+            while (iter->has_next()) {
+                // column not in (nullptr) is always true
+                if (nullptr == iter->get_value()) {
+                    continue;
+                }
+                auto value = const_cast<void*>(iter->get_value());
+                if (is_fixed_range) {
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            *range, slot->type().type, value,
+                            ColumnValueRange<T>::remove_fixed_value_range));
+                } else {
+                    RETURN_IF_ERROR(
+                            change_fixed_value_range(not_in_range, slot->type().type, value,
+                                                     ColumnValueRange<T>::add_fixed_value_range));
+                }
+                iter->next();
+            }
+
+            // only where a in ('a', 'b', nullptr) contain nullptr will
+            // clear temp_range to whole range, no need do intersection
+            if (is_key_column(slot->col_name())) {
+                filter_conjuncts_index.emplace_back(conj_idx);
+            }
+        } // end of handle not in predicate
+
+        // 2. Normalize eq conjuncts like 'where col != value'
+        if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type() &&
+            FILTER_NOT_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
+            Expr* pred = _conjunct_ctxs[conj_idx]->root();
+            DCHECK(pred->get_num_children() == 2);
+
+            for (int child_idx = 0; child_idx < 2; ++child_idx) {
+                // TODO: should use C++17 structured bindlings to refactor this code in the future:
+                // 'auto [should_push_down, value] = should_push_down_eq_predicate(slot, pred, conj_idx, child_idx);'
+                // make code tidier and readabler
+                auto result_pair = should_push_down_eq_predicate(slot, pred, conj_idx, child_idx);
+                if (!result_pair.first) {
+                    continue;
+                }
+                auto value = result_pair.second;
+
+                if (is_fixed_range) {
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            *range, slot->type().type, value,
+                            ColumnValueRange<T>::remove_fixed_value_range));
+                } else {
+                    RETURN_IF_ERROR(
+                            change_fixed_value_range(not_in_range, slot->type().type, value,
+                                                     ColumnValueRange<T>::add_fixed_value_range));
+                }
+
+                if (is_key_column(slot->col_name())) {
+                    filter_conjuncts_index.emplace_back(conj_idx);
+                }
+            } // end for each binary predicate child
+        }     // end of handling eq binary predicate
+    }
+
+    // exceed limit, no conditions will be pushed down to storage engine.
+    if (is_fixed_range ||
+        not_in_range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+        if (!is_fixed_range) {
+            // push down not in condition to storage engine
+            not_in_range.to_in_condition(_olap_filter, false);
+        }
+        std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
+                  std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
+    }
+    return Status::OK();
+}
+
+template <typename T>
+bool VOlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
+                                                const std::string& is_null_str,
+                                                ColumnValueRange<T>* range) {
+    if (expr->node_type() != TExprNodeType::SLOT_REF) {
+        return false;
+    }
+
+    std::vector<SlotId> slot_ids;
+    if (1 != expr->get_slot_ids(&slot_ids)) {
+        return false;
+    }
+
+    if (slot_ids[0] != slot->id()) {
+        return false;
+    }
+
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+    temp_range.set_contain_null(is_null_str == "null");
+    range->intersection(temp_range);
+
+    return true;
+}
+
+template <class T>
+Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
+                                                       ColumnValueRange<T>* range) {
+    std::vector<uint32_t> filter_conjuncts_index;
+
+    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        Expr* root_expr = _conjunct_ctxs[conj_idx]->root();
+        if (TExprNodeType::BINARY_PRED != root_expr->node_type() ||
+            FILTER_IN == to_olap_filter_type(root_expr->op(), false) ||
+            FILTER_NOT_IN == to_olap_filter_type(root_expr->op(), false)) {
+            if (TExprNodeType::FUNCTION_CALL == root_expr->node_type()) {
+                std::string is_null_str;
+                // 1. dispose the where pred "A is null" and "A is not null"
+                if (root_expr->is_null_scalar_function(is_null_str) &&
+                    normalize_is_null_predicate(root_expr->get_child(0), slot, is_null_str,
+                                                range)) {
+                    // if column is key column should push down conjunct storage engine
+                    if (is_key_column(slot->col_name())) {
+                        filter_conjuncts_index.emplace_back(conj_idx);
+                    }
+                }
+            }
+            continue;
+        }
+
+        // 2. dispose the where pred "A <,<=" and "A >,>="
+        Expr* pred = _conjunct_ctxs[conj_idx]->root();
+        DCHECK(pred->get_num_children() == 2);
+
+        for (int child_idx = 0; child_idx < 2; ++child_idx) {
+            if (Expr::type_without_cast(pred->get_child(child_idx)) != TExprNodeType::SLOT_REF) {
+                continue;
+            }
+            if (pred->get_child(child_idx)->type().type != slot->type().type) {
+                if (!ignore_cast(slot, pred->get_child(child_idx))) {
+                    continue;
+                }
+            }
+
+            std::vector<SlotId> slot_ids;
+
+            if (1 == pred->get_child(child_idx)->get_slot_ids(&slot_ids)) {
+                if (slot_ids[0] != slot->id()) {
+                    continue;
+                }
+
+                Expr* expr = pred->get_child(1 - child_idx);
+
+                // for case: where col_a > col_b
+                if (!expr->is_constant()) {
+                    continue;
+                }
+
+                void* value = _conjunct_ctxs[conj_idx]->get_value(expr, nullptr);
+                // for case: where col > null
+                if (value == nullptr) {
+                    continue;
+                }
+
+                switch (slot->type().type) {
+                case TYPE_DATE: {
+                    DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
+                    // NOTE: Datetime may be truncated to a date column, so we call ++operator for date_value
+                    //  for example: '2010-01-01 00:00:01' will be truncate to '2010-01-01'
+                    if (date_value.check_loss_accuracy_cast_to_date()) {
+                        if (pred->op() == TExprOpcode::LT || pred->op() == TExprOpcode::GE) {
+                            ++date_value;
+                        }
+                    }
+                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                     *reinterpret_cast<T*>(&date_value));
+                    break;
+                }
+                case TYPE_TINYINT:
+                case TYPE_DECIMALV2:
+                case TYPE_CHAR:
+                case TYPE_VARCHAR:
+                case TYPE_HLL:
+                case TYPE_DATETIME:
+                case TYPE_SMALLINT:
+                case TYPE_INT:
+                case TYPE_BIGINT:
+                case TYPE_LARGEINT:
+                case TYPE_BOOLEAN:
+                case TYPE_STRING: {
+                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                     *reinterpret_cast<T*>(value));
+                    break;
+                }
+
+                default: {
+                    LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
+                                 << expr->type() << "]";
+                    return Status::InternalError(
+                            "Normalize filter fail, Unsupported Primitive type");
+                }
+                }
+
+                if (is_key_column(slot->col_name())) {
+                    filter_conjuncts_index.emplace_back(conj_idx);
+                }
+
+                VLOG_CRITICAL << slot->col_name() << " op: "
+                              << static_cast<int>(to_olap_filter_type(pred->op(), child_idx))
+                              << " value: " << *reinterpret_cast<T*>(value);
+            }
+        }
+    }
+
+    std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
+              std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
+
+    return Status::OK();
+}
+
+Status VOlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
+    std::vector<uint32_t> filter_conjuncts_index;
+
+    for (int conj_idx = _direct_conjunct_size; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        Expr* root_expr = _conjunct_ctxs[conj_idx]->root();
+        if (TExprNodeType::BLOOM_PRED != root_expr->node_type()) continue;
+
+        Expr* pred = _conjunct_ctxs[conj_idx]->root();
+        DCHECK(pred->get_num_children() == 1);
+
+        if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
+            continue;
+        }
+        if (pred->get_child(0)->type().type != slot->type().type) {
+            if (!ignore_cast(slot, pred->get_child(0))) {
+                continue;
+            }
+        }
+
+        std::vector<SlotId> slot_ids;
+
+        if (1 == pred->get_child(0)->get_slot_ids(&slot_ids)) {
+            if (slot_ids[0] != slot->id()) {
+                continue;
+            }
+            // only key column of bloom filter will push down to storage engine
+            if (is_key_column(slot->col_name())) {
+                filter_conjuncts_index.emplace_back(conj_idx);
+                _bloom_filters_push_down.emplace_back(
+                        slot->col_name(),
+                        (reinterpret_cast<BloomFilterPredicate*>(pred))->get_bloom_filter_func());
+            }
+        }
+    }
+
+    std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
+              std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
+
     return Status::OK();
 }
 
@@ -643,6 +1612,91 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     }
 
     return assigned_thread_num;
+}
+
+// PlanFragmentExecutor will call this method to set scan range
+// Doris scan range is defined in thrift file like this
+// struct TPaloScanRange {
+//  1: required list<Types.TNetworkAddress> hosts
+//  2: required string schema_hash
+//  3: required string version
+//  5: required Types.TTabletId tablet_id
+//  6: required string db_name
+//  7: optional list<TKeyRange> partition_column_ranges
+//  8: optional string index_name
+//  9: optional string table_name
+//}
+// every doris_scan_range is related with one tablet so that one olap scan node contains multiple tablet
+Status VOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+    for (auto& scan_range : scan_ranges) {
+        DCHECK(scan_range.scan_range.__isset.palo_scan_range);
+        _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
+        COUNTER_UPDATE(_tablet_counter, 1);
+    }
+
+    return Status::OK();
+}
+
+Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
+                                int block_row_count, bool is_begin_include, bool is_end_include,
+                                const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                                std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                                RuntimeProfile* profile) {
+    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
+    std::vector<std::vector<OlapTuple>> ranges;
+    bool have_valid_range = false;
+    for (auto& key_range : scan_key_range) {
+        if (key_range->begin_scan_range.size() == 1 &&
+            key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+            continue;
+        }
+        SCOPED_TIMER(show_hints_timer);
+
+        Status res = Status::OK();
+        std::vector<OlapTuple> range;
+        res = table->split_range(key_range->begin_scan_range, key_range->end_scan_range,
+                                 block_row_count, &range);
+        if (!res.ok()) {
+            return Status::InternalError("fail to show hints");
+        }
+        ranges.emplace_back(std::move(range));
+        have_valid_range = true;
+    }
+
+    if (!have_valid_range) {
+        std::vector<OlapTuple> range;
+        auto res = table->split_range({}, {}, block_row_count, &range);
+        if (!res.ok()) {
+            return Status::InternalError("fail to show hints");
+        }
+        ranges.emplace_back(std::move(range));
+    }
+
+    for (int i = 0; i < ranges.size(); ++i) {
+        for (int j = 0; j < ranges[i].size(); j += 2) {
+            std::unique_ptr<OlapScanRange> range(new OlapScanRange);
+            range->begin_scan_range.reset();
+            range->begin_scan_range = ranges[i][j];
+            range->end_scan_range.reset();
+            range->end_scan_range = ranges[i][j + 1];
+
+            if (0 == j) {
+                range->begin_include = is_begin_include;
+            } else {
+                range->begin_include = true;
+            }
+
+            if (j + 2 == ranges[i].size()) {
+                range->end_include = is_end_include;
+            } else {
+                range->end_include = false;
+            }
+
+            sub_scan_range->emplace_back(std::move(range));
+        }
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

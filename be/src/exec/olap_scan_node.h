@@ -112,7 +112,7 @@ protected:
     Status normalize_conjuncts();
     Status build_olap_filters();
     Status build_scan_key();
-    virtual Status start_scan_thread(RuntimeState* state);
+    Status start_scan_thread(RuntimeState* state);
 
     template <class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
