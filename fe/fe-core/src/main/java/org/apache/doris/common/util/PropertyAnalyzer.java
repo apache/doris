@@ -115,10 +115,10 @@ public class PropertyAnalyzer {
             return oldDataProperty;
         }
 
-        TStorageMedium storageMedium = null;
-        long cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
-        String remoteStorageResourceName = "";
-        long remoteCooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
+        long cooldownTimeStamp = oldDataProperty.getCooldownTimeMs();
+        String remoteStorageResourceName = oldDataProperty.getRemoteStorageResourceName();
+        long remoteCooldownTimeStamp = oldDataProperty.getRemoteCooldownTimeMs();
 
         boolean hasMedium = false;
         boolean hasCooldown = false;
