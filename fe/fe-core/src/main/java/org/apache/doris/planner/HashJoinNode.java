@@ -993,6 +993,14 @@ public class HashJoinNode extends PlanNode {
         super.convertToVectoriezd();
     }
 
+    /**
+     * If parent wants to get hash join node tupleids,
+     * it will call this function instead of read properties directly.
+     * The reason is that the tuple id of vOutputTupleDesc the real output tuple id for hash join node.
+     *
+     * If you read the properties of @tupleids directly instead of this function,
+     * it reads the input id of the current node.
+     */
     @Override
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
@@ -1001,12 +1009,4 @@ public class HashJoinNode extends PlanNode {
         }
         return tupleIds;
     }
-
-//    @Override
-//    public ArrayList<TupleId> getTblRefIds() {
-//        if (vOutputTupleDesc != null) {
-//            return Lists.newArrayList(vOutputTupleDesc.getId());
-//        }
-//        return tblRefIds;
-//    }
 }
