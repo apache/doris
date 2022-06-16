@@ -558,7 +558,7 @@ public class SelectStmt extends QueryStmt {
      * check whether grouping set columns are in the agg function
      * within the select items. If true, throw an AnalysisException.
      *
-     * @throws AnalysisException
+     * @throws AnalysisException when check failed
      */
     public void checkSelectItemsForGroupingSet() throws AnalysisException {
         for (SelectListItem item : selectList.getItems()) {
