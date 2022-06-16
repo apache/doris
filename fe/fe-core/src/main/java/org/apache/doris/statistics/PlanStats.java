@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.planner.PlanNode.NodeType;
-
 import java.util.List;
 
 /**

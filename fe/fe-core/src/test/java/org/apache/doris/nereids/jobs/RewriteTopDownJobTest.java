@@ -26,7 +26,7 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -72,10 +72,10 @@ public class RewriteTopDownJobTest implements Plans {
         Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
         GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
         Assertions.assertEquals(1, rootGroupExpression.children().size());
-        Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, rootGroupExpression.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroupExpression.getOperator().getType());
         Group leafGroup = rootGroupExpression.child(0);
         Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
         GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
-        Assertions.assertEquals(OperatorType.LOGICAL_BOUND_RELATION, leafGroupExpression.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getOperator().getType());
     }
 }

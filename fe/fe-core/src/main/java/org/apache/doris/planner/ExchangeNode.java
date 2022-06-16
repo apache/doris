@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TPlanNode;

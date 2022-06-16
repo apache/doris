@@ -45,6 +45,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.LoadTaskInfo;

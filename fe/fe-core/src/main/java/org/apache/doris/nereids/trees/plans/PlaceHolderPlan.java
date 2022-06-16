@@ -20,10 +20,10 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -43,8 +43,8 @@ public class PlaceHolderPlan implements LeafPlan {
     }
 
     @Override
-    public NodeType getType() {
-        return NodeType.FIXED;
+    public OperatorType getType() {
+        return OperatorType.FIXED;
     }
 
     @Override
@@ -93,7 +93,7 @@ public class PlaceHolderPlan implements LeafPlan {
     }
 
     @Override
-    public PlanNode.NodeType getNodeType() {
+    public NodeType getNodeType() {
         return null;
     }
 

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 

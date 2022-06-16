@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -42,7 +42,7 @@ public class LogicalProject extends LogicalUnaryOperator {
      * @param projects project list
      */
     public LogicalProject(List<? extends NamedExpression> projects) {
-        super(OperatorType.LOGICAL_PROJECT);
+        super(PlanType.LOGICAL_PROJECT);
         this.projects = Objects.requireNonNull(projects, "projects can not be null");
     }
 

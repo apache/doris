@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
@@ -154,16 +155,16 @@ public class BaseStatsDerive {
     }
 
 
-    protected HashMap<SlotId, Float> deriveColumnToDataSize() {
-        HashMap<SlotId, Float> columnToDataSize = new HashMap<>();
+    protected HashMap<Id, Float> deriveColumnToDataSize() {
+        HashMap<Id, Float> columnToDataSize = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
             columnToDataSize.putAll(child.getColumnToDataSize());
         }
         return columnToDataSize;
     }
 
-    protected HashMap<SlotId, Long> deriveColumnToNdv() {
-        HashMap<SlotId, Long> columnToNdv = new HashMap<>();
+    protected HashMap<Id, Long> deriveColumnToNdv() {
+        HashMap<Id, Long> columnToNdv = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
             columnToNdv.putAll(child.getColumnToNdv());
         }

@@ -38,6 +38,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;

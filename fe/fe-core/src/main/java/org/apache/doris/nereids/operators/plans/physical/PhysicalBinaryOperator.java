@@ -19,7 +19,7 @@ package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.AbstractOperator;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -35,7 +35,7 @@ import java.util.List;
 public abstract class PhysicalBinaryOperator extends AbstractOperator
         implements PhysicalOperator, BinaryPlanOperator {
 
-    public PhysicalBinaryOperator(OperatorType type) {
+    public PhysicalBinaryOperator(PlanType type) {
         super(type);
     }
 

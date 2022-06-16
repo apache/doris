@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
  * interface for all concrete operator.
  */
 public interface Operator {
-    OperatorType getType();
+    PlanType getType();
 
     <NODE_TYPE extends TreeNode<NODE_TYPE>> NODE_TYPE toTreeNode(GroupExpression groupExpression);
 

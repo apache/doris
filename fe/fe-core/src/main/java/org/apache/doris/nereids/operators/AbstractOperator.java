@@ -26,21 +26,21 @@ import java.util.Objects;
  * Abstract class for all concrete operator.
  */
 public abstract class AbstractOperator implements Operator {
-    protected final OperatorType type;
+    protected final PlanType type;
     protected final long limited;
 
-    public AbstractOperator(OperatorType type) {
+    public AbstractOperator(PlanType type) {
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.limited = -1;
     }
 
-    public AbstractOperator(OperatorType type, long limited) {
+    public AbstractOperator(PlanType type, long limited) {
         this.type = type;
         this.limited = limited;
     }
 
     @Override
-    public OperatorType getType() {
+    public PlanType getType() {
         return type;
     }
 

@@ -35,14 +35,14 @@ import java.util.Optional;
 public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
 
-    protected final NodeType type;
+    protected final OperatorType type;
     protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/incubator-doris/pull/9807#discussion_r884829067
     protected final Optional<GroupExpression> groupExpression;
 
 
-    public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
+    public AbstractTreeNode(OperatorType type, NODE_TYPE... children) {
         this(type, null, children);
     }
 
@@ -53,7 +53,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
      * @param groupExpression group expression related to the operator of this node
      * @param children children of this node
      */
-    public AbstractTreeNode(NodeType type, GroupExpression groupExpression, NODE_TYPE... children) {
+    public AbstractTreeNode(OperatorType type, GroupExpression groupExpression, NODE_TYPE... children) {
         this.type = type;
         this.children = ImmutableList.copyOf(children);
         this.groupExpression = Optional.ofNullable(groupExpression);
@@ -80,7 +80,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     }
 
     @Override
-    public NodeType getType() {
+    public OperatorType getType() {
         return type;
     }
 

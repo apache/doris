@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 import com.google.common.base.Preconditions;
 
@@ -36,7 +36,7 @@ public class GreaterThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ex
      * @param right right child of greater than
      */
     public GreaterThan(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.GREATER_THAN, left, right);
+        super(OperatorType.GREATER_THAN, left, right);
     }
 
     @Override

@@ -27,7 +27,7 @@ package org.apache.doris.nereids.operators;
  * 4. MULTI_FIXED: the leaf node of pattern tree, which can be matched by multiple operators,
  *        but these operators cannot be used in rules
  */
-public enum OperatorType {
+public enum PlanType {
     // logical plan
     LOGICAL_UNBOUND_RELATION,
     LOGICAL_BOUND_RELATION,

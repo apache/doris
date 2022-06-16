@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -39,7 +39,7 @@ public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD
      * @param left     left child of comparison predicate
      * @param right    right child of comparison predicate
      */
-    public ComparisonPredicate(NodeType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public ComparisonPredicate(OperatorType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
         super(nodeType, left, right);
     }
 

@@ -21,16 +21,11 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.planner.PlanNode;
-import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.PlanStats;
-import org.apache.doris.statistics.StatsDeriveResult;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -47,7 +42,7 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
     /**
      * create physical plan by op, logicalProperties and children.
      */
-    public AbstractPhysicalPlan(NodeType type, OP_TYPE operator,
+    public AbstractPhysicalPlan(OperatorType type, OP_TYPE operator,
             LogicalProperties logicalProperties, Plan... children) {
         super(type, operator, children);
         this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
@@ -64,7 +59,7 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
      * @param logicalProperties logical properties of this plan
      * @param children children of this plan
      */
-    public AbstractPhysicalPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression,
+    public AbstractPhysicalPlan(OperatorType type, OP_TYPE operator, GroupExpression groupExpression,
             LogicalProperties logicalProperties, Plan... children) {
         super(type, operator, groupExpression, children);
         this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.analyzer.identifier.TableIdentifier;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.Utils;
@@ -36,7 +36,7 @@ public class UnboundRelation extends LogicalLeafOperator {
     private final List<String> nameParts;
 
     public UnboundRelation(List<String> nameParts) {
-        super(OperatorType.LOGICAL_UNBOUND_RELATION);
+        super(PlanType.LOGICAL_UNBOUND_RELATION);
         this.nameParts = nameParts;
     }
 
@@ -46,7 +46,7 @@ public class UnboundRelation extends LogicalLeafOperator {
      * @param identifier relation identifier
      */
     public UnboundRelation(TableIdentifier identifier) {
-        super(OperatorType.LOGICAL_UNBOUND_RELATION);
+        super(PlanType.LOGICAL_UNBOUND_RELATION);
         this.nameParts = Lists.newArrayList();
         if (identifier.getDatabaseName().isPresent()) {
             nameParts.add(identifier.getDatabaseName().get());

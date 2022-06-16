@@ -19,9 +19,9 @@ package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.TreeNode;
 
 import com.google.common.collect.ImmutableList;
@@ -36,13 +36,13 @@ import java.util.function.Predicate;
  */
 public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
         extends AbstractTreeNode<Pattern<? extends NODE_TYPE, NODE_TYPE>> {
-    public static final Pattern ANY = new Pattern(OperatorType.ANY);
-    public static final Pattern MULTI = new Pattern(OperatorType.MULTI);
-    public static final Pattern FIXED = new Pattern(OperatorType.FIXED);
-    public static final Pattern MULTI_FIXED = new Pattern(OperatorType.MULTI_FIXED);
+    public static final Pattern ANY = new Pattern(PlanType.ANY);
+    public static final Pattern MULTI = new Pattern(PlanType.MULTI);
+    public static final Pattern FIXED = new Pattern(PlanType.FIXED);
+    public static final Pattern MULTI_FIXED = new Pattern(PlanType.MULTI_FIXED);
 
     protected final List<Predicate<TYPE>> predicates;
-    protected final OperatorType operatorType;
+    protected final PlanType operatorType;
 
     /**
      * Constructor for Pattern.
@@ -50,8 +50,8 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
      * @param operatorType operator type to matching
      * @param children sub pattern
      */
-    public Pattern(OperatorType operatorType, Pattern... children) {
-        super(NodeType.PATTERN, children);
+    public Pattern(PlanType operatorType, Pattern... children) {
+        super(OperatorType.PATTERN, children);
         this.operatorType = operatorType;
         this.predicates = ImmutableList.of();
     }
@@ -63,8 +63,8 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
-    public Pattern(OperatorType operatorType, List<Predicate<TYPE>> predicates, Pattern... children) {
-        super(NodeType.PATTERN, children);
+    public Pattern(PlanType operatorType, List<Predicate<TYPE>> predicates, Pattern... children) {
+        super(OperatorType.PATTERN, children);
         this.operatorType = operatorType;
         this.predicates = ImmutableList.copyOf(predicates);
     }
@@ -74,20 +74,20 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
      *
      * @return node type in pattern
      */
-    public OperatorType getOperatorType() {
+    public PlanType getOperatorType() {
         return operatorType;
     }
 
     public boolean isFixed() {
-        return operatorType == OperatorType.FIXED;
+        return operatorType == PlanType.FIXED;
     }
 
     public boolean isAny() {
-        return operatorType == OperatorType.ANY;
+        return operatorType == PlanType.ANY;
     }
 
     public boolean isMulti() {
-        return operatorType == OperatorType.MULTI;
+        return operatorType == PlanType.MULTI;
     }
 
     /**
@@ -100,8 +100,8 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
         if (operator == null) {
             return false;
         }
-        if (operatorType == OperatorType.MULTI || operatorType == OperatorType.ANY
-                || operatorType == OperatorType.MULTI_FIXED || operatorType == OperatorType.FIXED) {
+        if (operatorType == PlanType.MULTI || operatorType == PlanType.ANY
+                || operatorType == PlanType.MULTI_FIXED || operatorType == PlanType.FIXED) {
             return true;
         }
         return getOperatorType().equals(operator.getType());
@@ -122,7 +122,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
             return false;
         }
 
-        if (operatorType == OperatorType.MULTI || operatorType == OperatorType.ANY) {
+        if (operatorType == PlanType.MULTI || operatorType == PlanType.ANY) {
             return true;
         }
 

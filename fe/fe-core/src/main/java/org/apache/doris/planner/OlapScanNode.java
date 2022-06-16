@@ -53,6 +53,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;

@@ -17,10 +17,9 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -49,7 +48,7 @@ public class PhysicalBroadcastHashJoin extends PhysicalBinaryOperator {
      * @param onClause on clause expression
      */
     public PhysicalBroadcastHashJoin(JoinType joinType, Optional<Expression> onClause) {
-        super(OperatorType.PHYSICAL_BROADCAST_HASH_JOIN);
+        super(PlanType.PHYSICAL_BROADCAST_HASH_JOIN);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.onClause = Objects.requireNonNull(onClause, "onClause can not be null");
     }

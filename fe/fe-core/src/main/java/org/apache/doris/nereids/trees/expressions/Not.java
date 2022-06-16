@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 import com.google.common.base.Preconditions;
 
@@ -33,7 +33,7 @@ public class Not<CHILD_TYPE extends Expression> extends Expression
         implements UnaryExpression<CHILD_TYPE> {
 
     public Not(CHILD_TYPE child) {
-        super(NodeType.NOT, child);
+        super(OperatorType.NOT, child);
     }
 
     @Override

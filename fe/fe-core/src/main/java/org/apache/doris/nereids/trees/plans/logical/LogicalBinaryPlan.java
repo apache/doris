@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -39,12 +39,12 @@ public class LogicalBinaryPlan<
         implements BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public LogicalBinaryPlan(OP_TYPE operator, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.LOGICAL, operator, leftChild, rightChild);
+        super(OperatorType.LOGICAL, operator, leftChild, rightChild);
     }
 
     public LogicalBinaryPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, leftChild, rightChild);
+        super(OperatorType.LOGICAL, operator, groupExpression, logicalProperties, leftChild, rightChild);
     }
 
     @Override

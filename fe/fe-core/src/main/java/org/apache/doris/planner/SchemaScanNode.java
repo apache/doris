@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;

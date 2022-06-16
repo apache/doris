@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -33,7 +33,7 @@ public class LogicalFilter extends LogicalUnaryOperator {
     private final Expression predicates;
 
     public LogicalFilter(Expression predicates) {
-        super(OperatorType.LOGICAL_FILTER);
+        super(PlanType.LOGICAL_FILTER);
         this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
     }
 

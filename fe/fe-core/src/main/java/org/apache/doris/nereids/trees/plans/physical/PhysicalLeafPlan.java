@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -36,11 +36,11 @@ public class PhysicalLeafPlan<OP_TYPE extends PhysicalLeafOperator>
         implements LeafPlan {
 
     public PhysicalLeafPlan(OP_TYPE operator, LogicalProperties logicalProperties) {
-        super(NodeType.PHYSICAL, operator, logicalProperties);
+        super(OperatorType.PHYSICAL, operator, logicalProperties);
     }
 
     public PhysicalLeafPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
-        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties);
+        super(OperatorType.PHYSICAL, operator, groupExpression, logicalProperties);
     }
 
     @Override

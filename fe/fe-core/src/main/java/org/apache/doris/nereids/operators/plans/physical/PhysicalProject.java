@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
@@ -36,7 +36,7 @@ public class PhysicalProject extends PhysicalUnaryOperator {
     private final List<? extends NamedExpression> projects;
 
     public PhysicalProject(List<? extends NamedExpression> projects) {
-        super(OperatorType.PHYSICAL_PROJECT);
+        super(PlanType.PHYSICAL_PROJECT);
         this.projects = Objects.requireNonNull(projects, "projects can not be null");
     }
 

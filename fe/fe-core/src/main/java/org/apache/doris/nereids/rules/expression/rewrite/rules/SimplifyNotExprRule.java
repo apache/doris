@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -54,7 +54,7 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             ComparisonPredicate cp = (ComparisonPredicate) expr.child();
             Expression left =  rewrite(cp.left(), context);
             Expression right = rewrite(cp.right(), context);
-            NodeType type = cp.getType();
+            OperatorType type = cp.getType();
             switch (type) {
                 case GREATER_THAN:
                     return new LessThanEqual(left, right);

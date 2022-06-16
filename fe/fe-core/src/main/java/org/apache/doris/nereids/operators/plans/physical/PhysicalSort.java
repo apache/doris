@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
@@ -42,7 +42,7 @@ public class PhysicalSort extends PhysicalUnaryOperator {
      * Constructor of PhysicalHashJoinNode.
      */
     public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean useTopN) {
-        super(OperatorType.PHYSICAL_SORT);
+        super(PlanType.PHYSICAL_SORT);
         this.offset = offset;
         this.limit = limit;
         this.orderList = orderList;

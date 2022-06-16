@@ -19,7 +19,7 @@ package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
@@ -34,7 +34,7 @@ public class GroupExpressionMatchingTest implements Plans {
 
     @Test
     public void testLeafNode() {
-        Pattern pattern = new Pattern<>(OperatorType.LOGICAL_UNBOUND_RELATION);
+        Pattern pattern = new Pattern<>(PlanType.LOGICAL_UNBOUND_RELATION);
 
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan plan = plan(unboundRelation);
@@ -47,14 +47,14 @@ public class GroupExpressionMatchingTest implements Plans {
 
         Assertions.assertTrue(iterator.hasNext());
         Plan actual = iterator.next();
-        Assertions.assertEquals(OperatorType.LOGICAL_UNBOUND_RELATION, actual.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION, actual.getOperator().getType());
         Assertions.assertFalse(iterator.hasNext());
     }
 
     @Test
     public void testDepth2() {
-        Pattern pattern = new Pattern<>(OperatorType.LOGICAL_PROJECT,
-                new Pattern<>(OperatorType.LOGICAL_UNBOUND_RELATION));
+        Pattern pattern = new Pattern<>(PlanType.LOGICAL_PROJECT,
+                new Pattern<>(PlanType.LOGICAL_UNBOUND_RELATION));
 
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan leaf = plan(unboundRelation);
@@ -74,20 +74,20 @@ public class GroupExpressionMatchingTest implements Plans {
         Assertions.assertTrue(iterator.hasNext());
         Plan actual;
         actual = iterator.next();
-        Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, actual.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, actual.getOperator().getType());
         Assertions.assertEquals(1, actual.arity());
-        Assertions.assertEquals(OperatorType.LOGICAL_UNBOUND_RELATION, actual.child(0).getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION, actual.child(0).getOperator().getType());
         Assertions.assertTrue(iterator.hasNext());
         actual = iterator.next();
-        Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, actual.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, actual.getOperator().getType());
         Assertions.assertEquals(1, actual.arity());
-        Assertions.assertEquals(OperatorType.LOGICAL_UNBOUND_RELATION, actual.child(0).getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION, actual.child(0).getOperator().getType());
         Assertions.assertFalse(iterator.hasNext());
     }
 
     @Test
     public void testDepth2WithFixed() {
-        Pattern pattern = new Pattern<>(OperatorType.LOGICAL_PROJECT, new Pattern<>(OperatorType.FIXED));
+        Pattern pattern = new Pattern<>(PlanType.LOGICAL_PROJECT, new Pattern<>(PlanType.FIXED));
 
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan leaf = plan(unboundRelation);
@@ -107,9 +107,9 @@ public class GroupExpressionMatchingTest implements Plans {
         Assertions.assertTrue(iterator.hasNext());
         Plan actual;
         actual = iterator.next();
-        Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, actual.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, actual.getOperator().getType());
         Assertions.assertEquals(1, actual.arity());
-        Assertions.assertEquals(OperatorType.LOGICAL_UNBOUND_RELATION, actual.child(0).getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION, actual.child(0).getOperator().getType());
         Assertions.assertFalse(iterator.hasNext());
     }
 }

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.operators.plans.physical;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
@@ -46,7 +46,7 @@ public class PhysicalOlapScan extends PhysicalScan {
      * @param qualifier table's name
      */
     public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier) {
-        super(OperatorType.PHYSICAL_OLAP_SCAN, qualifier);
+        super(PlanType.PHYSICAL_OLAP_SCAN, qualifier);
         this.olapTable = olapTable;
         this.selectedIndexId = olapTable.getBaseIndexId();
         this.selectedTabletId = Lists.newArrayList();

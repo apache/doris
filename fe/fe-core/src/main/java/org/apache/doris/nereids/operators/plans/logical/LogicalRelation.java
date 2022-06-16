@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
@@ -43,7 +43,7 @@ public class LogicalRelation extends LogicalLeafOperator {
      * @param qualifier qualified relation name
      */
     public LogicalRelation(Table table, List<String> qualifier) {
-        super(OperatorType.LOGICAL_BOUND_RELATION);
+        super(PlanType.LOGICAL_BOUND_RELATION);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }

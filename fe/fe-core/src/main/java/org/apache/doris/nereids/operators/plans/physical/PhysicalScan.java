@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 
 import java.util.List;
 import java.util.Objects;
@@ -36,7 +36,7 @@ public abstract class PhysicalScan extends PhysicalLeafOperator {
      * @param type node type
      * @param qualifier table's name
      */
-    public PhysicalScan(OperatorType type, List<String> qualifier) {
+    public PhysicalScan(PlanType type, List<String> qualifier) {
         super(type);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }

@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
@@ -33,7 +33,7 @@ public class PhysicalFilter extends PhysicalUnaryOperator {
     private final Expression predicates;
 
     public PhysicalFilter(Expression predicates) {
-        super(OperatorType.PHYSICAL_FILTER);
+        super(PlanType.PHYSICAL_FILTER);
         this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
     }
 

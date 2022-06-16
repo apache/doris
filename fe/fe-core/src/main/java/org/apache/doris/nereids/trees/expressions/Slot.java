@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 /**
  * Abstract class for all slot in expression.
@@ -26,12 +26,12 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
 
     private int id;
 
-    public Slot(NodeType type, int id, Expression... children) {
+    public Slot(OperatorType type, int id, Expression... children) {
         super(type, children);
         this.id = id;
     }
 
-    public Slot(NodeType type) {
+    public Slot(OperatorType type) {
         super(type);
     }
 

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.trees.TreeNode;
 
 import com.google.common.collect.Lists;
@@ -89,8 +89,8 @@ public class GroupMatching<NODE_TYPE extends TreeNode> implements Iterable<NODE_
                 throw new NoSuchElementException();
             }
 
-            if (OperatorType.FIXED == pattern.getOperatorType()
-                    || OperatorType.MULTI_FIXED == pattern.getOperatorType()) {
+            if (PlanType.FIXED == pattern.getOperatorType()
+                    || PlanType.MULTI_FIXED == pattern.getOperatorType()) {
                 iteratorIndex = iterator.size();
                 return iterator.get(0).next();
             } else {

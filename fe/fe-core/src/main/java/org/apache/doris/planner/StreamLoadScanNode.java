@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanRange;

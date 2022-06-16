@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.types.DataType;
 
 import org.apache.commons.lang.StringUtils;
@@ -50,7 +50,7 @@ public class SlotReference extends Slot {
      * @param qualifier slot reference qualifier
      */
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        super(NodeType.SLOT_REFERENCE);
+        super(OperatorType.SLOT_REFERENCE);
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;

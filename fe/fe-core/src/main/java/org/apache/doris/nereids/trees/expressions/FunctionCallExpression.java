@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 import java.util.Arrays;
 import java.util.List;
@@ -41,7 +41,7 @@ public class FunctionCallExpression extends Expression {
      */
     public FunctionCallExpression(FunctionName functionName,
                                   Function fn, Expression... children) {
-        super(NodeType.EXPRESSION, children);
+        super(OperatorType.EXPRESSION, children);
         this.functionName = functionName;
         this.params = Arrays.stream(children).collect(Collectors.toList());
         this.fn = fn;

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.AbstractOperator;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -33,7 +33,7 @@ import java.util.List;
 public abstract class LogicalLeafOperator extends AbstractOperator
         implements LogicalOperator, LeafPlanOperator {
 
-    public LogicalLeafOperator(OperatorType type) {
+    public LogicalLeafOperator(PlanType type) {
         super(type);
     }
 

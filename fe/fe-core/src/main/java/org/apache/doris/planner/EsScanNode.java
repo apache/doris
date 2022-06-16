@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;

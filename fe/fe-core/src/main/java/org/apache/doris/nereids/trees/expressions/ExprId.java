@@ -17,13 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Id;
+
 import java.util.Objects;
 import java.util.UUID;
 
 /**
  * UUID for Expression in Nereids.
  */
-public class ExprId {
+public class ExprId extends Id<ExprId> {
     private final long id;
     private final UUID jvmId;
 

@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 import com.google.common.collect.Lists;
 
@@ -41,7 +41,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
      * @param name alias name
      */
     public Alias(CHILD_TYPE child, String name) {
-        super(NodeType.ALIAS, child);
+        super(OperatorType.ALIAS, child);
         exprId = NamedExpressionUtil.newExprId();
         this.name = name;
         qualifier = Lists.newArrayList();

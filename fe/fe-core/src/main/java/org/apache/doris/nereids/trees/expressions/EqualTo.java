@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 import com.google.common.base.Preconditions;
 
@@ -31,7 +31,7 @@ public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extend
         extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public EqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.EQUAL_TO, left, right);
+        super(OperatorType.EQUAL_TO, left, right);
     }
 
     @Override

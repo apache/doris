@@ -29,6 +29,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;

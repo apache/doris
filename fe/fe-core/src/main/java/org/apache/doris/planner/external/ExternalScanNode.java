@@ -20,6 +20,7 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 

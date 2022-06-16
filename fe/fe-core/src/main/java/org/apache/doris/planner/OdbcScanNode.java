@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;

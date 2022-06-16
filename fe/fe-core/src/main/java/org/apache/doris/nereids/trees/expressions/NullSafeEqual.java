@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 /**
  * Null safe equal expression: a <=> b.
@@ -33,7 +33,7 @@ public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE 
      * @param right right child of Null Safe Equal
      */
     public NullSafeEqual(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.NULL_SAFE_EQUAL, left, right);
+        super(OperatorType.NULL_SAFE_EQUAL, left, right);
     }
 
     @Override

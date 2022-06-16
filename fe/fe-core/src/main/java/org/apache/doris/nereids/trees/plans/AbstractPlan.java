@@ -20,10 +20,9 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.planner.PlanNode;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
@@ -43,12 +42,12 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     protected StatsDeriveResult statsDeriveResult;
     protected long limit;
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, Plan... children) {
+    public AbstractPlan(OperatorType type, OP_TYPE operator, Plan... children) {
         super(type, children);
         this.operator = Objects.requireNonNull(operator, "operator can not be null");
     }
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression, Plan... children) {
+    public AbstractPlan(OperatorType type, OP_TYPE operator, GroupExpression groupExpression, Plan... children) {
         super(type, groupExpression, children);
         this.operator = Objects.requireNonNull(operator, "operator can not be null");
     }
@@ -105,7 +104,7 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     }
 
     @Override
-    public PlanNode.NodeType getNodeType() {
+    public NodeType getNodeType() {
         return null;
     }
 

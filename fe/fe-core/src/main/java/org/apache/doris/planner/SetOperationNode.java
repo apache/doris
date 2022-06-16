@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;

@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,7 +40,7 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
      * @param predicate join condition.
      */
     public PhysicalHashJoin(JoinType joinType, Expression predicate) {
-        super(OperatorType.PHYSICAL_HASH_JOIN);
+        super(PlanType.PHYSICAL_HASH_JOIN);
         this.joinType = joinType;
         this.predicate = predicate;
     }

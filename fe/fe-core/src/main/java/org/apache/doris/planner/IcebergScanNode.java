@@ -26,6 +26,7 @@ import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 

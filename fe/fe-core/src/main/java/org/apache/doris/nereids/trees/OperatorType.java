@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees;
 /**
  * Types for all TreeNode in Nereids, include Plan and Expression.
  */
-public enum NodeType {
+public enum OperatorType {
     // plan
     LOGICAL,
     PHYSICAL,

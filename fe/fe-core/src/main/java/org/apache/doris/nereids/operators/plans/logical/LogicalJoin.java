@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.rules.exploration.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -57,7 +57,7 @@ public class LogicalJoin extends LogicalBinaryOperator {
      * @param onClause on clause for join node
      */
     public LogicalJoin(JoinType joinType, Optional<Expression> onClause) {
-        super(OperatorType.LOGICAL_JOIN);
+        super(PlanType.LOGICAL_JOIN);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.onClause = Objects.requireNonNull(onClause, "onClause can not be null");
     }

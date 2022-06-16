@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
@@ -36,12 +36,12 @@ public class LogicalUnaryPlan<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE e
         implements UnaryPlan<CHILD_TYPE> {
 
     public LogicalUnaryPlan(OP_TYPE operator, CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, child);
+        super(OperatorType.LOGICAL, operator, child);
     }
 
     public LogicalUnaryPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, child);
+        super(OperatorType.LOGICAL, operator, groupExpression, logicalProperties, child);
     }
 
     @Override

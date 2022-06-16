@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.PlanOperatorVisitor;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.PlanType;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -51,7 +51,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
      */
     public PhysicalAggregation(List<Expression> groupByExprList, List<Expression> aggExprList,
             List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
-        super(OperatorType.PHYSICAL_AGGREGATION);
+        super(PlanType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.aggExprList = aggExprList;
         this.partitionExprList = partitionExprList;

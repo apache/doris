@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 
 import com.google.common.base.Preconditions;
 
@@ -36,7 +36,7 @@ public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
      * @param right right child of Less Than
      */
     public LessThan(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.LESS_THAN, left, right);
+        super(OperatorType.LESS_THAN, left, right);
     }
 
     @Override

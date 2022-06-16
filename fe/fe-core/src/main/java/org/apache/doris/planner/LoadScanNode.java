@@ -38,6 +38,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.statistics.NodeType;
 import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;

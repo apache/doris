@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.Utils;
 
@@ -32,7 +32,7 @@ public class UnboundSlot extends Slot {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {
-        super(NodeType.UNBOUND_SLOT);
+        super(OperatorType.UNBOUND_SLOT);
         this.nameParts = nameParts;
     }
 

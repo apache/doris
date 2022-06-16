@@ -20,9 +20,8 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.OperatorType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.statistics.ExprStats;
 
 import java.util.List;
 
@@ -31,7 +30,7 @@ import java.util.List;
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
-    public Expression(NodeType type, Expression... children) {
+    public Expression(OperatorType type, Expression... children) {
         super(type, children);
     }
 
