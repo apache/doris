@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -44,8 +43,7 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
      */
     public AbstractPhysicalPlan(NodeType type, OP_TYPE operator,
             LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, Optional.of(Objects.requireNonNull(logicalProperties,
-                "PhysicalPlan's logicalProperties can not be null")), children);
+        super(type, operator, logicalProperties, children);
         // TODO: compute physical properties
         this.physicalProperties = new PhysicalProperties();
     }
@@ -61,20 +59,19 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
      */
     public AbstractPhysicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, Optional.of(Objects.requireNonNull(logicalProperties,
-                "PhysicalPlan's logicalProperties can not be null")), children);
+        super(type, operator, groupExpression, logicalProperties, children);
         // TODO: compute physical properties
         this.physicalProperties = new PhysicalProperties();
     }
 
     @Override
     public List<Slot> getOutput() {
-        return logicalProperties.get().getOutput();
+        return logicalProperties.getOutput();
     }
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        return logicalProperties.get();
+        return logicalProperties;
     }
 
     public PhysicalProperties getPhysicalProperties() {

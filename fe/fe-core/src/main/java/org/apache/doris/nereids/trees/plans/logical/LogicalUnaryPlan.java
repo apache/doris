@@ -38,7 +38,7 @@ public class LogicalUnaryPlan<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE e
         implements UnaryPlan<CHILD_TYPE> {
 
     public LogicalUnaryPlan(OP_TYPE operator, CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, Optional.empty(), child);
+        super(NodeType.LOGICAL, operator, child);
     }
 
     public LogicalUnaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
@@ -54,7 +54,7 @@ public class LogicalUnaryPlan<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE e
 
     @Override
     public LogicalUnaryPlan<OP_TYPE, CHILD_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
-        return new LogicalUnaryPlan<>(operator, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalUnaryPlan<>(operator, groupExpression,
+            Optional.of(logicalProperties.withOutput(output)), child());
     }
 }

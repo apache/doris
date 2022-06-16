@@ -43,12 +43,12 @@ public abstract class LogicalBinaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutput(List<Plan> inputs) {
-        Preconditions.checkArgument(inputs.size() == 2);
-        return doComputeOutput(inputs.get(0), inputs.get(1));
+    public final LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 2);
+        return new LogicalProperties(computeOutput(inputs[0], inputs[1]));
     }
 
-    public abstract List<Slot> doComputeOutput(Plan left, Plan right);
+    public abstract List<Slot> computeOutput(Plan left, Plan right);
 
     @Override
     public LogicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
@@ -56,8 +56,7 @@ public abstract class LogicalBinaryOperator extends AbstractOperator
         LogicalProperties leftChildProperties = groupExpression.child(0).getLogicalProperties();
         LogicalProperties rightChildProperties = groupExpression.child(1).getLogicalProperties();
         return new LogicalBinaryPlan(this, Optional.of(groupExpression), Optional.of(logicalProperties),
-                new PlaceHolderPlan(Optional.ofNullable(leftChildProperties)),
-                new PlaceHolderPlan(Optional.ofNullable(rightChildProperties))
+                new PlaceHolderPlan(leftChildProperties), new PlaceHolderPlan(rightChildProperties)
         );
     }
 }

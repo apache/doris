@@ -34,23 +34,28 @@ import java.util.Optional;
 public abstract class AbstractLogicalPlan<OP_TYPE extends LogicalOperator>
         extends AbstractPlan<OP_TYPE> implements LogicalPlan {
 
+    public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Plan... children) {
+        super(type, operator, operator.computeLogicalProperties(children), children);
+    }
+
     public AbstractLogicalPlan(NodeType type, OP_TYPE operator,
                                Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, operator, logicalProperties, children);
+        super(type, operator, logicalProperties.orElse(operator.computeLogicalProperties(children)), children);
     }
 
     public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
                                Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, logicalProperties, children);
+        super(type, operator, groupExpression,
+                logicalProperties.orElse(operator.computeLogicalProperties(children)), children);
     }
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        return logicalProperties.get();
+        return logicalProperties;
     }
 
     @Override
     public List<Slot> getOutput() {
-        return logicalProperties.get().getOutput();
+        return logicalProperties.getOutput();
     }
 }

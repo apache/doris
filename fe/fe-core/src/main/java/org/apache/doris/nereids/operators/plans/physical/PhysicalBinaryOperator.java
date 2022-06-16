@@ -22,14 +22,9 @@ import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -43,23 +38,12 @@ public abstract class PhysicalBinaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, List<Plan> inputs) {
-        Preconditions.checkArgument(inputs.size() == 2);
-        return doComputeOutput(logicalProperties, inputs.get(0), inputs.get(1));
-    }
-
-    public List<Slot> doComputeOutput(LogicalProperties logicalProperties, Plan left, Plan right) {
-        return logicalProperties.getOutput();
-    }
-
-    @Override
     public PhysicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
         LogicalProperties leftChildProperties = groupExpression.child(0).getLogicalProperties();
         LogicalProperties rightChildProperties = groupExpression.child(1).getLogicalProperties();
         return new PhysicalBinaryPlan(this, Optional.of(groupExpression), logicalProperties,
-                new PlaceHolderPlan(Optional.ofNullable(leftChildProperties)),
-                new PlaceHolderPlan(Optional.ofNullable(rightChildProperties))
+                new PlaceHolderPlan(leftChildProperties), new PlaceHolderPlan(rightChildProperties)
         );
     }
 }

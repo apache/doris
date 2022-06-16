@@ -53,7 +53,7 @@ public class PhysicalBinaryPlan<
     @Override
     public PhysicalBinaryPlan<OP_TYPE, Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalBinaryPlan(operator, groupExpression, logicalProperties.get(),
+        return new PhysicalBinaryPlan(operator, groupExpression, logicalProperties,
             children.get(0), children.get(1));
     }
 

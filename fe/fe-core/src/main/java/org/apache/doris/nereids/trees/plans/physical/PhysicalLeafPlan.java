@@ -49,7 +49,7 @@ public class PhysicalLeafPlan<OP_TYPE extends PhysicalLeafOperator>
     @Override
     public PhysicalLeafPlan<OP_TYPE> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 0);
-        return new PhysicalLeafPlan(operator, groupExpression, logicalProperties.get());
+        return new PhysicalLeafPlan(operator, groupExpression, logicalProperties);
     }
 
     @Override

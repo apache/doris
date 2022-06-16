@@ -63,7 +63,7 @@ public class LogicalBinaryPlan<
 
     @Override
     public LogicalBinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
-        return new LogicalBinaryPlan<>(operator, groupExpression, Optional.of(logicalProperties), left(), right());
+        return new LogicalBinaryPlan<>(operator, groupExpression,
+            Optional.of(logicalProperties.withOutput(output)), left(), right());
     }
 }

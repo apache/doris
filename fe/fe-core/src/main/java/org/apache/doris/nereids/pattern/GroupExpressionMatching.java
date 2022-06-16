@@ -19,6 +19,7 @@ package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
@@ -32,17 +33,17 @@ import java.util.Objects;
  * TODO: adapt ANY and MULTI
  * TODO: add ut
  */
-public class GroupExpressionMatching<NODE_TYPE extends TreeNode<NODE_TYPE>> implements Iterable<NODE_TYPE> {
-    private final Pattern<? extends NODE_TYPE, NODE_TYPE> pattern;
+public class GroupExpressionMatching implements Iterable<Plan> {
+    private final Pattern<? extends Plan, Plan> pattern;
     private final GroupExpression groupExpression;
 
-    public GroupExpressionMatching(Pattern<? extends NODE_TYPE, NODE_TYPE> pattern, GroupExpression groupExpression) {
+    public GroupExpressionMatching(Pattern<? extends Plan, Plan> pattern, GroupExpression groupExpression) {
         this.pattern = Objects.requireNonNull(pattern);
         this.groupExpression = Objects.requireNonNull(groupExpression);
     }
 
     @Override
-    public GroupExpressionIterator<NODE_TYPE> iterator() {
+    public GroupExpressionIterator<Plan> iterator() {
         return new GroupExpressionIterator<>(pattern, groupExpression);
     }
 

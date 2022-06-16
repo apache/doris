@@ -25,7 +25,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
@@ -35,16 +35,16 @@ import java.util.Objects;
 /**
  * Bottom up job for rewrite, use pattern match.
  */
-public class RewriteBottomUpJob<NODE_TYPE extends TreeNode<NODE_TYPE>> extends Job<NODE_TYPE> {
+public class RewriteBottomUpJob extends Job<Plan> {
     private final Group group;
-    private final List<Rule<NODE_TYPE>> rules;
+    private final List<Rule<Plan>> rules;
     private final boolean childrenOptimized;
 
-    public RewriteBottomUpJob(Group group, List<Rule<NODE_TYPE>> rules, PlannerContext context) {
+    public RewriteBottomUpJob(Group group, List<Rule<Plan>> rules, PlannerContext context) {
         this(group, rules, context, false);
     }
 
-    private RewriteBottomUpJob(Group group, List<Rule<NODE_TYPE>> rules,
+    private RewriteBottomUpJob(Group group, List<Rule<Plan>> rules,
             PlannerContext context, boolean childrenOptimized) {
         super(JobType.BOTTOM_UP_REWRITE, context);
         this.group = Objects.requireNonNull(group, "group cannot be null");
@@ -57,23 +57,23 @@ public class RewriteBottomUpJob<NODE_TYPE extends TreeNode<NODE_TYPE>> extends J
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
             for (Group childGroup : logicalExpression.children()) {
-                pushTask(new RewriteBottomUpJob<>(childGroup, rules, context, false));
+                pushTask(new RewriteBottomUpJob(childGroup, rules, context, false));
             }
-            pushTask(new RewriteBottomUpJob<>(group, rules, context, true));
+            pushTask(new RewriteBottomUpJob(group, rules, context, true));
             return;
         }
 
-        List<Rule<NODE_TYPE>> validRules = getValidRules(logicalExpression, rules);
-        for (Rule<NODE_TYPE> rule : validRules) {
-            GroupExpressionMatching<NODE_TYPE> groupExpressionMatching
-                    = new GroupExpressionMatching<>(rule.getPattern(), logicalExpression);
-            for (NODE_TYPE before : groupExpressionMatching) {
-                List<NODE_TYPE> afters = rule.transform(before, context);
+        List<Rule<Plan>> validRules = getValidRules(logicalExpression, rules);
+        for (Rule<Plan> rule : validRules) {
+            GroupExpressionMatching groupExpressionMatching
+                    = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
+            for (Plan before : groupExpressionMatching) {
+                List<Plan> afters = rule.transform(before, context);
                 Preconditions.checkArgument(afters.size() == 1);
-                NODE_TYPE after = afters.get(0);
+                Plan after = afters.get(0);
                 if (after != before) {
                     context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
-                    pushTask(new RewriteBottomUpJob<>(group, rules, context, false));
+                    pushTask(new RewriteBottomUpJob(group, rules, context, false));
                     return;
                 }
             }

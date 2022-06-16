@@ -22,13 +22,8 @@ import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -39,16 +34,6 @@ public abstract class PhysicalLeafOperator extends AbstractOperator
 
     public PhysicalLeafOperator(OperatorType type) {
         super(type);
-    }
-
-    @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, List<Plan> inputs) {
-        Preconditions.checkArgument(inputs.size() == 0);
-        return doComputeOutput(logicalProperties);
-    }
-
-    public List<Slot> doComputeOutput(LogicalProperties logicalProperties) {
-        return logicalProperties.getOutput();
     }
 
     @Override

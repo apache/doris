@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -38,18 +39,26 @@ import java.util.Optional;
 public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolderOperator> {
     /** PlaceHolderOperator. */
     public static class PlaceHolderOperator extends LogicalLeafOperator {
-        public PlaceHolderOperator() {
+        private final LogicalProperties logicalProperties;
+
+        public PlaceHolderOperator(LogicalProperties logicalProperties) {
             super(OperatorType.PLACE_HOLDER);
+            this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
         }
 
         @Override
-        public List<Slot> doComputeOutput() {
-            throw new IllegalStateException("Can not compute output for PlaceholderOperator");
+        public List<Slot> computeOutput() {
+            throw new IllegalStateException("PlaceholderOperator can not compute output");
+        }
+
+        @Override
+        public LogicalProperties computeLogicalProperties(Plan... inputs) {
+            return logicalProperties;
         }
     }
 
-    public PlaceHolderPlan(Optional<LogicalProperties> logicalProperties) {
-        super(new PlaceHolderOperator(), Optional.empty(), logicalProperties);
+    public PlaceHolderPlan(LogicalProperties logicalProperties) {
+        super(new PlaceHolderOperator(logicalProperties), Optional.empty(), Optional.of(logicalProperties));
     }
 
     @Override
@@ -70,6 +79,6 @@ public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolder
     @Override
     public PlaceHolderPlan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 0);
-        return new PlaceHolderPlan(Optional.ofNullable(logicalProperties.get()));
+        return new PlaceHolderPlan(logicalProperties);
     }
 }

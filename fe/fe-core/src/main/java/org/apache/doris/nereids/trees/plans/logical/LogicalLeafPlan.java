@@ -38,11 +38,11 @@ public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
         implements LeafPlan {
 
     public LogicalLeafPlan(OP_TYPE operator) {
-        super(NodeType.LOGICAL, operator, Optional.empty(), Optional.empty());
+        super(NodeType.LOGICAL, operator);
     }
 
     public LogicalLeafPlan(OP_TYPE operator, Optional<LogicalProperties> logicalProperties) {
-        super(NodeType.LOGICAL, operator, Optional.empty(), logicalProperties);
+        super(NodeType.LOGICAL, operator, logicalProperties);
     }
 
     public LogicalLeafPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
@@ -58,7 +58,7 @@ public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
 
     @Override
     public LogicalLeafPlan<OP_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
-        return new LogicalLeafPlan<>(operator, groupExpression, Optional.of(logicalProperties));
+        return new LogicalLeafPlan<>(operator, groupExpression,
+            Optional.of(logicalProperties.withOutput(output)));
     }
 }

@@ -43,19 +43,19 @@ public abstract class LogicalUnaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutput(List<Plan> inputs) {
-        Preconditions.checkArgument(inputs.size() == 1);
-        return doComputeOutput(inputs.get(0));
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 1);
+        return new LogicalProperties(computeOutput(inputs[0]));
     }
 
-    public abstract List<Slot> doComputeOutput(Plan input);
+    public abstract List<Slot> computeOutput(Plan input);
 
     @Override
     public LogicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
         LogicalProperties childProperties = groupExpression.child(0).getLogicalProperties();
         return new LogicalUnaryPlan(this, Optional.of(groupExpression),
-            Optional.of(logicalProperties), new PlaceHolderPlan(Optional.ofNullable(childProperties))
+            Optional.of(logicalProperties), new PlaceHolderPlan(childProperties)
         );
     }
 }

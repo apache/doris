@@ -49,7 +49,7 @@ public class PhysicalUnaryPlan<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE
     @Override
     public PhysicalUnaryPlan<OP_TYPE, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalUnaryPlan(operator, groupExpression, logicalProperties.get(), children.get(0));
+        return new PhysicalUnaryPlan(operator, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
