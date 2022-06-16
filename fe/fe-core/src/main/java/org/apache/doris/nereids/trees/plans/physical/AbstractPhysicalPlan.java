@@ -60,8 +60,9 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
      * @param children children of this plan
      */
     public AbstractPhysicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, logicalProperties, children);
+            LogicalProperties logicalProperties, Plan... children) {
+        super(type, operator, groupExpression, Optional.of(Objects.requireNonNull(logicalProperties,
+                "PhysicalPlan's logicalProperties can not be null")), children);
         // TODO: compute physical properties
         this.physicalProperties = new PhysicalProperties();
     }

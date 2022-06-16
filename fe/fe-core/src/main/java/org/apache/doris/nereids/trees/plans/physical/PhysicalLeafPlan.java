@@ -43,7 +43,7 @@ public class PhysicalLeafPlan<OP_TYPE extends PhysicalLeafOperator>
 
     public PhysicalLeafPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties) {
-        super(NodeType.PHYSICAL, operator, groupExpression, Optional.of(logicalProperties));
+        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties);
     }
 
     @Override

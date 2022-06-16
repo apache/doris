@@ -47,7 +47,7 @@ public class PhysicalBinaryPlan<
 
     public PhysicalBinaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.PHYSICAL, operator, groupExpression, Optional.of(logicalProperties), leftChild, rightChild);
+        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties, leftChild, rightChild);
     }
 
     @Override

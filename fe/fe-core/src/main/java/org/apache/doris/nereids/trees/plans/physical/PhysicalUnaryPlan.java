@@ -43,7 +43,7 @@ public class PhysicalUnaryPlan<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE
 
     public PhysicalUnaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
                              LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(NodeType.PHYSICAL, operator, groupExpression, Optional.of(logicalProperties), child);
+        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties, child);
     }
 
     @Override
