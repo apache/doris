@@ -1002,11 +1002,11 @@ public class HashJoinNode extends PlanNode {
         return tupleIds;
     }
 
-    @Override
-    public ArrayList<TupleId> getTblRefIds() {
-        if (vOutputTupleDesc != null) {
-            return Lists.newArrayList(vOutputTupleDesc.getId());
-        }
-        return tblRefIds;
-    }
+//    @Override
+//    public ArrayList<TupleId> getTblRefIds() {
+//        if (vOutputTupleDesc != null) {
+//            return Lists.newArrayList(vOutputTupleDesc.getId());
+//        }
+//        return tblRefIds;
+//    }
 }
