@@ -85,7 +85,6 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     /// TODO: could one filter used in the different scan_node ?
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.resize(filter_size);
-    _runtime_filter_ready_flag.resize(filter_size);
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
