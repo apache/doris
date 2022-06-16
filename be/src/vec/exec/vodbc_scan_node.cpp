@@ -23,9 +23,102 @@
 namespace doris {
 namespace vectorized {
 
-VOdbcScanNode::VOdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : OdbcScanNode(pool, tnode, descs, "VOdbcScanNode") {}
-VOdbcScanNode::~VOdbcScanNode() {}
+VOdbcScanNode::VOdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
+                             std::string scan_node_type)
+        : ScanNode(pool, tnode, descs),
+          _is_init(false),
+          _scan_node_type(std::move(scan_node_type)),
+          _table_name(tnode.odbc_scan_node.table_name),
+          _connect_string(std::move(tnode.odbc_scan_node.connect_string)),
+          _query_string(std::move(tnode.odbc_scan_node.query_string)),
+          _tuple_id(tnode.odbc_scan_node.tuple_id),
+          _tuple_desc(nullptr),
+          _slot_num(0) {}
+
+Status VOdbcScanNode::prepare(RuntimeState* state) {
+    VLOG_CRITICAL << _scan_node_type << "::Prepare";
+
+    if (_is_init) {
+        return Status::OK();
+    }
+
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is null.");
+    }
+
+    RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    // get tuple desc
+    _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+
+    if (nullptr == _tuple_desc) {
+        return Status::InternalError("Failed to get tuple descriptor.");
+    }
+
+    _slot_num = _tuple_desc->slots().size();
+
+    _odbc_param.connect_string = std::move(_connect_string);
+    _odbc_param.query_string = std::move(_query_string);
+    _odbc_param.tuple_desc = _tuple_desc;
+
+    _odbc_scanner.reset(new (std::nothrow) ODBCConnector(_odbc_param));
+
+    if (_odbc_scanner.get() == nullptr) {
+        return Status::InternalError("new a odbc scanner failed.");
+    }
+
+    _tuple_pool.reset(new (std::nothrow) MemPool("OdbcScanNode"));
+
+    if (_tuple_pool.get() == nullptr) {
+        return Status::InternalError("new a mem pool failed.");
+    }
+
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+
+    if (_text_converter.get() == nullptr) {
+        return Status::InternalError("new a text convertor failed.");
+    }
+
+    _is_init = true;
+
+    return Status::OK();
+}
+
+Status VOdbcScanNode::open(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    RETURN_IF_ERROR(ExecNode::open(state));
+    VLOG_CRITICAL << _scan_node_type << "::Open";
+
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is null.");
+    }
+
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
+
+    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
+    RETURN_IF_CANCELLED(state);
+    RETURN_IF_ERROR(_odbc_scanner->open());
+    RETURN_IF_ERROR(_odbc_scanner->query());
+    // check materialize slot num
+
+    return Status::OK();
+}
+
+Status VOdbcScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
+                                      RuntimeState* state) {
+    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
+                                     _tuple_pool.get())) {
+        std::stringstream ss;
+        ss << "Fail to convert odbc value:'" << value << "' to " << slot->type() << " on column:`"
+           << slot->col_name() + "`";
+        return Status::InternalError(ss.str());
+    }
+
+    return Status::OK();
+}
 
 Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     VLOG_CRITICAL << get_scan_node_type() << "::GetNext";
@@ -123,6 +216,32 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
 
+    return Status::OK();
+}
+
+Status VOdbcScanNode::close(RuntimeState* state) {
+    if (is_closed()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+
+    _tuple_pool.reset();
+
+    return ExecNode::close(state);
+}
+
+void VOdbcScanNode::debug_string(int indentation_level, std::stringstream* out) const {
+    *out << string(indentation_level * 2, ' ');
+    *out << _scan_node_type << "(tupleid=" << _tuple_id << " table=" << _table_name;
+    *out << ")" << std::endl;
+
+    for (int i = 0; i < _children.size(); ++i) {
+        _children[i]->debug_string(indentation_level + 1, out);
+    }
+}
+
+Status VOdbcScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 
