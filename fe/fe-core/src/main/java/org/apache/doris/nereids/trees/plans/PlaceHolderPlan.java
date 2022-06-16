@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +35,22 @@ import java.util.Optional;
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class PlaceHolderPlan implements LeafPlan {
+public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolderOperator> {
+    /** PlaceHolderOperator. */
+    public static class PlaceHolderOperator extends LogicalLeafOperator {
+        public PlaceHolderOperator() {
+            super(OperatorType.PLACE_HOLDER);
+        }
+
+        @Override
+        public List<Slot> doComputeOutput() {
+            throw new IllegalStateException("Can not compute output for PlaceholderOperator");
+        }
+    }
+
+    public PlaceHolderPlan(Optional<LogicalProperties> logicalProperties) {
+        super(new PlaceHolderOperator(), Optional.empty(), logicalProperties);
+    }
 
     @Override
     public Optional<GroupExpression> getGroupExpression() {
@@ -44,42 +63,13 @@ public class PlaceHolderPlan implements LeafPlan {
     }
 
     @Override
-    public Plan withOutput(List<Slot> output) {
+    public PlaceHolderPlan withOutput(List<Slot> output) {
         throw new RuntimeException();
     }
 
     @Override
-    public Plan withChildren(List children) {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public LeafPlanOperator getOperator() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public LogicalProperties getLogicalProperties() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public List<Slot> getOutput() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public String treeString() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public List<Plan> children() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public Plan child(int index) {
-        throw new RuntimeException();
+    public PlaceHolderPlan withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return new PlaceHolderPlan(Optional.ofNullable(logicalProperties.get()));
     }
 }

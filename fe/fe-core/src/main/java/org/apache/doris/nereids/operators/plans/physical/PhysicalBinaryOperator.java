@@ -55,7 +55,11 @@ public abstract class PhysicalBinaryOperator extends AbstractOperator
     @Override
     public PhysicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        LogicalProperties leftChildProperties = groupExpression.child(0).getLogicalProperties();
+        LogicalProperties rightChildProperties = groupExpression.child(1).getLogicalProperties();
         return new PhysicalBinaryPlan(this, Optional.of(groupExpression), logicalProperties,
-                new PlaceHolderPlan(), new PlaceHolderPlan());
+                new PlaceHolderPlan(Optional.ofNullable(leftChildProperties)),
+                new PlaceHolderPlan(Optional.ofNullable(rightChildProperties))
+        );
     }
 }

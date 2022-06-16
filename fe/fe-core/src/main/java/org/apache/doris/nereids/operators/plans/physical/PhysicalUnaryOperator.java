@@ -55,7 +55,9 @@ public abstract class PhysicalUnaryOperator extends AbstractOperator
     @Override
     public PhysicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        LogicalProperties childProperties = groupExpression.child(0).getLogicalProperties();
         return new PhysicalUnaryPlan(this, Optional.of(groupExpression),
-            logicalProperties, new PlaceHolderPlan());
+            logicalProperties, new PlaceHolderPlan(Optional.ofNullable(childProperties))
+        );
     }
 }

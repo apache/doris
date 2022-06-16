@@ -53,7 +53,9 @@ public abstract class LogicalUnaryOperator extends AbstractOperator
     @Override
     public LogicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        LogicalProperties childProperties = groupExpression.child(0).getLogicalProperties();
         return new LogicalUnaryPlan(this, Optional.of(groupExpression),
-            Optional.of(logicalProperties), new PlaceHolderPlan());
+            Optional.of(logicalProperties), new PlaceHolderPlan(Optional.ofNullable(childProperties))
+        );
     }
 }

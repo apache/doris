@@ -53,7 +53,11 @@ public abstract class LogicalBinaryOperator extends AbstractOperator
     @Override
     public LogicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new LogicalBinaryPlan(this, Optional.of(groupExpression),
-            Optional.of(logicalProperties), new PlaceHolderPlan(), new PlaceHolderPlan());
+        LogicalProperties leftChildProperties = groupExpression.child(0).getLogicalProperties();
+        LogicalProperties rightChildProperties = groupExpression.child(1).getLogicalProperties();
+        return new LogicalBinaryPlan(this, Optional.of(groupExpression), Optional.of(logicalProperties),
+                new PlaceHolderPlan(Optional.ofNullable(leftChildProperties)),
+                new PlaceHolderPlan(Optional.ofNullable(rightChildProperties))
+        );
     }
 }
