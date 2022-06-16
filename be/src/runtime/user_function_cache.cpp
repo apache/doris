@@ -118,7 +118,7 @@ UserFunctionCache* UserFunctionCache::instance() {
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
 #ifndef BE_TEST
-    // _lib_dir may reuesd bettween unit tests
+    // _lib_dir may reused between unit tests
     DCHECK(_lib_dir.empty()) << _lib_dir;
 #endif
     _lib_dir = lib_dir;
@@ -265,7 +265,7 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
     if (!st.ok()) {
         LOG(WARNING) << "fail to load cache entry, fid=" << fid;
         // if we load a cache entry failed, I think we should delete this entry cache
-        // evenif this cache was valid before.
+        // even if this cache was valid before.
         _destroy_cache_entry(entry);
         return st;
     }
