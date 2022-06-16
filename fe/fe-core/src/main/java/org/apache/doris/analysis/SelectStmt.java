@@ -824,7 +824,7 @@ public class SelectStmt extends QueryStmt {
                         Expr.getIds(Lists.newArrayList(candidateEqJoinPredicate), candidateTupleList, null);
                         int count = candidateTupleList.size();
                         for (TupleId tupleId : candidateTupleList) {
-                            if (validTupleId.contains(tupleId) || tid == tupleId) {
+                            if (validTupleId.contains(tupleId) || tid.equals(tupleId)) {
                                 count--;
                             }
                         }
