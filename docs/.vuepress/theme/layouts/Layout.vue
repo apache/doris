@@ -16,7 +16,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 <template>
-  <Common :sidebarItems="sidebarItems" :showModule="recoShowModule">
+  <Common :sidebarItems="sidebarItems" v-if="renderComponent" :showModule="recoShowModule">
     <component v-if="$frontmatter.home" :is="homeCom"/>
     <Page v-else :sidebar-items="sidebarItems"/>
     <Footer v-if="$frontmatter.home" class="footer" />
@@ -116,8 +116,7 @@ export default defineComponent({
           $page,
           $page.regularPath,
           $site,
-          $localePath,
-          instance.renderComponent
+          $localePath
         )
       } else {
         return []

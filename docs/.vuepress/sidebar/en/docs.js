@@ -793,7 +793,7 @@ module.exports = [
               "SHOW-TRANSACTION",
               "SHOW-TRIGGERS",
               "SHOW-TRASH",
-              // "SHOW-USER",
+              "SHOW-USER",
               "SHOW-VARIABLES",
               "SHOW-VIEW",
               "SHOW-WARNING",
