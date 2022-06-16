@@ -91,7 +91,6 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     private NODE_TYPE groupToTreeNode(Group group) {
         GroupExpression logicalExpression = group.getLogicalExpression();
         List<NODE_TYPE> childrenNode = Lists.newArrayList();
-        List<Group> children = logicalExpression.children();
         for (Group child : logicalExpression.children()) {
             childrenNode.add(groupToTreeNode(child));
         }

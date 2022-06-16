@@ -20,20 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.FunctionCall;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Literal;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 /**
  * Use the visitor pattern to iterate over all expressions for expression rewriting.

@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
-import org.apache.doris.nereids.operators.OperatorType;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;

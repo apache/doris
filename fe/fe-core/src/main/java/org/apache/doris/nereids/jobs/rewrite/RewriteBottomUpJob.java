@@ -72,7 +72,8 @@ public class RewriteBottomUpJob<NODE_TYPE extends TreeNode<NODE_TYPE>> extends J
                 Preconditions.checkArgument(afters.size() == 1);
                 NODE_TYPE after = afters.get(0);
                 if (after != before) {
-                    GroupExpression gexpr = context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
+                    GroupExpression gexpr = context.getOptimizerContext().getMemo()
+                            .copyIn(after, group, rule.isRewrite());
                     gexpr.setApplied(rule);
                     pushTask(new RewriteBottomUpJob<>(group, rules, context, false));
                     return;

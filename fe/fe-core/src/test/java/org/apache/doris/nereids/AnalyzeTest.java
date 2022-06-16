@@ -67,12 +67,12 @@ public class AnalyzeTest extends TestWithFeService {
         Assertions.assertTrue(checkBound(analyzed));
     }
 
-    private LogicalPlan analyze(String sql) throws Exception {
+    private LogicalPlan analyze(String sql) {
         LogicalPlan parsed = parser.parse(sql);
         return analyze(parsed, connectContext);
     }
 
-    private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) throws Exception {
+    private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
         Memo<Plan> memo = new Memo<>();
         memo.initialize(inputPlan);
         OptimizerContext<Plan> optimizerContext = new OptimizerContext<>(memo);
@@ -125,5 +125,5 @@ public class AnalyzeTest extends TestWithFeService {
             }
         }
         return true;
-   }
+    }
 }
