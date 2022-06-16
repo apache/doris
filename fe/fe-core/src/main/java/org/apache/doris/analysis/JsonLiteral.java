@@ -27,7 +27,7 @@ import com.google.common.base.Preconditions;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TStringLiteral;
+import org.apache.doris.thrift.TJsonLiteral;
 import org.apache.logging.log4j.LogManager;
 import org.apache.doris.catalog.Type;
 import org.apache.logging.log4j.Logger;
@@ -131,8 +131,8 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRING_LITERAL;
-        msg.string_literal = new TStringLiteral(getUnescapedValue());
+        msg.node_type = TExprNodeType.JSON_LITERAL;
+        msg.json_literal = new TJsonLiteral(getUnescapedValue());
     }
 
     public String getUnescapedValue() {
