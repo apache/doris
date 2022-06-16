@@ -91,7 +91,6 @@ PROPERTIES (
 'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 
-
 -- 例子3：创建 Hive 集群中 hive_db 下的 hive_table 表, HDFS使用HA配置并开启kerberos认证方式
 CREATE TABLE `t_hive` (
   `k1` int NOT NULL COMMENT "",
@@ -114,6 +113,25 @@ PROPERTIES (
 'hadoop.security.authentication'='kerberos',
 'hadoop.kerberos.principal'='doris_test@REALM.COM',
 'hadoop.kerberos.keytab'='/path/to/doris_test.keytab'
+);
+
+-- 例子4：创建 Hive 集群中 hive_db 下的 hive_table 表, Hive数据存储在S3上
+CREATE TABLE `t_hive` (
+  `k1` int NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=HIVE
+COMMENT "HIVE"
+PROPERTIES (
+'hive.metastore.uris' = 'thrift://192.168.0.1:9083',
+'database' = 'hive_db',
+'table' = 'hive_table',
+'AWS_ACCESS_KEY' = 'your_access_key',
+'AWS_SECRET_KEY' = 'your_secret_key',
+'AWS_ENDPOINT' = 's3.us-east-1.amazonaws.com',
+'AWS_REGION' = 'us-east-1'
 );
 
 ```
@@ -140,6 +158,10 @@ PROPERTIES (
     - `dfs.namenode.kerberos.principal`：HDFS namenode 服务的Kerberos 主体
     - `hadoop.kerberos.principal`：设置 Doris 连接 HDFS 时使用的 Kerberos 主体
     - `hadoop.kerberos.keytab`：设置 keytab 本地文件路径
+    - `AWS_ACCESS_KEY`: AWS账户的access key id.
+    - `AWS_SECRET_KEY`: AWS账户的secret access key.
+    - `AWS_ENDPOINT`: S3 endpoint. 例如：s3.us-east-1.amazonaws.com
+    - `AWS_REGION`: AWS区域. 例如：us-east-1
 
 **注意：**
 - 若要使 Doris 访问开启kerberos认证方式的hadoop集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，并配置 krb5.conf，填写KDC 服务信息等。

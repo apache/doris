@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
@@ -68,6 +69,7 @@ public class HiveScanNode extends BrokerScanNode {
     private String fileFormat;
     private String path;
     private List<String> partitionKeys = new ArrayList<>();
+    private StorageBackend.StorageType storageType;
     /* hive table properties */
 
     public String getHostUri() {
@@ -123,13 +125,26 @@ public class HiveScanNode extends BrokerScanNode {
                         getFileFormat(),
                         getPartitionKeys(),
                         getParsedColumnExprList()));
-        brokerDesc = new BrokerDesc("HiveTableDesc", StorageBackend.StorageType.HDFS, hiveTable.getHiveProperties());
+        brokerDesc = new BrokerDesc("HiveTableDesc", storageType, hiveTable.getHiveProperties());
         targetTable = hiveTable;
     }
 
-    private void initHiveTblProperties() throws DdlException {
+    private void setStorageType(String location) throws UserException {
+        String[] strings = StringUtils.split(location, "/");
+        String storagePrefix = strings[0].split(":")[0];
+        if (storagePrefix.equalsIgnoreCase("s3")) {
+            this.storageType = StorageBackend.StorageType.S3;
+        } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
+            this.storageType = StorageBackend.StorageType.HDFS;
+        } else {
+            throw new UserException("Not supported storage type: " + storagePrefix);
+        }
+    }
+
+    private void initHiveTblProperties() throws UserException {
         this.remoteHiveTable = HiveMetaStoreClientHelper.getTable(hiveTable);
         this.fileFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(remoteHiveTable.getSd().getInputFormat());
+        this.setStorageType(remoteHiveTable.getSd().getLocation());
 
         Map<String, String> serDeInfoParams = remoteHiveTable.getSd().getSerdeInfo().getParameters();
         this.columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
@@ -179,7 +194,7 @@ public class HiveScanNode extends BrokerScanNode {
         }
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         this.hdfsUri = HiveMetaStoreClientHelper.getHiveDataFiles(hiveTable, hivePartitionPredicate,
-            fileStatuses, remoteHiveTable);
+                fileStatuses, remoteHiveTable, storageType);
         fileStatusesList.add(fileStatuses);
         filesAdded += fileStatuses.size();
         for (TBrokerFileStatus fstatus : fileStatuses) {
