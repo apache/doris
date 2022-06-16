@@ -23,8 +23,6 @@
 
 namespace doris {
 
-using std::to_string;
-
 EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
         : _alter_tablet_req(request) {
     _mem_tracker = MemTracker::create_tracker(
@@ -39,8 +37,7 @@ Status EngineAlterTabletTask::execute() {
     SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
 
-    auto schema_change_handler = SchemaChangeHandler::instance();
-    Status res = schema_change_handler->process_alter_tablet_v2(_alter_tablet_req);
+    Status res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
 
     if (!res.ok()) {
         LOG(WARNING) << "failed to do alter task. res=" << res
@@ -53,8 +50,8 @@ Status EngineAlterTabletTask::execute() {
     }
 
     LOG(INFO) << "success to create new alter tablet. res=" << res
-              << " base_tablet_id=" << _alter_tablet_req.base_tablet_id << ", base_schema_hash"
-              << _alter_tablet_req.base_schema_hash
+              << " base_tablet_id=" << _alter_tablet_req.base_tablet_id
+              << ", base_schema_hash=" << _alter_tablet_req.base_schema_hash
               << ", new_tablet_id=" << _alter_tablet_req.new_tablet_id
               << ", new_schema_hash=" << _alter_tablet_req.new_schema_hash;
     return res;
