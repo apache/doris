@@ -63,6 +63,7 @@ public class HdfsStorage extends BlobStorage {
     private FileSystem dfsFileSystem = null;
 
     /**
+     * init HdfsStorage with properties.
      *
      * @param properties parameters to access HDFS.
      */
@@ -212,13 +213,13 @@ public class HdfsStorage extends BlobStorage {
     }
 
     /**
-     * read from fsDataInputStream.
+     * read data from fsDataInputStream.
      *
-     * @param fsDataInputStream
-     * @param readOffset
-     * @param length
-     * @return
-     * @throws IOException
+     * @param fsDataInputStream input stream for read.
+     * @param readOffset        read offset.
+     * @param length            read length.
+     * @return ByteBuffer
+     * @throws IOException when read data error.
      */
     public ByteBuffer pread(FSDataInputStream fsDataInputStream, long readOffset, long length) throws IOException {
         synchronized (fsDataInputStream) {
@@ -299,10 +300,10 @@ public class HdfsStorage extends BlobStorage {
     /**
      * open remotePath for write.
      *
-     * @param remotePath
-     * @return
-     * @throws UserException
-     * @throws IOException
+     * @param remotePath hdfs://namenode:port/path.
+     * @return FSDataOutputStream
+     * @throws UserException when get filesystem failed.
+     * @throws IOException   when open path error.
      */
     public FSDataOutputStream openWriter(String remotePath) throws UserException, IOException {
         URI pathUri = URI.create(remotePath);
@@ -319,8 +320,8 @@ public class HdfsStorage extends BlobStorage {
     /**
      * close for write.
      *
-     * @param fsDataOutputStream
-     * @return
+     * @param fsDataOutputStream output stream.
+     * @return Status.OK if success.
      */
     public Status closeWriter(FSDataOutputStream fsDataOutputStream) {
         synchronized (fsDataOutputStream) {
@@ -339,11 +340,11 @@ public class HdfsStorage extends BlobStorage {
     /**
      * open remotePath for read.
      *
-     * @param remotePath
-     * @param startOffset
-     * @return
-     * @throws UserException
-     * @throws IOException
+     * @param remotePath  hdfs://namenode:port/path.
+     * @param startOffset the offset to read.
+     * @return FSDataInputStream if success.
+     * @throws UserException when get filesystem failed.
+     * @throws IOException   when open file error.
      */
     public FSDataInputStream openReader(String remotePath, long startOffset) throws UserException, IOException {
         URI pathUri = URI.create(remotePath);
@@ -362,8 +363,8 @@ public class HdfsStorage extends BlobStorage {
     /**
      * close for read.
      *
-     * @param fsDataInputStream
-     * @return
+     * @param fsDataInputStream the input stream.
+     * @return Status.OK if success.
      */
     public Status closeReader(FSDataInputStream fsDataInputStream) {
         synchronized (fsDataInputStream) {
@@ -493,10 +494,10 @@ public class HdfsStorage extends BlobStorage {
     /**
      * get files in remotePath of HDFS.
      *
-     * @param remotePath
-     * @param result
-     * @param fileNameOnly
-     * @return
+     * @param remotePath   hdfs://namenode:port/path.
+     * @param result       files in remotePath.
+     * @param fileNameOnly means get file only in remotePath if true.
+     * @return Status.OK if success.
      */
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
