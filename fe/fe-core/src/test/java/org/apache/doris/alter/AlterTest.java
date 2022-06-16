@@ -204,7 +204,7 @@ public class AlterTest {
         createRemoteStoragePolicy("CREATE STORAGE POLICY testPolicy\n"
                 + "PROPERTIES(\n"
                 + "  \"storage_resource\" = \"remote_s3\",\n"
-                + "  \"cooldown_datetime\" = \"2100-05-09 00:00:00\"\n"
+                + "  \"cooldown_datetime\" = \"2100-05-10 00:00:00\"\n"
                 + ");");
 
         createRemoteStoragePolicy("CREATE STORAGE POLICY testPolicy2\n"
@@ -232,7 +232,7 @@ public class AlterTest {
                 + "    'replication_num' = '1',\n"
                 + "    'in_memory' = 'false',\n"
                 + "    'storage_medium' = 'SSD',\n"
-                + "    'storage_cooldown_time' = '2100-05-10 00:00:00',\n"
+                + "    'storage_cooldown_time' = '2100-05-09 00:00:00',\n"
                 + "    'remote_storage_policy' = 'testPolicy'\n"
                 + ");");
     }
