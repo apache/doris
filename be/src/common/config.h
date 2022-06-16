@@ -634,9 +634,9 @@ CONF_Bool(track_new_delete, "true");
 // including caches such as ExecNode operators and TabletManager.
 //
 // At present, there is a performance problem in the frequent switch thread mem tracker.
-// This is because the mem tracker exists as a shared_ptr in the thread local. When switching,
-// the shared_ptr use_count of the current tracker will be -1, and the tracker use_count to be replaced will be +1.
-// Frequent changes are the same as A tracker shared_ptr is very time consuming.
+// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
+// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
+// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
 // TODO: 1. Reduce unnecessary thread mem tracker switches,
 //       2. Consider using raw pointers for mem tracker in thread local
 CONF_Bool(memory_verbose_track, "false");
