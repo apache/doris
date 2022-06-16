@@ -109,7 +109,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
 
-    public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
+    public static DataProperty analyzeDataProperty(Map<String, String> properties, final DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return oldDataProperty;
