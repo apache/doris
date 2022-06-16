@@ -56,6 +56,7 @@ under the License.
             <artifactId>mysql-connector-java</artifactId>
             <version>8.0.12</version>
         </dependency>
+        <!--flink mysql cdc-->
         <dependency>
             <groupId>com.alibaba.ververica</groupId>
             <artifactId>flink-connector-mysql-cdc</artifactId>
@@ -71,6 +72,7 @@ under the License.
             <artifactId>flink-connector-jdbc_2.11</artifactId>
             <version>${flink.version}</version>
         </dependency>
+        <!--flink kafka-->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-kafka_${scala.binary.version}</artifactId>
@@ -96,9 +98,12 @@ under the License.
             <artifactId>flink-shaded-hadoop-2-uber</artifactId>
             <version>2.6.5-10.0</version>
         </dependency>
+
+        <!--flink doris connector-->
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>doris-flink-connector</artifactId>
+            <artifactId>flink-doris-connector-1.12_2.12</artifactId>
+            <version>1.0.3</version>
         </dependency>
         <!--After adding the following two dependencies, Flink's log will appear-->
         <dependency>
@@ -111,12 +116,30 @@ under the License.
             <artifactId>slf4j-simple</artifactId>
             <version>1.7.25</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/com.ververica/flink-connector-oracle-cdc -->
+        <!-- oracle -->
         <dependency>
             <groupId>com.ververica</groupId>
             <artifactId>flink-connector-oracle-cdc</artifactId>
             <version>2.1.1</version>
         </dependency>
+        <!-- elasticsearch -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-elasticsearch7_${scala.binary.version}</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>4.5.13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpcore</artifactId>
+            <version>4.4.12</version>
+        </dependency>
+
+
     </dependencies>
     <build>
         <plugins>
