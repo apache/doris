@@ -49,6 +49,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * HdfsStorage encapsulate interfaces accessing HDFS directly.
+ *
+ */
 public class HdfsStorage extends BlobStorage {
     private static final Logger LOG = LogManager.getLogger(HdfsStorage.class);
     private final Map<String, String> caseInsensitiveProperties;
@@ -58,6 +62,10 @@ public class HdfsStorage extends BlobStorage {
 
     private FileSystem dfsFileSystem = null;
 
+    /**
+     *
+     * @param properties parameters to access HDFS.
+     */
     public HdfsStorage(Map<String, String> properties) {
         caseInsensitiveProperties = new CaseInsensitiveMap();
         setProperties(properties);
@@ -112,7 +120,7 @@ public class HdfsStorage extends BlobStorage {
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
         LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
-        long start = System.currentTimeMillis();
+        final long start = System.currentTimeMillis();
         FSDataInputStream fsDataInputStream = null;
         try {
             fsDataInputStream = openReader(remoteFilePath, 0);
@@ -203,6 +211,15 @@ public class HdfsStorage extends BlobStorage {
         return readLength;
     }
 
+    /**
+     * read from fsDataInputStream.
+     *
+     * @param fsDataInputStream
+     * @param readOffset
+     * @param length
+     * @return
+     * @throws IOException
+     */
     public ByteBuffer pread(FSDataInputStream fsDataInputStream, long readOffset, long length) throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
@@ -279,6 +296,14 @@ public class HdfsStorage extends BlobStorage {
         return status;
     }
 
+    /**
+     * open remotePath for write.
+     *
+     * @param remotePath
+     * @return
+     * @throws UserException
+     * @throws IOException
+     */
     public FSDataOutputStream openWriter(String remotePath) throws UserException, IOException {
         URI pathUri = URI.create(remotePath);
         Path inputFilePath = new Path(pathUri.getPath());
@@ -291,6 +316,12 @@ public class HdfsStorage extends BlobStorage {
         }
     }
 
+    /**
+     * close for write.
+     *
+     * @param fsDataOutputStream
+     * @return
+     */
     public Status closeWriter(FSDataOutputStream fsDataOutputStream) {
         synchronized (fsDataOutputStream) {
             try {
@@ -305,6 +336,15 @@ public class HdfsStorage extends BlobStorage {
         return Status.OK;
     }
 
+    /**
+     * open remotePath for read.
+     *
+     * @param remotePath
+     * @param startOffset
+     * @return
+     * @throws UserException
+     * @throws IOException
+     */
     public FSDataInputStream openReader(String remotePath, long startOffset) throws UserException, IOException {
         URI pathUri = URI.create(remotePath);
         Path inputFilePath = new Path(pathUri.getPath());
@@ -319,6 +359,12 @@ public class HdfsStorage extends BlobStorage {
         }
     }
 
+    /**
+     * close for read.
+     *
+     * @param fsDataInputStream
+     * @return
+     */
     public Status closeReader(FSDataInputStream fsDataInputStream) {
         synchronized (fsDataInputStream) {
             try {
@@ -444,6 +490,14 @@ public class HdfsStorage extends BlobStorage {
         return list(remotePath, result, true);
     }
 
+    /**
+     * get files in remotePath of HDFS.
+     *
+     * @param remotePath
+     * @param result
+     * @param fileNameOnly
+     * @return
+     */
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
