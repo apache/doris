@@ -17,6 +17,8 @@
 
 #include "service/internal_service.h"
 
+#include <butil/iobuf.h>
+
 #include <string>
 
 #include "common/config.h"
@@ -492,8 +494,9 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
                                         ::doris::PMergeFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    auto buf = static_cast<brpc::Controller*>(controller)->request_attachment();
-    Status st = _exec_env->fragment_mgr()->merge_filter(request, buf.to_string().data());
+    auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+    butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+    Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
     if (!st.ok()) {
         LOG(WARNING) << "merge meet error" << st.to_string();
     }
@@ -506,10 +509,10 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
                                         ::google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+    butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
     UniqueId unique_id(request->query_id());
-    // TODO: avoid copy attachment copy
     VLOG_NOTICE << "rpc apply_filter recv";
-    Status st = _exec_env->fragment_mgr()->apply_filter(request, attachment.to_string().data());
+    Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
     if (!st.ok()) {
         LOG(WARNING) << "apply filter meet error: " << st.to_string();
     }
