@@ -91,7 +91,6 @@ PROPERTIES (
 'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 
-
 -- Example 3: Create the hive external table under hive_db in Hive cluster with HDFS HA and enable kerberos authentication. 
 CREATE TABLE `t_hive` (
   `k1` int NOT NULL COMMENT "",
@@ -114,6 +113,25 @@ PROPERTIES (
 'dfs.namenode.kerberos.principal'='hadoop/_HOST@REALM.COM'
 'hadoop.kerberos.principal'='doris_test@REALM.COM',
 'hadoop.kerberos.keytab'='/path/to/doris_test.keytab'
+);
+
+-- Example 4: Create the hive_table table under hive_db in a Hive cluster with data stored on S3
+CREATE TABLE `t_hive` (
+  `k1` int NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=HIVE
+COMMENT "HIVE"
+PROPERTIES (
+'hive.metastore.uris' = 'thrift://192.168.0.1:9083',
+'database' = 'hive_db',
+'table' = 'hive_table',
+'AWS_ACCESS_KEY'='your_access_key',
+'AWS_SECRET_KEY'='your_secret_key',
+'AWS_ENDPOINT'='s3.us-east-1.amazonaws.com',
+'AWS_REGION'='us-east-1'
 );
 
 ```
@@ -139,6 +157,10 @@ PROPERTIES (
     - `hadoop.security.authentication`: HDFS authentication type please set kerberos, default simple
     - `hadoop.kerberos.principal`: The Kerberos pincipal that Doris will use when connectiong to HDFS.
     - `hadoop.kerberos.keytab`: HDFS client keytab location.
+    - `AWS_ACCESS_KEY`: AWS access key id.
+    - `AWS_SECRET_KEY`: AWS secret access key.
+    - `AWS_ENDPOINT`: S3 endpoint. e.g. s3.us-east-1.amazonaws.com
+    - `AWS_REGION`: AWS region. e.g. us-east-1
 
 **Note:**
 - To enable Doris to access the hadoop cluster with kerberos authentication enabled, you need to deploy the Kerberos client kinit on the Doris all FE and BE nodes, configure krb5.conf, and fill in the KDC service information.

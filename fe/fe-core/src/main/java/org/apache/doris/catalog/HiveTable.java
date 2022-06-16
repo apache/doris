@@ -42,14 +42,18 @@ public class HiveTable extends Table {
     private static final String PROPERTY_MISSING_MSG = "Hive %s is null. Please add properties('%s'='xxx') when create table";
     private static final String PROPERTY_ERROR_MSG = "Hive table properties('%s'='%s') is illegal or not supported. Please check it";
 
-    private static final String HIVE_DB = "database";
-    private static final String HIVE_TABLE = "table";
-    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
-    public static final String HIVE_HDFS_PREFIX = "dfs";
-
     private String hiveDb;
     private String hiveTable;
     private Map<String, String> hiveProperties = Maps.newHashMap();
+
+    public static final String HIVE_DB = "database";
+    public static final String HIVE_TABLE = "table";
+    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
+    public static final String HIVE_HDFS_PREFIX = "dfs";
+    public static final String S3_PROPERTIES_PREFIX = "AWS";
+    public static final String S3_AK = "AWS_ACCESS_KEY";
+    public static final String S3_SK = "AWS_SECRET_KEY";
+    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
 
     public HiveTable() {
         super(TableType.HIVE);
@@ -142,8 +146,9 @@ public class HiveTable extends Table {
             Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
             while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
-                if (entry.getKey().startsWith(HIVE_HDFS_PREFIX)) {
-                    hiveProperties.put(entry.getKey(), entry.getValue());
+                String key = entry.getKey();
+                if (key.startsWith(HIVE_HDFS_PREFIX) || key.startsWith(S3_PROPERTIES_PREFIX)) {
+                    hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }
             }
