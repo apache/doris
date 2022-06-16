@@ -78,7 +78,6 @@ private:
     std::unique_ptr<SchemaScanner> _schema_scanner;
     // Current tuple.
     doris::Tuple* _src_tuple;
-    doris::Tuple* _dest_tuple;
     // Map from index in slots to column of schema table.
     std::vector<int> _index_map;
 
