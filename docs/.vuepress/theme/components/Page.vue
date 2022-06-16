@@ -20,7 +20,7 @@ under the License.
     <ModuleTransition delay="0.08">
       <section v-show="recoShowModule">
         <div class="page-title">
-          <div class="translate-warnning">
+          <div class="translate-warnning" v-if="$lang === 'en'">
             The content of this document may be from machine translation. If you are interested in assisting with translation and proofreading, please contact us 
             <a href="mailto:dev@doris.apache.org">dev@doris.apache.org</a>.
           </div>

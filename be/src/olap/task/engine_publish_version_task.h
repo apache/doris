@@ -27,7 +27,8 @@ namespace doris {
 class EnginePublishVersionTask : public EngineTask {
 public:
     EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
-                             vector<TTabletId>* error_tablet_ids);
+                             vector<TTabletId>* error_tablet_ids,
+                             std::vector<TTabletId>* succ_tablet_ids = nullptr);
     ~EnginePublishVersionTask() {}
 
     virtual Status finish() override;
@@ -35,6 +36,7 @@ public:
 private:
     const TPublishVersionRequest& _publish_version_req;
     vector<TTabletId>* _error_tablet_ids;
+    vector<TTabletId>* _succ_tablet_ids;
 };
 
 } // namespace doris

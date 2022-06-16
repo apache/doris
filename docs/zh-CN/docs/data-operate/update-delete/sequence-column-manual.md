@@ -143,6 +143,26 @@ PROPERTIES
 
 1. 创建支持sequence column的表
 
+创建unique模型的test_table数据表，并指定指定sequence列的类型为Date
+
+```sql
+CREATE TABLE test.test_table
+(
+    user_id bigint,
+    date date,
+    group_id bigint,
+    modify_date date,
+    keyword VARCHAR(128)
+)
+UNIQUE KEY(user_id, date, group_id)
+DISTRIBUTED BY HASH (user_id) BUCKETS 32
+PROPERTIES(
+    "function_column.sequence_type" = 'Date',
+    "replication_num" = "1",
+    "in_memory" = "false"
+);
+```
+
 表结构如下：
 
 ```sql
@@ -163,12 +183,12 @@ MySQL > desc test_table;
 导入如下数据
 
 ```text
-1       2020-02-22      1       2020-02-22      a
+1       2020-02-22      1       2020-02-21      a
 1       2020-02-22      1       2020-02-22      b
 1       2020-02-22      1       2020-03-05      c
 1       2020-02-22      1       2020-02-26      d
-1       2020-02-22      1       2020-02-22      e
-1       2020-02-22      1       2020-02-22      b
+1       2020-02-22      1       2020-02-23      e
+1       2020-02-22      1       2020-02-24      b
 ```
 
 此处以stream load为例， 将sequence column映射为modify_date列

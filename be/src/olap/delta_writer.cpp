@@ -17,6 +17,8 @@
 
 #include "olap/delta_writer.h"
 
+#include "olap/base_compaction.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
@@ -98,6 +100,10 @@ Status DeltaWriter::init() {
             MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
+        //trigger quick compaction
+        if (config::enable_quick_compaction) {
+            StorageEngine::instance()->submit_quick_compaction_task(_tablet);
+        }
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << _tablet->full_name();
