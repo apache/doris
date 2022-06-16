@@ -17,12 +17,13 @@
 
 package org.apache.doris.backup;
 
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.URI;
+
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;

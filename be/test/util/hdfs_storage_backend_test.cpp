@@ -35,7 +35,7 @@ static const std::string fs_name = "hdfs://127.0.0.1:9000"; // An invalid addres
 static const std::string user = "test";
 static const std::string base_path = "/user/test";
 
-#define HDFSStorageBackendTest DISABLED_S3StorageBackendTest
+#define HDFSStorageBackendTest DISABLED_HDFSStorageBackendTest
 
 class HDFSStorageBackendTest : public testing::Test {
 public:
