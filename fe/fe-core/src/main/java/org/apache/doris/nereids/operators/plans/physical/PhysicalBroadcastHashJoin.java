@@ -65,11 +65,6 @@ public class PhysicalBroadcastHashJoin extends PhysicalBinaryOperator {
     }
 
     @Override
-    public CostEstimate calculateCost(PlanContext planCtx) {
-        return null;
-    }
-
-    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("Broadcast Hash Join (").append(joinType);
         if (onClause != null) {

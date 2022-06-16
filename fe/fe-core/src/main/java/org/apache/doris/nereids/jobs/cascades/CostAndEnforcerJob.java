@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.ChildPropertyDeriver;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Job to compute cost and add enforcer.
@@ -37,7 +39,7 @@ public class CostAndEnforcerJob extends Job<Plan> {
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
 
-    List<List<PhysicalProperties>> properties;
+    List<List<PhysicalProperties>> propertiesList;
     // Current total cost
     private double curTotalCost;
     // Current stage of enumeration through child groups
@@ -57,24 +59,54 @@ public class CostAndEnforcerJob extends Job<Plan> {
         // Init logic: only run once per task
         if (curChildIndex != -1) {
             curTotalCost = 0;
-            // TODO(wenjie): pruning
+            // TODO: pruning
 
             // Property derive
             ChildPropertyDeriver childPropertyDeriver = new ChildPropertyDeriver(context, groupExpression);
-            properties = childPropertyDeriver.getProperties();
+            propertiesList = childPropertyDeriver.getProperties();
 
             curChildIndex = 0;
         }
 
-        for (; curPropertyPairIndex < properties.size(); curPropertyPairIndex++) {
-            List<PhysicalProperties> requiredProperties = properties.get(curPropertyPairIndex);
+        for (; curPropertyPairIndex < propertiesList.size(); curPropertyPairIndex++) {
+            List<PhysicalProperties> properties = propertiesList.get(curPropertyPairIndex);
 
             // Calculate local cost and update total cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
-                localCost = CostModel.calculateCost(groupExpression);
-                curTotalCost += context.getOptimizerContext();
+                // curTotalCost += context.getOptimizerContext().getCostModel.calculateCost(groupExpression);
             }
 
+            for (; curChildIndex < groupExpression.arity(); curChildIndex++) {
+                PhysicalProperties property = properties.get(curChildIndex);
+                Group childGroup = groupExpression.child(curChildIndex);
+
+                Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt = childGroup.getLowestCostPlan(property);
+
+                if (!lowestCostPlanOpt.isPresent()) {
+                    if (prevChildIndex >= curChildIndex) {
+                        break;
+                    }
+                    prevChildIndex = curChildIndex;
+                    // TODO: pushTask EnforceAndCostTask
+                    double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
+                    PlannerContext plannerContext = new PlannerContext(context.getOptimizerContext(),
+                            context.getConnectContext(), property, newCostUpperBound, context.getNeededAttributes());
+                    pushTask(new OptimizeGroupJob(childGroup, plannerContext));
+                    return;
+                }
+
+                GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
+                // TODO: check table
+                curTotalCost += lowestCostExpr.getLowestCostTable().get(property).first;
+                if (curTotalCost > context.getUpperBoundCost()) {
+                    break;
+                }
+            }
+
+            // Check whether we successfully optimize all child group
+            if (curChildIndex == groupExpression.arity()) {
+
+            }
 
             // Reset child idx and total cost
             prevChildIndex = -1;
@@ -83,9 +115,4 @@ public class CostAndEnforcerJob extends Job<Plan> {
         }
     }
 
-    private List<List<PhysicalProperties>> getRequiredProps(GroupExpression groupExpression) {
-        properties = Lists.newArrayList();
-        groupExpression.getOperator().accept(this, new ExpressionContext(groupExpression));
-        return requiredProperties;
-    }
 }

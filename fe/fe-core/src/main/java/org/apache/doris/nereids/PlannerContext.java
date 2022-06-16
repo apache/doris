@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.qe.ConnectContext;
@@ -34,6 +35,7 @@ public class PlannerContext {
     private final PhysicalProperties physicalProperties;
     private double costUpperBound;
     private Set<Slot> neededSlots;
+    private CostCalculator costCalculator;
 
     /**
      * Constructor of OptimizationContext.
@@ -51,6 +53,20 @@ public class PlannerContext {
         this.physicalProperties = physicalProperties;
         this.costUpperBound = Double.MAX_VALUE;
         this.neededSlots = Sets.newHashSet();
+    }
+
+    public PlannerContext(
+            OptimizerContext optimizerContext,
+            ConnectContext connectContext,
+            PhysicalProperties physicalProperties,
+            double costUpperBound,
+            Set<Slot> neededSlots) {
+        this.optimizerContext = optimizerContext;
+        this.connectContext = connectContext;
+        this.physicalProperties = physicalProperties;
+        this.costUpperBound = costUpperBound;
+        // Need deep-copy?
+        this.neededSlots = neededSlots;
     }
 
     public double getCostUpperBound() {

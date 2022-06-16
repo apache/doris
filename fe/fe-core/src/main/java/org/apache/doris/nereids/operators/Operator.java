@@ -32,4 +32,5 @@ public interface Operator {
 
     <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context);
 
+    <R, C> R accept(PlanOperatorVisitor<R, C> visitor, C context);
 }

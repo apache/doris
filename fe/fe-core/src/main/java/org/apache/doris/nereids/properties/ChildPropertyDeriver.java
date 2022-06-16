@@ -17,14 +17,22 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.operators.Operator;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class ChildPropertyDeriver {
+/**
+ * Used for property drive.
+ * Inspired by NoisePage-ChildPropertyDeriver.
+ */
+public class ChildPropertyDeriver extends PlanOperatorVisitor<Void, PlanContext> {
     PhysicalProperties requirements;
     List<List<PhysicalProperties>> properties;
 
@@ -40,8 +48,19 @@ public class ChildPropertyDeriver {
         return requirements;
     }
 
-    public List<List<PhysicalProperties>> getProperties() {
+    public List<List<PhysicalProperties>> getProperties(GroupExpression groupExpression) {
+        properties = Lists.newArrayList();
+        groupExpression.getOperator().accept(this, new PlanContext(groupExpression));
         return properties;
     }
 
+    @Override
+    public Void visitPlan(Plan plan, PlanContext context) {
+        return null;
+    }
+
+    @Override
+    public Void visitOperator(Operator operator, PlanContext context) {
+        return null;
+    }
 }

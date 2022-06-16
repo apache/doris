@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
@@ -37,7 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 @SuppressWarnings("rawtypes")
 public abstract class PlanOperatorVisitor<R, C> {
 
-    public abstract R visit(Plan plan, C context);
+    public abstract R visitPlan(Plan plan, C context);
 
     public R visitPhysicalAggregationPlan(PhysicalUnaryPlan<PhysicalAggregation, Plan> aggPlan, C context) {
         return null;
@@ -63,4 +64,31 @@ public abstract class PlanOperatorVisitor<R, C> {
         return null;
     }
 
+    /* Operator */
+
+    public abstract R visitOperator(Operator operator, C context);
+
+    public R visitPhysicalAggregation(PhysicalAggregation physicalAggregation, C context) {
+        return null;
+    }
+
+    public R visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, C context) {
+        return null;
+    }
+
+    public R visitPhysicalSort(PhysicalSort physicalSort, C context) {
+        return null;
+    }
+
+    public R visitPhysicalHashJoin(PhysicalHashJoin physicalHashJoin, C context) {
+        return null;
+    }
+
+    public R visitPhysicalProject(PhysicalProject physicalProject,  C context) {
+        return null;
+    }
+
+    public R visitPhysicalFilter(PhysicalFilter physicalFilter, C context) {
+        return null;
+    }
 }

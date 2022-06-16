@@ -56,6 +56,10 @@ public abstract class AbstractOperator implements Operator {
         return null;
     }
 
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, C context) {
+        return null;
+    }
+
     public long getLimited() {
         return limited;
     }

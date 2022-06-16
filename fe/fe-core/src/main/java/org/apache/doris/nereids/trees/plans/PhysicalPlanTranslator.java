@@ -68,11 +68,11 @@ import java.util.stream.Collectors;
 public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, PlanContext> {
 
     public void translatePlan(PhysicalPlan physicalPlan, PlanContext context) {
-        visit(physicalPlan, context);
+        visitPlan(physicalPlan, context);
     }
 
     @Override
-    public PlanFragment visit(Plan plan, PlanContext context) {
+    public PlanFragment visitPlan(Plan plan, PlanContext context) {
         PhysicalOperator operator = (PhysicalOperator) plan.getOperator();
         return operator.accept(this, plan, context);
     }
@@ -86,7 +86,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     public PlanFragment visitPhysicalAggregationPlan(
             PhysicalUnaryPlan<PhysicalAggregation, Plan> aggPlan, PlanContext context) {
 
-        PlanFragment inputPlanFragment = visit(aggPlan.child(0), context);
+        PlanFragment inputPlanFragment = visitPlan(aggPlan.child(0), context);
 
         AggregationNode aggregationNode = null;
         List<Slot> slotList = aggPlan.getOutput();
@@ -151,7 +151,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visitPhysicalSortPlan(PhysicalUnaryPlan<PhysicalSort, Plan> sortPlan,
             PlanContext context) {
-        PlanFragment childFragment = visit(sortPlan.child(0), context);
+        PlanFragment childFragment = visitPlan(sortPlan.child(0), context);
         PhysicalSort physicalSort = sortPlan.getOperator();
         if (!childFragment.isPartitioned()) {
             return childFragment;
@@ -202,8 +202,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visitPhysicalHashJoinPlan(
             PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan> hashJoinPlan, PlanContext context) {
-        PlanFragment leftFragment = visit(hashJoinPlan.child(0), context);
-        PlanFragment rightFragment = visit(hashJoinPlan.child(0), context);
+        PlanFragment leftFragment = visitPlan(hashJoinPlan.child(0), context);
+        PlanFragment rightFragment = visitPlan(hashJoinPlan.child(0), context);
         PhysicalHashJoin physicalHashJoin = hashJoinPlan.getOperator();
         Expression predicateExpr = physicalHashJoin.getPredicate();
         List<Expression> eqExprList = Utils.getEqConjuncts(hashJoinPlan.child(0).getOutput(),
@@ -258,13 +258,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visitPhysicalProject(
             PhysicalUnaryPlan<PhysicalProject, Plan> projectPlan, PlanContext context) {
-        return visit(projectPlan.child(0), context);
+        return visitPlan(projectPlan.child(0), context);
     }
 
     @Override
     public PlanFragment visitPhysicalFilter(
             PhysicalUnaryPlan<PhysicalFilter, Plan> filterPlan, PlanContext context) {
-        PlanFragment inputFragment = visit(filterPlan.child(0), context);
+        PlanFragment inputFragment = visitPlan(filterPlan.child(0), context);
         PlanNode planNode = inputFragment.getPlanRoot();
         PhysicalFilter filter = filterPlan.getOperator();
         Expression expression = filter.getPredicates();

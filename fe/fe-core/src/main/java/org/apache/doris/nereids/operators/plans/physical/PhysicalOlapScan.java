@@ -84,5 +84,4 @@ public class PhysicalOlapScan extends PhysicalScan {
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
         return visitor.visitPhysicalOlapScanPlan((PhysicalLeafPlan<PhysicalOlapScan>) plan, context);
     }
-
 }
