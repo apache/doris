@@ -38,6 +38,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
@@ -55,11 +56,11 @@ public abstract class LoadScanNode extends ScanNode {
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
 
     public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, NodeType.LOAD_SCAN_NODE);
+        super(id, desc, planNodeName, StatisticalType.LOAD_SCAN_NODE);
     }
 
-    public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
-        super(id, desc, planNodeName, nodeType);
+    public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
+        super(id, desc, planNodeName, statisticalType);
     }
 
     protected void initAndSetWhereExpr(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {

@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanRange;
@@ -75,7 +76,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     // used to construct for streaming loading
     public StreamLoadScanNode(
             TUniqueId loadId, PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, LoadTaskInfo taskInfo) {
-        super(id, tupleDesc, "StreamLoadScanNode", NodeType.STREAM_LOAD_SCAN_NODE);
+        super(id, tupleDesc, "StreamLoadScanNode", StatisticalType.STREAM_LOAD_SCAN_NODE);
         this.loadId = loadId;
         this.dstTable = dstTable;
         this.taskInfo = taskInfo;

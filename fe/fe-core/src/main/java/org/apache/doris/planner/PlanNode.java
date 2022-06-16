@@ -36,6 +36,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
@@ -138,10 +139,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected List<SlotId> outputSlotIds;
 
-    protected NodeType nodeType = NodeType.DEFAULT;
+    protected StatisticalType statisticalType = StatisticalType.DEFAULT;
     protected StatsDeriveResult statsDeriveResult;
 
-    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName, NodeType nodeType) {
+    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
         // make a copy, just to be on the safe side
@@ -150,10 +151,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
+        this.statisticalType = statisticalType;
     }
 
-    protected PlanNode(PlanNodeId id, String planNodeName, NodeType nodeType) {
+    protected PlanNode(PlanNodeId id, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
         this.tupleIds = Lists.newArrayList();
@@ -161,13 +162,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
+        this.statisticalType = statisticalType;
     }
 
     /**
      * Copy ctor. Also passes in new id.
      */
-    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, NodeType nodeType) {
+    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = node.limit;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
@@ -178,36 +179,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.compactData = node.compactData;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
-    }
-
-    public enum NodeType {
-        DEFAULT,
-        AGG_NODE,
-        ANALYTIC_EVAL_NODE,
-        ASSERT_NUM_ROWS_NODE,
-        BROKER_SCAN_NODE,
-        CROSS_JOIN_NODE,
-        EMPTY_SET_NODE,
-        ES_SCAN_NODE,
-        EXCEPT_NODE,
-        EXCHANGE_NODE,
-        HASH_JOIN_NODE,
-        HIVE_SCAN_NODE,
-        ICEBERG_SCAN_NODE,
-        INTERSECT_NODE,
-        LOAD_SCAN_NODE,
-        MYSQL_SCAN_NODE,
-        ODBC_SCAN_NODE,
-        OLAP_SCAN_NODE,
-        REPEAT_NODE,
-        SELECT_NODE,
-        SET_OPERATION_NODE,
-        SCHEMA_SCAN_NODE,
-        SORT_NODE,
-        STREAM_LOAD_SCAN_NODE,
-        TABLE_FUNCTION_NODE,
-        UNION_NODE,
+        this.statisticalType = statisticalType;
     }
 
     public String getPlanNodeName() {
@@ -218,8 +190,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return statsDeriveResult;
     }
 
-    public NodeType getNodeType() {
-        return nodeType;
+    public StatisticalType getNodeType() {
+        return statisticalType;
     }
 
     public void setStatsDeriveResult(StatsDeriveResult statsDeriveResult) {

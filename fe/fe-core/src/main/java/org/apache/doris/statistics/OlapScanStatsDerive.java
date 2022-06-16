@@ -18,8 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.OlapScanNode;
@@ -39,9 +39,9 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
 
     // The rowCount here is the number of rows.
     private long inputRowCount = -1;
-    private Map<SlotId, Float> slotIdToDataSize;
-    private Map<SlotId, Long> slotIdToNdv;
-    private Map<SlotId, Pair<Long, String>> slotIdToTableIdAndColumnName;
+    private Map<Id, Float> slotIdToDataSize;
+    private Map<Id, Long> slotIdToNdv;
+    private Map<Id, Pair<Long, String>> slotIdToTableIdAndColumnName;
 
     @Override
     public void init(PlanStats node) throws UserException {
@@ -60,7 +60,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
          * - So only an inaccurate cardinality can be calculated here.
          */
         rowCount = inputRowCount;
-        for (Map.Entry<SlotId, Pair<Long, String>> pairEntry : slotIdToTableIdAndColumnName.entrySet()) {
+        for (Map.Entry<Id, Pair<Long, String>> pairEntry : slotIdToTableIdAndColumnName.entrySet()) {
             Pair<Long, Float> ndvAndDataSize = getNdvAndDataSizeFromStatistics(pairEntry.getValue());
             long ndv = ndvAndDataSize.first;
             float dataSize = ndvAndDataSize.second;

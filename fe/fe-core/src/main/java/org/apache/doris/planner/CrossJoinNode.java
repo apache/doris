@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -41,7 +42,7 @@ public class CrossJoinNode extends PlanNode {
     private final TableRef innerRef;
 
     public CrossJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
-        super(id, "CROSS JOIN", NodeType.CROSS_JOIN_NODE);
+        super(id, "CROSS JOIN", StatisticalType.CROSS_JOIN_NODE);
         this.innerRef = innerRef;
         tupleIds.addAll(outer.getTupleIds());
         tupleIds.addAll(inner.getTupleIds());

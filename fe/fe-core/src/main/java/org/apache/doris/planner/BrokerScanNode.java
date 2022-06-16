@@ -45,6 +45,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.LoadTaskInfo;
@@ -66,9 +67,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -151,7 +149,7 @@ public class BrokerScanNode extends LoadScanNode {
     // For broker load and external broker table
     public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                           List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName, NodeType.BROKER_SCAN_NODE);
+        super(id, destTupleDesc, planNodeName, StatisticalType.BROKER_SCAN_NODE);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
         if (ConnectContext.get() != null) {
@@ -161,8 +159,8 @@ public class BrokerScanNode extends LoadScanNode {
 
     // For hive and iceberg scan node
     public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
-                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded, NodeType nodeType) {
-        super(id, destTupleDesc, planNodeName, nodeType);
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded, StatisticalType statisticalType) {
+        super(id, destTupleDesc, planNodeName, statisticalType);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
         if (ConnectContext.get() != null) {

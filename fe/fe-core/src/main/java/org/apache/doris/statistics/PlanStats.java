@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.planner.PlanNode.NodeType;
-
 import java.util.List;
 
 /**
@@ -30,7 +28,7 @@ public interface PlanStats {
 
     StatsDeriveResult getStatsDeriveResult();
 
-    NodeType getNodeType();
+    StatisticalType getNodeType();
 
     void setStatsDeriveResult(StatsDeriveResult result);
 

@@ -22,9 +22,9 @@ import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.List;
@@ -93,7 +93,7 @@ public class PlaceHolderPlan implements LeafPlan {
     }
 
     @Override
-    public PlanNode.NodeType getNodeType() {
+    public StatisticalType getNodeType() {
         return null;
     }
 
