@@ -819,19 +819,21 @@ public class SelectStmt extends QueryStmt {
                     // is being added.
                     Preconditions.checkState(tid == candidateTableRef.getId());
                     List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(tid);
-                    List<TupleId> candidateTupleList = Lists.newArrayList();
-                    Expr.getIds(candidateEqJoinPredicates, candidateTupleList, null);
-                    int count = candidateTupleList.size();
-                    for (TupleId tupleId : candidateTupleList) {
-                        if (validTupleId.contains(tupleId) || tid == tupleId) {
-                            count--;
+                    for (Expr candidateEqJoinPredicate : candidateEqJoinPredicates) {
+                        List<TupleId> candidateTupleList = Lists.newArrayList();
+                        Expr.getIds(Lists.newArrayList(candidateEqJoinPredicate), candidateTupleList, null);
+                        int count = candidateTupleList.size();
+                        for (TupleId tupleId : candidateTupleList) {
+                            if (validTupleId.contains(tupleId) || tid == tupleId) {
+                                count--;
+                            }
                         }
-                    }
-
-                    if (count == 0) {
-                        fromClause.add(candidateTableRef);
-                        validTupleId.add(tid);
-                        tableRefMap.remove(tid);
+                        if (count == 0) {
+                            fromClause.add(candidateTableRef);
+                            validTupleId.add(tid);
+                            tableRefMap.remove(tid);
+                            break;
+                        }
                     }
                 }
             }
