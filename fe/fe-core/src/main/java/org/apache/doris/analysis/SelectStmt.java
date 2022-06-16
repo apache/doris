@@ -735,7 +735,7 @@ public class SelectStmt extends QueryStmt {
 
     protected void reorderTable(Analyzer analyzer) throws AnalysisException {
         List<Pair<TableRef, Long>> candidates = Lists.newArrayList();
-
+        List<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
         // New pair of table ref and row count
         for (TableRef tblRef : fromClause) {
             if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN || tblRef.hasJoinHints()) {
@@ -773,8 +773,8 @@ public class SelectStmt extends QueryStmt {
 
         // can not get AST only with equal join, MayBe cross join can help
         fromClause.clear();
-        for (Pair<TableRef, Long> candidate : candidates) {
-            fromClause.add(candidate.first);
+        for (TableRef tableRef : originOrderBackUp) {
+            fromClause.add(tableRef);
         }
     }
 
