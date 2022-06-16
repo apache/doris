@@ -40,13 +40,13 @@ public abstract class AbstractLogicalPlan<OP_TYPE extends LogicalOperator>
 
     public AbstractLogicalPlan(NodeType type, OP_TYPE operator,
                                Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, operator, logicalProperties.orElse(operator.computeLogicalProperties(children)), children);
+        super(type, operator, logicalProperties.orElseGet(() -> operator.computeLogicalProperties(children)), children);
     }
 
     public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
                                Optional<LogicalProperties> logicalProperties, Plan... children) {
         super(type, operator, groupExpression,
-                logicalProperties.orElse(operator.computeLogicalProperties(children)), children);
+                logicalProperties.orElseGet(() -> operator.computeLogicalProperties(children)), children);
     }
 
     @Override

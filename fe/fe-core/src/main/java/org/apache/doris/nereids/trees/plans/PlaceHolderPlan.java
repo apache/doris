@@ -53,7 +53,7 @@ public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolder
 
         @Override
         public LogicalProperties computeLogicalProperties(Plan... inputs) {
-            return logicalProperties;
+            throw new IllegalStateException("PlaceholderOperator can not compute logical properties");
         }
     }
 

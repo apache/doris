@@ -17,6 +17,6 @@
 
 package org.apache.doris.nereids.analyzer;
 
-/** Use to marking Plan and generate UnboundLogicalProperties. */
+/** Use to marking unbound plan and unbound expression. */
 public interface Unbound {
 }
