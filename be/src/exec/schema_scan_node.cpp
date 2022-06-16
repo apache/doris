@@ -17,8 +17,6 @@
 
 #include "schema_scan_node.h"
 
-#include <boost/algorithm/string.hpp>
-
 #include "exec/schema_scanner/schema_helper.h"
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
@@ -28,6 +26,7 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -158,8 +157,8 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         // TODO(zhaochun): Is this slow?
         int j = 0;
         for (; j < _src_tuple_desc->slots().size(); ++j) {
-            if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(),
-                               _src_tuple_desc->slots()[j]->col_name())) {
+            if (iequal(_dest_tuple_desc->slots()[i]->col_name(),
+                       _src_tuple_desc->slots()[j]->col_name())) {
                 break;
             }
         }
