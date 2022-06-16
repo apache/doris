@@ -117,7 +117,8 @@ public class BuiltinAggregateFunction extends Function {
         DENSE_RANK("DENSE_RANK", TAggregationOp.DENSE_RANK, null),
         ROW_NUMBER("ROW_NUMBER", TAggregationOp.ROW_NUMBER, null),
         LEAD("LEAD", TAggregationOp.LEAD, null),
-        FIRST_VALUE_REWRITE("FIRST_VALUE_REWRITE", null, null);
+        FIRST_VALUE_REWRITE("FIRST_VALUE_REWRITE", null, null),
+        NTILE("NTILE", TAggregationOp.NTILE, null);
 
         private final String         description;
         private final TAggregationOp thriftOp;

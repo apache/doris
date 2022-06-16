@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -30,7 +29,7 @@ import java.util.Objects;
 /**
  * Reference to slot in expression.
  */
-public class SlotReference extends Slot<SlotReference> {
+public class SlotReference extends Slot {
     private final ExprId exprId;
     private final String name;
     private final List<String> qualifier;
@@ -80,12 +79,12 @@ public class SlotReference extends Slot<SlotReference> {
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
+    public DataType getDataType() {
         return dataType;
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
+    public boolean nullable() {
         return nullable;
     }
 
@@ -122,5 +121,10 @@ public class SlotReference extends Slot<SlotReference> {
     @Override
     public int hashCode() {
         return Objects.hash(exprId, name, qualifier, nullable);
+    }
+
+    // TODO: return real org.apache.doris.catalog.Column
+    public Column getColumn() {
+        return null;
     }
 }

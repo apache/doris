@@ -73,6 +73,8 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete);
+    Status pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
+                                         int64_t* permits);
 
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -190,6 +192,10 @@ public:
         _last_cumu_compaction_success_millis = millis;
     }
 
+    void set_last_quick_compaction_success_time(int64_t millis) {
+        _last_quick_compaction_success_time_millis = millis;
+    }
+
     int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
     void set_last_base_compaction_success_time(int64_t millis) {
         _last_base_compaction_success_millis = millis;
@@ -226,7 +232,8 @@ public:
     // Rowset whose version range is not covered by this tablet is also useful.
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
-    void build_tablet_report_info(TTabletInfo* tablet_info);
+    void build_tablet_report_info(TTabletInfo* tablet_info,
+                                  bool enable_consecutive_missing_check = false);
 
     void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
     // caller should hold the _meta_lock before calling this method
@@ -336,7 +343,7 @@ private:
     std::atomic<int64_t> _last_cumu_compaction_success_millis;
     // timestamp of last base compaction success
     std::atomic<int64_t> _last_base_compaction_success_millis;
-
+    std::atomic<int64_t> _last_quick_compaction_success_time_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
@@ -358,11 +365,15 @@ private:
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
     std::atomic<bool> _is_clone_occurred;
 
+    int64_t _last_missed_version;
+    int64_t _last_missed_time_s;
+
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
 public:
     IntCounter* flush_bytes;
     IntCounter* flush_count;
+    std::atomic<int64_t> publised_count = 0;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

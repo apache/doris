@@ -119,7 +119,7 @@ module.exports = {
         // 导航栏
         nav: [
           {
-            text: "Document",
+            text: "Docs",
             link: "",
             name: "document",
           },
@@ -128,17 +128,17 @@ module.exports = {
             icon: "doris doris-xiala",
             name: 'blog',
             items: [
-              { text: "Doris Weekly", link: "/en/categories/DorisWeekly/" },
+              // { text: "Doris Weekly", link: "/en/categories/DorisWeekly/" },
               { text: "Best Practice", link: "/en/categories/PracticalCases/" },
               { text: "Release Note", link: "/en/categories/ReleaseNote/" },
-              {
-                text: "Doris Internal",
-                link: "/en/categories/DorisInternals/",
-              },
+              // {
+              //   text: "Doris Internal",
+              //   link: "/en/categories/DorisInternals/",
+              // },
             ],
           },
           {
-            text: "Developer",
+            text: "Development",
             link: "/en/developer/developer-guide/debug-tool.html",
           },
           {
@@ -221,7 +221,7 @@ module.exports = {
             icon: "doris doris-xiala",
             name: 'blog',
             items: [
-              { text: "每周通报", link: "/zh-CN/categories/DorisWeekly/" },
+              // { text: "每周通报", link: "/zh-CN/categories/DorisWeekly/" },
               { text: "最佳实践", link: "/zh-CN/categories/PracticalCases/" },
               { text: "版本发布", link: "/zh-CN/categories/ReleaseNote/" },
               {

@@ -58,7 +58,7 @@ set(EXEC_TEST_FILES
     exec/es_scan_reader_test.cpp
     exec/s3_reader_test.cpp
     exec/multi_bytes_separator_test.cpp
-    # exec/hdfs_file_reader_test.cpp
+    exec/hdfs_file_reader_test.cpp
     # exec/new_olap_scan_node_test.cpp
     # exec/pre_aggregation_node_test.cpp
     # exec/partitioned_hash_table_test.cpp
@@ -342,6 +342,7 @@ set(VEC_TEST_FILES
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp
+    vec/function/function_array_size_test.cpp
     vec/function/function_bitmap_test.cpp
     vec/function/function_comparison_test.cpp
     vec/function/function_hash_test.cpp

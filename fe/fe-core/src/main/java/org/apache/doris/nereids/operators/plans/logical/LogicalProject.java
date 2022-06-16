@@ -32,8 +32,7 @@ import java.util.Objects;
 /**
  * Logical project plan operator.
  */
-public class LogicalProject<INPUT_TYPE extends Plan>
-        extends LogicalUnaryOperator<LogicalProject<INPUT_TYPE>, INPUT_TYPE> {
+public class LogicalProject extends LogicalUnaryOperator {
 
     private final List<? extends NamedExpression> projects;
 
@@ -57,7 +56,7 @@ public class LogicalProject<INPUT_TYPE extends Plan>
     }
 
     @Override
-    public List<Slot> doComputeOutput(INPUT_TYPE input) {
+    public List<Slot> doComputeOutput(Plan input) {
         // fixme: not throw a checked exception
         return projects.stream()
                 .map(namedExpr -> {

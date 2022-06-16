@@ -383,6 +383,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.row_count = 0;
             tablet_info.data_size = 0;
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+            tablet_info.__set_replica_id(tablet->replica_id());
             finish_tablet_infos.push_back(tablet_info);
         }
 
@@ -428,7 +429,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
             Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id);
+                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id);
             if (!drop_status.ok()) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
@@ -691,11 +692,13 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         VLOG_NOTICE << "get publish version task, signature:" << agent_task_req.signature;
 
         std::vector<TTabletId> error_tablet_ids;
+        std::vector<TTabletId> succ_tablet_ids;
         uint32_t retry_time = 0;
         Status res = Status::OK();
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
-            EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids);
+            EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
+                                                 &succ_tablet_ids);
             res = _env->storage_engine()->execute_task(&engine_task);
             if (res.ok()) {
                 break;
@@ -717,7 +720,29 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                          << ", error_code=" << res;
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
+            int submit_tablets = 0;
+            if (config::enable_quick_compaction && config::quick_compaction_batch_size > 0) {
+                for (int i = 0; i < succ_tablet_ids.size(); i++) {
+                    TabletSharedPtr tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(
+                                    succ_tablet_ids[i]);
+                    if (tablet != nullptr) {
+                        submit_tablets++;
+                        tablet->publised_count++;
+                        if (tablet->publised_count % config::quick_compaction_batch_size == 0) {
+                            StorageEngine::instance()->submit_quick_compaction_task(tablet);
+                            LOG(INFO) << "trigger quick compaction succ, tabletid:"
+                                      << succ_tablet_ids[i]
+                                      << ", publised:" << tablet->publised_count;
+                        }
+                    } else {
+                        LOG(WARNING) << "trigger quick compaction failed, tabletid:"
+                                     << succ_tablet_ids[i];
+                    }
+                }
+                LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature
+                          << ", size:" << succ_tablet_ids.size();
+            }
         }
 
         res.to_thrift(&finish_task_request.task_status);

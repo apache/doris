@@ -178,6 +178,16 @@ The commands related to the backup and restore function are as follows. For the 
 
    Delete the created remote repository. Deleting a warehouse only deletes the mapping of the warehouse in Doris, and does not delete the actual warehouse data.
 
+## Common mistakes
+
+1. Restore Report An Error：[20181: invalid md5 of downloaded file: /data/doris.HDD/snapshot/20220607095111.862.86400/19962/668322732/19962.hdr, expected: f05b63cca5533ea0466f62a9897289b5, get: d41d8cd98f00b204e9800998ecf8427e]
+
+   If the number of copies of the table backed up and restored is inconsistent, you need to specify the number of copies when executing the restore command. For specific commands, please refer to [RESTORE](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE.md) command manual
+
+2. Restore Report An Error：[COMMON_ERROR, msg: Could not set meta version to 97 since it is lower than minimum required version 100]
+
+   Backup and restore are not caused by the same version, use the specified meta_version to read the metadata of the previous backup. Note that this parameter is used as a temporary solution and is only used to restore the data backed up by the old version of Doris. The latest version of the backup data already contains the meta version, so there is no need to specify it. For the specific solution to the above error, specify meta_version = 100. For specific commands, please refer to [RESTORE](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE.md) command manual
+
 ## More Help
 
 For more detailed syntax and best practices used by RESTORE, please refer to the [RESTORE](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE.md) command manual, You can also type `HELP RESTORE` on the MySql client command line for more help.

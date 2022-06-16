@@ -27,7 +27,7 @@ import java.util.List;
 /**
  * Expression in Nereids that having name.
  */
-public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>> extends Expression<EXPR_TYPE> {
+public abstract class NamedExpression extends Expression {
 
     public NamedExpression(NodeType type, Expression... children) {
         super(type, children);
@@ -47,6 +47,11 @@ public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYP
 
     public List<String> getQualifier() throws UnboundException {
         throw new UnboundException("qualifier");
+    }
+
+    @Override
+    public boolean isConstant() {
+        return false;
     }
 
     /**

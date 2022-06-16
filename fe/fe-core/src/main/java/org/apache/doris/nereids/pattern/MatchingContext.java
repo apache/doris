@@ -23,9 +23,9 @@ import org.apache.doris.nereids.trees.TreeNode;
 /**
  * Define a context when match a pattern pass through a MatchedAction.
  */
-public class MatchingContext<T extends TreeNode> {
-    public final T root;
-    public final Pattern<T> pattern;
+public class MatchingContext<TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> {
+    public final TYPE root;
+    public final Pattern<TYPE, RULE_TYPE> pattern;
     public final PlannerContext plannerContext;
 
     /**
@@ -35,7 +35,7 @@ public class MatchingContext<T extends TreeNode> {
      * @param pattern the defined pattern
      * @param plannerContext the planner context
      */
-    public MatchingContext(T root, Pattern<T> pattern, PlannerContext plannerContext) {
+    public MatchingContext(TYPE root, Pattern<TYPE, RULE_TYPE> pattern, PlannerContext plannerContext) {
         this.root = root;
         this.pattern = pattern;
         this.plannerContext = plannerContext;

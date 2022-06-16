@@ -128,7 +128,7 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
         addCase("select * from test.t1 where dt in (20211124, 20211126, 20211122)", "partitions=3/8", "partitions=3/8");
         // is null
         addCase("select * from test.t1 where dt is null", "partitions=1/8", "partitions=1/8");
-        addCase("select * from test.not_null where dt is null", "partitions=0/7", "partitions=0/7");
+        addCase("select * from test.`not_null` where dt is null", "partitions=0/7", "partitions=0/7");
         // not equal to
         addCase("select * from test.t1 where dt!=20211122", "partitions=8/8", "partitions=8/8");
 

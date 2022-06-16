@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "hdfs_writer.h"
+#include "io/hdfs_writer.h"
 
 #include <filesystem>
 
@@ -24,21 +24,32 @@
 
 namespace doris {
 const static std::string FS_KEY = "fs.defaultFS";
-const static std::string USER = "hdfs_user";
-const static std::string KERBEROS_PRINCIPAL = "kerberos_principal";
-const static std::string KERB_TICKET_CACHE_PATH = "kerb_ticket_cache_path";
+const static std::string USER = "hadoop.username";
+const static std::string KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
+const static std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 const static std::string TOKEN = "token";
 
 HDFSWriter::HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path)
-        : _properties(properties), _path(path), _hdfs_fs(nullptr) {
-    _parse_properties(_properties);
-}
+        : _properties(properties),
+          _path(path),
+          _hdfs_fs(nullptr),
+          _hdfs_params(_parse_properties(_properties)),
+          _builder(createHDFSBuilder(_hdfs_params)) {}
 
 HDFSWriter::~HDFSWriter() {
     close();
 }
 
 Status HDFSWriter::open() {
+    if (_namenode.empty()) {
+        LOG(WARNING) << "hdfs properties is incorrect.";
+        return Status::InternalError("hdfs properties is incorrect");
+    }
+    // if the format of _path is hdfs://ip:port/path, replace it to /path.
+    // path like hdfs://ip:port/path can't be used by libhdfs3.
+    if (_path.find(_namenode) != _path.npos) {
+        _path = _path.substr(_namenode.size());
+    }
     RETURN_IF_ERROR(_connect());
     if (_hdfs_fs == nullptr) {
         return Status::InternalError("HDFS writer open without client");
@@ -129,31 +140,10 @@ Status HDFSWriter::close() {
 }
 
 Status HDFSWriter::_connect() {
-    hdfsBuilder* hdfs_builder = hdfsNewBuilder();
-    hdfsBuilderSetNameNode(hdfs_builder, _namenode.c_str());
-    // set hdfs user
-    if (!_user.empty()) {
-        hdfsBuilderSetUserName(hdfs_builder, _user.c_str());
+    if (_builder.is_need_kinit()) {
+        RETURN_IF_ERROR(_builder.run_kinit());
     }
-    // set kerberos conf
-    if (!_kerb_principal.empty()) {
-        hdfsBuilderSetPrincipal(hdfs_builder, _kerb_principal.c_str());
-    }
-    if (!_kerb_ticket_cache_path.empty()) {
-        hdfsBuilderSetKerbTicketCachePath(hdfs_builder, _kerb_ticket_cache_path.c_str());
-    }
-    // set token
-    if (!_token.empty()) {
-        hdfsBuilderSetToken(hdfs_builder, _token.c_str());
-    }
-    // set other conf
-    if (!_properties.empty()) {
-        std::map<std::string, std::string>::iterator iter;
-        for (iter = _properties.begin(); iter != _properties.end(); ++iter) {
-            hdfsBuilderConfSetStr(hdfs_builder, iter->first.c_str(), iter->second.c_str());
-        }
-    }
-    _hdfs_fs = hdfsBuilderConnect(hdfs_builder);
+    _hdfs_fs = hdfsBuilderConnect(_builder.get());
     if (_hdfs_fs == nullptr) {
         std::stringstream ss;
         ss << "connect to hdfs failed. namenode address:" << _namenode << ", error"
@@ -163,41 +153,34 @@ Status HDFSWriter::_connect() {
     return Status::OK();
 }
 
-Status HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
+THdfsParams HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
     std::map<std::string, std::string>::iterator iter;
+    std::vector<THdfsConf> hdfs_configs;
+    THdfsParams hdfsParams;
     for (iter = prop.begin(); iter != prop.end();) {
         if (iter->first.compare(FS_KEY) == 0) {
             _namenode = iter->second;
+            hdfsParams.__set_fs_name(_namenode);
             iter = prop.erase(iter);
         } else if (iter->first.compare(USER) == 0) {
-            _user = iter->second;
+            hdfsParams.__set_user(iter->second);
             iter = prop.erase(iter);
         } else if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
-            _kerb_principal = iter->second;
+            hdfsParams.__set_hdfs_kerberos_principal(iter->second);
             iter = prop.erase(iter);
-        } else if (iter->first.compare(KERB_TICKET_CACHE_PATH) == 0) {
-            _kerb_ticket_cache_path = iter->second;
-            iter = prop.erase(iter);
-        } else if (iter->first.compare(TOKEN) == 0) {
-            _token = iter->second;
+        } else if (iter->first.compare(KERBEROS_KEYTAB) == 0) {
+            hdfsParams.__set_hdfs_kerberos_keytab(iter->second);
             iter = prop.erase(iter);
         } else {
-            ++iter;
+            THdfsConf item;
+            item.key = iter->first;
+            item.value = iter->second;
+            hdfs_configs.push_back(item);
+            iter = prop.erase(iter);
         }
     }
-
-    if (_namenode.empty()) {
-        LOG(WARNING) << "hdfs properties is incorrect.";
-        return Status::InternalError("hdfs properties is incorrect");
-    }
-
-    // if the format of _path is hdfs://ip:port/path, replace it to /path.
-    // path like hdfs://ip:port/path can't be used by libhdfs3.
-    if (_path.find(_namenode) != _path.npos) {
-        _path = _path.substr(_namenode.size());
-    }
-
-    return Status::OK();
+    hdfsParams.__set_hdfs_conf(hdfs_configs);
+    return hdfsParams;
 }
 
 } // end namespace doris

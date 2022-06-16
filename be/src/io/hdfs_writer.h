@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <hdfs/hdfs.h>
-
 #include <map>
 #include <string>
 
-#include "file_writer.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "io/file_writer.h"
+#include "io/hdfs_builder.h"
 
 namespace doris {
 class HDFSWriter : public FileWriter {
@@ -39,18 +39,16 @@ public:
 
 private:
     Status _connect();
-    Status _parse_properties(std::map<std::string, std::string>& prop);
+    THdfsParams _parse_properties(std::map<std::string, std::string>& prop);
 
     std::map<std::string, std::string> _properties;
-    std::string _user = "";
     std::string _namenode = "";
     std::string _path = "";
-    std::string _kerb_principal = "";
-    std::string _kerb_ticket_cache_path = "";
-    std::string _token = "";
     hdfsFS _hdfs_fs = nullptr;
     hdfsFile _hdfs_file = nullptr;
     bool _closed = false;
+    THdfsParams _hdfs_params;
+    HDFSCommonBuilder _builder;
 };
 
 } // namespace doris

@@ -26,16 +26,13 @@ import java.util.function.BiFunction;
 /**
  * Abstract class for all logical plan in Nereids.
  */
-public interface LogicalPlan<
-            PLAN_TYPE extends LogicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LogicalOperator>
-        extends Plan<PLAN_TYPE, OP_TYPE> {
+public interface LogicalPlan extends Plan {
 
     @Override
-    List<Plan> children();
+    LogicalOperator getOperator();
 
     @Override
-    Plan child(int index);
+    LogicalPlan newChildren(List<Plan> children);
 
     /**
      * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the

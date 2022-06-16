@@ -212,7 +212,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -245,10 +245,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
                             long backendId = shadowReplica.getBackendId();
+                            long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
-                                    shadowShortKeyColumnCount, shadowSchemaHash,
+                                    shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION,
                                     originKeysType, TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
@@ -367,7 +368,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -439,7 +440,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -652,7 +653,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      */
     private void replayCreateJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
@@ -690,7 +691,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      */
     private void replayPendingJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             addShadowIndexToCatalog(olapTable);

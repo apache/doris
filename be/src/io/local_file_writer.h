@@ -19,7 +19,7 @@
 
 #include <stdio.h>
 
-#include "file_writer.h"
+#include "io/file_writer.h"
 
 namespace doris {
 

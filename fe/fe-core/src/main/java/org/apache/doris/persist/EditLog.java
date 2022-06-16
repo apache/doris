@@ -65,7 +65,6 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -813,7 +812,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_POLICY: {
-                    RowPolicy log = (RowPolicy) journal.getData();
+                    Policy log = (Policy) journal.getData();
                     catalog.getPolicyMgr().replayCreate(log);
                     break;
                 }
@@ -1426,11 +1425,7 @@ public class EditLog {
     }
 
     public void logCreatePolicy(Policy policy) {
-        if (policy instanceof RowPolicy) {
-            logEdit(OperationType.OP_CREATE_POLICY, policy);
-        } else {
-            LOG.error("invalid policy: " + policy.getType().name());
-        }
+        logEdit(OperationType.OP_CREATE_POLICY, policy);
     }
 
     public void logDropPolicy(DropPolicyLog log) {

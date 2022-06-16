@@ -37,6 +37,7 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
+import org.apache.doris.policy.StoragePolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -136,7 +137,8 @@ public class GsonUtils {
     // runtime adapter for class "Policy"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Policy.class, "clazz")
-            .registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName());
+            .registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
+            .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.

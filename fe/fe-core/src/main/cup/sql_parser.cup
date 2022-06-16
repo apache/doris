@@ -276,7 +276,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNLOCK, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
-    KW_YEAR;
+    KW_YEAR,
+    KW_NOT_NULL;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -1360,6 +1361,11 @@ create_stmt ::=
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
     :}
+    /* storage policy */
+    | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
+    :}
     ;
 
 channel_desc_list ::=
@@ -2073,6 +2079,10 @@ drop_stmt ::=
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, user);
     :}
+    | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
+    :}
     ;
 
 // Recover statement
@@ -2573,6 +2583,10 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null);
     :}
+    | KW_SHOW KW_STORAGE KW_POLICY
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null);
+    :}
     ;
 
 show_param ::=
@@ -2836,10 +2850,6 @@ show_param ::=
     | KW_FRONTENDS
     {:
         RESULT = new ShowFrontendsStmt();
-    :}
-    | KW_USER
-    {:
-        RESULT = new ShowUserStmt();
     :}
     | KW_REPOSITORIES
     {:
@@ -4628,6 +4638,8 @@ type ::=
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
   {: RESULT = new ArrayType(value_type); :}
+  | KW_ARRAY LESSTHAN KW_NOT_NULL LPAREN type:value_type RPAREN GREATERTHAN
+  {: RESULT = new ArrayType(value_type, false); :}
   | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN

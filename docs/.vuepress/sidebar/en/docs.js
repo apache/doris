@@ -540,6 +540,7 @@ module.exports = [
               "WINDOW-FUNCTION-FIRST-VALUE",
               "WINDOW-FUNCTION-LAST-VALUE",
               "WINDOW-FUNCTION-ROW-NUMBER",
+              "WINDOW-FUNCTION-NTILE",
             ],
           },
           {
@@ -1000,7 +1001,8 @@ module.exports = [
     directoryPath: "benchmark/",
     initialOpenGroupIndex: -1,
     children: [
-      "ssb"
+      "ssb",
+      "tpch"
     ],
   }
 ];

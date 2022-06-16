@@ -54,6 +54,7 @@ public class RebalancerTestUtil {
             diskInfo.setPathHash(id + i);
             diskInfo.setTotalCapacityB(totalCap);
             diskInfo.setDataUsedCapacityB(usedCaps.get(i));
+            diskInfo.setAvailableCapacityB(totalCap - usedCaps.get(i));
             disks.put(diskInfo.getRootPath(), diskInfo);
         }
         be.setDisks(ImmutableMap.copyOf(disks));

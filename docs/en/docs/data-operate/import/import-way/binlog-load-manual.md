@@ -364,7 +364,7 @@ COMMENT "OLAP"
 DISTRIBUTED BY HASH(`id`) BUCKETS 8;
 
 -- enable batch delete
-ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
+ALTER TABLE target_test ENABLE FEATURE "BATCH_DELETE";
 ```
 **! !  Doris table structure and Mysql table structure field order must be consistent ! !**
 

@@ -1039,20 +1039,20 @@ public class QueryPlanTest extends TestWithFeService {
 
         String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and t1.k2 = t2.k2 and t1.k3 = t2.k3";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: true"));
+        Assert.assertTrue(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         queryStr = "explain select * from test.colocate1 t1 join [shuffle] test.colocate2 t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         // t1.k1 = t2.k2 not same order with distribute column
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
     }
 
     @Test
@@ -1062,12 +1062,12 @@ public class QueryPlanTest extends TestWithFeService {
         // single partition
         String queryStr = "explain select * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: true"));
+        Assert.assertTrue(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         // multi partition, should not be colocate
         queryStr = "explain select * from test.dynamic_partition t1, test.dynamic_partition t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
     }
 
     @Test
@@ -1184,17 +1184,17 @@ public class QueryPlanTest extends TestWithFeService {
 
         String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+        Assert.assertFalse(explainString.contains("INNER JOIN(PARTITIONED)"));
 
         // should clear the jointest table to make sure do not affect other test
         for (Partition partition : tbl.getPartitions()) {
@@ -1231,17 +1231,17 @@ public class QueryPlanTest extends TestWithFeService {
 
         String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2, odbc_mysql t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+        Assert.assertFalse(explainString.contains("INNER JOIN(PARTITIONED)"));
 
         // should clear the jointest table to make sure do not affect other test
         for (Partition partition : tbl.getPartitions()) {
@@ -1327,15 +1327,15 @@ public class QueryPlanTest extends TestWithFeService {
 
         // default set PreferBroadcastJoin true
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
 
         connectContext.getSessionVariable().setPreferJoinMethod("shuffle");
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(PARTITIONED)"));
 
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
     }
 
     @Test

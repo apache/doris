@@ -77,7 +77,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_pa
           _cumulative_compaction_type(cumulative_compaction_type),
           _last_record_scan_count(0),
           _last_record_scan_count_timestamp(time(nullptr)),
-          _is_clone_occurred(false) {
+          _is_clone_occurred(false),
+          _last_missed_version(-1),
+          _last_missed_time_s(0) {
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
@@ -870,8 +872,57 @@ void Tablet::calculate_cumulative_point() {
     if (ret_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
-
     set_cumulative_layer_point(ret_cumulative_point);
+}
+
+//find rowsets that rows less then "config::quick_compaction_max_rows"
+Status Tablet::pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
+                                             int64_t* permits) {
+    int max_rows = config::quick_compaction_max_rows;
+    if (!config::enable_quick_compaction || max_rows <= 0) {
+        return Status::OK();
+    }
+    if (!init_succeeded()) {
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
+    }
+    int max_series_num = 1000;
+
+    std::vector<std::vector<RowsetSharedPtr>> quick_compaction_rowsets(max_series_num);
+    int idx = 0;
+    std::shared_lock rdlock(_meta_lock);
+    std::vector<RowsetSharedPtr> sortedRowset;
+    for (auto& rs : _rs_version_map) {
+        sortedRowset.push_back(rs.second);
+    }
+    std::sort(sortedRowset.begin(), sortedRowset.end(), Rowset::comparator);
+    if (tablet_state() == TABLET_RUNNING) {
+        for (int i = 0; i < sortedRowset.size(); i++) {
+            bool is_delete = version_for_delete_predicate(sortedRowset[i]->version());
+            if (!is_delete && sortedRowset[i]->start_version() > 0 &&
+                sortedRowset[i]->start_version() > cumulative_layer_point()) {
+                if (sortedRowset[i]->num_rows() < max_rows) {
+                    quick_compaction_rowsets[idx].push_back(sortedRowset[i]);
+                } else {
+                    idx++;
+                    if (idx > max_series_num) {
+                        break;
+                    }
+                }
+            }
+        }
+        if (quick_compaction_rowsets.size() == 0) return Status::OK();
+        std::vector<RowsetSharedPtr> result = quick_compaction_rowsets[0];
+        for (int i = 0; i < quick_compaction_rowsets.size(); i++) {
+            if (quick_compaction_rowsets[i].size() > result.size()) {
+                result = quick_compaction_rowsets[i];
+            }
+        }
+        for (int i = 0; i < result.size(); i++) {
+            *permits += result[i]->num_segments();
+            input_rowsets->push_back(result[i]);
+        }
+    }
+    return Status::OK();
 }
 
 Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
@@ -1277,7 +1328,10 @@ bool Tablet::_contains_rowset(const RowsetId rowset_id) {
     return false;
 }
 
-void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
+// need check if consecutive version missing in full report
+// alter tablet will ignore this check
+void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
+                                      bool enable_consecutive_missing_check) {
     std::shared_lock rdlock(_meta_lock);
     tablet_info->tablet_id = _tablet_meta->tablet_id();
     tablet_info->schema_hash = _tablet_meta->schema_hash();
@@ -1290,7 +1344,28 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     Version max_version;
     bool has_version_cross;
     _max_continuous_version_from_beginning_unlocked(&cversion, &max_version, &has_version_cross);
-    tablet_info->__set_version_miss(cversion.second < max_version.second);
+    // cause publish version task runs concurrently, version may be flying
+    // so we add a consecutive miss check to solve this problem:
+    // if publish version 5 arrives but version 4 flying, we may judge replica miss version
+    // and set version miss in tablet_info, which makes fe treat this replica as unhealth
+    // and lead to other problems
+    if (enable_consecutive_missing_check) {
+        if (cversion.second < max_version.second) {
+            if (_last_missed_version == cversion.second + 1) {
+                if (_last_missed_time_s - MonotonicSeconds() >= 60) {
+                    // version missed for over 60 seconds
+                    tablet_info->__set_version_miss(true);
+                    _last_missed_version = -1;
+                    _last_missed_time_s = 0;
+                }
+            } else {
+                _last_missed_version = cversion.second + 1;
+                _last_missed_time_s = MonotonicSeconds();
+            }
+        }
+    } else {
+        tablet_info->__set_version_miss(cversion.second < max_version.second);
+    }
     // find rowset with max version
     auto iter = _rs_version_map.find(max_version);
     if (iter == _rs_version_map.end()) {
@@ -1324,6 +1399,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
+    tablet_info->__set_replica_id(replica_id());
 }
 
 // should use this method to get a copy of current tablet meta

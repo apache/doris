@@ -145,7 +145,7 @@ div .home-blog .hero {
     justify-content: center;
 }
 .sum{
-    font-size: 16px;
+    font-size: 18px;
     color: rgba(255,255,255,.5);
     line-height: 1.8;
     margin: 50px 0 100px;
@@ -160,17 +160,18 @@ div .home-blog .home-blog-wrapper {
 .bannerHref{
     display: flex;
     justify-content: flex-start;
+    flex-wrap: wrap;
 }
 .bannerHref a{
-    width: 180px;
+    width: 170px;
     height: 50px;
     border-radius: 50px;
     background: #2ca37d;
     text-align: center;
-    line-height: 50px;
-    margin-right: 15px;
+    line-height: 55px;
+    margin-right: 25px;
     color: #fff;
-    font-size: 14px;
+    font-size: 18px;
     vertical-align: middle;
     transition: all ease .3s;
     position: relative;
@@ -178,17 +179,20 @@ div .home-blog .home-blog-wrapper {
     border-top: 0;
     border-left: 0;
     border-right: 0;
+    margin-bottom 20px
 }
 .bannerHref a i{
     font-size: 22px;
-    margin-right: 7px;
+    margin-right: 5px;
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
-    left: 50px;
+    left: 40px;
+    padding-top: 4px; 
 }
 .bannerHref a.button1{
     background: #2ca37d;
+    width: 196px;
 }
 .bannerHref a.button2{
     background: #333;
@@ -203,6 +207,19 @@ div .home-blog .home-blog-wrapper {
     border-right: 0;
     transform: translateY(-5px);
     box-shadow: 0 7px 10px rgba(1,88,4,.4);
+}
+.bannerHref a.button2.black:hover {
+    background: #111;
+    border-color: #000000;
+    box-shadow: 0 7px 10px rgba(0,0,0,.2);
+}
+.bannerHref a.button2.white {
+    background: #ffffff;
+    color: #000000;
+}
+.bannerHref a.button2.white:hover {
+    border-color: #ffffff;
+    box-shadow: 0 7px 10px rgba(0,0,0,.2);
 }
 div .content__default:not(.custom) {
     max-width: 100%;
@@ -355,10 +372,12 @@ div .content__default:not(.custom) a:hover {
     display: inline-block;
     color: #333;
     background: #fff;
-    padding: 16px 28px;
-    border-radius: 25px;
-    transition: all ease .3s;
-    border-bottom: 5px solid rgba(1, 88, 60, 0);
+    padding: 10px 38px;
+    border-radius: 30px;
+    transition: all ease 0.3s;
+    border-bottom: 5px solid rgba(1,88,60,0);
+    font-size: 18px;
+    padding-top: 15px;
 }
 .newsleft a:hover{
     background: #0c8760;
@@ -411,7 +430,7 @@ div .content__default:not(.custom) a:hover {
     text-align: center;
     line-height: 50px;
     color: #fff;
-    font-size: 14px;
+    font-size: 18px;
     vertical-align: middle;
     display: inline-block;
     margin-top: 15px;
@@ -1471,6 +1490,14 @@ header.navbar > .links .search-box .iconfont {
 .footerfoot img{
     pointer-events: none;
 }
+main.page .page-title .translate-warnning {
+    background-color: #ffba0026;
+    padding: 16px;
+    border-left: 5px solid #e6a700;
+    border-radius: 6px;
+    line-height: 1.6;
+    color: #4d3800;
+}
 main.page .page-title .title{
     font-size: 36px;
     font-weight: bold;
@@ -1943,6 +1970,7 @@ main.page .page-title div > i.tags{
         line-height: 1.5;
         margin: 30px 0 60px;
     }
+
     .bannerHref a {
         width: 160px;
         height: 39px;
@@ -1950,6 +1978,10 @@ main.page .page-title div > i.tags{
         margin-right: 12px;
         font-size: 14px;
         padding-top: 3px;
+        margin-bottom 20px
+    }
+    .bannerHref a.button1 {
+        width: 176px;
     }
     div .home-blog .hero {
         height: 64vh;
@@ -2343,7 +2375,7 @@ main.page .page-title div > i.tags{
         width: 100%;
     }
     .newsleft a {
-        padding: 17px 24px 12px;
+        padding: 10px 28px 5px;
     }
     .appleft, .appright {
         flex-direction: column;

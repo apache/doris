@@ -103,6 +103,16 @@ public class AggregationNode extends PlanNode {
                 && aggInfo.getGroupingExprs().size() > 0;
     }
 
+    // Used by new optimizer
+    public void setNeedsFinalize(boolean needsFinalize) {
+        this.needsFinalize = needsFinalize;
+    }
+
+    // Used by new optimizer
+    public void setUseStreamingPreagg(boolean useStreamingPreagg) {
+        this.useStreamingPreagg = useStreamingPreagg;
+    }
+
     @Override
     public void setCompactData(boolean on) {
         this.compactData = on;

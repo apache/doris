@@ -16,7 +16,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 <template>
-  <div class="dropdown-wrapper" :class="{ open }">
+  <div class="dropdown-wrapper" :class="{ open }" v-show="showVersionNav">
     <a class="dropdown-title" @click="toggle" v-if="versions">
       <span class="title">
         {{ currentItem.text }}
@@ -65,7 +65,8 @@ export default defineComponent({
   data () {
     return {
       subItems: [],
-      currentItem: {}
+      currentItem: {},
+      showVersionNav: false
     }
   },
   computed: {
@@ -79,6 +80,7 @@ export default defineComponent({
       deep: true,
       handler(val) {
         this.init(val)
+        this.setShowVersionNav(val)
       },
     },
     currentItem: {
@@ -89,21 +91,22 @@ export default defineComponent({
     }
   },
   methods: {
+    setShowVersionNav (versions) {
+      if (!versions) return false
+      const versionKeys = versions.items.map(v => v.text === 'master' ? 'docs' : v.text)
+      this.showVersionNav = versionKeys.some(v => this.$route.path.indexOf(v) > -1)
+    },
     init(val) {
       if (!val) return
       this.subItems = val.items.map((item) => ({ ...item, active: false }));
       let currentVersion = "master";
-      if (!this.currentItem.text) {
-        const versionKeys = this.$themeLocaleConfig.versions.items.map(
-          (v) => v.text
-        );
-        const matchVersion = versionKeys.find(
-          (v) => this.$route.path.indexOf(v) > -1
-        );
-        currentVersion = matchVersion || versionKeys[0];
-      } else {
-        currentVersion = this.currentItem.text;
-      }
+      const versionKeys = val.items.map(
+        (v) => v.text
+      );
+      const matchVersion = versionKeys.find(
+        (v) => this.$route.path.indexOf(v) > -1
+      );
+      currentVersion = matchVersion ? matchVersion : (this.currentItem.text || versionKeys[0])
       const index = this.subItems.findIndex(
         (item) => item.text === currentVersion
       );
@@ -114,8 +117,8 @@ export default defineComponent({
     },
     handleClick (item) {
       this.subItems.forEach(v => { v.active = item.text === v.text })
-      this.currentItem = item
       this.$router.push(item.link)
+      this.currentItem = item
     },
     async fetchData () {
       const res = await axios.get('/versions.json')
@@ -125,7 +128,8 @@ export default defineComponent({
         const versionItems = res.data[k.replace(/\//gi, "")] || []
         this.$site.themeConfig.locales[k].versions.items = versionItems
       })
-      this.init(this.$themeLocaleConfig.versions)
+      this.init(this.$site.themeConfig.locales[this.$localePath].versions)
+      this.setShowVersionNav(this.$site.themeConfig.locales[this.$localePath].versions)
     },
     updateVersion(val) {
       const versionsValue = this.versions;

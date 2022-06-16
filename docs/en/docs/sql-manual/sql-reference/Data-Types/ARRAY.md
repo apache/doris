@@ -38,12 +38,17 @@ T-type could be any of:
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
 DATETIME, CHAR, VARCHAR, STRING
 ```
+### notice
+
+please open `enable_array_type` before use ARRAY
 
 ### example
 
 Create table example:
 
 ```
+mysql> set enable_array_type=true;
+
 mysql> CREATE TABLE `array_test` (
   `id` int(11) NULL COMMENT "",
   `c_array` ARRAY<int(11)> NULL COMMENT ""
