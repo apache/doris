@@ -115,8 +115,7 @@ void VSetOperationNode::refresh_hash_table() {
                     arg.init_once();
                     auto& iter = arg.iter;
                     auto iter_end = arg.hash_table.end();
-                    decltype(arg.iter) iter_prev;
-                    for (; iter != iter_end;) {
+                    while (iter != iter_end) {
                         auto& mapped = iter->get_second();
                         auto it = mapped.begin();
 
@@ -132,7 +131,7 @@ void VSetOperationNode::refresh_hash_table() {
                                     arg.hash_table.delete_zero_key(iter->get_first());
                                     // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
                                     // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
-                                    iter_prev = iter;
+                                    auto iter_prev = iter;
                                     ++iter;
                                     iter_prev->set_zero();
                                 } else {
