@@ -54,7 +54,7 @@ public class PhysicalLeafPlan<OP_TYPE extends PhysicalLeafOperator>
 
     @Override
     public PhysicalLeafPlan<OP_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
+        LogicalProperties logicalProperties = new LogicalProperties(() -> output);
         return new PhysicalLeafPlan<>(operator, groupExpression, logicalProperties);
     }
 }

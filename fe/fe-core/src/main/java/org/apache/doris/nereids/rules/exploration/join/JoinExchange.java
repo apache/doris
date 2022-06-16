@@ -21,6 +21,7 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 
@@ -39,8 +40,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin()).then(topJoin -> {
-            LogicalBinaryPlan<LogicalJoin, Plan, Plan> leftJoin = topJoin.left();
-            LogicalBinaryPlan<LogicalJoin, Plan, Plan> rightJoin = topJoin.right();
+            LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> leftJoin = topJoin.left();
+            LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> rightJoin = topJoin.right();
 
             Plan a = leftJoin.left();
             Plan b = leftJoin.right();
@@ -48,15 +49,15 @@ public class JoinExchange extends OneExplorationRuleFactory {
             Plan d = rightJoin.right();
 
             Plan newLeftJoin = plan(
-                    new LogicalJoin(leftJoin.operator.getJoinType(), leftJoin.operator.getOnClause()),
+                    new LogicalJoin(leftJoin.operator.getJoinType(), leftJoin.operator.getCondition()),
                     a, c
             );
             Plan newRightJoin = plan(
-                    new LogicalJoin(rightJoin.operator.getJoinType(), rightJoin.operator.getOnClause()),
+                    new LogicalJoin(rightJoin.operator.getJoinType(), rightJoin.operator.getCondition()),
                     b, d
             );
             Plan newTopJoin = plan(
-                    new LogicalJoin(topJoin.operator.getJoinType(), topJoin.operator.getOnClause()),
+                    new LogicalJoin(topJoin.operator.getJoinType(), topJoin.operator.getCondition()),
                     newLeftJoin, newRightJoin
             );
             return newTopJoin;

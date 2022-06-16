@@ -19,6 +19,7 @@ package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
@@ -67,5 +68,10 @@ public class LogicalRelation extends LogicalLeafOperator {
                 .stream()
                 .map(col -> SlotReference.fromColumn(col, qualifier))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of();
     }
 }

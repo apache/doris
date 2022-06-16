@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Expression rewrite entry, which contains all rewrite rules.
  */
-public class ExpressionRewriter {
+public class ExpressionRuleExecutor {
 
     public static final List<ExpressionRewriteRule> REWRITE_RULES = Lists.newArrayList(
         new SimplifyNotExprRule(),
@@ -38,12 +38,12 @@ public class ExpressionRewriter {
     private final ExpressionRewriteContext ctx;
     private final List<ExpressionRewriteRule> rules;
 
-    public ExpressionRewriter(List<ExpressionRewriteRule> rules) {
+    public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules) {
         this.rules = rules;
         this.ctx = new ExpressionRewriteContext();
     }
 
-    public ExpressionRewriter(ExpressionRewriteRule rule) {
+    public ExpressionRuleExecutor(ExpressionRewriteRule rule) {
         this.rules = Lists.newArrayList(rule);
         this.ctx = new ExpressionRewriteContext();
     }

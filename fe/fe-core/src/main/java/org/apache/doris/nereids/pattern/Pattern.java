@@ -36,22 +36,32 @@ import java.util.function.Predicate;
  */
 public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
         extends AbstractTreeNode<Pattern<? extends NODE_TYPE, NODE_TYPE>> {
-    public static final Pattern ANY = new Pattern(OperatorType.ANY);
-    public static final Pattern MULTI = new Pattern(OperatorType.MULTI);
-    public static final Pattern FIXED = new Pattern(OperatorType.FIXED);
-    public static final Pattern MULTI_FIXED = new Pattern(OperatorType.MULTI_FIXED);
+    public static final Pattern ANY = new Pattern(PatternType.ANY);
+    public static final Pattern MULTI = new Pattern(PatternType.MULTI);
+    public static final Pattern GROUP = new Pattern(PatternType.GROUP);
+    public static final Pattern MULTI_GROUP = new Pattern(PatternType.MULTI_GROUP);
 
     protected final List<Predicate<TYPE>> predicates;
+    protected final PatternType patternType;
     protected final OperatorType operatorType;
+
+    public Pattern(OperatorType operatorType, Pattern... children) {
+        this(PatternType.NORMAL, operatorType, children);
+    }
+
+    private Pattern(PatternType patternType, Pattern... children) {
+        this(patternType, OperatorType.UNKNOWN, children);
+    }
 
     /**
      * Constructor for Pattern.
      *
-     * @param operatorType operator type to matching
+     * @param patternType pattern type to matching
      * @param children sub pattern
      */
-    public Pattern(OperatorType operatorType, Pattern... children) {
+    private Pattern(PatternType patternType, OperatorType operatorType, Pattern... children) {
         super(NodeType.PATTERN, children);
+        this.patternType = patternType;
         this.operatorType = operatorType;
         this.predicates = ImmutableList.of();
     }
@@ -59,35 +69,58 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     /**
      * Constructor for Pattern.
      *
-     * @param operatorType operator type to matching
+     * @param patternType operator type to matching
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
-    public Pattern(OperatorType operatorType, List<Predicate<TYPE>> predicates, Pattern... children) {
+    public Pattern(PatternType patternType, OperatorType operatorType,
+                   List<Predicate<TYPE>> predicates, Pattern... children) {
         super(NodeType.PATTERN, children);
+        this.patternType = patternType;
         this.operatorType = operatorType;
         this.predicates = ImmutableList.copyOf(predicates);
+
+        for (int i = 0; i + 1 < children.length; ++i) {
+            if (children[i].isMulti()) {
+                throw new IllegalStateException("Pattern.MULTI must be last child of current pattern");
+            } else if (children[i].isMultiGroup()) {
+                throw new IllegalStateException("Pattern.MULTI_GROUP must be last child of current pattern");
+            }
+        }
     }
 
     /**
-     * get current type in Pattern.
+     * get current type in Operator.
      *
-     * @return node type in pattern
+     * @return operator type in pattern
      */
     public OperatorType getOperatorType() {
         return operatorType;
     }
 
-    public boolean isFixed() {
-        return operatorType == OperatorType.FIXED;
+    /**
+     * get current type in Pattern.
+     *
+     * @return pattern type
+     */
+    public PatternType getPatternType() {
+        return patternType;
+    }
+
+    public boolean isGroup() {
+        return patternType == PatternType.GROUP;
+    }
+
+    public boolean isMultiGroup() {
+        return patternType == PatternType.MULTI_GROUP;
     }
 
     public boolean isAny() {
-        return operatorType == OperatorType.ANY;
+        return patternType == PatternType.ANY;
     }
 
     public boolean isMulti() {
-        return operatorType == OperatorType.MULTI;
+        return patternType == PatternType.MULTI;
     }
 
     /**
@@ -100,11 +133,15 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
         if (operator == null) {
             return false;
         }
-        if (operatorType == OperatorType.MULTI || operatorType == OperatorType.ANY
-                || operatorType == OperatorType.MULTI_FIXED || operatorType == OperatorType.FIXED) {
-            return true;
+        switch (patternType) {
+            case ANY:
+            case MULTI:
+            case GROUP:
+            case MULTI_GROUP:
+                return true;
+            default:
         }
-        return getOperatorType().equals(operator.getType());
+        return operatorType == operator.getType();
     }
 
     /**
@@ -122,7 +159,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
             return false;
         }
 
-        if (operatorType == OperatorType.MULTI || operatorType == OperatorType.ANY) {
+        if (patternType == PatternType.MULTI || patternType == PatternType.ANY) {
             return true;
         }
 
@@ -130,7 +167,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     protected boolean doMatchRoot(TYPE root) {
-        return getOperatorType().equals(root.getOperator().getType())
+        return getPatternType().equals(root.getOperator().getType())
                 && predicates.stream().allMatch(predicate -> predicate.test(root));
     }
 
@@ -163,16 +200,24 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     @Override
     public Pattern<? extends NODE_TYPE, NODE_TYPE> withChildren(
             List<Pattern<? extends NODE_TYPE, NODE_TYPE>> children) {
-        throw new RuntimeException();
+        throw new IllegalStateException("Pattern can not invoke withChildren");
     }
 
     public Pattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
-        return new Pattern(operatorType, predicates, children.toArray(new Pattern[0]));
+        return new Pattern(patternType, operatorType, predicates, children.toArray(new Pattern[0]));
     }
 
     @Override
     public Optional<GroupExpression> getGroupExpression() {
         return Optional.empty();
+    }
+
+    public boolean hasMultiChild() {
+        return !children.isEmpty() && children.get(children.size() - 1).isMulti();
+    }
+
+    public boolean hasMultiGroupChild() {
+        return !children.isEmpty() && children.get(children.size() - 1).isMultiGroup();
     }
 
     @Override
@@ -184,11 +229,11 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
             return false;
         }
         Pattern pattern = (Pattern) o;
-        return operatorType == pattern.operatorType;
+        return patternType == pattern.patternType;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(operatorType);
+        return Objects.hash(patternType);
     }
 }

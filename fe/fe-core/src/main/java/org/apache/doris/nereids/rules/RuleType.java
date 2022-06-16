@@ -22,7 +22,10 @@ package org.apache.doris.nereids.rules;
  */
 public enum RuleType {
     // binding rules
-    BINDING_UNBOUND_RELATION_RULE(RuleTypeClass.REWRITE),
+    BINDING_RELATION(RuleTypeClass.REWRITE),
+    BINDING_PROJECT_SLOT(RuleTypeClass.REWRITE),
+    BINDING_FILTER_SLOT(RuleTypeClass.REWRITE),
+    BINDING_JOIN_SLOT(RuleTypeClass.REWRITE),
     BINDING_SENTINEL(RuleTypeClass.REWRITE),
 
     // rewrite rules

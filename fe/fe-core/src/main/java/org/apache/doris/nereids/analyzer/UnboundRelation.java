@@ -23,6 +23,7 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.Utils;
@@ -79,5 +80,10 @@ public class UnboundRelation extends LogicalLeafOperator implements Unbound {
     @Override
     public String toString() {
         return "UnresolvedRelation" + "(" + StringUtils.join(nameParts, ".") + ")";
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
     }
 }

@@ -32,7 +32,7 @@ public class LogicalBinaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<LogicalBinaryPlan<" + opType.name + ", Plan, Plan>, Plan>";
+        return "<LogicalBinaryPlan<" + opType.name + ", GroupPlan, GroupPlan>, Plan>";
     }
 
     @Override
@@ -45,6 +45,7 @@ public class LogicalBinaryPatternGenerator extends PatternGenerator {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.operators.OperatorType");
+        imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan");
         enumFieldPatternInfos.stream()

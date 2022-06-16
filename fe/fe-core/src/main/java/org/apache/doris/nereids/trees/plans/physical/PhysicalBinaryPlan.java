@@ -59,7 +59,7 @@ public class PhysicalBinaryPlan<
 
     @Override
     public PhysicalBinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
+        LogicalProperties logicalProperties = new LogicalProperties(() -> output);
         return new PhysicalBinaryPlan<>(operator, groupExpression, logicalProperties, left(), right());
     }
 }

@@ -15,45 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.Objects;
 
-/**
- * Physical project plan operator.
- */
-public class PhysicalProject extends PhysicalUnaryOperator {
 
-    private final List<? extends NamedExpression> projects;
-
-    public PhysicalProject(List<? extends NamedExpression> projects) {
-        super(OperatorType.PHYSICAL_PROJECT);
-        this.projects = Objects.requireNonNull(projects, "projects can not be null");
-    }
-
-    public List<? extends NamedExpression> getProjects() {
-        return projects;
+/** GroupPlanOperator. */
+public class GroupPlanOperator extends LogicalLeafOperator {
+    public GroupPlanOperator() {
+        super(OperatorType.GROUP_PLAN);
     }
 
     @Override
-    public String toString() {
-        return "Project (" + StringUtils.join(projects, ", ") + ")";
+    public List<Slot> computeOutput() {
+        throw new IllegalStateException("GroupPlanOperator can not compute output."
+            + " You should invoke GroupPlan.getOutput()");
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalProject(((PhysicalUnaryPlan<PhysicalProject, Plan>) plan), context);
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        throw new IllegalStateException("GroupPlanOperator can not compute logical properties."
+            + " You should invoke GroupPlan.getLogicalProperties()");
     }
 
     @Override

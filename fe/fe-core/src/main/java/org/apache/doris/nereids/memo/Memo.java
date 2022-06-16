@@ -19,6 +19,7 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
@@ -27,6 +28,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Representation for memo in cascades optimizer.
@@ -54,11 +56,14 @@ public class Memo {
      * @param rewrite whether to rewrite the node to the target group
      * @return Reference of node in Memo
      */
-    public GroupExpression copyIn(Plan node, Group target, boolean rewrite) {
-        Preconditions.checkArgument(!rewrite || target != null);
+    public GroupExpression copyIn(Plan node, @Nullable Group target, boolean rewrite) {
         List<Group> childrenGroups = Lists.newArrayList();
         for (Plan child : node.children()) {
-            childrenGroups.add(copyIn(child, null, rewrite).getParent());
+            if (child instanceof GroupPlan) {
+                childrenGroups.add(((GroupPlan) child).getGroup());
+            } else {
+                childrenGroups.add(copyIn(child, null, rewrite).getParent());
+            }
         }
         if (node.getGroupExpression().isPresent() && groupExpressions.containsKey(node.getGroupExpression().get())) {
             return node.getGroupExpression().get();
@@ -67,6 +72,20 @@ public class Memo {
         newGroupExpression.setChildren(childrenGroups);
         return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, node.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
+    }
+
+    public Plan copyOut() {
+        return groupToTreeNode(root);
+    }
+
+    private Plan groupToTreeNode(Group group) {
+        GroupExpression logicalExpression = group.getLogicalExpression();
+        List<Plan> childrenNode = Lists.newArrayList();
+        for (Group child : logicalExpression.children()) {
+            childrenNode.add(groupToTreeNode(child));
+        }
+        Plan result = logicalExpression.getOperator().toTreeNode(logicalExpression);
+        return result.withChildren(childrenNode);
     }
 
     /**

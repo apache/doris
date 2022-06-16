@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;

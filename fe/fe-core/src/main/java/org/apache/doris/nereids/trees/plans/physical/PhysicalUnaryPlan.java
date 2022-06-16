@@ -54,7 +54,7 @@ public class PhysicalUnaryPlan<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE
 
     @Override
     public PhysicalUnaryPlan<OP_TYPE, CHILD_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
+        LogicalProperties logicalProperties = new LogicalProperties(() -> output);
         return new PhysicalUnaryPlan<>(operator, groupExpression, logicalProperties, child());
     }
 }

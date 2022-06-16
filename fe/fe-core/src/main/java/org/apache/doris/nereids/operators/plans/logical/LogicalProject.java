@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -57,20 +57,18 @@ public class LogicalProject extends LogicalUnaryOperator {
 
     @Override
     public List<Slot> computeOutput(Plan input) {
-        // fixme: not throw a checked exception
         return projects.stream()
-                .map(namedExpr -> {
-                    try {
-                        return namedExpr.toSlot();
-                    } catch (UnboundException e) {
-                        throw new IllegalStateException(e);
-                    }
-                })
+                .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public String toString() {
         return "Project (" + StringUtils.join(projects, ", ") + ")";
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return new ImmutableList.Builder<Expression>().addAll(projects).build();
     }
 }

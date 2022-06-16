@@ -25,7 +25,6 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
@@ -83,15 +82,15 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
      *
      */
     @Override
-    public PlanFragment visitPhysicalAggregationPlan(
-            PhysicalUnaryPlan<PhysicalAggregation, Plan> aggPlan, PlanContext context) {
+    public PlanFragment visitPhysicalAggregation(
+            PhysicalUnaryPlan<PhysicalAggregation, Plan> agg, PlanContext context) {
 
-        PlanFragment inputPlanFragment = visit(aggPlan.child(0), context);
+        PlanFragment inputPlanFragment = visit(agg.child(0), context);
 
         AggregationNode aggregationNode = null;
-        List<Slot> slotList = aggPlan.getOutput();
+        List<Slot> slotList = agg.getOutput();
         TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
-        PhysicalAggregation physicalAggregation = aggPlan.getOperator();
+        PhysicalAggregation physicalAggregation = agg.getOperator();
         AggregateInfo.AggPhase phase = physicalAggregation.getAggPhase().toExec();
 
         List<Expression> groupByExpressionList = physicalAggregation.getGroupByExprList();
@@ -134,11 +133,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     }
 
     @Override
-    public PlanFragment visitPhysicalOlapScanPlan(
-            PhysicalLeafPlan<PhysicalOlapScan> olapScanPlan, PlanContext context) {
+    public PlanFragment visitPhysicalOlapScan(
+            PhysicalLeafPlan<PhysicalOlapScan> olapScan, PlanContext context) {
         // Create OlapScanNode
-        List<Slot> slotList = olapScanPlan.getOutput();
-        PhysicalOlapScan physicalOlapScan = olapScanPlan.getOperator();
+        List<Slot> slotList = olapScan.getOutput();
+        PhysicalOlapScan physicalOlapScan = olapScan.getOperator();
         OlapTable olapTable = physicalOlapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextNodeId(), tupleDescriptor, olapTable.getName());
@@ -149,10 +148,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     }
 
     @Override
-    public PlanFragment visitPhysicalSortPlan(PhysicalUnaryPlan<PhysicalSort, Plan> sortPlan,
+    public PlanFragment visitPhysicalSort(PhysicalUnaryPlan<PhysicalSort, Plan> sort,
             PlanContext context) {
-        PlanFragment childFragment = visit(sortPlan.child(0), context);
-        PhysicalSort physicalSort = sortPlan.getOperator();
+        PlanFragment childFragment = visit(sort.child(0), context);
+        PhysicalSort physicalSort = sort.getOperator();
         if (!childFragment.isPartitioned()) {
             return childFragment;
         }
@@ -169,7 +168,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             nullsFirstParamList.add(k.isNullFirst());
         });
 
-        List<Slot> outputList = sortPlan.getOutput();
+        List<Slot> outputList = sort.getOutput();
         TupleDescriptor tupleDesc = generateTupleDesc(outputList, context, null);
         SortInfo sortInfo = new SortInfo(execOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
 
@@ -200,14 +199,14 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
     // TODO: support broadcast join / co-locate / bucket shuffle join later
     @Override
-    public PlanFragment visitPhysicalHashJoinPlan(
-            PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan> hashJoinPlan, PlanContext context) {
-        PlanFragment leftFragment = visit(hashJoinPlan.child(0), context);
-        PlanFragment rightFragment = visit(hashJoinPlan.child(0), context);
-        PhysicalHashJoin physicalHashJoin = hashJoinPlan.getOperator();
-        Expression predicateExpr = physicalHashJoin.getPredicate();
-        List<Expression> eqExprList = Utils.getEqConjuncts(hashJoinPlan.child(0).getOutput(),
-                hashJoinPlan.child(1).getOutput(), predicateExpr);
+    public PlanFragment visitPhysicalHashJoin(
+            PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan> hashJoin, PlanContext context) {
+        PlanFragment leftFragment = visit(hashJoin.child(0), context);
+        PlanFragment rightFragment = visit(hashJoin.child(0), context);
+        PhysicalHashJoin physicalHashJoin = hashJoin.getOperator();
+        Expression predicateExpr = physicalHashJoin.getCondition();
+        List<Expression> eqExprList = Utils.getEqConjuncts(hashJoin.child(0).getOutput(),
+                hashJoin.child(1).getOutput(), predicateExpr);
         JoinType joinType = physicalHashJoin.getJoinType();
 
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
