@@ -173,7 +173,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 /*
  * Download snapshot files from remote.
  * After downloaded, the local dir should contains all files existing in remote,
- * may also contains severval useless files.
+ * may also contains several useless files.
  */
 Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to_dest_path,
                                 std::vector<int64_t>* downloaded_tablet_ids) {

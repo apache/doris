@@ -45,10 +45,10 @@ struct TabletVars {
 
 class PushHandler {
 public:
-    typedef std::vector<ColumnMapping> SchemaMapping;
+    using SchemaMapping = std::vector<ColumnMapping>;
 
-    PushHandler() {}
-    ~PushHandler() {}
+    PushHandler() = default;
+    ~PushHandler() = default;
 
     // Load local data file into specified tablet.
     Status process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
@@ -80,6 +80,9 @@ private:
     // mainly tablet_id, version and delta file path
     TPushReq _request;
 
+    ObjectPool _pool;
+    DescriptorTbl* _desc_tbl = nullptr;
+
     int64_t _write_bytes = 0;
     int64_t _write_rows = 0;
     DISALLOW_COPY_AND_ASSIGN(PushHandler);
@@ -88,7 +91,7 @@ private:
 // package FileHandlerWithBuf to read header of dpp output file
 class BinaryFile : public FileHandlerWithBuf {
 public:
-    BinaryFile() {}
+    BinaryFile() = default;
     virtual ~BinaryFile() { close(); }
 
     Status init(const char* path);
@@ -107,7 +110,7 @@ private:
 class IBinaryReader {
 public:
     static IBinaryReader* create(bool need_decompress);
-    virtual ~IBinaryReader() {}
+    virtual ~IBinaryReader() = default;
 
     virtual Status init(TabletSharedPtr tablet, BinaryFile* file) = 0;
     virtual Status finalize() = 0;
@@ -139,14 +142,14 @@ protected:
 class BinaryReader : public IBinaryReader {
 public:
     explicit BinaryReader();
-    virtual ~BinaryReader() { finalize(); }
+    ~BinaryReader() override { finalize(); }
 
-    virtual Status init(TabletSharedPtr tablet, BinaryFile* file);
-    virtual Status finalize();
+    Status init(TabletSharedPtr tablet, BinaryFile* file) override;
+    Status finalize() override;
 
-    virtual Status next(RowCursor* row);
+    Status next(RowCursor* row) override;
 
-    virtual bool eof() { return _curr >= _content_len; }
+    bool eof() override { return _curr >= _content_len; }
 
 private:
     char* _row_buf;
@@ -156,20 +159,20 @@ private:
 class LzoBinaryReader : public IBinaryReader {
 public:
     explicit LzoBinaryReader();
-    virtual ~LzoBinaryReader() { finalize(); }
+    ~LzoBinaryReader() override { finalize(); }
 
-    virtual Status init(TabletSharedPtr tablet, BinaryFile* file);
-    virtual Status finalize();
+    Status init(TabletSharedPtr tablet, BinaryFile* file) override;
+    Status finalize() override;
 
-    virtual Status next(RowCursor* row);
+    Status next(RowCursor* row) override;
 
-    virtual bool eof() { return _curr >= _content_len && _row_num == 0; }
+    bool eof() override { return _curr >= _content_len && _row_num == 0; }
 
 private:
     Status _next_block();
 
-    typedef uint32_t RowNumType;
-    typedef uint64_t CompressedSizeType;
+    using RowNumType = uint32_t;
+    using CompressedSizeType = uint64_t;
 
     char* _row_buf;
     char* _row_compressed_buf;
@@ -184,7 +187,7 @@ private:
 class PushBrokerReader {
 public:
     PushBrokerReader() : _ready(false), _eof(false), _fill_tuple(false) {}
-    ~PushBrokerReader() {}
+    ~PushBrokerReader() = default;
 
     Status init(const Schema* schema, const TBrokerScanRange& t_scan_range,
                 const TDescriptorTable& t_desc_tbl);
@@ -195,8 +198,8 @@ public:
         _ready = false;
         return Status::OK();
     }
-    bool eof() { return _eof; }
-    bool is_fill_tuple() { return _fill_tuple; }
+    bool eof() const { return _eof; }
+    bool is_fill_tuple() const { return _fill_tuple; }
     MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:

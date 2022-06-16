@@ -22,6 +22,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/parquet_scanner.h"
 #include "olap/row.h"
@@ -31,11 +32,6 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
-
-using std::list;
-using std::map;
-using std::string;
-using std::vector;
 
 namespace doris {
 
@@ -60,6 +56,9 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
 
     Status res = Status::OK();
     _request = request;
+
+    DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl);
+
     std::vector<TabletVars> tablet_vars(1);
     tablet_vars[0].tablet = tablet;
     res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
@@ -315,16 +314,15 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
         // 5. Convert data for schema change tables
         VLOG_TRACE << "load to related tables of schema_change if possible.";
         if (new_tablet != nullptr) {
-            auto schema_change_handler = SchemaChangeHandler::instance();
-            res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                                new_rowset);
+            res = SchemaChangeHandler::schema_version_convert(cur_tablet, new_tablet, cur_rowset,
+                                                              new_rowset, *_desc_tbl);
             if (!res.ok()) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res << " new_tablet='" << new_tablet->full_name()
                              << "']";
             }
         }
-    } while (0);
+    } while (false);
 
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
                << ", processed_rows" << num_rows;
@@ -456,16 +454,15 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tab
         // 7. Convert data for schema change tables
         VLOG_TRACE << "load to related tables of schema_change if possible.";
         if (new_tablet != nullptr) {
-            auto schema_change_handler = SchemaChangeHandler::instance();
-            res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                                new_rowset);
+            res = SchemaChangeHandler::schema_version_convert(cur_tablet, new_tablet, cur_rowset,
+                                                              new_rowset, *_desc_tbl);
             if (!res.ok()) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res << " new_tablet='" << new_tablet->full_name()
                              << "']";
             }
         }
-    } while (0);
+    } while (false);
 
     SAFE_DELETE(reader);
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
@@ -502,7 +499,7 @@ IBinaryReader* IBinaryReader::create(bool need_decompress) {
     return reader;
 }
 
-BinaryReader::BinaryReader() : IBinaryReader(), _row_buf(nullptr), _row_buf_size(0) {}
+BinaryReader::BinaryReader() : _row_buf(nullptr), _row_buf_size(0) {}
 
 Status BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
     Status res = Status::OK();
@@ -527,7 +524,7 @@ Status BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
 
         _tablet = tablet;
         _ready = true;
-    } while (0);
+    } while (false);
 
     if (!res.ok()) {
         SAFE_DELETE_ARRAY(_row_buf);
@@ -637,8 +634,7 @@ Status BinaryReader::next(RowCursor* row) {
 }
 
 LzoBinaryReader::LzoBinaryReader()
-        : IBinaryReader(),
-          _row_buf(nullptr),
+        : _row_buf(nullptr),
           _row_compressed_buf(nullptr),
           _row_info_buf(nullptr),
           _max_row_num(0),
@@ -670,7 +666,7 @@ Status LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
 
         _tablet = tablet;
         _ready = true;
-    } while (0);
+    } while (false);
 
     if (!res.ok()) {
         SAFE_DELETE_ARRAY(_row_info_buf);

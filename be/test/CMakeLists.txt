@@ -202,11 +202,7 @@ set(OLAP_TEST_FILES
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
 )
-set(PLUGIN_TEST_FILES
-    # plugin/plugin_zip_test.cpp
-    # plugin/plugin_loader_test.cpp
-    # plugin/plugin_mgr_test.cpp
-)
+
 set(RUNTIME_TEST_FILES
     # runtime/buffered_tuple_stream_test.cpp
     # runtime/sorter_test.cpp
@@ -372,7 +368,6 @@ add_executable(doris_be_test
     ${GUTIL_TEST_FILES}
     ${HTTP_TEST_FILES}
     ${OLAP_TEST_FILES}
-    ${PLUGIN_TEST_FILES}
     ${RUNTIME_TEST_FILES}
     ${TESTUTIL_TEST_FILES}
     ${UDF_TEST_FILES}
