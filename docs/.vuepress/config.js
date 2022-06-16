@@ -18,8 +18,9 @@ under the License.
 */
 
 const BUILDING_BRANCH = process.env.BRANCH || "";
-const ALGOLIA_API_KEY = process.env.ALGOLIA_API_KEY || "";
-const ALGOLIA_INDEX_NAME = process.env.ALGOLIA_INDEX_NAME || "";
+const ALGOLIA_API_KEY = process.env.ALGOLIA_API_KEY || "b2d5b814db43536017c701c9c19b29bf";
+const ALGOLIA_INDEX_NAME = process.env.ALGOLIA_INDEX_NAME || "apache-doris";
+const ALGOLIA_APP_ID = process.env.ALGOLIA_APP_ID || "UUKF60R98F";
 
 function convertSidebar(list, path) {
   if (list.length > 0) {
@@ -39,9 +40,7 @@ function buildAlgoliaSearchConfig(lang) {
   return {
     apiKey: ALGOLIA_API_KEY,
     indexName: ALGOLIA_INDEX_NAME,
-    algoliaOptions: {
-      facetFilters: ["lang:" + lang, "version:" + BUILDING_BRANCH],
-    },
+    appId: ALGOLIA_APP_ID,
   };
 }
 
