@@ -108,7 +108,7 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
                 new LogicalProperties(((LogicalOperator) operator).computeOutput(children))
             );
         } else if (operator instanceof PhysicalOperator) {
-            throw new IllegalStateException("Missing logical properties for physical plan");
+            throw new IllegalStateException("Missing logical properties for physical operator");
         } else {
             throw new IllegalStateException("Unsupported compute logical properties for operator: "
                 + operator.getClass());
