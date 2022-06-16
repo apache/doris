@@ -111,6 +111,7 @@ public class PropertyAnalyzer {
 
     /**
      * check and replace members of DataProperty by properties.
+     *
      * @param properties key->value for members to change.
      * @param oldDataProperty old DataProperty
      * @return new DataProperty
