@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.exceptions;
 
+/**
+ * Exception when analyze SQL.
+ */
 public class AnalysisException extends RuntimeException {
 
     public AnalysisException(String msg, Throwable cause) {
