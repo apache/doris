@@ -109,6 +109,13 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
 
+    /**
+     * check and replace members of DataProperty by properties.
+     * @param properties key->value for members to change.
+     * @param oldDataProperty old DataProperty
+     * @return new DataProperty
+     * @throws AnalysisException property has invalid key->value
+     */
     public static DataProperty analyzeDataProperty(Map<String, String> properties, final DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
