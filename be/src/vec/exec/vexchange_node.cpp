@@ -95,10 +95,13 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Status VExchangeNode::close(RuntimeState* state) {
+    if (is_closed()) {
+        return Status::OK();
+    }
+
     if (_stream_recvr != nullptr) {
         _stream_recvr->close();
     }
-
     if (_is_merging) _vsort_exec_exprs.close(state);
 
     return ExecNode::close(state);
