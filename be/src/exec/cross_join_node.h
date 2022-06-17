@@ -22,11 +22,9 @@
 #include <unordered_set>
 
 #include "exec/blocking_join_node.h"
-#include "exec/exec_node.h"
 #include "exec/row_batch_list.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 

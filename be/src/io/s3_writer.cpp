@@ -22,7 +22,6 @@
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
 
-#include "common/logging.h"
 #include "runtime/exec_env.h"
 #include "runtime/tmp_file_mgr.h"
 #include "service/backend_options.h"

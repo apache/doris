@@ -32,6 +32,7 @@
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {

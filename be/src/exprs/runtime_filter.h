@@ -23,8 +23,6 @@
 #include <mutex>
 
 #include "exprs/expr_context.h"
-#include "gen_cpp/Exprs_types.h"
-#include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 

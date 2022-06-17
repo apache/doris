@@ -39,7 +39,6 @@
 #include "util/ref_count_closure.h"
 #include "util/spinlock.h"
 #include "util/thread.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 

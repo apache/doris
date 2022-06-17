@@ -19,8 +19,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "common/logging.h"
-
 namespace doris {
 
 LocalFileReader::LocalFileReader(const std::string& path, int64_t start_offset)

@@ -29,14 +29,12 @@
 #include <fstream>
 #include <memory>
 
-#include "common/logging.h"
 #include "env/env.h"
 #include "gutil/gscoped_ptr.h"
 #include "gutil/macros.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
-#include "util/file_cache.h"
 #include "util/slice.h"
 
 namespace doris {

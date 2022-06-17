@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
-#include "vec/core/block.h"
-
+#include "vec/columns/column.h"
 namespace doris {
 
 class MemPool;

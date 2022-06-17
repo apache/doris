@@ -18,15 +18,12 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/hash-table.cc
 // and modified by Doris
 
-#include "exec/hash_table.hpp"
+#include "exec/hash_table.h"
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
-#include "runtime/runtime_state.h"
-#include "runtime/string_value.hpp"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -278,6 +275,177 @@ std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) 
     }
 
     return ss.str();
+}
+
+bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
+    if (_num_filled_buckets > _num_buckets_till_resize) {
+        if (!resize_buckets(_num_buckets * 2).ok()) {
+            return false;
+        }
+    }
+    if (_current_used == _current_capacity) {
+        grow_node_array();
+    }
+
+    bool has_nulls = eval_build_row(row);
+
+    if (!_stores_nulls && has_nulls) {
+        return false;
+    }
+
+    uint32_t hash = hash_current_row();
+    int64_t bucket_idx = hash & (_num_buckets - 1);
+
+    Bucket* bucket = &_buckets[bucket_idx];
+    Node* node = bucket->_node;
+
+    bool will_insert = true;
+
+    if (node == nullptr) {
+        will_insert = true;
+    } else {
+        Node* last_node = node;
+        while (node != nullptr) {
+            if (node->_hash == hash && equals(node->data())) {
+                will_insert = false;
+                break;
+            }
+            last_node = node;
+            node = node->_next;
+        }
+        node = last_node;
+    }
+    if (will_insert) {
+        Node* alloc_node =
+                reinterpret_cast<Node*>(_current_nodes + _node_byte_size * _current_used++);
+        ++_num_nodes;
+        TupleRow* data = alloc_node->data();
+        *dest_addr = data;
+        alloc_node->_hash = hash;
+        if (node == nullptr) {
+            add_to_bucket(&_buckets[bucket_idx], alloc_node);
+        } else {
+            node->_next = alloc_node;
+        }
+    }
+    return will_insert;
+}
+
+HashTable::Iterator HashTable::find(TupleRow* probe_row, bool probe) {
+    bool has_nulls = probe ? eval_probe_row(probe_row) : eval_build_row(probe_row);
+
+    if (!_stores_nulls && has_nulls) {
+        return end();
+    }
+
+    uint32_t hash = hash_current_row();
+    int64_t bucket_idx = hash & (_num_buckets - 1);
+
+    Bucket* bucket = &_buckets[bucket_idx];
+    Node* node = bucket->_node;
+
+    while (node != nullptr) {
+        if (node->_hash == hash && equals(node->data())) {
+            return Iterator(this, bucket_idx, node, hash);
+        }
+
+        node = node->_next;
+    }
+
+    return end();
+}
+
+HashTable::Iterator HashTable::begin() {
+    int64_t bucket_idx = -1;
+    Bucket* bucket = next_bucket(&bucket_idx);
+
+    if (bucket != nullptr) {
+        return Iterator(this, bucket_idx, bucket->_node, 0);
+    }
+
+    return end();
+}
+
+HashTable::Bucket* HashTable::next_bucket(int64_t* bucket_idx) {
+    ++*bucket_idx;
+
+    for (; *bucket_idx < _num_buckets; ++*bucket_idx) {
+        if (_buckets[*bucket_idx]._node != nullptr) {
+            return &_buckets[*bucket_idx];
+        }
+    }
+
+    *bucket_idx = -1;
+    return nullptr;
+}
+
+void HashTable::insert_impl(TupleRow* row) {
+    bool has_null = eval_build_row(row);
+
+    if (!_stores_nulls && has_null) {
+        return;
+    }
+
+    uint32_t hash = hash_current_row();
+    int64_t bucket_idx = hash & (_num_buckets - 1);
+
+    if (_current_used == _current_capacity) {
+        grow_node_array();
+    }
+    // get a node from memory pool
+    Node* node = reinterpret_cast<Node*>(_current_nodes + _node_byte_size * _current_used++);
+
+    TupleRow* data = node->data();
+    node->_hash = hash;
+    memcpy(data, row, sizeof(Tuple*) * _num_build_tuples);
+    add_to_bucket(&_buckets[bucket_idx], node);
+    ++_num_nodes;
+}
+
+void HashTable::add_to_bucket(Bucket* bucket, Node* node) {
+    if (bucket->_node == nullptr) {
+        ++_num_filled_buckets;
+    }
+
+    node->_next = bucket->_node;
+    bucket->_node = node;
+    bucket->_size++;
+}
+
+void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket, Node* node, Node* previous_node) {
+    Node* next_node = node->_next;
+    from_bucket->_size--;
+
+    if (previous_node != nullptr) {
+        previous_node->_next = next_node;
+    } else {
+        // Update bucket directly
+        from_bucket->_node = next_node;
+
+        if (next_node == nullptr) {
+            --_num_filled_buckets;
+        }
+    }
+
+    add_to_bucket(to_bucket, node);
+}
+
+std::pair<int64_t, int64_t> HashTable::minmax_node() {
+    bool has_value = false;
+    int64_t min_size = std::numeric_limits<int64_t>::max();
+    int64_t max_size = std::numeric_limits<int64_t>::min();
+    for (const auto bucket : _buckets) {
+        int64_t counter = bucket._size;
+        if (counter > 0) {
+            has_value = true;
+            min_size = std::min(counter, min_size);
+            max_size = std::max(counter, max_size);
+        }
+    }
+    if (!has_value) {
+        return std::make_pair(0, 0);
+    }
+    return std::make_pair(min_size, max_size);
 }
 
 } // namespace doris

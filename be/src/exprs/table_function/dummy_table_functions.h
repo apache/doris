@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/anyval_util.h"
 #include "udf/udf.h"
 
 namespace doris {

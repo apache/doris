@@ -19,10 +19,7 @@
 
 #include <boost/algorithm/string/replace.hpp>
 
-#include "common/logging.h"
 #include "rapidjson/rapidjson.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
 
 namespace doris {
 

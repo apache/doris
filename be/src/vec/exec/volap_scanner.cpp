@@ -19,13 +19,11 @@
 
 #include <memory>
 
+#include "olap/storage_engine.h"
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scan_node.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
