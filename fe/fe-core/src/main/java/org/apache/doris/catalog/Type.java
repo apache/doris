@@ -401,8 +401,6 @@ public abstract class Type {
         }
         if (t1.isComplexType() || t2.isComplexType()) {
             if (t1.isArrayType() && t2.isArrayType()) {
-                // Subtype of Array do not support cast now, for example:
-                //     Array<Int8> can not cast to Array<Int32>
                 return t1.matchesType(t2);
             } else if (t1.isMapType() && t2.isMapType()) {
                 return true;

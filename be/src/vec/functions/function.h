@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
-#include "vec/core/names.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
