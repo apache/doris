@@ -205,9 +205,6 @@ fi
 if [[ -z ${USE_LIBCPP} ]]; then
     USE_LIBCPP=OFF
 fi
-if [[ -z ${USE_LLD} ]]; then
-    USE_LLD=OFF
-fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
@@ -234,7 +231,6 @@ echo "Get params:
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
     USE_LIBCPP          -- $USE_LIBCPP
-    USE_LLD             -- $USE_LLD
     USE_DWARF           -- $USE_DWARF
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
     USE_MEM_TRACKER     -- $USE_MEM_TRACKER
@@ -247,7 +243,6 @@ fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 # DO NOT using parallel make(-j) for gensrc
-python --version
 make
 
 # Assesmble FE modules
@@ -295,7 +290,6 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
-            -DUSE_LLD=${USE_LLD} \
             -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_DWARF=${USE_DWARF} \
