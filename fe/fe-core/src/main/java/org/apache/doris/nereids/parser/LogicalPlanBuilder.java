@@ -229,7 +229,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (left == null) {
                 left = right;
             } else {
-                left = new LogicalBinaryPlan(new LogicalJoin(JoinType.INNER_JOIN, null), left, right);
+                left = new LogicalBinaryPlan(
+                        new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), left, right);
             }
             left = withJoinRelations(left, relation);
         }

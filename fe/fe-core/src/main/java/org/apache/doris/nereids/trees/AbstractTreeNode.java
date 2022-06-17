@@ -24,6 +24,7 @@ import org.apache.doris.nereids.operators.Operator;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -43,7 +44,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
 
 
     public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
-        this(type, null, children);
+        this(type, Optional.empty(), children);
     }
 
     /**
@@ -53,10 +54,10 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
      * @param groupExpression group expression related to the operator of this node
      * @param children children of this node
      */
-    public AbstractTreeNode(NodeType type, GroupExpression groupExpression, NODE_TYPE... children) {
+    public AbstractTreeNode(NodeType type, Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
         this.type = type;
         this.children = ImmutableList.copyOf(children);
-        this.groupExpression = Optional.ofNullable(groupExpression);
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
     }
 
     @Override

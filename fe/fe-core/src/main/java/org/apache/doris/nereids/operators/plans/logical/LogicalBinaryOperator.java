@@ -27,7 +27,10 @@ import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all logical binary operator that have two inputs.
@@ -40,16 +43,20 @@ public abstract class LogicalBinaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutput(Plan... inputs) {
-        return doComputeOutput(inputs[0], inputs[1]);
+    public final LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 2);
+        return new LogicalProperties(computeOutput(inputs[0], inputs[1]));
     }
 
-    public abstract List<Slot> doComputeOutput(Plan left, Plan right);
+    public abstract List<Slot> computeOutput(Plan left, Plan right);
 
     @Override
     public LogicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new LogicalBinaryPlan(this, groupExpression, logicalProperties,
-                new PlaceHolderPlan(), new PlaceHolderPlan());
+        LogicalProperties leftChildProperties = groupExpression.child(0).getLogicalProperties();
+        LogicalProperties rightChildProperties = groupExpression.child(1).getLogicalProperties();
+        return new LogicalBinaryPlan(this, Optional.of(groupExpression), Optional.of(logicalProperties),
+                new PlaceHolderPlan(leftChildProperties), new PlaceHolderPlan(rightChildProperties)
+        );
     }
 }

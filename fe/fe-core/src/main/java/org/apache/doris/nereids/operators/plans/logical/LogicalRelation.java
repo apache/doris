@@ -62,7 +62,7 @@ public class LogicalRelation extends LogicalLeafOperator {
     }
 
     @Override
-    public List<Slot> doComputeOutput() {
+    public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
                 .map(col -> SlotReference.fromColumn(col, qualifier))

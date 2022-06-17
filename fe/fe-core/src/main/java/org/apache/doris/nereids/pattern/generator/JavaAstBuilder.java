@@ -206,9 +206,9 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
                 } else if (memberCtx.methodDeclaration() != null) {
                     methodDeclarations.add(visitMethodDeclaration(memberCtx.methodDeclaration()));
                 }
+                // find inner class
+                memberCtx.accept(this);
             }
-            // find inner class
-            memberCtx.accept(this);
         }
 
         String className = getText(ctx.identifier());
