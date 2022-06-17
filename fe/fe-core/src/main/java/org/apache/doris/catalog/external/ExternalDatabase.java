@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.commons.lang.NotImplementedException;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.OlapTable;
@@ -28,6 +27,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.ExternalDataSource;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

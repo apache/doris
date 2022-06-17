@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.commons.lang.NotImplementedException;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -27,6 +26,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
