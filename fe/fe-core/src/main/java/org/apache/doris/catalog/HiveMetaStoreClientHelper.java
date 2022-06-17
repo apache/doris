@@ -29,6 +29,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -170,10 +171,11 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      */
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-                                          List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl) throws DdlException {
+                                          List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type) throws DdlException {
         HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
 
         List<RemoteIterator<LocatedFileStatus>> remoteIterators;
+        Boolean onS3 = type.equals(StorageBackend.StorageType.S3);
         if (remoteHiveTbl.getPartitionKeys().size() > 0) {
             // hive partitioned table, get file iterator from table partition sd info
             List<Partition> hivePartitions = new ArrayList<>();
@@ -186,10 +188,10 @@ public class HiveMetaStoreClientHelper {
             } finally {
                 client.close();
             }
-            remoteIterators = getRemoteIterator(hivePartitions, hiveTable.getHiveProperties());
+            remoteIterators = getRemoteIterator(hivePartitions, hiveTable.getHiveProperties(), onS3);
         } else {
             // hive non-partitioned table, get file iterator from table sd info
-            remoteIterators = getRemoteIterator(remoteHiveTbl, hiveTable.getHiveProperties());
+            remoteIterators = getRemoteIterator(remoteHiveTbl, hiveTable.getHiveProperties(), onS3);
         }
 
         String hdfsUrl = "";
@@ -204,6 +206,12 @@ public class HiveMetaStoreClientHelper {
                     // path = "/path/to/partition/file_name"
                     // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse/dae.db/customer/state=CA/city=SanJose/000000_0
                     String path = fileStatus.getPath().toUri().getPath();
+                    if (onS3) {
+                        // Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
+                        // path = "s3://bucket/path/to/partition/file_name"
+                        // eg: s3://hive-s3-test/region/region.tbl
+                        path = fileStatus.getPath().toString();
+                    }
                     brokerFileStatus.setPath(path);
                     fileStatuses.add(brokerFileStatus);
                     if (StringUtils.isEmpty(hdfsUrl)) {
@@ -222,13 +230,33 @@ public class HiveMetaStoreClientHelper {
         return hdfsUrl;
     }
 
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions, Map<String, String> properties) throws DdlException {
+    private static void setS3Configuration(Configuration configuration, Map<String, String> properties) {
+        if (properties.containsKey(HiveTable.S3_AK)) {
+            configuration.set("fs.s3a.access.key", properties.get(HiveTable.S3_AK));
+        }
+        if (properties.containsKey(HiveTable.S3_SK)) {
+            configuration.set("fs.s3a.secret.key", properties.get(HiveTable.S3_SK));
+        }
+        if (properties.containsKey(HiveTable.S3_ENDPOINT)) {
+            configuration.set("fs.s3a.endpoint", properties.get(HiveTable.S3_ENDPOINT));
+        }
+        configuration.set("fs.s3.impl.disable.cache", "true");
+        configuration.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        configuration.set("fs.s3a.attempts.maximum", "2");
+    }
+
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(
+            List<Partition> partitions, Map<String, String> properties, boolean onS3)
+            throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
                 configuration.set(entry.getKey(), entry.getValue());
             }
+        }
+        if (onS3) {
+            setS3Configuration(configuration, properties);
         }
         for (Partition p : partitions) {
             String location = p.getSd().getLocation();
@@ -244,7 +272,9 @@ public class HiveMetaStoreClientHelper {
         return iterators;
     }
 
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Map<String, String> properties) throws DdlException {
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(
+            Table table, Map<String, String> properties, boolean onS3)
+            throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
         boolean isSecurityEnabled = false;
@@ -256,6 +286,9 @@ public class HiveMetaStoreClientHelper {
                 && entry.getValue().equals(AuthType.KERBEROS.getDesc())) {
                 isSecurityEnabled = true;
             }
+        }
+        if (onS3) {
+            setS3Configuration(configuration, properties);
         }
         String location = table.getSd().getLocation();
         org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
