@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.external;
 
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.OlapTable;
@@ -46,74 +47,90 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
-    private long id;
-    private String name;
-    private ReentrantReadWriteLock rwLock;
+    private ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
-    private ExternalDataSource extDataSource;
+    protected long id;
+    protected String name;
+    protected ExternalDataSource extDataSource;
+    protected DatabaseProperty dbProperties;
 
-    public ExternalDatabase() {
-
+    /**
+     * Create external database.
+     *
+     * @param extDataSource The data source this database belongs to.
+     * @param id Database id.
+     * @param name Database name.
+     */
+    public ExternalDatabase(ExternalDataSource extDataSource, long id, String name) {
+        this.extDataSource = extDataSource;
+        this.id = id;
+        this.name = name;
     }
 
     @Override
     public void readLock() {
-
+        this.rwLock.readLock().lock();
     }
 
     @Override
     public void readUnlock() {
-
+        this.rwLock.readLock().unlock();
     }
 
     @Override
     public void writeLock() {
-
+        this.rwLock.writeLock().lock();
     }
 
     @Override
     public void writeUnlock() {
-
+        this.rwLock.writeLock().unlock();
     }
 
     @Override
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
-        return true;
+        try {
+            return this.rwLock.writeLock().tryLock(timeout, unit);
+        } catch (InterruptedException e) {
+            LOG.warn("failed to try write lock at external db[" + id + "]", e);
+            return false;
+        }
     }
 
     @Override
     public boolean isWriteLockHeldByCurrentThread() {
-        return false;
+        return this.rwLock.writeLock().isHeldByCurrentThread();
     }
 
     @Override
     public boolean writeLockIfExist() {
+        writeLock();
         return true;
     }
 
     @Override
     public <E extends Exception> void writeLockOrException(E e) throws E {
-
+        writeLock();
     }
 
     @Override
     public void writeLockOrDdlException() throws DdlException {
-
+        writeLock();
     }
 
     @Override
     public long getId() {
-        return 0;
+        return id;
     }
 
     @Override
     public String getFullName() {
-        return null;
+        return name;
     }
 
     @Override
     public DatabaseProperty getDbProperties() {
-        return null;
+        return dbProperties;
     }
 
     @Override
@@ -123,103 +140,108 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     @Override
     public List<T> getTables() {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public List<T> getTablesOnIdOrder() {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public List<T> getViews() {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public List<T> getTablesOnIdOrderIfExist(List<Long> tableIdList) {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public List<T> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public Set<String> getTableNamesWithLock() {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public T getTableNullable(String tableName) {
-        return null;
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public T getTableNullable(long tableId) {
+        throw new NotImplementedException();
     }
 
     @Override
     public Optional<T> getTable(String tableName) {
-        return Optional.empty();
+        throw new NotImplementedException();
     }
 
     @Override
     public Optional<T> getTable(long tableId) {
-        return Optional.empty();
+        throw new NotImplementedException();
     }
 
     @Override
     public <E extends Exception> T getTableOrException(String tableName, Function<String, E> e) throws E {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public <E extends Exception> T getTableOrException(long tableId, Function<Long, E> e) throws E {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public T getTableOrMetaException(String tableName) throws MetaNotFoundException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public T getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
-    public <V extends Table> V getTableOrMetaException(String tableName, Table.TableType tableType)
+    public T getTableOrMetaException(String tableName, Table.TableType tableType)
             throws MetaNotFoundException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
-    public <V extends Table> V getTableOrMetaException(long tableId, Table.TableType tableType)
+    public T getTableOrMetaException(long tableId, Table.TableType tableType)
             throws MetaNotFoundException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public T getTableOrDdlException(String tableName) throws DdlException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public T getTableOrDdlException(long tableId) throws DdlException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public T getTableOrAnalysisException(String tableName) throws AnalysisException {
-        return null;
-    }
-
-    @Override
-    public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public T getTableOrAnalysisException(long tableId) throws AnalysisException {
-        return null;
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
+        throw new NotImplementedException();
     }
 }

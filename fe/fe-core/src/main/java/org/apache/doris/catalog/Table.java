@@ -58,20 +58,6 @@ public class Table extends MetaObject implements Writable, TableIf {
 
     public volatile boolean isDropped = false;
 
-    public enum TableType {
-        MYSQL,
-        ODBC,
-        OLAP,
-        SCHEMA,
-        INLINE_VIEW,
-        VIEW,
-        BROKER,
-        ELASTICSEARCH,
-        HIVE,
-        ICEBERG,
-        HUDI
-    }
-
     protected long id;
     protected volatile String name;
     protected TableType type;

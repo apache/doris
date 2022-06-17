@@ -45,6 +45,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -71,12 +72,16 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Helper class for HiveMetaStoreClient
  */
 public class HiveMetaStoreClientHelper {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClientHelper.class);
+
+    private static final Pattern digitPattern = Pattern.compile("(\\d+)");
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -374,6 +379,26 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
+     * Get table schema.
+     *
+     * @param dbName Database name.
+     * @param tableName Table name.
+     * @param metaStoreUris Hive metastore uri.
+     */
+    public static List<FieldSchema> getSchema(String dbName, String tableName, String metaStoreUris)
+            throws DdlException {
+        HiveMetaStoreClient client = getClient(metaStoreUris);
+        try {
+            return client.getSchema(dbName, tableName);
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
      * Convert Doris expr to Hive expr, only for partition column
      * @param dorisExpr
      * @param partitions
@@ -645,5 +670,61 @@ public class HiveMetaStoreClientHelper {
             stack.push(new ExprNodeConstantDesc(ti, val));
             return this;
         }
+    }
+
+    /**
+     * Convert hive type to doris type.
+     */
+    public static Type hiveTypeToDorisType(String hiveType) {
+        String lowerCaseType = hiveType.toLowerCase();
+        switch (lowerCaseType) {
+            case "boolean":
+                return Type.BOOLEAN;
+            case "tinyint":
+                return Type.TINYINT;
+            case "smallint":
+                return Type.SMALLINT;
+            case "int":
+                return Type.INT;
+            case "bigint":
+                return Type.BIGINT;
+            case "date":
+                return Type.DATE;
+            case "timestamp":
+                return Type.DATETIME;
+            default:
+                break;
+        }
+        if (lowerCaseType.startsWith("char")) {
+            ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            if (match.find()) {
+                type.setLength(Integer.parseInt(match.group(1)));
+            }
+            return type;
+        }
+        if (lowerCaseType.startsWith("varchar")) {
+            ScalarType type = ScalarType.createType(PrimitiveType.VARCHAR);
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            if (match.find()) {
+                type.setLength(Integer.parseInt(match.group(1)));
+            }
+            return type;
+        }
+        if (lowerCaseType.startsWith("decimal")) {
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            int precision = ScalarType.DEFAULT_PRECISION;
+            int scale = ScalarType.DEFAULT_SCALE;
+            if (match.find()) {
+                precision = Integer.parseInt(match.group(1));
+            }
+            if (match.find()) {
+                scale = Integer.parseInt(match.group(1));
+            }
+            return ScalarType.createDecimalV2Type(precision, scale);
+        }
+        // TODO: Handle unsupported types.
+        LOG.warn("Hive type {} may not supported yet, will use STRING instead.", hiveType);
+        return Type.STRING;
     }
 }
