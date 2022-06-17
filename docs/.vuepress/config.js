@@ -66,14 +66,14 @@ module.exports = {
       "link",
       {
         rel: "stylesheet",
-        href: "//at.alicdn.com/t/font_3319292_bdqvc63l075.css",
+        href: "/font/font.css",
       },
     ],
     [
       "link",
       {
         rel: "stylesheet",
-        href: "https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css",
+        href: "/css/animate.min.css",
       },
     ],
     // meta 描述
@@ -89,7 +89,7 @@ module.exports = {
       "script",
       {
         type: "text/javascript",
-        src: "https://cdn.jsdelivr.net/npm/jquery@2.1.4/dist/jquery.min.js",
+        src: "/js/jquery.min.js",
       },
     ],
     ["script", { type: "text/javascript", src: "/js/xRoll.js" }],
