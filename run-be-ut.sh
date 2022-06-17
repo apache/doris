@@ -138,7 +138,7 @@ ${CMAKE_CMD} -G "${GENERATOR}" \
     -DWITH_MYSQL=OFF \
     -DUSE_DWARF=${USE_DWARF} \
     -DUSE_MEM_TRACKER=ON \
-    ${CMAKE_USE_CCACHE} ../
+    ${CMAKE_USE_CCACHE} ${DORIS_HOME}/be/
 ${BUILD_SYSTEM} -j ${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
@@ -227,7 +227,6 @@ if [ -d ${DORIS_TEST_BINARY_DIR}/util/test_data ]; then
     rm -rf ${DORIS_TEST_BINARY_DIR}/util/test_data
 fi
 cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
-cp -r ${DORIS_HOME}/be/test/plugin/plugin_test ${DORIS_TEST_BINARY_DIR}/plugin/
 
 # prepare ut temp dir
 UT_TMP_DIR=${DORIS_HOME}/ut_dir

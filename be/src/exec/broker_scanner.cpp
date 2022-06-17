@@ -18,23 +18,18 @@
 #include "exec/broker_scanner.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/internal_service.pb.h>
 
 #include <iostream>
 #include <sstream>
 
 #include "common/consts.h"
 #include "exec/decompressor.h"
-#include "exec/exec_node.h"
 #include "exec/plain_binary_line_reader.h"
 #include "exec/plain_text_line_reader.h"
-#include "exprs/expr.h"
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
-#include "runtime/stream_load/load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"

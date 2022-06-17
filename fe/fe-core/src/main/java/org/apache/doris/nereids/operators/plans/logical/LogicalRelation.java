@@ -31,7 +31,7 @@ import java.util.Objects;
 /**
  * Logical relation plan operator.
  */
-public class LogicalRelation extends LogicalLeafOperator<LogicalRelation> {
+public class LogicalRelation extends LogicalLeafOperator {
 
     private final Table table;
     private final List<String> qualifier;

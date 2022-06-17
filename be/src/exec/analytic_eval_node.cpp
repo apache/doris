@@ -21,7 +21,6 @@
 #include "exec/analytic_eval_node.h"
 
 #include "exprs/agg_fn_evaluator.h"
-#include "exprs/anyval_util.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"

@@ -507,16 +507,21 @@ build_re2() {
 
 # hyperscan
 build_hyperscan() {
-    check_if_source_exist $RAGEL_SOURCE
-    cd $TP_SOURCE_DIR/$RAGEL_SOURCE
-    ./configure --prefix=$TP_INSTALL_DIR && make install
+    MACHINE_TYPE=$(uname -m)
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        echo "hyperscan is not supporting aarch64 now."
+    else
+        check_if_source_exist $RAGEL_SOURCE
+        cd $TP_SOURCE_DIR/$RAGEL_SOURCE
+        ./configure --prefix=$TP_INSTALL_DIR && make install
 
-    check_if_source_exist $HYPERSCAN_SOURCE
-    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
-    -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
-    ${BUILD_SYSTEM} -j $PARALLEL install
+        check_if_source_exist $HYPERSCAN_SOURCE
+        cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+        mkdir -p $BUILD_DIR && cd $BUILD_DIR
+        PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+        -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+        ${BUILD_SYSTEM} -j $PARALLEL install
+    fi
 }
 
 # boost
@@ -780,13 +785,19 @@ build_bitshuffle() {
 
 # croaring bitmap
 build_croaringbitmap() {
+    avx_flag=
+    if [ ! -z "$USE_AVX2" -a "$USE_AVX2" -eq 0 ];then
+        echo "set USE_AVX2=$USE_AVX2 to FORCE disable AVX2 in croaringbitmap"
+        avx_flag="-DROARING_DISABLE_AVX=ON"
+    fi
+
     check_if_source_exist $CROARINGBITMAP_SOURCE
     cd $TP_SOURCE_DIR/$CROARINGBITMAP_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    ${CMAKE_CMD} -G "${GENERATOR}" ${avx_flag} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DENABLE_ROARING_TESTS=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
@@ -988,8 +999,8 @@ build_simdjson() {
     cd $TP_SOURCE_DIR/$SIMDJSON_SOURCE
 
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    CXX_FLAGS="-O3" \
-    C_FLAGS="-O3" \
+    CXXFLAGS="-O3" \
+    CFLAGS="-O3" \
     $CMAKE_CMD ..
     $CMAKE_CMD --build .
 
@@ -1019,6 +1030,13 @@ build_opentelemetry() {
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
+# sse2neon
+build_sse2neon() {
+    check_if_source_exist $SSE2NEON_SOURCE
+    cd $TP_SOURCE_DIR/$SSE2NEON_SOURCE
+    cp sse2neon.h $TP_INSTALL_DIR/include/
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1037,7 +1055,7 @@ build_snappy
 build_gperftools
 build_curl
 build_re2
-build_hyperscan
+# build_hyperscan
 build_thrift
 build_leveldb
 build_brpc
@@ -1070,6 +1088,7 @@ build_simdjson
 build_nlohmann_json
 build_opentelemetry
 build_libbacktrace
+build_sse2neon
 
 echo "Finished to build all thirdparties"
 

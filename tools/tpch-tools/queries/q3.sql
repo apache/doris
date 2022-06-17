@@ -17,22 +17,21 @@
 
 -- Modified
 
-select /*+SET_VAR(parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
     l_orderkey,
     sum(l_extendedprice * (1 - l_discount)) as revenue,
     o_orderdate,
     o_shippriority
 from
-    customer c join
     (
         select l_orderkey, l_extendedprice, l_discount, o_orderdate, o_shippriority, o_custkey from
         lineitem join orders
         where l_orderkey = o_orderkey
         and o_orderdate < date '1995-03-15'
         and l_shipdate > date '1995-03-15'
-    ) t1
+    ) t1 join customer c 
+    on c.c_custkey = t1.o_custkey
     where c_mktsegment = 'BUILDING'
-    and c.c_custkey = t1.o_custkey
 group by
     l_orderkey,
     o_orderdate,

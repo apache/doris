@@ -219,7 +219,7 @@ private:
         return _buffer.build();
     }
 
-    typedef typename TypeTraits<Type>::CppType CppType;
+    using CppType = typename TypeTraits<Type>::CppType;
 
     CppType cell(int idx) const {
         DCHECK_GE(idx, 0);
@@ -239,7 +239,7 @@ private:
     CppType _last_value;
 };
 
-static Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
+inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
                                        size_t& compressed_size, size_t& num_element_after_padding,
                                        int& size_of_element) {
     if (data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
@@ -425,7 +425,7 @@ private:
         memcpy(data, get_data(_cur_index), n * SIZE_OF_TYPE);
     }
 
-    typedef typename TypeTraits<Type>::CppType CppType;
+    using CppType = typename TypeTraits<Type>::CppType;
 
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
 

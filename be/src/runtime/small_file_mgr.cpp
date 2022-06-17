@@ -20,7 +20,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::starts_with
 #include <sstream>
 
 #include "common/status.h"
@@ -32,6 +31,7 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/md5.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -134,7 +134,7 @@ Status SmallFileMgr::_check_file(const CacheEntry& entry, const std::string& md5
     if (!FileUtils::check_exist(entry.path)) {
         return Status::InternalError("file not exist");
     }
-    if (!boost::iequals(md5, entry.md5)) {
+    if (!iequal(md5, entry.md5)) {
         return Status::InternalError("invalid MD5");
     }
     return Status::OK();
@@ -187,7 +187,7 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
     RETURN_IF_ERROR(status);
     digest.digest();
 
-    if (!boost::iequals(digest.hex(), md5)) {
+    if (!iequal(digest.hex(), md5)) {
         LOG(WARNING) << "file's checksum is not equal, download: " << digest.hex()
                      << ", expected: " << md5 << ", file: " << file_id;
         return Status::InternalError("download with invalid md5");

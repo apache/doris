@@ -81,7 +81,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
@@ -4807,7 +4807,8 @@ public class Catalog {
                         List<Replica> replicas = tablet.getReplicas();
                         for (Replica replica : replicas) {
                             long backendId = replica.getBackendId();
-                            DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, schemaHash);
+                            long replicaId = replica.getId();
+                            DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, replicaId, schemaHash);
                             batchTask.addTask(dropTask);
                         } // end for replicas
                     } // end for tablets

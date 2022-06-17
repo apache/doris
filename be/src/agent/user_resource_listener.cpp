@@ -26,7 +26,6 @@
 #include <future>
 #include <map>
 
-#include "common/logging.h"
 #include "gen_cpp/FrontendService.h"
 #include "runtime/client_cache.h"
 

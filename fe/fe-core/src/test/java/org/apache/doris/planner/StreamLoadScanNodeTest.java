@@ -182,11 +182,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         TStreamLoadPutRequest request = getBaseRequest();
@@ -230,11 +226,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         TStreamLoadPutRequest request = getBaseRequest();
@@ -259,11 +251,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         TStreamLoadPutRequest request = getBaseRequest();
@@ -288,11 +276,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -332,11 +316,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -379,11 +359,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -434,11 +410,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         TStreamLoadPutRequest request = getBaseRequest();
@@ -464,11 +436,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         TStreamLoadPutRequest request = getBaseRequest();
@@ -494,11 +462,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -548,11 +512,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -594,11 +554,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -646,11 +602,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -701,11 +653,7 @@ public class StreamLoadScanNodeTest {
             SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -757,11 +705,7 @@ public class StreamLoadScanNodeTest {
             System.out.println(column);
             slot.setColumn(column);
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {
@@ -823,11 +767,7 @@ public class StreamLoadScanNodeTest {
             slot.setColumn(column);
 
             slot.setIsMaterialized(true);
-            if (column.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
+            slot.setIsNullable(column.isAllowNull());
         }
 
         new Expectations() {

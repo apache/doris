@@ -34,21 +34,21 @@ import java.util.UUID;
 
 public class MaterializedViewFunctionTest {
     private static String baseDir = "fe";
-    private static String runningDir = baseDir + "/mocked/MaterializedViewFunctionTest/"
-            + UUID.randomUUID().toString() + "/";
+    private static String runningDir =
+            baseDir + "/mocked/MaterializedViewFunctionTest/" + UUID.randomUUID().toString() + "/";
     private static final String EMPS_TABLE_NAME = "emps";
     private static final String EMPS_MV_NAME = "emps_mv";
     private static final String HR_DB_NAME = "db1";
-    private static final String QUERY_USE_EMPS_MV = "rollup: " + EMPS_MV_NAME;
-    private static final String QUERY_USE_EMPS = "rollup: " + EMPS_TABLE_NAME;
+    private static final String QUERY_USE_EMPS_MV = "(" + EMPS_MV_NAME + ")";
+    private static final String QUERY_USE_EMPS = "(" + EMPS_TABLE_NAME + ")";
     private static final String DEPTS_TABLE_NAME = "depts";
     private static final String DEPTS_MV_NAME = "depts_mv";
-    private static final String QUERY_USE_DEPTS_MV = "rollup: " + DEPTS_MV_NAME;
-    private static final String QUERY_USE_DEPTS = "rollup: " + DEPTS_TABLE_NAME;
+    private static final String QUERY_USE_DEPTS_MV = "(" + DEPTS_MV_NAME + ")";
+    private static final String QUERY_USE_DEPTS = "(" + DEPTS_TABLE_NAME + ")";
     private static final String USER_TAG_TABLE_NAME = "user_tags";
     private static final String USER_TAG_MV_NAME = "user_tags_mv";
-    private static final String QUERY_USE_USER_TAG_MV = "rollup: " + USER_TAG_MV_NAME;
-    private static final String QUERY_USE_USER_TAG = "rollup: " + USER_TAG_TABLE_NAME;
+    private static final String QUERY_USE_USER_TAG_MV = "(" + USER_TAG_MV_NAME + ")";
+    private static final String QUERY_USE_USER_TAG = "(" + USER_TAG_TABLE_NAME + ")";
     private static final String TEST_TABLE_NAME = "test_tb";
     private static DorisAssert dorisAssert;
 
@@ -556,7 +556,7 @@ public class MaterializedViewFunctionTest {
                 + "(select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where deptno >200 group by deptno) B "
                 + "using (deptno);";
         dorisAssert.withMaterializedView(createEmpsMVSql01).withMaterializedView(createEmpsMVSql02).query(query)
-                .explainContains("rollup: emp_mv_01", "rollup: emp_mv_02");
+                .explainContains("(emp_mv_01)", "(emp_mv_02)");
     }
 
     @Test

@@ -21,12 +21,8 @@
 
 #include <algorithm>
 
-#include "env/env.h"
 #include "exec/plain_text_line_reader.h"
-#include "exprs/expr.h"
 #include "exprs/json_functions.h"
-#include "gutil/strings/split.h"
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"

@@ -28,7 +28,7 @@ EngineStorageMigrationTaskV2::EngineStorageMigrationTaskV2(const TStorageMigrati
         : _storage_migration_req(request) {
     _mem_tracker = MemTracker::create_tracker(
             config::memory_limitation_per_thread_for_storage_migration_bytes,
-            fmt::format("EngineStorageMigrationTaskV2: {}-{}",
+            fmt::format("EngineStorageMigrationTaskV2#baseTabletId{}:newTabletId{}",
                         std::to_string(_storage_migration_req.base_tablet_id),
                         std::to_string(_storage_migration_req.new_tablet_id)),
             StorageEngine::instance()->storage_migration_mem_tracker(), MemTrackerLevel::TASK);
@@ -50,8 +50,8 @@ Status EngineStorageMigrationTaskV2::execute() {
     }
 
     LOG(INFO) << "success to create new storage migration v2. res=" << res
-              << " base_tablet_id=" << _storage_migration_req.base_tablet_id << ", base_schema_hash"
-              << _storage_migration_req.base_schema_hash
+              << " base_tablet_id=" << _storage_migration_req.base_tablet_id
+              << ", base_schema_hash=" << _storage_migration_req.base_schema_hash
               << ", new_tablet_id=" << _storage_migration_req.new_tablet_id
               << ", new_schema_hash=" << _storage_migration_req.new_schema_hash;
     return res;

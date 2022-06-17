@@ -58,7 +58,7 @@ set(EXEC_TEST_FILES
     exec/es_scan_reader_test.cpp
     exec/s3_reader_test.cpp
     exec/multi_bytes_separator_test.cpp
-    # exec/hdfs_file_reader_test.cpp
+    exec/hdfs_file_reader_test.cpp
     # exec/new_olap_scan_node_test.cpp
     # exec/pre_aggregation_node_test.cpp
     # exec/partitioned_hash_table_test.cpp
@@ -202,11 +202,7 @@ set(OLAP_TEST_FILES
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
 )
-set(PLUGIN_TEST_FILES
-    # plugin/plugin_zip_test.cpp
-    # plugin/plugin_loader_test.cpp
-    # plugin/plugin_mgr_test.cpp
-)
+
 set(RUNTIME_TEST_FILES
     # runtime/buffered_tuple_stream_test.cpp
     # runtime/sorter_test.cpp
@@ -372,7 +368,6 @@ add_executable(doris_be_test
     ${GUTIL_TEST_FILES}
     ${HTTP_TEST_FILES}
     ${OLAP_TEST_FILES}
-    ${PLUGIN_TEST_FILES}
     ${RUNTIME_TEST_FILES}
     ${TESTUTIL_TEST_FILES}
     ${UDF_TEST_FILES}

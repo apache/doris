@@ -29,9 +29,121 @@
 namespace doris::vectorized {
 
 VMysqlScanNode::VMysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : MysqlScanNode(pool, tnode, descs) {}
+        : ScanNode(pool, tnode, descs),
+          _is_init(false),
+          _table_name(tnode.mysql_scan_node.table_name),
+          _tuple_id(tnode.mysql_scan_node.tuple_id),
+          _columns(tnode.mysql_scan_node.columns),
+          _filters(tnode.mysql_scan_node.filters),
+          _tuple_desc(nullptr),
+          _slot_num(0) {}
 
-VMysqlScanNode::~VMysqlScanNode() {}
+Status VMysqlScanNode::prepare(RuntimeState* state) {
+    VLOG_CRITICAL << "VMysqlScanNode::Prepare";
+
+    if (_is_init) {
+        return Status::OK();
+    }
+
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    // get tuple desc
+    _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+
+    if (nullptr == _tuple_desc) {
+        return Status::InternalError("Failed to get tuple descriptor.");
+    }
+
+    _slot_num = _tuple_desc->slots().size();
+    // get mysql info
+    const MySQLTableDescriptor* mysql_table =
+            static_cast<const MySQLTableDescriptor*>(_tuple_desc->table_desc());
+
+    if (nullptr == mysql_table) {
+        return Status::InternalError("mysql table pointer is nullptr.");
+    }
+
+    _my_param.host = mysql_table->host();
+    _my_param.port = mysql_table->port();
+    _my_param.user = mysql_table->user();
+    _my_param.passwd = mysql_table->passwd();
+    _my_param.db = mysql_table->mysql_db();
+    _my_param.charset = mysql_table->charset();
+    // new one scanner
+    _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
+
+    if (_mysql_scanner.get() == nullptr) {
+        return Status::InternalError("new a mysql scanner failed.");
+    }
+
+    _tuple_pool.reset(new (std::nothrow) MemPool("MysqlScanNode"));
+
+    if (_tuple_pool.get() == nullptr) {
+        return Status::InternalError("new a mem pool failed.");
+    }
+
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+
+    if (_text_converter.get() == nullptr) {
+        return Status::InternalError("new a text convertor failed.");
+    }
+
+    _is_init = true;
+
+    return Status::OK();
+}
+
+Status VMysqlScanNode::open(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    RETURN_IF_ERROR(ExecNode::open(state));
+    VLOG_CRITICAL << "MysqlScanNode::Open";
+
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
+
+    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
+    RETURN_IF_CANCELLED(state);
+    RETURN_IF_ERROR(_mysql_scanner->open());
+    RETURN_IF_ERROR(_mysql_scanner->query(_table_name, _columns, _filters, _limit));
+
+    // check materialize slot num
+    int materialize_num = 0;
+
+    for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
+        if (_tuple_desc->slots()[i]->is_materialized()) {
+            materialize_num++;
+        }
+    }
+
+    if (_mysql_scanner->field_num() != materialize_num) {
+        return Status::InternalError("input and output not equal.");
+    }
+
+    return Status::OK();
+}
+
+Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
+                                       RuntimeState* state) {
+    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
+                                     _tuple_pool.get())) {
+        std::stringstream ss;
+        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`"
+           << slot->col_name() + "`";
+        return Status::InternalError(ss.str());
+    }
+
+    return Status::OK();
+}
 
 Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
@@ -120,6 +232,32 @@ Status VMysqlScanNode::write_text_column(char* value, int value_length, SlotDesc
            << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
+    return Status::OK();
+}
+
+Status VMysqlScanNode::close(RuntimeState* state) {
+    if (is_closed()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+
+    _tuple_pool.reset();
+
+    return ExecNode::close(state);
+}
+
+void VMysqlScanNode::debug_string(int indentation_level, std::stringstream* out) const {
+    *out << string(indentation_level * 2, ' ');
+    *out << "VMysqlScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
+    *out << ")" << std::endl;
+
+    for (int i = 0; i < _children.size(); ++i) {
+        _children[i]->debug_string(indentation_level + 1, out);
+    }
+}
+
+Status VMysqlScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 } // namespace doris::vectorized

@@ -345,10 +345,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/yangzhg/libhdfs3/archive/refs/tags/v2.3.0.tar.gz"
-HDFS3_NAME="libhdfs3-2.3.0.tar.gz"
-HDFS3_SOURCE="libhdfs3-2.3.0"
-HDFS3_MD5SUM="f647975fb7ad03bf25a14f530b1a5c06"
+HDFS3_DOWNLOAD="https://github.com/yangzhg/libhdfs3/archive/refs/tags/v2.3.1.tar.gz"
+HDFS3_NAME="libhdfs3-2.3.1.tar.gz"
+HDFS3_SOURCE="libhdfs3-2.3.1"
+HDFS3_MD5SUM="64ab3004826d83b23522ccf26940db94"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -404,6 +404,14 @@ LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/z
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
 LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
+
+# sse2noen
+SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.5.1.tar.gz"
+SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
+SSE2NEON_SOURCE=sse2neon-1.5.1
+SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
+
+
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
@@ -463,4 +471,5 @@ SIMDJSON
 NLOHMANN_JSON
 OPENTELEMETRY_PROTO
 OPENTELEMETRY
-LIBBACKTRACE"
+LIBBACKTRACE
+SSE2NEON"

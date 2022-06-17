@@ -141,7 +141,8 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     }
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-    res = SnapshotManager::instance()->convert_rowset_ids(full_path, tablet_id, schema_hash);
+    res = SnapshotManager::instance()->convert_rowset_ids(full_path, tablet_id,
+                                                          _tablet->replica_id(), schema_hash);
     if (!res.ok()) {
         LOG(WARNING) << "failed to convert rowset id when do storage migration"
                      << " path = " << full_path;

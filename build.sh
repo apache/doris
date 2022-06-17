@@ -301,7 +301,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_DWARF=${USE_DWARF} \
             -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
             -DUSE_AVX2=${USE_AVX2} \
-            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
+            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}

@@ -33,8 +33,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
-#include "util/stack_util.h"
 
 namespace doris {
 

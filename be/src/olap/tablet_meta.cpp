@@ -17,7 +17,6 @@
 
 #include "olap/tablet_meta.h"
 
-#include <boost/algorithm/string.hpp>
 #include <sstream>
 
 #include "olap/file_helper.h"
@@ -25,6 +24,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "util/string_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
 
@@ -39,7 +39,7 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
                           const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                           TabletMetaSharedPtr* tablet_meta) {
     tablet_meta->reset(new TabletMeta(
-            request.table_id, request.partition_id, request.tablet_id,
+            request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
@@ -50,8 +50,8 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
 TabletMeta::TabletMeta() : _tablet_uid(0, 0), _schema(new TabletSchema) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
-                       int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
-                       uint32_t next_unique_id,
+                       int64_t replica_id, int32_t schema_hash, uint64_t shard_id,
+                       const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TStorageMedium::type t_storage_medium, const std::string& storage_name,
@@ -61,6 +61,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
     tablet_meta_pb.set_tablet_id(tablet_id);
+    tablet_meta_pb.set_replica_id(replica_id);
     tablet_meta_pb.set_schema_hash(schema_hash);
     tablet_meta_pb.set_shard_id(shard_id);
     // Persist the creation time, but it is not used
@@ -150,7 +151,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             for (auto& index : tablet_schema.indexes) {
                 if (index.index_type == TIndexType::type::BITMAP) {
                     DCHECK_EQ(index.columns.size(), 1);
-                    if (boost::iequals(tcolumn.column_name, index.columns[0])) {
+                    if (iequal(tcolumn.column_name, index.columns[0])) {
                         column->set_has_bitmap_index(true);
                         break;
                     }
@@ -375,6 +376,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _table_id = tablet_meta_pb.table_id();
     _partition_id = tablet_meta_pb.partition_id();
     _tablet_id = tablet_meta_pb.tablet_id();
+    _replica_id = tablet_meta_pb.replica_id();
     _schema_hash = tablet_meta_pb.schema_hash();
     _shard_id = tablet_meta_pb.shard_id();
     _creation_time = tablet_meta_pb.creation_time();
@@ -443,6 +445,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_partition_id(partition_id());
     tablet_meta_pb->set_tablet_id(tablet_id());
+    tablet_meta_pb->set_replica_id(replica_id());
     tablet_meta_pb->set_schema_hash(schema_hash());
     tablet_meta_pb->set_shard_id(shard_id());
     tablet_meta_pb->set_creation_time(creation_time());
@@ -683,6 +686,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._table_id != b._table_id) return false;
     if (a._partition_id != b._partition_id) return false;
     if (a._tablet_id != b._tablet_id) return false;
+    if (a._replica_id != b._replica_id) return false;
     if (a._schema_hash != b._schema_hash) return false;
     if (a._shard_id != b._shard_id) return false;
     if (a._creation_time != b._creation_time) return false;

@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "common/logging.h"
 #include "common/status.h"
 
 namespace doris {

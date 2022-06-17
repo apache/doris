@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
+import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -29,8 +31,7 @@ import java.util.Objects;
 /**
  * Physical project plan operator.
  */
-public class PhysicalProject<INPUT_TYPE extends Plan>
-        extends PhysicalUnaryOperator<PhysicalProject<INPUT_TYPE>, INPUT_TYPE> {
+public class PhysicalProject extends PhysicalUnaryOperator {
 
     private final List<? extends NamedExpression> projects;
 
@@ -46,5 +47,10 @@ public class PhysicalProject<INPUT_TYPE extends Plan>
     @Override
     public String toString() {
         return "Project (" + StringUtils.join(projects, ", ") + ")";
+    }
+
+    @Override
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalProject(((PhysicalUnaryPlan<PhysicalProject, Plan>) plan), context);
     }
 }

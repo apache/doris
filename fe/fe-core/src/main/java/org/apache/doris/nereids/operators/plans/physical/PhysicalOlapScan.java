@@ -19,7 +19,10 @@ package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
 import com.clearspring.analytics.util.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -29,10 +32,12 @@ import java.util.List;
 /**
  * Physical olap scan plan operator.
  */
-public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
+public class PhysicalOlapScan extends PhysicalScan {
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;
+
+    private final OlapTable olapTable;
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -41,7 +46,8 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
      * @param qualifier table's name
      */
     public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier) {
-        super(OperatorType.PHYSICAL_OLAP_SCAN, olapTable, qualifier);
+        super(OperatorType.PHYSICAL_OLAP_SCAN, qualifier);
+        this.olapTable = olapTable;
         this.selectedIndexId = olapTable.getBaseIndexId();
         this.selectedTabletId = Lists.newArrayList();
         this.selectedPartitionId = olapTable.getPartitionIds();
@@ -62,12 +68,20 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
         return selectedPartitionId;
     }
 
+    public OlapTable getTable() {
+        return olapTable;
+    }
+
     @Override
     public String toString() {
-        return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + table.getName()
-            + " (selected index id: " + selectedTabletId
-            + ", selected partition ids: " + selectedPartitionId
-            + ", selected tablet ids: " + selectedTabletId
-            + ")";
+        return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
+                + " (selected index id: " + selectedTabletId + ", selected partition ids: " + selectedPartitionId
+                + ", selected tablet ids: " + selectedTabletId + ")";
     }
+
+    @Override
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalOlapScanPlan((PhysicalLeafPlan<PhysicalOlapScan>) plan, context);
+    }
+
 }

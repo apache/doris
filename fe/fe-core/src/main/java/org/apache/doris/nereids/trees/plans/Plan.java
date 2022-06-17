@@ -27,11 +27,9 @@ import java.util.List;
 /**
  * Abstract class for all plan node.
  */
-public interface Plan<
-        PLAN_TYPE extends Plan<PLAN_TYPE, OP_TYPE>,
-        OP_TYPE extends PlanOperator> extends TreeNode<PLAN_TYPE> {
+public interface Plan extends TreeNode<Plan> {
 
-    OP_TYPE getOperator();
+    PlanOperator getOperator();
 
     LogicalProperties getLogicalProperties();
 
@@ -39,9 +37,4 @@ public interface Plan<
 
     String treeString();
 
-    @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
 }

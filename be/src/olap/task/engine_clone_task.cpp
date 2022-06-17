@@ -58,7 +58,7 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
           _signature(signature),
           _master_info(master_info) {
     _mem_tracker = MemTracker::create_tracker(
-            -1, "EngineCloneTask:tabletId=" + std::to_string(_clone_req.tablet_id),
+            -1, "EngineCloneTask#tabletId=" + std::to_string(_clone_req.tablet_id),
             StorageEngine::instance()->clone_mem_tracker(), MemTrackerLevel::TASK);
 }
 
@@ -218,12 +218,14 @@ void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
     if (status.ok()) {
         TTabletInfo tablet_info;
         tablet_info.__set_tablet_id(_clone_req.tablet_id);
+        tablet_info.__set_replica_id(_clone_req.replica_id);
         tablet_info.__set_schema_hash(_clone_req.schema_hash);
         Status get_tablet_info_status =
                 StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
         if (get_tablet_info_status != Status::OK()) {
             LOG(WARNING) << "clone success, but get tablet info failed."
                          << " tablet id: " << _clone_req.tablet_id
+                         << ", replica_id:" << _clone_req.replica_id
                          << " schema hash: " << _clone_req.schema_hash
                          << " signature: " << _signature;
             _error_msgs->push_back("clone success, but get tablet info failed.");
@@ -231,6 +233,7 @@ void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
         } else if (_clone_req.__isset.committed_version &&
                    tablet_info.version < _clone_req.committed_version) {
             LOG(WARNING) << "failed to clone tablet. tablet_id:" << _clone_req.tablet_id
+                         << ", replica_id:" << _clone_req.replica_id
                          << ", schema_hash:" << _clone_req.schema_hash
                          << ", signature:" << _signature << ", version:" << tablet_info.version
                          << ", expected_version: " << _clone_req.committed_version;
@@ -241,11 +244,12 @@ void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
                 // if not, maybe this is a stale remaining table which is waiting for drop.
                 // we drop it.
                 LOG(WARNING) << "begin to drop the stale tablet. tablet_id:" << _clone_req.tablet_id
+                             << ", replica_id:" << _clone_req.replica_id
                              << ", schema_hash:" << _clone_req.schema_hash
                              << ", signature:" << _signature << ", version:" << tablet_info.version
                              << ", expected_version: " << _clone_req.committed_version;
                 Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                        _clone_req.tablet_id, _clone_req.schema_hash);
+                        _clone_req.tablet_id, _clone_req.replica_id);
                 if (drop_status != Status::OK() &&
                     drop_status.precise_code() != OLAP_ERR_TABLE_NOT_FOUND) {
                     // just log
@@ -332,10 +336,12 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         if (status.ok()) {
             // change all rowset ids because they maybe its id same with local rowset
             auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
-                    local_path, _clone_req.tablet_id, _clone_req.schema_hash);
+                    local_path, _clone_req.tablet_id, _clone_req.replica_id,
+                    _clone_req.schema_hash);
             if (olap_st != Status::OK()) {
                 LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
                              << ", tablet_id=" << _clone_req.tablet_id
+                             << ", replica_id=" << _clone_req.replica_id
                              << ", schema_hash=" << _clone_req.schema_hash << ", error=" << olap_st;
                 status = Status::InternalError("Failed to convert rowset ids");
             }

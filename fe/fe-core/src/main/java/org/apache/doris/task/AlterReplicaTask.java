@@ -18,6 +18,7 @@
 package org.apache.doris.task;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
@@ -46,21 +47,16 @@ public class AlterReplicaTask extends AgentTask {
     private AlterJobV2.JobType jobType;
 
     private Map<String, Expr> defineExprs;
+    private DescriptorTable descTable;
 
-    public AlterReplicaTask(long backendId, long dbId, long tableId,
-                            long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
-                            long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
-                            long version, long jobId, AlterJobV2.JobType jobType) {
-        this(backendId, dbId, tableId, partitionId,
-                rollupIndexId, baseIndexId, rollupTabletId,
-                baseTabletId, newReplicaId, newSchemaHash, baseSchemaHash,
-                version, jobId, jobType, null);
-    }
-
-    public AlterReplicaTask(long backendId, long dbId, long tableId,
-            long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
-            long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
-            long version, long jobId, AlterJobV2.JobType jobType,  Map<String, Expr> defineExprs) {
+    /**
+     * AlterReplicaTask constructor.
+     *
+     */
+    public AlterReplicaTask(long backendId, long dbId, long tableId, long partitionId, long rollupIndexId,
+            long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
+            int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
+            DescriptorTable descTable) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -74,6 +70,7 @@ public class AlterReplicaTask extends AgentTask {
 
         this.jobType = jobType;
         this.defineExprs = defineExprs;
+        this.descTable = descTable;
     }
 
     public long getBaseTabletId() {
@@ -117,6 +114,7 @@ public class AlterReplicaTask extends AgentTask {
                 req.addToMaterializedViewParams(mvParam);
             }
         }
+        req.setDescTbl(descTable.toThrift());
         return req;
     }
 }
