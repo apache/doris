@@ -15,28 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
-
-import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.statistics.PlanStats;
+package org.apache.doris.statistics;
 
 import java.util.List;
 
 /**
- * Abstract class for all plan node.
+ * Used to abstract a common operator interface for statistics deduction to fit both optimizers.
  */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+public interface PlanStats {
 
-    PlanOperator getOperator();
+    List<? extends PlanStats> getChildrenStats();
 
-    LogicalProperties getLogicalProperties();
+    StatsDeriveResult getStatsDeriveResult();
 
-    List<Slot> getOutput();
+    StatisticalType getNodeType();
 
-    String treeString();
+    void setStatsDeriveResult(StatsDeriveResult result);
 
-    Plan withOutput(List<Slot> output);
+    long getLimit();
+
+    List<? extends ExprStats> getConjuncts();
+
 }
