@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# @Time : 2022/1/10 10:24
-# @Author : way
-# @Site :
-# @Describe: doris client
 
-import logging
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 import base64
 import json
+import logging
 import time
-import requests
 import pymysql
+import requests
 
 
 def Logger(name):
@@ -27,14 +40,13 @@ def Logger(name):
 logger = Logger(__name__)
 
 
-# 重试装饰器
 def retry(func):
     max_retry = 3
 
     def run(*args, **kwargs):
         for i in range(max_retry + 1):
             if i > 0:
-                logger.warning(f"等待3秒后，尝试第{i}次重试...")
+                logger.warning(f"will retry after 3 seconds，retry times : {i}/3")
             time.sleep(3)
             flag = func(*args, **kwargs)
             if flag:
@@ -47,10 +59,11 @@ class DorisSession:
 
     def __init__(self, fe_servers, database, user, passwd, mysql_port=9030):
         """
-        :param fe_servers: fe servers ['127.0.0.1:8030', '127.0.0.2:8030', '127.0.0.3:8030']
-        :param database: 数据库名称
-        :param user: 用户名
-        :param passwd: 密码
+        :param fe_servers: fe servers list, like: ['127.0.0.1:8030', '127.0.0.2:8030', '127.0.0.3:8030']
+        :param database:
+        :param user:
+        :param passwd:
+        :param mysql_port: port for sql client, default:9030
         """
         assert fe_servers
         assert database
@@ -79,34 +92,36 @@ class DorisSession:
             if response.status_code == 307:
                 return response.headers['Location']
         else:
-            raise Exception(f"执行失败，获取不到可用的BE节点，请检查 fe servers 配置")
+            raise Exception("No available BE nodes can be obtained. Please check configuration")
 
     @retry
     def streamload(self, table, json_array, **kwargs):
         """
-        :param table: 目标表
-        :param json_array: json 数组
-        :param kwargs: streamload 的其它特殊用途参数
-        比如 merge_type：数据合并类型。默认为 APPEND，表示本次导入是普通的追加写操作。
-                         MERGE 和 DELETE 类型仅适用于 Unique Key 模型表。
-                         其中 MERGE 类型需要配合 delete 参数使用，以标注 Delete Flag 列。
-                         而 DELETE 类型则表示本次导入的所有数据皆为删除数据。
-                         -H "merge_type: MERGE"
-             delete：仅在 MERGE 类型下有意义，用于指定 Delete Flag 列以及标示删除标记的条件。
-                     -H "delete: col3 = 1"
-             sequence_col ：仅针对 Unique Key 模型的表。用于指定导入数据中表示 Sequence Col 的列。
-                            主要用于导入时保证数据顺序。
-                            -H "function_column.sequence_col: col3"
+        :param table: target table
+        :param json_array: json_array list
+        :param kwargs:
+             merge_type：The merge type of data, which supports three types: APPEND, DELETE, and MERGE. Among them,
+                         APPEND is the default value, which means that this batch of data needs to be appended to the
+                         existing data, and DELETE means to delete all the data with the same key as this batch of data.
+                         Line, the MERGE semantics need to be used in conjunction with the delete condition,
+                         which means that the data that meets the delete condition is processed according to the DELETE
+                         semantics and the rest is processed according to the APPEND semantics,
+                         for example: -H "merge_type: MERGE" -H "delete: flag=1"
+             delete：Only meaningful under MERGE, indicating the deletion condition of the data function_column.
+             sequence_col: Only applicable to UNIQUE_KEYS. Under the same key column,
+                           ensure that the value column is REPLACEed according to the source_sequence column.
+                           The source_sequence can be a column in the data source or a column in the table structure.
+                           for example: -H "function_column.sequence_col: col3"
         :return:
         """
         headers = {
             'Expect': '100-continue',
             'Authorization': 'Basic ' + self.Authorization,
             'format': 'json',
-            'strip_outer_array': 'true',  # json数组
-            'fuzzy_parse': 'true',  # 数组中每一行的字段顺序完全一致,加速导入速度
+            'strip_outer_array': 'true',
+            'fuzzy_parse': 'true',
         }
-        if kwargs.get('sequence_col'):  # 保证数据顺序, 需启用 Sequence Column 功能
+        if kwargs.get('sequence_col'):
             headers['function_column.sequence_col'] = kwargs.get('sequence_col')
         if kwargs.get('merge_type'):
             headers['merge_type'] = kwargs.get('merge_type')
@@ -129,15 +144,15 @@ class DorisSession:
             logger.error(response.text)
             return False
 
-    def execute(self, sql):
+    def execute(self, sql, args=None):
         with self.conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, args)
             self.conn.commit()
         return True
 
-    def read(self, sql):
+    def read(self, sql, args=None):
         with self.conn.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute(sql)
+            cur.execute(sql, args)
             return cur.fetchall()
 
     def __del__(self):
