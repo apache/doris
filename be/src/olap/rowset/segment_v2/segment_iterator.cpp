@@ -914,6 +914,7 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
             predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
+        predicate->set_dict_code_if_necessary(*short_cir_column, _segment->id());
         predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
     }
     _opts.stats->rows_vec_cond_filtered += original_size - *selected_size_ptr;

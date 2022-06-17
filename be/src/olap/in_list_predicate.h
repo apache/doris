@@ -20,6 +20,7 @@
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
 
+#include <limits>
 #include <roaring/roaring.hh>
 #include <type_traits>
 
@@ -84,9 +85,32 @@ class InListPredicateBase : public ColumnPredicate {
 public:
     InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>&& values,
                         bool is_opposite = false)
-            : ColumnPredicate(column_id, is_opposite), _values(std::move(values)) {}
+            : ColumnPredicate(column_id, is_opposite),
+              _values(std::move(values)),
+              _last_segment_id(std::numeric_limits<uint64_t>::max()) {}
 
     PredicateType type() const override { return PT; }
+
+    void set_dict_code_if_necessary(vectorized::IColumn& column, uint64_t segment_id) override {
+        DCHECK(segment_id != std::numeric_limits<uint64_t>::max());
+        if (_last_segment_id == segment_id) {
+            return;
+        }
+        if constexpr (std::is_same_v<T, StringValue>) {
+            auto* col_ptr = column.get_ptr().get();
+            if (column.is_nullable()) {
+                auto nullable_col = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+                col_ptr = nullable_col->get_nested_column_ptr().get();
+            }
+            if (col_ptr->is_column_dictionary()) {
+                auto& dict_col = reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(
+                        *col_ptr);
+
+                dict_col.find_codes(_values, _value_in_dict_flags);
+                _last_segment_id = segment_id;
+            }
+        }
+    }
 
     void evaluate(VectorizedRowBatch* batch) const override {
         uint16_t n = batch->size();
@@ -295,9 +319,6 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                std::vector<vectorized::UInt8> selected;
-                nested_col_ptr->find_codes(_values, selected);
-
                 for (uint16_t i = 0; i < *size; i++) {
                     uint16_t idx = sel[i];
                     if constexpr (is_nullable) {
@@ -310,11 +331,11 @@ private:
                     }
 
                     if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
-                        if (selected[data_array[idx]]) {
+                        if (_value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     } else {
-                        if (!selected[data_array[idx]]) {
+                        if (!_value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     }
@@ -356,6 +377,8 @@ private:
     }
 
     phmap::flat_hash_set<T> _values;
+    uint64_t _last_segment_id;
+    std::vector<vectorized::UInt8> _value_in_dict_flags;
 };
 
 template <class T>

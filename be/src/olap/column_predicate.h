@@ -88,6 +88,8 @@ public:
 
     uint32_t column_id() const { return _column_id; }
 
+    virtual void set_dict_code_if_necessary(vectorized::IColumn& column, uint64_t segment_id) {}
+
 protected:
     uint32_t _column_id;
     bool _opposite;
