@@ -161,7 +161,8 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     @Override
-    public Pattern<? extends NODE_TYPE, NODE_TYPE> newChildren(List<Pattern<? extends NODE_TYPE, NODE_TYPE>> children) {
+    public Pattern<? extends NODE_TYPE, NODE_TYPE> withChildren(
+            List<Pattern<? extends NODE_TYPE, NODE_TYPE>> children) {
         throw new RuntimeException();
     }
 

@@ -161,6 +161,32 @@ visible_functions = [
 
     [['cardinality', 'size'], 'BIGINT', ['ARRAY'], '', '', '', 'vec', ''],
 
+    [['array_min'],     'TINYINT',  ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_min'],     'SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_min'],     'INT',      ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_min'],     'BIGINT',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_min'],     'LARGEINT', ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_max'],     'TINYINT',  ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_max'],     'SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_max'],     'INT',      ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_max'],     'BIGINT',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_max'],     'LARGEINT', ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_sum'],     'BIGINT',   ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_sum'],     'BIGINT',   ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_sum'],     'BIGINT',   ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_sum'],     'BIGINT',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_sum'],     'LARGEINT', ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DOUBLE',   ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DOUBLE',   ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DOUBLE',   ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DOUBLE',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DOUBLE',   ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_product'], 'DOUBLE',   ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_product'], 'DOUBLE',   ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_product'], 'DOUBLE',   ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_product'], 'DOUBLE',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_product'], 'DOUBLE',   ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE',
@@ -899,8 +925,8 @@ visible_functions = [
             '_ZN5doris15StringFunctions4rpadEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_', '', '', 'vec', ''],
     [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
-	        '_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
-	        '', '', 'vec', 'ALWAYS_NULLABLE'],
+            '_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+            '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -1021,8 +1047,8 @@ visible_functions = [
             '_ZN5doris15StringFunctions4rpadEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_', '', '', 'vec', ''],
     [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'],
-	        '_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
-	        '', '', 'vec', 'ALWAYS_NULLABLE'],
+            '_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+            '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['length'], 'INT', ['STRING'],
             '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -1275,11 +1301,11 @@ visible_functions = [
     [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'],
         '_ZN5doris22QuantileStateFunctions17to_quantile_stateEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris22QuantileStateFunctions25to_quantile_state_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE', '', 'vec', ''],
-    
+
     [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'],
         '_ZN5doris22QuantileStateFunctions16quantile_percentEPN9doris_udf15FunctionContextERNS1_9StringValE',
         '_ZN5doris22QuantileStateFunctions24quantile_percent_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE', '', 'vec', ''],
-    
+
 
     # hash functions
     [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'],

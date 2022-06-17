@@ -71,7 +71,7 @@ public class LogicalJoin extends LogicalBinaryOperator {
     }
 
     @Override
-    public List<Slot> doComputeOutput(Plan leftInput, Plan rightInput) {
+    public List<Slot> computeOutput(Plan leftInput, Plan rightInput) {
         switch (joinType) {
             case LEFT_SEMI_JOIN:
                 return ImmutableList.copyOf(leftInput.getOutput());

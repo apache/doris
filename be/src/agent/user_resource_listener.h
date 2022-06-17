@@ -23,7 +23,6 @@
 #include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/MasterService_types.h"
 #include "runtime/exec_env.h"
 
 namespace doris {

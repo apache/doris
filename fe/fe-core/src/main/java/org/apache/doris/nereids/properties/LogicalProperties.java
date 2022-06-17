@@ -36,4 +36,8 @@ public class LogicalProperties {
     public List<Slot> getOutput() {
         return output;
     }
+
+    public LogicalProperties withOutput(List<Slot> output) {
+        return new LogicalProperties(output);
+    }
 }

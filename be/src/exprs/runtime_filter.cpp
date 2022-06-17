@@ -991,8 +991,13 @@ bool IRuntimeFilter::await() {
     SCOPED_TIMER(_await_time_cost);
     int64_t wait_times_ms = _state->runtime_filter_wait_time_ms();
     if (!_is_ready) {
+        int64_t ms_since_registration = MonotonicMillis() - registration_time_;
+        int64_t ms_remaining = wait_times_ms - ms_since_registration;
+        if (ms_remaining <= 0) {
+            return _is_ready;
+        }
         std::unique_lock<std::mutex> lock(_inner_mutex);
-        return _inner_cv.wait_for(lock, std::chrono::milliseconds(wait_times_ms),
+        return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
                                   [this] { return this->_is_ready; });
     }
     return true;

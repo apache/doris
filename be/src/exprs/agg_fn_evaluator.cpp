@@ -33,15 +33,12 @@
 
 #include <sstream>
 
-#include "common/logging.h"
-#include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/user_function_cache.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
 
 namespace doris {
 using doris_udf::FunctionContext;

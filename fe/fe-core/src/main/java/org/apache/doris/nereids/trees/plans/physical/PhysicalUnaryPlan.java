@@ -21,12 +21,14 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical plan that have one child.
@@ -39,15 +41,20 @@ public class PhysicalUnaryPlan<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE
         super(NodeType.PHYSICAL, operator, logicalProperties, child);
     }
 
-    public PhysicalUnaryPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
+    public PhysicalUnaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
+                             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties, child);
     }
 
     @Override
-    public PhysicalUnaryPlan<OP_TYPE, Plan> newChildren(List<Plan> children) {
+    public PhysicalUnaryPlan<OP_TYPE, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalUnaryPlan(operator, groupExpression.orElse(null),
-                logicalProperties, (Plan) children.get(0));
+        return new PhysicalUnaryPlan(operator, groupExpression, logicalProperties, children.get(0));
+    }
+
+    @Override
+    public PhysicalUnaryPlan<OP_TYPE, CHILD_TYPE> withOutput(List<Slot> output) {
+        LogicalProperties logicalProperties = new LogicalProperties(output);
+        return new PhysicalUnaryPlan<>(operator, groupExpression, logicalProperties, child());
     }
 }

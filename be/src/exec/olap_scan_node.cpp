@@ -29,6 +29,7 @@
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"
 #include "runtime/row_batch.h"
@@ -38,6 +39,7 @@
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/runtime_profile.h"
+#include "util/thread.h"
 #include "util/to_string.h"
 
 namespace doris {

@@ -24,13 +24,12 @@ import org.apache.doris.nereids.jobs.scheduler.JobStack;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.trees.TreeNode;
 
 /**
  * Context used in memo.
  */
-public class OptimizerContext<NODE_TYPE extends TreeNode<NODE_TYPE>> {
-    private final Memo<NODE_TYPE> memo;
+public class OptimizerContext {
+    private final Memo memo;
     private RuleSet ruleSet;
     private JobPool jobPool;
     private final JobScheduler jobScheduler;
@@ -40,7 +39,7 @@ public class OptimizerContext<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      *
      * @param memo {@link Memo} reference
      */
-    public OptimizerContext(Memo<NODE_TYPE> memo) {
+    public OptimizerContext(Memo memo) {
         this.memo = memo;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
@@ -63,7 +62,7 @@ public class OptimizerContext<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         this.ruleSet = ruleSet;
     }
 
-    public Memo<NODE_TYPE> getMemo() {
+    public Memo getMemo() {
         return memo;
     }
 

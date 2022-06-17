@@ -29,7 +29,7 @@ import java.util.List;
 /**
  * Star expression.
  */
-public class UnboundStar extends NamedExpression implements LeafExpression {
+public class UnboundStar extends NamedExpression implements LeafExpression, Unbound {
     private final List<String> target;
 
     public UnboundStar(List<String> target) {

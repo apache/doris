@@ -24,14 +24,10 @@
 #include <vector>
 
 #include "common/compiler_util.h"
-#include "common/logging.h"
 #include "runtime/buffered_tuple_stream3.h"
-#include "runtime/buffered_tuple_stream3.inline.h"
-#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/bufferpool/suballocator.h"
 #include "runtime/tuple_row.h"
 #include "util/bitmap.h"
-#include "util/hash_util.hpp"
 
 namespace doris {
 

@@ -178,7 +178,6 @@ under the License.
         <module name="UnusedLocalVariable">
             <property name="severity" value="error"/>
         </module>
-        <module name="VariableDeclarationUsageDistance"/>
 
         <!-- Headers -->
         <!-- Imports -->

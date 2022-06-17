@@ -336,6 +336,7 @@ set(VEC_TEST_FILES
     vec/exec/vorc_scanner_test.cpp
     vec/exec/vparquet_scanner_test.cpp
     vec/exprs/vexpr_test.cpp
+    vec/function/function_array_aggregation_test.cpp
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp
     vec/function/function_array_size_test.cpp

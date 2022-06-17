@@ -23,16 +23,10 @@
 #include <vector>
 
 #include "exec/text_converter.hpp"
-#include "exprs/hll_hash_function.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "olap/olap_common.h"
-#include "olap/utils.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "util/debug_util.h"
-#include "util/file_utils.h"
 #include "util/hash_util.hpp"
 #include "util/runtime_profile.h"
 

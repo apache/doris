@@ -22,12 +22,10 @@ import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical operator that have two inputs.
@@ -40,18 +38,12 @@ public abstract class PhysicalBinaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
-        return doComputeOutput(logicalProperties, inputs[0], inputs[1]);
-    }
-
-    public List<Slot> doComputeOutput(LogicalProperties logicalProperties, Plan left, Plan right) {
-        return logicalProperties.getOutput();
-    }
-
-    @Override
     public PhysicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalBinaryPlan(this, groupExpression, logicalProperties,
-                new PlaceHolderPlan(), new PlaceHolderPlan());
+        LogicalProperties leftChildProperties = groupExpression.child(0).getLogicalProperties();
+        LogicalProperties rightChildProperties = groupExpression.child(1).getLogicalProperties();
+        return new PhysicalBinaryPlan(this, Optional.of(groupExpression), logicalProperties,
+                new PlaceHolderPlan(leftChildProperties), new PlaceHolderPlan(rightChildProperties)
+        );
     }
 }

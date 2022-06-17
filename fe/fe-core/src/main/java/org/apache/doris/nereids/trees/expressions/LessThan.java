@@ -50,7 +50,7 @@ public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
     }
 
     @Override
-    public LessThan<Expression, Expression> newChildren(List<Expression> children) {
+    public LessThan<Expression, Expression> withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LessThan<>(children.get(0), children.get(1));
     }
