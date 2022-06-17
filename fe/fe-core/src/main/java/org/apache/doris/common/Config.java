@@ -1646,7 +1646,7 @@ public class Config extends ConfigBase {
      * Should be removed when this feature is ready.
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_catalog = false;
+    public static boolean enable_multi_catalog = false; // 1 min
 
     /**
      * If set to TRUE, FE will: 

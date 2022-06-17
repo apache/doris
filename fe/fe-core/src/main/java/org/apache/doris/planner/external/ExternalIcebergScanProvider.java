@@ -18,41 +18,40 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.IcebergProperty;
-import org.apache.doris.catalog.IcebergTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.external.iceberg.HiveCatalog;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * A file scan provider for iceberg.
  */
-public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
-    private final org.apache.doris.catalog.Table catalogTable;
+public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
 
-    public ExternalIcebergScanProvider(org.apache.doris.catalog.Table catalogTable) {
-        this.catalogTable = catalogTable;
+    public ExternalIcebergScanProvider(HMSExternalTable hmsTable) {
+        super(hmsTable);
     }
 
     @Override
-    public TFileFormatType getTableFormatType() throws DdlException {
+    public TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException {
         TFileFormatType type;
 
         String icebergFormat  = getRemoteHiveTable().getParameters()
@@ -73,11 +72,6 @@ public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public String getMetaStoreUrl() {
-        return getTableProperties().get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS);
-    }
-
-    @Override
     public InputSplit[] getSplits(List<Expr> exprs) throws IOException, UserException {
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : exprs) {
@@ -87,7 +81,7 @@ public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
             }
         }
 
-        org.apache.iceberg.Table table = ((IcebergTable) catalogTable).getTable();
+        org.apache.iceberg.Table table = getIcebergTable();
         TableScan scan = table.newScan();
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
@@ -103,15 +97,9 @@ public class ExternalIcebergScanProvider implements ExternalFileScanProvider {
         return splits.toArray(new InputSplit[0]);
     }
 
-    @Override
-    public Table getRemoteHiveTable() throws DdlException {
-        String dbName = ((IcebergTable) catalogTable).getIcebergDb();
-        String tableName = ((IcebergTable) catalogTable).getIcebergTbl();
-        return HiveMetaStoreClientHelper.getTable(dbName, tableName, getMetaStoreUrl());
-    }
-
-    @Override
-    public Map<String, String> getTableProperties() {
-        return ((IcebergTable) catalogTable).getIcebergProperties();
+    private org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
+        HiveCatalog hiveCatalog = new HiveCatalog();
+        hiveCatalog.initialize(new IcebergProperty(getTableProperties()));
+        return hiveCatalog.loadTable(TableIdentifier.of(hmsTable.getDbName(), hmsTable.getName()));
     }
 }

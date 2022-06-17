@@ -19,15 +19,16 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.HMSExternalDataSource;
 import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -49,14 +50,14 @@ import java.util.stream.Collectors;
  * A HiveScanProvider to get information for scan node.
  */
 public class ExternalHiveScanProvider implements ExternalFileScanProvider {
-    protected org.apache.doris.catalog.Table catalogTable;
+    protected HMSExternalTable hmsTable;
 
-    public ExternalHiveScanProvider(org.apache.doris.catalog.Table catalogTable) {
-        this.catalogTable = catalogTable;
+    public ExternalHiveScanProvider(HMSExternalTable hmsTable) {
+        this.hmsTable = hmsTable;
     }
 
     @Override
-    public TFileFormatType getTableFormatType() throws DdlException {
+    public TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException {
         TFileFormatType type = null;
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
@@ -76,8 +77,8 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public String getMetaStoreUrl() {
-        return getTableProperties().get(HMSExternalDataSource.HIVE_METASTORE_URIS);
+    public String getMetaStoreUrl() throws MetaNotFoundException {
+        return getTableProperties().get(HiveConf.ConfVars.METASTOREURIS.name());
     }
 
     @Override
@@ -115,7 +116,7 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
         List<ExprNodeDesc> exprNodeDescs = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
             ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    conjunct, partitionKeys, catalogTable.getName());
+                    conjunct, partitionKeys, hmsTable.getName());
             if (hiveExpr != null) {
                 exprNodeDescs.add(hiveExpr);
             }
@@ -128,7 +129,7 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
             hivePartitionPredicate = (ExprNodeGenericFuncDesc) exprNodeDescs.get(0);
         } else {
             HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
-                    new HiveMetaStoreClientHelper.ExprBuilder(catalogTable.getName());
+                    new HiveMetaStoreClientHelper.ExprBuilder(hmsTable.getName());
             hivePartitionPredicate = exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
                     .val(TypeInfoFactory.intTypeInfo, 1)
                     .pred("=", 2).build();
@@ -137,14 +138,12 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public Table getRemoteHiveTable() throws DdlException {
-        String dbName = ((HiveTable) catalogTable).getHiveDb();
-        String tableName = ((HiveTable) catalogTable).getHiveTable();
-        return HiveMetaStoreClientHelper.getTable(dbName, tableName, getMetaStoreUrl());
+    public Table getRemoteHiveTable() throws DdlException, MetaNotFoundException {
+        return hmsTable.getRemoteTable();
     }
 
     @Override
-    public Map<String, String> getTableProperties() {
-        return ((HiveTable) catalogTable).getHiveProperties();
+    public Map<String, String> getTableProperties() throws MetaNotFoundException {
+        return hmsTable.getRemoteTable().getParameters();
     }
 }

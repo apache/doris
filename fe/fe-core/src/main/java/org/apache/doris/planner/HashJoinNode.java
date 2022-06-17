@@ -362,13 +362,13 @@ public class HashJoinNode extends PlanNode {
         }
 
         public double lhsNumRows() {
-            Table table = lhs.getParent().getTable();
+            Table table = (Table) lhs.getParent().getTable();
             Preconditions.checkState(table instanceof OlapTable);
             return ((OlapTable) (table)).getRowCount();
         }
 
         public double rhsNumRows() {
-            Table table = rhs.getParent().getTable();
+            Table table = (Table) rhs.getParent().getTable();
             Preconditions.checkState(table instanceof OlapTable);
             return ((OlapTable) (table)).getRowCount();
         }

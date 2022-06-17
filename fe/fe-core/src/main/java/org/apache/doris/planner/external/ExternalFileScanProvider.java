@@ -19,6 +19,7 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -34,15 +35,15 @@ import java.util.Map;
  * An interface for file scan node to get the need information.
  */
 public interface ExternalFileScanProvider {
-    TFileFormatType getTableFormatType() throws DdlException;
+    TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException;
 
     TFileType getTableFileType();
 
-    String getMetaStoreUrl();
+    String getMetaStoreUrl() throws MetaNotFoundException;
 
     InputSplit[] getSplits(List<Expr> exprs) throws IOException, UserException;
 
-    Table getRemoteHiveTable() throws DdlException;
+    Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
 
-    Map<String, String> getTableProperties();
+    Map<String, String> getTableProperties() throws MetaNotFoundException;
 }

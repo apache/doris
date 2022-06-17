@@ -26,16 +26,15 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.HiveTable;
-import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -62,7 +61,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.logging.log4j.LogManager;
@@ -142,15 +140,13 @@ public class ExternalFileScanNode extends ExternalScanNode {
         ICE_BERG
     }
 
-    private final org.apache.doris.catalog.Table catalogTable;
-
     private final BackendPolicy backendPolicy = new BackendPolicy();
 
     private final ParamCreateContext context = new ParamCreateContext();
 
     private List<TScanRangeLocations> scanRangeLocations;
 
-    private Table remoteHiveTable;
+    private final HMSExternalTable hmsTable;
 
     private ExternalFileScanProvider scanProvider;
 
@@ -160,40 +156,32 @@ public class ExternalFileScanNode extends ExternalScanNode {
     public ExternalFileScanNode(
             PlanNodeId id,
             TupleDescriptor desc,
-            String planNodeName) {
+            String planNodeName) throws MetaNotFoundException {
         super(id, desc, planNodeName, NodeType.BROKER_SCAN_NODE);
 
-        this.catalogTable = desc.getTable();
+        this.hmsTable = (HMSExternalTable) desc.getTable();
 
         DLAType type = getDLAType();
         switch (type) {
             case HUDI:
-                this.scanProvider = new ExternalHudiScanProvider(this.catalogTable);
+                this.scanProvider = new ExternalHudiScanProvider(this.hmsTable);
                 break;
             case ICE_BERG:
-                this.scanProvider = new ExternalIcebergScanProvider(this.catalogTable);
+                this.scanProvider = new ExternalIcebergScanProvider(this.hmsTable);
                 break;
             case HIVE:
-                this.scanProvider = new ExternalHiveScanProvider(this.catalogTable);
+                this.scanProvider = new ExternalHiveScanProvider(this.hmsTable);
                 break;
             default:
                 LOG.warn("Unknown table for dla.");
         }
     }
 
-    private DLAType getDLAType() {
-        // TODO: delete this instanceof logic
-        if (this.catalogTable instanceof HiveTable) {
-            return DLAType.HIVE;
-        } else if (this.catalogTable instanceof HudiTable) {
-            return DLAType.HUDI;
-        } else if (this.catalogTable instanceof IcebergTable) {
+    private DLAType getDLAType() throws MetaNotFoundException {
+        if (hmsTable.getRemoteTable().getParameters().containsKey("table_type")
+                && hmsTable.getRemoteTable().getParameters().get("table_type").equalsIgnoreCase("ICEBERG")) {
             return DLAType.ICE_BERG;
-        }
-        if (remoteHiveTable.getParameters().containsKey("table_type")
-                && remoteHiveTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG")) {
-            return DLAType.ICE_BERG;
-        } else if (remoteHiveTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
+        } else if (hmsTable.getRemoteTable().getSd().getInputFormat().toLowerCase().contains("hoodie")) {
             return DLAType.HUDI;
         } else {
             return DLAType.HIVE;
@@ -204,17 +192,15 @@ public class ExternalFileScanNode extends ExternalScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         backendPolicy.init();
-        this.remoteHiveTable = scanProvider.getRemoteHiveTable();
-
         initContext(context);
     }
 
-    private void initContext(ParamCreateContext context) throws DdlException {
+    private void initContext(ParamCreateContext context) throws DdlException, MetaNotFoundException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
         context.slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.params = new TBrokerScanRangeParams();
         if (scanProvider.getTableFormatType().equals(TFileFormatType.FORMAT_CSV_PLAIN)) {
-            Map<String, String> serDeInfoParams = remoteHiveTable.getSd().getSerdeInfo().getParameters();
+            Map<String, String> serDeInfoParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
             String columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
                     ? HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
             String lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim"))
@@ -229,7 +215,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
 
-        List<Column> columns = catalogTable.getBaseSchema(false);
+        List<Column> columns = hmsTable.getBaseSchema(false);
         for (Column column : columns) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(context.srcTupleDescriptor);
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
@@ -267,7 +253,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String fsName = fullPath.replace(filePath, "");
         hdfsParams.setFsName(fsName);
         List<String> partitionKeys = new ArrayList<>();
-        for (FieldSchema fieldSchema : remoteHiveTable.getPartitionKeys()) {
+        for (FieldSchema fieldSchema : hmsTable.getRemoteTable().getPartitionKeys()) {
             partitionKeys.add(fieldSchema.getName());
         }
 
@@ -322,7 +308,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private TBrokerRangeDesc createBrokerRangeDesc(
             FileSplit fileSplit,
             List<String> columnsFromPath,
-            int numberOfColumnsFromFile) throws DdlException {
+            int numberOfColumnsFromFile) throws DdlException, MetaNotFoundException {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFileType(scanProvider.getTableFileType());
         rangeDesc.setFormatType(scanProvider.getTableFormatType());
@@ -407,7 +393,15 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        return prefix + "TABLE: " + catalogTable.getName() + "\n"
-                + prefix + "PATH: " + scanProvider.getMetaStoreUrl() + "\n";
+        String url;
+        try {
+            url = scanProvider.getMetaStoreUrl();
+        } catch (MetaNotFoundException e) {
+            LOG.warn("Can't get url error", e);
+            url = "Can't get url error.";
+        }
+        return prefix + "DATABASE: " + hmsTable.getDbName() + "\n"
+                + prefix + "TABLE: " + hmsTable.getName() + "\n"
+                + prefix + "HIVE URL: " + url + "\n";
     }
 }

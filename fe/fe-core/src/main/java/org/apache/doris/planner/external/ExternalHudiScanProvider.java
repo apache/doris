@@ -17,13 +17,9 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.external.hudi.HudiProperty;
-import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.thrift.TFileFormatType;
-
-import java.util.Map;
 
 /**
  * A file scan provider for hudi.
@@ -31,29 +27,12 @@ import java.util.Map;
  */
 public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
 
-    public ExternalHudiScanProvider(org.apache.doris.catalog.Table catalogTable) {
-        super(catalogTable);
+    public ExternalHudiScanProvider(HMSExternalTable hmsTable) {
+        super(hmsTable);
     }
 
     @Override
     public TFileFormatType getTableFormatType() throws DdlException {
         return TFileFormatType.FORMAT_PARQUET;
-    }
-
-    @Override
-    public String getMetaStoreUrl() {
-        return getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
-    }
-
-    @Override
-    public org.apache.hadoop.hive.metastore.api.Table getRemoteHiveTable() throws DdlException {
-        String dbName = ((HudiTable) catalogTable).getHmsDatabaseName();
-        String tableName = ((HudiTable) catalogTable).getHmsTableName();
-        return HiveMetaStoreClientHelper.getTable(dbName, tableName, getMetaStoreUrl());
-    }
-
-    @Override
-    public Map<String, String> getTableProperties() {
-        return ((HudiTable) catalogTable).getTableProperties();
     }
 }
