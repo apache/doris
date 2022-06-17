@@ -1810,6 +1810,14 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     BITMAP_INTERSECT_FINALIZE_SYMBOL.get(t),
                     true, false, true));
 
+            // VEC_INTERSECT_COUNT
+            addBuiltin(
+                    AggregateFunction.createBuiltin(INTERSECT_COUNT, Lists.newArrayList(Type.BITMAP, t, t), Type.BIGINT,
+                            Type.VARCHAR, true, BITMAP_INTERSECT_INIT_SYMBOL.get(t),
+                            BITMAP_INTERSECT_UPDATE_SYMBOL.get(t), BITMAP_INTERSECT_MERGE_SYMBOL.get(t),
+                            BITMAP_INTERSECT_SERIALIZE_SYMBOL.get(t), null, null,
+                            BITMAP_INTERSECT_FINALIZE_SYMBOL.get(t), true, false, true, true));
+
             // HLL_UNION_AGG
             addBuiltin(AggregateFunction.createBuiltin("hll_union_agg",
                     Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
@@ -2168,6 +2176,15 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     "",
                     "_ZN5doris15BitmapFunctions32orthogonal_bitmap_count_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
+
+            //vec ORTHOGONAL_BITMAP_INTERSECT and ORTHOGONAL_BITMAP_INTERSECT_COUNT
+            addBuiltin(
+                    AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_INTERSECT, Lists.newArrayList(Type.BITMAP, t, t),
+                            Type.BITMAP, Type.BITMAP, true, "", "", "", "", "", "", "", true, false, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_INTERSECT_COUNT,
+                    Lists.newArrayList(Type.BITMAP, t, t), Type.BIGINT, Type.BITMAP, true, "", "", "", "", "", "", "",
+                    true, false, true, true));
         }
         // bitmap
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(Type.BITMAP),
@@ -2226,6 +2243,10 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 null,
                 "_ZN5doris15BitmapFunctions32orthogonal_bitmap_count_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 true, true, true));
+        // ORTHOGONAL_BITMAP_UNION_COUNT vectorized
+        addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_UNION_COUNT, Lists.newArrayList(Type.BITMAP),
+                Type.BIGINT, Type.BITMAP, "", "", "", "", null, null, "", true, true, true, true));
+
         // TODO(ml): supply function symbol
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_INTERSECT, Lists.newArrayList(Type.BITMAP),
                 Type.BITMAP, Type.VARCHAR,
