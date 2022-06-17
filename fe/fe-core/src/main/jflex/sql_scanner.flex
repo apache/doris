@@ -433,6 +433,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("||", new Integer(SqlParserSymbols.KW_PIPE));
         keywordMap.put("current_timestamp", new Integer(SqlParserSymbols.KW_CURRENT_TIMESTAMP));
         keywordMap.put("not_null", new Integer(SqlParserSymbols.KW_NOT_NULL));
+        keywordMap.put("catalog", new Integer(SqlParserSymbols.KW_CATALOG));
+        keywordMap.put("catalogs", new Integer(SqlParserSymbols.KW_CATALOGS));
    }
     
   // map from token id to token description
