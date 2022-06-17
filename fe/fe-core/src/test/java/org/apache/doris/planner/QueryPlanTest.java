@@ -2152,5 +2152,4 @@ public class QueryPlanTest {
         Assert.assertFalse(explainString.contains("non-equal FULL OUTER JOIN is not supported"));
 
     }
-
 }
