@@ -505,6 +505,25 @@ build_re2() {
     ${BUILD_SYSTEM} -j $PARALLEL install
 }
 
+# hyperscan
+build_hyperscan() {
+    MACHINE_TYPE=$(uname -m)
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        echo "hyperscan is not supporting aarch64 now."
+    else
+        check_if_source_exist $RAGEL_SOURCE
+        cd $TP_SOURCE_DIR/$RAGEL_SOURCE
+        ./configure --prefix=$TP_INSTALL_DIR && make install
+
+        check_if_source_exist $HYPERSCAN_SOURCE
+        cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+        mkdir -p $BUILD_DIR && cd $BUILD_DIR
+        PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+        -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+        ${BUILD_SYSTEM} -j $PARALLEL install
+    fi
+}
+
 # boost
 build_boost() {
     check_if_source_exist $BOOST_SOURCE
@@ -666,6 +685,7 @@ build_arrow() {
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF \
+    -DBoost_USE_STATIC_RUNTIME=ON \
     -DARROW_GFLAGS_USE_SHARED=OFF \
     -Dgflags_ROOT=$TP_INSTALL_DIR \
     -DGLOG_ROOT=$TP_INSTALL_DIR \
@@ -765,13 +785,19 @@ build_bitshuffle() {
 
 # croaring bitmap
 build_croaringbitmap() {
+    avx_flag=
+    if [ ! -z "$USE_AVX2" -a "$USE_AVX2" -eq 0 ];then
+        echo "set USE_AVX2=$USE_AVX2 to FORCE disable AVX2 in croaringbitmap"
+        avx_flag="-DROARING_DISABLE_AVX=ON"
+    fi
+
     check_if_source_exist $CROARINGBITMAP_SOURCE
     cd $TP_SOURCE_DIR/$CROARINGBITMAP_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    ${CMAKE_CMD} -G "${GENERATOR}" ${avx_flag} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DENABLE_ROARING_TESTS=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
@@ -924,16 +950,7 @@ build_gsasl() {
     check_if_source_exist $GSASL_SOURCE
     cd $TP_SOURCE_DIR/$GSASL_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
-    make -j $PARALLEL && make install
-}
-
-# build_gsasl2 just for libgsasl1.8.0
-build_gsasl2() {
-    check_if_source_exist $GSASL2_SOURCE
-    cd $TP_SOURCE_DIR/$GSASL2_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
+    ../configure --prefix=$TP_INSTALL_DIR --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
     make -j $PARALLEL && make install
 }
 
@@ -942,8 +959,8 @@ build_krb5() {
     check_if_source_exist $KRB5_SOURCE
     cd $TP_SOURCE_DIR/$KRB5_SOURCE/src
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    CFLAGS="-fcommon" \
-    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --disable-shared --enable-static
+    CFLAGS="-fcommon -fPIC" \
+    ../configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static
     make -j $PARALLEL && make install
 }
 
@@ -952,19 +969,10 @@ build_hdfs3() {
     check_if_source_exist $HDFS3_SOURCE
     cd $TP_SOURCE_DIR/$HDFS3_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
-    # build libhdfs3 without kerberos
-    ../bootstrap --dependency="$TP_INSTALL_DIR" --prefix=$TP_INSTALL_DIR
-    make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
-    make install
-}
-
-# hdfs3_with_kerberos
-build_hdfs3_with_kerberos() {
-    check_if_source_exist $HDFS3_SOURCE
-    cd $TP_SOURCE_DIR/$HDFS3_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
     # build libhdfs3 with kerberos support
-    ../bootstrap --dependency="$HDFS3_KRB5_INSTALL_DIR:$TP_INSTALL_DIR -DWITH_KERBEROS=true" --prefix=$HDFS3_KRB5_INSTALL_DIR
+    CPPLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    ../bootstrap --dependency="$TP_INSTALL_DIR" --prefix=$TP_INSTALL_DIR --disable-shared --enable-static
     make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
     make install
 }
@@ -991,14 +999,42 @@ build_simdjson() {
     cd $TP_SOURCE_DIR/$SIMDJSON_SOURCE
 
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    CXX_FLAGS="-O3" \
-    C_FLAGS="-O3" \
+    CXXFLAGS="-O3" \
+    CFLAGS="-O3" \
     $CMAKE_CMD ..
     $CMAKE_CMD --build .
 
     cp $TP_SOURCE_DIR/$SIMDJSON_SOURCE/$BUILD_DIR/libsimdjson.a $TP_INSTALL_DIR/lib64
 
     cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
+}
+
+# nlohmann_json
+build_nlohmann_json() {
+    check_if_source_exist $NLOHMANN_JSON_SOURCE
+    cd $TP_SOURCE_DIR/$NLOHMANN_JSON_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+
+    $CMAKE_CMD -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DJSON_BuildTests=OFF ..
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# opentelemetry
+build_opentelemetry() {
+    check_if_source_exist $OPENTELEMETRY_SOURCE
+    cd $TP_SOURCE_DIR/$OPENTELEMETRY_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+
+    $CMAKE_CMD -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_TESTING=OFF \
+    -DWITH_OTLP=ON -DWITH_OTLP_GRPC=OFF -DWITH_OTLP_HTTP=ON -DWITH_ZIPKIN=ON -DWITH_EXAMPLES=OFF ..
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# sse2neon
+build_sse2neon() {
+    check_if_source_exist $SSE2NEON_SOURCE
+    cd $TP_SOURCE_DIR/$SSE2NEON_SOURCE
+    cp sse2neon.h $TP_INSTALL_DIR/include/
 }
 
 build_libunixodbc
@@ -1019,6 +1055,7 @@ build_snappy
 build_gperftools
 build_curl
 build_re2
+# build_hyperscan
 build_thrift
 build_leveldb
 build_brpc
@@ -1044,13 +1081,14 @@ build_lzma
 build_xml2
 build_idn
 build_gsasl
-build_gsasl2
 build_krb5
 build_hdfs3
-build_hdfs3_with_kerberos
 build_benchmark
 build_simdjson
+build_nlohmann_json
+build_opentelemetry
 build_libbacktrace
+build_sse2neon
 
 echo "Finished to build all thirdparties"
 

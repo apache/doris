@@ -38,6 +38,7 @@ struct TTabletInfo {
     12: optional bool used
     13: optional Types.TPartitionId partition_id
     14: optional bool is_in_memory
+    15: optional Types.TReplicaId replica_id
 }
 
 struct TFinishTaskRequest {

@@ -27,11 +27,9 @@
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gutil/ref_counted.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/data_dir.h"
+#include "olap/tablet.h"
 #include "util/countdown_latch.h"
-#include "util/thread.h"
 
 namespace doris {
 

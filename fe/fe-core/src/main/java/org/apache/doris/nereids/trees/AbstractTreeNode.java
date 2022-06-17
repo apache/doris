@@ -24,6 +24,8 @@ import org.apache.doris.nereids.operators.Operator;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Abstract class for plan node in Nereids, include plan node and expression.
@@ -31,18 +33,18 @@ import java.util.List;
  * @param <NODE_TYPE> either {@link org.apache.doris.nereids.trees.plans.Plan}
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
-public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_TYPE>>
+public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
 
     protected final NodeType type;
-    protected final List<TreeNode> children;
+    protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/incubator-doris/pull/9807#discussion_r884829067
-    protected final GroupExpression groupExpression;
+    protected final Optional<GroupExpression> groupExpression;
 
 
-    public AbstractTreeNode(NodeType type, TreeNode... children) {
-        this(type, null, children);
+    public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
+        this(type, Optional.empty(), children);
     }
 
     /**
@@ -52,10 +54,10 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
      * @param groupExpression group expression related to the operator of this node
      * @param children children of this node
      */
-    public AbstractTreeNode(NodeType type, GroupExpression groupExpression, TreeNode... children) {
+    public AbstractTreeNode(NodeType type, Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
         this.type = type;
         this.children = ImmutableList.copyOf(children);
-        this.groupExpression = groupExpression;
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
     }
 
     @Override
@@ -64,28 +66,23 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
     }
 
     @Override
-    public GroupExpression getGroupExpression() {
+    public Optional<GroupExpression> getGroupExpression() {
         return groupExpression;
     }
 
     @Override
-    public NODE_TYPE newChildren(List<TreeNode> children) {
-        throw new RuntimeException();
+    public NODE_TYPE child(int index) {
+        return children.get(index);
+    }
+
+    @Override
+    public List<NODE_TYPE> children() {
+        return children;
     }
 
     @Override
     public NodeType getType() {
         return type;
-    }
-
-    @Override
-    public <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children() {
-        return (List) children;
-    }
-
-    @Override
-    public <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index) {
-        return (CHILD_TYPE) children.get(index);
     }
 
     public int arity() {

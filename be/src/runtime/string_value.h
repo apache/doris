@@ -90,6 +90,7 @@ struct StringValue {
     StringValue(char* ptr, int len) : ptr(ptr), len(len) {}
     StringValue(const char* ptr, int len) : ptr(const_cast<char*>(ptr)), len(len) {}
     StringValue() : ptr(nullptr), len(0) {}
+    StringValue(const StringRef& str) : ptr(const_cast<char*>(str.data)), len(str.size) {}
 
     /// Construct a StringValue from 's'.  's' must be valid for as long as
     /// this object is valid.

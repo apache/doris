@@ -29,8 +29,9 @@ import java.util.List;
 /**
  * Expression for unbound alias.
  */
-public class UnboundAlias<CHILD_TYPE extends Expression> extends NamedExpression<UnboundAlias<CHILD_TYPE>>
-        implements UnaryExpression<UnboundAlias<CHILD_TYPE>, CHILD_TYPE> {
+public class UnboundAlias<CHILD_TYPE extends Expression>
+        extends NamedExpression
+        implements UnaryExpression<CHILD_TYPE>, Unbound {
 
     public UnboundAlias(CHILD_TYPE child) {
         super(NodeType.UNBOUND_ALIAS, child);

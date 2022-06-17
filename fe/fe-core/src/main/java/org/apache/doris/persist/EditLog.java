@@ -41,6 +41,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -65,7 +66,6 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -813,13 +813,33 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_POLICY: {
-                    RowPolicy log = (RowPolicy) journal.getData();
+                    Policy log = (Policy) journal.getData();
                     catalog.getPolicyMgr().replayCreate(log);
                     break;
                 }
                 case OperationType.OP_DROP_POLICY: {
                     DropPolicyLog log = (DropPolicyLog) journal.getData();
                     catalog.getPolicyMgr().replayDrop(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_DS: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayCreateCatalog(log);
+                    break;
+                }
+                case OperationType.OP_DROP_DS: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayDropCatalog(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_DS_NAME: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayAlterCatalogName(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_DS_PROPS: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayAlterCatalogProps(log);
                     break;
                 }
                 default: {
@@ -1426,14 +1446,14 @@ public class EditLog {
     }
 
     public void logCreatePolicy(Policy policy) {
-        if (policy instanceof RowPolicy) {
-            logEdit(OperationType.OP_CREATE_POLICY, policy);
-        } else {
-            LOG.error("invalid policy: " + policy.getType().name());
-        }
+        logEdit(OperationType.OP_CREATE_POLICY, policy);
     }
 
     public void logDropPolicy(DropPolicyLog log) {
         logEdit(OperationType.OP_DROP_POLICY, log);
+    }
+
+    public void logDatasourceLog(short id, CatalogLog log) {
+        logEdit(id, log);
     }
 }

@@ -349,8 +349,8 @@ public class OlapScanNode extends ScanNode {
          * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
          * - So only an inaccurate cardinality can be calculated here.
          */
+        mockRowCountInStatistic();
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            mockRowCountInStatistic();
             computeInaccurateCardinality();
         }
     }
@@ -397,7 +397,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (cardinality > 0) {
             avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
@@ -688,63 +688,43 @@ public class OlapScanNode extends ScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
 
-        output.append(prefix).append("TABLE: ").append(olapTable.getName()).append("\n");
-
+        String indexName = olapTable.getIndexNameById(selectedIndexId);
+        output.append(prefix).append("TABLE: ").append(olapTable.getName()).append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
+        if (isPreAggregation) {
+            output.append(", PREAGGREGATION: ON");
+        } else {
+            output.append(", PREAGGREGATION: OFF. Reason: ").append(reasonOfPreAggregation);
+        }
+        output.append("\n");
 
         if (null != sortColumn) {
             output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
         }
-        if (isPreAggregation) {
-            output.append(prefix).append("PREAGGREGATION: ON").append("\n");
-        } else {
-            output.append(prefix).append("PREAGGREGATION: OFF. Reason: ").append(reasonOfPreAggregation).append("\n");
-        }
+
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(
-                    getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(false));
         }
 
-        output.append(prefix).append(String.format(
-                "partitions=%s/%s",
-                selectedPartitionNum,
-                olapTable.getPartitions().size()));
-
-        String indexName = olapTable.getIndexNameById(selectedIndexId);
-        output.append("\n").append(prefix).append(String.format("rollup: %s", indexName));
-
-        output.append("\n");
-
-        output.append(prefix).append(String.format(
-                "tabletRatio=%s/%s", selectedTabletsNum, totalTabletsNum));
-        output.append("\n");
-
-        // We print up to 10 tablet, and we print "..." if the number is more than 10
-        if (scanTabletIds.size() > 10) {
-            List<Long> firstTenTabletIds = scanTabletIds.subList(0, 10);
-            output.append(prefix).append(String.format("tabletList=%s ...", Joiner.on(",").join(firstTenTabletIds)));
+        output.append(prefix).append(String.format("partitions=%s/%s, tablets=%s/%s", selectedPartitionNum,
+                olapTable.getPartitions().size(), selectedTabletsNum, totalTabletsNum));
+        // We print up to 3 tablet, and we print "..." if the number is more than 3
+        if (scanTabletIds.size() > 3) {
+            List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
+            output.append(String.format(", tabletList=%s ...", Joiner.on(",").join(firstTenTabletIds)));
         } else {
-            output.append(prefix).append(String.format("tabletList=%s", Joiner.on(",").join(scanTabletIds)));
+            output.append(String.format(", tabletList=%s", Joiner.on(",").join(scanTabletIds)));
         }
-
         output.append("\n");
 
-        output.append(prefix).append(String.format(
-                "cardinality=%s", cardinality));
-        output.append("\n");
-
-        output.append(prefix).append(String.format(
-                "avgRowSize=%s", avgRowSize));
-        output.append("\n");
-
-        output.append(prefix).append(String.format(
-                "numNodes=%s", numNodes));
+        output.append(prefix).append(String.format("cardinality=%s", cardinality))
+                .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));
         output.append("\n");
 
         return output.toString();
@@ -775,6 +755,7 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        msg.olap_scan_node.setTableName(olapTable.getName());
     }
 
     // export some tablets

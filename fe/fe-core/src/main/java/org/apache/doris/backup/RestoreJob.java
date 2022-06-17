@@ -46,7 +46,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
@@ -957,7 +957,7 @@ public class RestoreJob extends AbstractJob {
                     Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
-                            restoreTablet.getId(), indexMeta.getShortKeyColumnCount(),
+                            restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),
                             indexMeta.getKeysType(), TStorageType.COLUMN,
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,

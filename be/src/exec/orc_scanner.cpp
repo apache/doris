@@ -17,20 +17,10 @@
 
 #include "exec/orc_scanner.h"
 
-#include "exec/broker_reader.h"
-#include "exec/buffered_reader.h"
-#include "exec/local_file_reader.h"
-#include "exec/s3_reader.h"
-#include "exprs/expr.h"
-#include "runtime/descriptors.h"
+#include "io/file_factory.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-
-#if defined(__x86_64__)
-#include "exec/hdfs_file_reader.h"
-#endif
 
 // orc include file didn't expose orc::TimezoneError
 // we have to declare it by hand, following is the source code in orc link
@@ -387,44 +377,11 @@ Status ORCScanner::open_next_reader() {
         }
         const TBrokerRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
-        switch (range.file_type) {
-        case TFileType::FILE_LOCAL: {
-            file_reader.reset(new LocalFileReader(range.path, range.start_offset));
-            break;
-        }
-        case TFileType::FILE_BROKER: {
-            int64_t file_size = 0;
-            // for compatibility
-            if (range.__isset.file_size) {
-                file_size = range.file_size;
-            }
-            file_reader.reset(new BufferedReader(
-                    _profile,
-                    new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
-                                     range.path, range.start_offset, file_size)));
-            break;
-        }
-        case TFileType::FILE_S3: {
-            file_reader.reset(new BufferedReader(
-                    _profile, new S3Reader(_params.properties, range.path, range.start_offset)));
-            break;
-        }
-        case TFileType::FILE_HDFS: {
-#if defined(__x86_64__)
-            file_reader.reset(
-                    new HdfsFileReader(range.hdfs_params, range.path, range.start_offset));
-            break;
-#else
-            return Status::InternalError("HdfsFileReader do not support on non x86 platform");
-#endif
-        }
-        default: {
-            std::stringstream ss;
-            ss << "Unknown file type, type=" << range.file_type;
-            return Status::InternalError(ss.str());
-        }
-        }
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                range.file_type, _state->exec_env(), _profile, _broker_addresses,
+                _params.properties, range, range.start_offset, file_reader));
         RETURN_IF_ERROR(file_reader->open());
+
         if (file_reader->size() == 0) {
             file_reader->close();
             continue;

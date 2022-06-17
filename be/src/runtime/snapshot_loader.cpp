@@ -173,7 +173,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 /*
  * Download snapshot files from remote.
  * After downloaded, the local dir should contains all files existing in remote,
- * may also contains severval useless files.
+ * may also contains several useless files.
  */
 Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to_dest_path,
                                 std::vector<int64_t>* downloaded_tablet_ids) {
@@ -413,8 +413,8 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    Status convert_status =
-            SnapshotManager::instance()->convert_rowset_ids(snapshot_path, tablet_id, schema_hash);
+    Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
+            snapshot_path, tablet_id, tablet->replica_id(), schema_hash);
     if (convert_status != Status::OK()) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path

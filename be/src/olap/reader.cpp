@@ -23,24 +23,19 @@
 #include <charconv>
 #include <unordered_set>
 
+#include "common/status.h"
 #include "olap/bloom_filter_predicate.h"
-#include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
+#include "olap/olap_common.h"
 #include "olap/row.h"
-#include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/rowset/column_data.h"
 #include "olap/schema.h"
-#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.hpp"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
-#include "vec/olap/vcollect_iterator.h"
 
 using std::nothrow;
 using std::set;
@@ -264,8 +259,6 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
     _init_seek_columns();
 
-    _collect_iter.init(this);
-
     if (_tablet->tablet_schema().has_sequence_col()) {
         auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
         DCHECK_NE(sequence_col_idx, -1);
@@ -316,7 +309,8 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
     } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
-                read_params.reader_type == READER_BASE_COMPACTION) &&
+                read_params.reader_type == READER_BASE_COMPACTION ||
+                read_params.reader_type == READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
@@ -837,12 +831,6 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         return Status::OK();
     }
-    Status ret;
-    {
-        std::shared_lock rdlock(_tablet->get_header_lock());
-        ret = _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
-                                   read_params.version.second, this);
-    }
     // Only BASE_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
@@ -850,7 +838,18 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_BASE_COMPACTION) {
         _filter_delete = true;
     }
-    return ret;
+
+    auto delete_init = [&]() -> Status {
+        return _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
+                                    read_params.version.second, this);
+    };
+
+    if (read_params.reader_type == READER_ALTER_TABLE) {
+        return delete_init();
+    }
+
+    std::shared_lock rdlock(_tablet->get_header_lock());
+    return delete_init();
 }
 
 } // namespace doris

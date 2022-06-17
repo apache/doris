@@ -57,7 +57,7 @@ public class ApplyRuleJob extends Job<Plan> {
             return;
         }
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
+        GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
             List<Plan> newPlans = rule.transform(plan, context);

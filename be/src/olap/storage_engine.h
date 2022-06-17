@@ -42,7 +42,6 @@
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
@@ -104,7 +103,9 @@ public:
     std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
     DataDir* get_store(const std::string& path);
 
-    uint32_t available_storage_medium_type_count() { return _available_storage_medium_type_count; }
+    uint32_t available_storage_medium_type_count() const {
+        return _available_storage_medium_type_count;
+    }
 
     Status set_cluster_id(int32_t cluster_id);
     int32_t effective_cluster_id() const { return _effective_cluster_id; }
@@ -193,6 +194,7 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status submit_quick_compaction_task(TabletSharedPtr tablet);
 
 private:
     // Instance should be inited from `static open()`
@@ -269,6 +271,10 @@ private:
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    Status _handle_quick_compaction(TabletSharedPtr);
+
+    void _adjust_compaction_thread_num();
 
 private:
     struct CompactionCandidate {
@@ -377,7 +383,9 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    std::unique_ptr<ThreadPool> _compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
 
     scoped_refptr<Thread> _alpha_rowset_scan_thread;
     std::unique_ptr<ThreadPool> _convert_rowset_thread_pool;

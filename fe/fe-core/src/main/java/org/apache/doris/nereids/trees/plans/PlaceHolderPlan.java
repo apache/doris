@@ -18,24 +18,52 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.PlanOperator;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * A virtual node that represents a fixed plan.
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class PlaceHolderPlan implements LeafPlan {
+public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolderOperator> {
+    /** PlaceHolderOperator. */
+    public static class PlaceHolderOperator extends LogicalLeafOperator {
+        private final LogicalProperties logicalProperties;
+
+        public PlaceHolderOperator(LogicalProperties logicalProperties) {
+            super(OperatorType.PLACE_HOLDER);
+            this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
+        }
+
+        @Override
+        public List<Slot> computeOutput() {
+            throw new IllegalStateException("PlaceholderOperator can not compute output");
+        }
+
+        @Override
+        public LogicalProperties computeLogicalProperties(Plan... inputs) {
+            throw new IllegalStateException("PlaceholderOperator can not compute logical properties");
+        }
+    }
+
+    public PlaceHolderPlan(LogicalProperties logicalProperties) {
+        super(new PlaceHolderOperator(logicalProperties), Optional.empty(), Optional.of(logicalProperties));
+    }
 
     @Override
-    public GroupExpression getGroupExpression() {
-        return null;
+    public Optional<GroupExpression> getGroupExpression() {
+        return Optional.empty();
     }
 
     @Override
@@ -44,37 +72,13 @@ public class PlaceHolderPlan implements LeafPlan {
     }
 
     @Override
-    public TreeNode newChildren(List children) {
+    public PlaceHolderPlan withOutput(List<Slot> output) {
         throw new RuntimeException();
     }
 
     @Override
-    public PlanOperator getOperator() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public LogicalProperties getLogicalProperties() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public List<Slot> getOutput() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public String treeString() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public List<Plan> children() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public Plan child(int index) {
-        throw new RuntimeException();
+    public PlaceHolderPlan withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return new PlaceHolderPlan(logicalProperties);
     }
 }

@@ -241,7 +241,7 @@ parser code {:
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_QUANTILE_STATE, KW_QUANTILE_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
-    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN,
+    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN, KW_CURRENT_TIMESTAMP,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
@@ -276,7 +276,9 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNLOCK, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
-    KW_YEAR;
+    KW_YEAR,
+    KW_NOT_NULL,
+    KW_CATALOG, KW_CATALOGS;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -862,6 +864,15 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
     :}
+    /* Catalog */
+    | KW_ALTER KW_CATALOG ident:catalogName KW_RENAME ident:newCatalogName
+    {:
+        RESULT = new AlterCatalogNameStmt(catalogName, newCatalogName);
+    :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    {:
+        RESULT = new AlterCatalogPropertyStmt(catalogName, map);
+    :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
@@ -1224,6 +1235,11 @@ create_stmt ::=
     {:
         RESULT = new CreateDbStmt(ifNotExists, db, null);
     :}
+    /* Catalog */
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_properties:properties
+    {:
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, properties);
+    :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
     {:
@@ -1359,6 +1375,11 @@ create_stmt ::=
     KW_USING LPAREN expr:wherePredicate RPAREN
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
+    :}
+    /* storage policy */
+    | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
     :}
     ;
 
@@ -2008,6 +2029,11 @@ drop_stmt ::=
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
+    /* Catalog */
+    | KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
+    {:
+        RESULT = new DropCatalogStmt(ifExists, catalogName);
+    :}
     /* cluster */
     | KW_DROP KW_CLUSTER opt_if_exists:ifExists ident:cluster
     {:
@@ -2072,6 +2098,10 @@ drop_stmt ::=
     | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR user_identity:user
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, user);
+    :}
+    | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
     ;
 
@@ -2443,6 +2473,10 @@ opt_default_value ::=
     {:
         RESULT = ColumnDef.DefaultValue.NULL_DEFAULT_VALUE;
     :}
+    | KW_DEFAULT KW_CURRENT_TIMESTAMP
+    {:
+        RESULT = ColumnDef.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE;
+    :}
     ;
 
 opt_is_key ::=
@@ -2569,6 +2603,10 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null);
     :}
+    | KW_SHOW KW_STORAGE KW_POLICY
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null);
+    :}
     ;
 
 show_param ::=
@@ -2686,6 +2724,16 @@ show_param ::=
     | KW_SCHEMAS opt_wild_where
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
+    :}
+    /* Catalog */
+    | KW_CATALOGS
+    {:
+        RESULT = new ShowCatalogStmt();
+    :}
+    /* show Catalog name */
+    | KW_CATALOG ident:catalogName
+    {:
+        RESULT = new ShowCatalogStmt(catalogName);
     :}
     /* Dynamic Partition */
     | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db
@@ -2832,10 +2880,6 @@ show_param ::=
     | KW_FRONTENDS
     {:
         RESULT = new ShowFrontendsStmt();
-    :}
-    | KW_USER
-    {:
-        RESULT = new ShowUserStmt();
     :}
     | KW_REPOSITORIES
     {:
@@ -4624,6 +4668,8 @@ type ::=
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
   {: RESULT = new ArrayType(value_type); :}
+  | KW_ARRAY LESSTHAN KW_NOT_NULL LPAREN type:value_type RPAREN GREATERTHAN
+  {: RESULT = new ArrayType(value_type, false); :}
   | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
@@ -5807,6 +5853,12 @@ keyword ::=
     | KW_VARCHAR:id
     {: RESULT = id; :}
     | KW_POLICY:id
+    {: RESULT = id; :}
+    | KW_CURRENT_TIMESTAMP:id
+    {: RESULT = id; :}
+    | KW_CATALOG:id
+    {: RESULT = id; :}
+    | KW_CATALOGS:id
     {: RESULT = id; :}
     ;
 

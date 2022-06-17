@@ -51,7 +51,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
@@ -115,7 +115,7 @@ public class Alter {
         // check db quota
         db.checkQuota();
 
-        OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
 
@@ -125,7 +125,7 @@ public class Alter {
         Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         String tableName = stmt.getTableName().getTbl();
-        OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         // drop materialized view
         ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
     }
@@ -469,8 +469,8 @@ public class Alter {
         long newTblId = log.getNewTblId();
 
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        OlapTable origTable = db.getTableOrMetaException(origTblId, TableType.OLAP);
-        OlapTable newTbl = db.getTableOrMetaException(newTblId, TableType.OLAP);
+        OlapTable origTable = (OlapTable) db.getTableOrMetaException(origTblId, TableType.OLAP);
+        OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, TableType.OLAP);
         List<Table> tableList = Lists.newArrayList(origTable, newTbl);
         tableList.sort((Comparator.comparing(Table::getId)));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
@@ -529,7 +529,7 @@ public class Alter {
         Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         String tableName = dbTableName.getTbl();
-        View view = db.getTableOrMetaException(tableName, TableType.VIEW);
+        View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
         modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
     }
 
@@ -567,7 +567,7 @@ public class Alter {
         List<Column> newFullSchema = alterViewInfo.getNewFullSchema();
 
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        View view = db.getTableOrMetaException(tableId, TableType.VIEW);
+        View view = (View) db.getTableOrMetaException(tableId, TableType.VIEW);
 
         db.writeLock();
         view.writeLock();
@@ -717,7 +717,7 @@ public class Alter {
 
     public void replayModifyPartition(ModifyPartitionInfo info) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();

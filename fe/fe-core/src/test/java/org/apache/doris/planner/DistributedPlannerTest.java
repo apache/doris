@@ -135,7 +135,7 @@ public class DistributedPlannerTest {
         Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
-        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (BROADCAST)"));
+        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN(BROADCAST)"));
 
         sql = "explain select * from db1.tbl1 join [SHUFFLE] db1.tbl2 on tbl1.k1 = tbl2.k3";
         stmtExecutor = new StmtExecutor(ctx, sql);
@@ -143,7 +143,7 @@ public class DistributedPlannerTest {
         planner = stmtExecutor.planner();
         fragments = planner.getFragments();
         plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
-        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
+        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN(PARTITIONED)"));
     }
 
     @Test
@@ -154,7 +154,7 @@ public class DistributedPlannerTest {
         Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
-        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (BROADCAST)"));
+        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN(BROADCAST)"));
 
         double originThreshold = ctx.getSessionVariable().autoBroadcastJoinThreshold;
         try {
@@ -164,7 +164,7 @@ public class DistributedPlannerTest {
             planner = stmtExecutor.planner();
             fragments = planner.getFragments();
             plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
-            Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
+            Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN(PARTITIONED)"));
         } finally {
             ctx.getSessionVariable().autoBroadcastJoinThreshold = originThreshold;
         }

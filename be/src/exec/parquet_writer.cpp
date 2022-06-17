@@ -21,7 +21,7 @@
 #include <arrow/status.h>
 #include <time.h>
 
-#include "exec/file_writer.h"
+#include "io/file_writer.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
 

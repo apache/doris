@@ -41,6 +41,7 @@ public enum NodeType {
     NULL_SAFE_EQUAL,
     NOT,
     ALIAS,
+    COMPOUND,
 
     // pattern
     PATTERN,

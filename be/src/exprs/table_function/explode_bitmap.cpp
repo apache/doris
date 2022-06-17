@@ -18,7 +18,6 @@
 #include "exprs/table_function/explode_bitmap.h"
 
 #include "exprs/expr_context.h"
-#include "exprs/scalar_fn_call.h"
 
 namespace doris {
 

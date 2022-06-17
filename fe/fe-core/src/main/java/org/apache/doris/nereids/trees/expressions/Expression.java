@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
@@ -28,8 +28,7 @@ import java.util.List;
 /**
  * Abstract class for all Expression in Nereids.
  */
-public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
-        extends AbstractTreeNode<EXPR_TYPE> {
+public abstract class Expression extends AbstractTreeNode<Expression> {
 
     public Expression(NodeType type, Expression... children) {
         super(type, children);
@@ -47,6 +46,10 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
         throw new UnboundException("nullable");
     }
 
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitExpression(this, context);
+    }
+
     @Override
     public List<Expression> children() {
         return (List) children;
@@ -58,7 +61,19 @@ public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
     }
 
     @Override
-    public EXPR_TYPE newChildren(List<TreeNode> children) {
+    public Expression withChildren(List<Expression> children) {
         throw new RuntimeException();
+    }
+
+    /**
+     * Whether the expression is a constant.
+     */
+    public boolean isConstant() {
+        for (Expression child : children()) {
+            if (child.isConstant()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
@@ -48,7 +49,7 @@ public class GroupMatching<NODE_TYPE extends TreeNode> implements Iterable<NODE_
     /**
      * Iterator to get all subtrees from a group.
      */
-    public static class GroupIterator<NODE_TYPE extends TreeNode> implements Iterator<NODE_TYPE> {
+    public static class GroupIterator<NODE_TYPE extends TreeNode<NODE_TYPE>> implements Iterator<NODE_TYPE> {
         private final Pattern pattern;
         private final List<Iterator<NODE_TYPE>> iterator;
         private int iteratorIndex = 0;
@@ -59,19 +60,19 @@ public class GroupMatching<NODE_TYPE extends TreeNode> implements Iterable<NODE_
          * @param pattern pattern to match
          * @param group group to be matched
          */
-        public GroupIterator(Pattern pattern, Group group) {
+        public GroupIterator(Pattern<? extends Plan, Plan> pattern, Group group) {
             this.pattern = pattern;
             this.iterator = Lists.newArrayList();
             for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                GroupExpressionMatching.GroupExpressionIterator<NODE_TYPE> groupExpressionIterator =
-                        new GroupExpressionMatching<NODE_TYPE>(pattern, groupExpression).iterator();
+                GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =
+                        new GroupExpressionMatching(pattern, groupExpression).iterator();
                 if (groupExpressionIterator.hasNext()) {
                     this.iterator.add(groupExpressionIterator);
                 }
             }
             for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                GroupExpressionMatching.GroupExpressionIterator<NODE_TYPE> groupExpressionIterator =
-                        new GroupExpressionMatching<NODE_TYPE>(pattern, groupExpression).iterator();
+                GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =
+                        new GroupExpressionMatching(pattern, groupExpression).iterator();
                 if (groupExpressionIterator.hasNext()) {
                     this.iterator.add(groupExpressionIterator);
                 }

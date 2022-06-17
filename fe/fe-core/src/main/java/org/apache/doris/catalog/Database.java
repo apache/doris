@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -71,7 +71,7 @@ import javax.annotation.Nullable;
  * if the table has never been loaded * if the table loading failed on the
  * previous attempt
  */
-public class Database extends MetaObject implements Writable {
+public class Database extends MetaObject implements Writable, DatabaseIf<Table> {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private long id;
@@ -314,7 +314,7 @@ public class Database extends MetaObject implements Writable {
         checkReplicaQuota();
     }
 
-    private boolean isTableExist(String tableName) {
+    public boolean isTableExist(String tableName) {
         if (Catalog.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
@@ -509,21 +509,21 @@ public class Database extends MetaObject implements Writable {
     }
 
     @SuppressWarnings("unchecked")
-    public <T extends Table> T getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
+    public Table getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
         Table table = getTableOrMetaException(tableName);
         if (table.getType() != tableType) {
             throw new MetaNotFoundException("table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
         }
-        return (T) table;
+        return table;
     }
 
     @SuppressWarnings("unchecked")
-    public <T extends Table> T getTableOrMetaException(long tableId, TableType tableType) throws MetaNotFoundException {
+    public Table getTableOrMetaException(long tableId, TableType tableType) throws MetaNotFoundException {
         Table table = getTableOrMetaException(tableId);
         if (table.getType() != tableType) {
             throw new MetaNotFoundException("table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
         }
-        return (T) table;
+        return table;
     }
 
     public Table getTableOrDdlException(String tableName) throws DdlException {

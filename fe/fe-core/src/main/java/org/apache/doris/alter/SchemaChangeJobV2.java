@@ -17,6 +17,11 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -29,7 +34,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -212,7 +217,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -245,10 +250,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
                             long backendId = shadowReplica.getBackendId();
+                            long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
-                                    shadowShortKeyColumnCount, shadowSchemaHash,
+                                    shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION,
                                     originKeysType, TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
@@ -367,26 +373,60 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
 
         tbl.readLock();
         try {
+            Map<String, Column> indexColumnMap = Maps.newHashMap();
+            for (Map.Entry<Long, List<Column>> entry : indexSchemaMap.entrySet()) {
+                for (Column column : entry.getValue()) {
+                    indexColumnMap.put(column.getName(), column);
+                }
+            }
+
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
 
-                // the schema change task will transform the data before visible version(included).
+                // the schema change task will transform the data before visible
+                // version(included).
                 long visibleVersion = partition.getVisibleVersion();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
+
+                    Map<String, Expr> defineExprs = Maps.newHashMap();
+
+                    List<Column> fullSchema = tbl.getBaseSchema(true);
+                    DescriptorTable descTable = new DescriptorTable();
+                    for (Column column : fullSchema) {
+                        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+                        SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
+                        destSlotDesc.setIsMaterialized(true);
+                        destSlotDesc.setColumn(column);
+                        destSlotDesc.setIsNullable(column.isAllowNull());
+
+                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PRFIX + column.getName())) {
+                            Column newColumn = indexColumnMap
+                                    .get(SchemaChangeHandler.SHADOW_NAME_PRFIX + column.getName());
+                            if (newColumn.getType() != column.getType()) {
+                                try {
+                                    defineExprs.put(column.getName(),
+                                            new SlotRef(destSlotDesc).castTo(newColumn.getType()));
+                                } catch (AnalysisException e) {
+                                    throw new AlterCancelException(e.getMessage());
+                                }
+                            }
+                        }
+
+                    }
 
                     long originIdxId = indexIdMap.get(shadowIdxId);
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
@@ -397,12 +437,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
-                            AlterReplicaTask rollupTask = new AlterReplicaTask(
-                                    shadowReplica.getBackendId(), dbId, tableId, partitionId,
-                                    shadowIdxId, originIdxId,
-                                    shadowTabletId, originTabletId, shadowReplica.getId(),
-                                    shadowSchemaHash, originSchemaHash,
-                                    visibleVersion, jobId, JobType.SCHEMA_CHANGE);
+                            AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
+                                    tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
+                                    shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -439,7 +477,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -652,7 +690,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      */
     private void replayCreateJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
@@ -690,7 +728,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      */
     private void replayPendingJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
             addShadowIndexToCatalog(olapTable);

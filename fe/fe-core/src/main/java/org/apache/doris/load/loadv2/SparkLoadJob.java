@@ -881,11 +881,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                 destSlotDesc.setIsMaterialized(true);
                 destSlotDesc.setColumn(column);
-                if (column.isAllowNull()) {
-                    destSlotDesc.setIsNullable(true);
-                } else {
-                    destSlotDesc.setIsNullable(false);
-                }
+                destSlotDesc.setIsNullable(column.isAllowNull());
             }
             initTBrokerScanRange(descTable, destTupleDesc, columns, brokerDesc);
             initTDescriptorTable(descTable);

@@ -18,14 +18,12 @@
 package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
-
-import java.util.List;
 
 /**
  * interface for all concrete logical plan operator.
  */
-public interface LogicalOperator<TYPE extends LogicalOperator<TYPE>> extends PlanOperator<TYPE> {
-    List<Slot> computeOutput(Plan... inputs);
+public interface LogicalOperator extends PlanOperator {
+    LogicalProperties computeLogicalProperties(Plan... inputs);
 }

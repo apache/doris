@@ -20,8 +20,6 @@
 
 #include "exprs/cast_expr.h"
 
-#include "runtime/runtime_state.h"
-
 namespace doris {
 
 Expr* CastExpr::from_thrift(const TExprNode& node) {

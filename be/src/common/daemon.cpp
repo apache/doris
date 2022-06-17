@@ -50,7 +50,6 @@
 #include "olap/options.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/user_function_cache.h"
 #include "util/cpu_info.h"

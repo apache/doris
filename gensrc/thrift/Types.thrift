@@ -25,6 +25,7 @@ typedef i32 TTupleId
 typedef i32 TSlotId
 typedef i64 TTableId
 typedef i64 TTabletId
+typedef i64 TReplicaId
 typedef i64 TVersion
 typedef i64 TVersionHash
 typedef i32 TSchemaHash
@@ -126,6 +127,9 @@ struct TTypeNode {
 
     // only used for structs; has struct_fields.size() corresponding child types
     3: optional list<TStructField> struct_fields
+
+    // only used for complex types, such as array, map and etc.
+    4: optional bool contains_null
 }
 
 // A flattened representation of a tree of column types obtained by depth-first
@@ -305,6 +309,8 @@ struct TAggregateFunction {
   8: optional string get_value_fn_symbol
   9: optional string remove_fn_symbol
   10: optional bool is_analytic_only_fn = false
+  // used for java-udaf to point user defined class
+  11: optional string symbol
 }
 
 // Represents a function in the Catalog.

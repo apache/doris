@@ -26,7 +26,6 @@
 #include "exec/parquet_scanner.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "runtime/dpp_sink_internal.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
@@ -304,7 +303,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             }
 
             // This row batch has been filled up, and break this
-            if (row_batch->is_full() || row_batch->is_full_uncommited()) {
+            if (row_batch->is_full() || row_batch->is_full_uncommitted()) {
                 break;
             }
 

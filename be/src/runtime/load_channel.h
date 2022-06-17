@@ -39,8 +39,9 @@ class Cache;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip, bool is_vec);
+    LoadChannel(const UniqueId& load_id, int64_t load_mem_limit, int64_t channel_mem_limit,
+                int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
+                bool is_vec);
     ~LoadChannel();
 
     // open a new load channel if not exist

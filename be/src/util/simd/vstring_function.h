@@ -21,6 +21,10 @@
 
 #include <cstdint>
 
+#ifdef __aarch64__
+#include <sse2neon.h>
+#endif
+
 #include "runtime/string_value.hpp"
 #include "util/simd/lower_upper_impl.h"
 
@@ -48,7 +52,7 @@ namespace simd {
 
 class VStringFunctions {
 public:
-#ifdef __SSE2__
+#if defined(__SSE2__) || defined(__aarch64__)
     /// n equals to 16 chars length
     static constexpr auto REGISTER_SIZE = sizeof(__m128i);
 #endif
@@ -59,7 +63,7 @@ public:
         }
         auto begin = 0;
         auto end = str.len - 1;
-#ifdef __SSE2__
+#if defined(__SSE2__) || defined(__aarch64__)
         char blank = ' ';
         const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
@@ -91,7 +95,7 @@ public:
         }
         auto begin = 0;
         auto end = str.len - 1;
-#ifdef __SSE2__
+#if defined(__SSE2__) || defined(__aarch64__)
         char blank = ' ';
         const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
@@ -155,7 +159,7 @@ public:
         static constexpr auto hex_table = "0123456789ABCDEF";
         auto src_str_end = src_str + length;
 
-#if defined(__SSE2__)
+#if defined(__SSE2__) || defined(__aarch64__)
         constexpr auto step = sizeof(uint64);
         if (src_str + step < src_str_end) {
             const auto hex_map = _mm_loadu_si128(reinterpret_cast<const __m128i*>(hex_table));

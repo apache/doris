@@ -27,7 +27,6 @@
 #include "exprs/expr_value.h"
 #include "exprs/slot_ref.h"
 #include "udf/udf.h"
-#include "udf/udf_internal.h" // for CollectionVal
 
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf
@@ -35,6 +34,10 @@
 USING_DORIS_UDF;
 
 namespace doris {
+
+namespace vectorized {
+class VOlapScanNode;
+}
 
 class Expr;
 class MemPool;
@@ -161,6 +164,7 @@ private:
     friend class BloomFilterPredicate;
     friend class OlapScanNode;
     friend class EsPredicate;
+    friend class vectorized::VOlapScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this ExprContext.

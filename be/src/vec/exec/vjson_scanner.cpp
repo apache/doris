@@ -105,7 +105,7 @@ Status VJsonScanner::open_vjson_reader() {
     } else {
         _cur_vjson_reader.reset(new VJsonReader(_state, _counter, _profile, strip_outer_array,
                                                 num_as_string, fuzzy_parse, &_scanner_eof,
-                                                _cur_file_reader));
+                                                _cur_file_reader.get()));
     }
 
     RETURN_IF_ERROR(_cur_vjson_reader->init(jsonpath, json_root));
@@ -284,6 +284,7 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
     const char* str_value = nullptr;
     char tmp_buf[128] = {0};
     int32_t wbytes = 0;
+    std::string json_str;
 
     if (slot_desc->is_nullable()) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
@@ -331,7 +332,7 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
         break;
     default:
         // for other type like array or object. we convert it to string to save
-        std::string json_str = JsonReader::_print_json_value(*value);
+        json_str = JsonReader::_print_json_value(*value);
         wbytes = json_str.size();
         str_value = json_str.c_str();
         break;

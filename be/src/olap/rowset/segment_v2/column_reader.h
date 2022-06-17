@@ -335,6 +335,8 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
     Status seek_to_first() override {
         RETURN_IF_ERROR(_length_iterator->seek_to_first());
         RETURN_IF_ERROR(_item_iterator->seek_to_first()); // lazy???

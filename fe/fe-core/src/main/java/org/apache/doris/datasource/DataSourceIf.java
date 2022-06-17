@@ -17,48 +17,60 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
 /**
- *
+ * The interface of DataSource(catalog).
  */
 public interface DataSourceIf {
 
     // Type of this data source
     String getType();
 
+    long getId();
+
     // Name of this data source
     String getName();
 
-    @Nullable
-    Database getDbNullable(String dbName);
+    List<String> getDbNames();
 
     @Nullable
-    Database getDbNullable(long dbId);
+    DatabaseIf getDbNullable(String dbName);
 
-    Optional<Database> getDb(String dbName);
+    @Nullable
+    DatabaseIf getDbNullable(long dbId);
 
-    Optional<Database> getDb(long dbId);
+    Optional<DatabaseIf> getDb(String dbName);
 
-    <E extends Exception> Database getDbOrException(String dbName, java.util.function.Function<String, E> e) throws E;
+    Optional<DatabaseIf> getDb(long dbId);
 
-    <E extends Exception> Database getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E;
+    <E extends Exception> DatabaseIf getDbOrException(String dbName, java.util.function.Function<String, E> e) throws E;
 
-    Database getDbOrMetaException(String dbName) throws MetaNotFoundException;
+    <E extends Exception> DatabaseIf getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E;
 
-    Database getDbOrMetaException(long dbId) throws MetaNotFoundException;
+    DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException;
 
-    Database getDbOrDdlException(String dbName) throws DdlException;
+    DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException;
 
-    Database getDbOrDdlException(long dbId) throws DdlException;
+    DatabaseIf getDbOrDdlException(String dbName) throws DdlException;
 
-    Database getDbOrAnalysisException(String dbName) throws AnalysisException;
+    DatabaseIf getDbOrDdlException(long dbId) throws DdlException;
 
-    Database getDbOrAnalysisException(long dbId) throws AnalysisException;
+    DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException;
+
+    DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException;
+
+    Map<String, String> getProperties();
+
+    void modifyDatasourceName(String name);
+
+    void modifyDatasourceProps(Map<String, String> props);
 }

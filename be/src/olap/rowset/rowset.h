@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
+#pragma once
 
 #include <atomic>
 #include <memory>
@@ -106,7 +105,7 @@ private:
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    virtual ~Rowset() {}
+    virtual ~Rowset() = default;
 
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
@@ -147,15 +146,15 @@ public:
     size_t num_rows() const { return rowset_meta()->num_rows(); }
     Version version() const { return rowset_meta()->version(); }
     RowsetId rowset_id() const { return rowset_meta()->rowset_id(); }
-    int64_t creation_time() { return rowset_meta()->creation_time(); }
+    int64_t creation_time() const { return rowset_meta()->creation_time(); }
     PUniqueId load_id() const { return rowset_meta()->load_id(); }
     int64_t txn_id() const { return rowset_meta()->txn_id(); }
     int64_t partition_id() const { return rowset_meta()->partition_id(); }
     // flag for push delete rowset
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
-    void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
-    const RowsetMetaPB& get_rowset_pb() { return rowset_meta()->get_rowset_pb(); }
+    void to_rowset_pb(RowsetMetaPB* rs_meta) const { return rowset_meta()->to_rowset_pb(rs_meta); }
+    const RowsetMetaPB& get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
     KeysType keys_type() { return _schema->keys_type(); }
 
     // remove all files in this rowset
@@ -219,7 +218,9 @@ public:
 
     void set_need_delete_file() { _need_delete_file = true; }
 
-    bool contains_version(Version version) { return rowset_meta()->version().contains(version); }
+    bool contains_version(Version version) const {
+        return rowset_meta()->version().contains(version);
+    }
 
     FilePathDesc rowset_path_desc() { return _rowset_path_desc; }
 
@@ -290,5 +291,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H

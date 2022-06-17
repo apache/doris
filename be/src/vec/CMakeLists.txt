@@ -39,6 +39,8 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_group_concat.cpp
   aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
+  aggregate_functions/aggregate_function_java_udaf.h
+  aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   columns/collator.cpp
   columns/column.cpp
   columns/column_array.cpp
@@ -125,6 +127,8 @@ set(VEC_FILES
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
+  functions/array/function_array_size.cpp
+  functions/array/function_array_aggregation.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -190,9 +194,11 @@ set(VEC_FILES
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
+  sink/vresult_file_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
+  runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp)

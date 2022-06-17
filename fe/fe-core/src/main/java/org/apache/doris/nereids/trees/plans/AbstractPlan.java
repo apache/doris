@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.PlanOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 
@@ -27,43 +28,33 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Abstract class for all concrete plan node.
- *
- * @param <PLAN_TYPE> either {@link org.apache.doris.nereids.trees.plans.logical.LogicalPlan}
- *                  or {@link org.apache.doris.nereids.trees.plans.physical.PhysicalPlan}
  */
-public abstract class AbstractPlan<
-        PLAN_TYPE extends AbstractPlan<PLAN_TYPE, OP_TYPE>,
-        OP_TYPE extends PlanOperator>
-        extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE, OP_TYPE> {
+public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
+        extends AbstractTreeNode<Plan> implements Plan {
 
     public final OP_TYPE operator;
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, children);
-        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    protected final LogicalProperties logicalProperties;
+
+    public AbstractPlan(NodeType type, OP_TYPE operator, LogicalProperties logicalProperties, Plan... children) {
+        this(type, operator, Optional.empty(), logicalProperties, children);
     }
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression, Plan... children) {
+    /** all parameter constructor. */
+    public AbstractPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
+                        LogicalProperties logicalProperties, Plan... children) {
         super(type, groupExpression, children);
         this.operator = Objects.requireNonNull(operator, "operator can not be null");
+        this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
     }
 
     @Override
     public OP_TYPE getOperator() {
         return operator;
-    }
-
-    @Override
-    public List<Plan> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Plan child(int index) {
-        return (Plan) children.get(index);
     }
 
     /**

@@ -31,7 +31,7 @@ import java.util.Objects;
 /**
  * Logical relation plan operator.
  */
-public class LogicalRelation extends LogicalLeafOperator<LogicalRelation> {
+public class LogicalRelation extends LogicalLeafOperator {
 
     private final Table table;
     private final List<String> qualifier;
@@ -62,7 +62,7 @@ public class LogicalRelation extends LogicalLeafOperator<LogicalRelation> {
     }
 
     @Override
-    public List<Slot> doComputeOutput() {
+    public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
                 .map(col -> SlotReference.fromColumn(col, qualifier))

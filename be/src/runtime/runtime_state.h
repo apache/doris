@@ -75,6 +75,9 @@ public:
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
+    // for job task only
+    RuntimeState();
+
     // Empty d'tor to avoid issues with unique_ptr.
     ~RuntimeState();
 
@@ -105,7 +108,7 @@ public:
     std::shared_ptr<ObjectPool> obj_pool_ptr() const { return _obj_pool; }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
-    void set_desc_tbl(DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
+    void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     int batch_size() const { return _query_options.batch_size; }
     bool abort_on_error() const { return _query_options.abort_on_error; }
     bool abort_on_default_limit_exceeded() const {
@@ -188,7 +191,7 @@ public:
     int64_t backend_id() const { return _backend_id; }
 
     void set_be_number(int be_number) { _be_number = be_number; }
-    int be_number(void) { return _be_number; }
+    int be_number(void) const { return _be_number; }
 
     // Sets _process_status with err_msg if no error has been set yet.
     void set_process_status(const std::string& err_msg) {
@@ -239,7 +242,7 @@ public:
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
 
-    const int64_t load_job_id() { return _load_job_id; }
+    const int64_t load_job_id() const { return _load_job_id; }
 
     // we only initialize object for load jobs
     void set_load_error_hub_info(const TLoadErrorHubInfo& hub_info) {
@@ -312,17 +315,21 @@ public:
 
     ReservationTracker* instance_buffer_reservation() { return _instance_buffer_reservation.get(); }
 
-    int64_t min_reservation() { return _query_options.min_reservation; }
+    int64_t min_reservation() const { return _query_options.min_reservation; }
 
-    int64_t max_reservation() { return _query_options.max_reservation; }
+    int64_t max_reservation() const { return _query_options.max_reservation; }
 
-    bool disable_stream_preaggregations() { return _query_options.disable_stream_preaggregations; }
+    bool disable_stream_preaggregations() const {
+        return _query_options.disable_stream_preaggregations;
+    }
 
     bool enable_spill() const { return _query_options.enable_spilling; }
 
-    int32_t runtime_filter_wait_time_ms() { return _query_options.runtime_filter_wait_time_ms; }
+    int32_t runtime_filter_wait_time_ms() const {
+        return _query_options.runtime_filter_wait_time_ms;
+    }
 
-    int32_t runtime_filter_max_in_num() { return _query_options.runtime_filter_max_in_num; }
+    int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
 
@@ -387,7 +394,7 @@ private:
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
 
-    DescriptorTbl* _desc_tbl;
+    const DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;
 
     // runtime filter

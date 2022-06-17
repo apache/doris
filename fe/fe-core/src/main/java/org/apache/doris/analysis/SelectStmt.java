@@ -27,7 +27,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -735,7 +735,7 @@ public class SelectStmt extends QueryStmt {
 
     protected void reorderTable(Analyzer analyzer) throws AnalysisException {
         List<Pair<TableRef, Long>> candidates = Lists.newArrayList();
-
+        List<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
         // New pair of table ref and row count
         for (TableRef tblRef : fromClause) {
             if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN || tblRef.hasJoinHints()) {
@@ -773,8 +773,8 @@ public class SelectStmt extends QueryStmt {
 
         // can not get AST only with equal join, MayBe cross join can help
         fromClause.clear();
-        for (Pair<TableRef, Long> candidate : candidates) {
-            fromClause.add(candidate.first);
+        for (TableRef tableRef : originOrderBackUp) {
+            fromClause.add(tableRef);
         }
     }
 
@@ -819,19 +819,21 @@ public class SelectStmt extends QueryStmt {
                     // is being added.
                     Preconditions.checkState(tid == candidateTableRef.getId());
                     List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(tid);
-                    List<TupleId> candidateTupleList = Lists.newArrayList();
-                    Expr.getIds(candidateEqJoinPredicates, candidateTupleList, null);
-                    int count = candidateTupleList.size();
-                    for (TupleId tupleId : candidateTupleList) {
-                        if (validTupleId.contains(tupleId) || tid == tupleId) {
-                            count--;
+                    for (Expr candidateEqJoinPredicate : candidateEqJoinPredicates) {
+                        List<TupleId> candidateTupleList = Lists.newArrayList();
+                        Expr.getIds(Lists.newArrayList(candidateEqJoinPredicate), candidateTupleList, null);
+                        int count = candidateTupleList.size();
+                        for (TupleId tupleId : candidateTupleList) {
+                            if (validTupleId.contains(tupleId) || tid.equals(tupleId)) {
+                                count--;
+                            }
                         }
-                    }
-
-                    if (count == 0) {
-                        fromClause.add(candidateTableRef);
-                        validTupleId.add(tid);
-                        tableRefMap.remove(tid);
+                        if (count == 0) {
+                            fromClause.add(candidateTableRef);
+                            validTupleId.add(tid);
+                            tableRefMap.remove(tid);
+                            break;
+                        }
                     }
                 }
             }
@@ -1277,6 +1279,17 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         ExprSubstitutionMap rewriteSmap = new ExprSubstitutionMap();
+        for (Expr expr : analyticExprs) {
+            AnalyticExpr toRewrite = (AnalyticExpr) expr;
+            Expr newExpr = AnalyticExpr.rewrite(toRewrite);
+            if (newExpr != null) {
+                newExpr.analyze(analyzer);
+                if (!rewriteSmap.containsMappingFor(toRewrite)) {
+                    rewriteSmap.put(toRewrite, newExpr);
+                }
+            }
+        }
+
         if (rewriteSmap.size() > 0) {
             // Substitute the exprs with their rewritten versions.
             ArrayList<Expr> updatedAnalyticExprs =

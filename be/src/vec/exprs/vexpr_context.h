@@ -29,7 +29,7 @@ public:
     VExprContext(VExpr* expr);
     ~VExprContext();
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   const std::shared_ptr<MemTracker>& tracker);
+                   const std::shared_ptr<MemTracker>& tracker = nullptr);
     Status open(RuntimeState* state);
     void close(RuntimeState* state);
     Status clone(RuntimeState* state, VExprContext** new_ctx);
@@ -61,7 +61,7 @@ public:
     static Block get_output_block_after_execute_exprs(const std::vector<vectorized::VExprContext*>&,
                                                       const Block&, Status&);
 
-    int get_last_result_column_id() {
+    int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
         return _last_result_column_id;
     }

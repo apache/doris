@@ -521,7 +521,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("row_number")
                 || fnName.getFunction().equalsIgnoreCase("first_value")
                 || fnName.getFunction().equalsIgnoreCase("last_value")
-                || fnName.getFunction().equalsIgnoreCase("first_value_rewrite")) {
+                || fnName.getFunction().equalsIgnoreCase("first_value_rewrite")
+                || fnName.getFunction().equalsIgnoreCase("ntile")) {
             if (!isAnalyticFnCall) {
                 throw new AnalysisException(fnName.getFunction() + " only used in analytic function");
             }
@@ -558,20 +559,23 @@ public class FunctionCallExpr extends Expr {
             throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT");
         }
 
-        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT)) {
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT)) {
             if (children.size() <= 2) {
-                throw new AnalysisException("intersect_count(bitmap_column, column_to_filter, filter_values) "
+                throw new AnalysisException(fnName + "(bitmap_column, column_to_filter, filter_values) "
                         + "function requires at least three parameters");
             }
 
             Type inputType = getChild(0).getType();
             if (!inputType.isBitmapType()) {
-                throw new AnalysisException("intersect_count function first argument should be of BITMAP type, but was " + inputType);
+                throw new AnalysisException(
+                        fnName + "function first argument should be of BITMAP type, but was " + inputType);
             }
 
             for (int i = 2; i < children.size(); i++) {
                 if (!getChild(i).isConstant()) {
-                    throw new AnalysisException("intersect_count function filter_values arg must be constant");
+                    throw new AnalysisException(fnName + " function filter_values arg must be constant");
                 }
             }
             return;
@@ -776,6 +780,23 @@ public class FunctionCallExpr extends Expr {
         return String.format(
                 "No matching function with signature: %s(%s).",
                 fnName, fnParams.isStar() ? "*" : Joiner.on(", ").join(argTypesSql));
+    }
+
+    /**
+     * This analyzeImp used for DefaultValueExprDef
+     * to generate a builtinFunction.
+     * @throws AnalysisException
+     */
+    public void analyzeImplForDefaultValue() throws AnalysisException {
+        fn = getBuiltinFunction(null, fnName.getFunction(), new Type[0],
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        type = fn.getReturnType();
+        for (int i = 0; i < children.size(); ++i) {
+            if (getChild(i).getType().isNull()) {
+                uncheckedCastChild(Type.BOOLEAN, i);
+            }
+        }
+        return;
     }
 
     @Override

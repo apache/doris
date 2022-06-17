@@ -168,7 +168,7 @@ public class ClusterLoadStatistic {
                 continue;
             }
 
-            if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore > Config.balance_load_score_threshold) {
+            if (Config.be_rebalancer_fuzzy_test) {
                 if (beStat.getLoadScore(medium) > avgLoadScore) {
                     beStat.setClazz(medium, Classification.HIGH);
                     highCounter++;
@@ -177,8 +177,19 @@ public class ClusterLoadStatistic {
                     lowCounter++;
                 }
             } else {
-                beStat.setClazz(medium, Classification.MID);
-                midCounter++;
+                if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore
+                        > Config.balance_load_score_threshold) {
+                    if (beStat.getLoadScore(medium) > avgLoadScore) {
+                        beStat.setClazz(medium, Classification.HIGH);
+                        highCounter++;
+                    } else if (beStat.getLoadScore(medium) < avgLoadScore) {
+                        beStat.setClazz(medium, Classification.LOW);
+                        lowCounter++;
+                    }
+                } else {
+                    beStat.setClazz(medium, Classification.MID);
+                    midCounter++;
+                }
             }
         }
 

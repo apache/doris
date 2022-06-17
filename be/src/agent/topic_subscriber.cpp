@@ -17,8 +17,6 @@
 
 #include "agent/topic_subscriber.h"
 
-#include "common/logging.h"
-
 namespace doris {
 
 TopicSubscriber::TopicSubscriber() {}

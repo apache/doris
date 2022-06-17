@@ -27,6 +27,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -80,7 +81,7 @@ public class AnalyticEvalNode extends PlanNode {
             AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
             TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
             Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
-        super(id, input.getTupleIds(), "ANALYTIC");
+        super(id, input.getTupleIds(), "ANALYTIC", NodeType.ANALYTIC_EVAL_NODE);
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
         tupleIds.add(outputTupleDesc.getId());
@@ -135,17 +136,13 @@ public class AnalyticEvalNode extends PlanNode {
     }
 
     @Override
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        cardinality = cardinality == -1 ? getChild(0).cardinality : cardinality;
-        applyConjunctsSelectivity();
-        capCardinalityAtLimit();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats AnalyticEval: cardinality={}", cardinality);
-        }
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
     }
 
     @Override

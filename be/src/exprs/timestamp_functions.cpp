@@ -21,18 +21,12 @@
 #include "exprs/timestamp_functions.h"
 
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "runtime/datetime_value.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.hpp"
-#include "runtime/tuple_row.h"
-#include "util/debug_util.h"
-#include "util/path_builder.h"
+#include "udf/udf_internal.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
-
 void TimestampFunctions::init() {}
 
 // TODO: accept Java data/time format strings:
