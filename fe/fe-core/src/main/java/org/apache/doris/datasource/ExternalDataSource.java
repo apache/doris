@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Data;
 import org.apache.commons.lang.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,12 +34,14 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
 /**
  * The abstract class for all types of external data sources.
  */
+@Data
 public abstract class ExternalDataSource implements DataSourceIf, Writable {
     // Unique id of this data source, will be assigned after data source is loaded.
     @SerializedName(value = "id")
@@ -151,6 +154,21 @@ public abstract class ExternalDataSource implements DataSourceIf, Writable {
     @Override
     public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
         throw new NotImplementedException();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return dsProperty.getProperties();
+    }
+
+    @Override
+    public void modifyDatasourceName(String name) {
+        this.name = name;
+    }
+
+    @Override
+    public void modifyDatasourceProps(Map<String, String> props) {
+        dsProperty.setProperties(props);
     }
 
     @Override

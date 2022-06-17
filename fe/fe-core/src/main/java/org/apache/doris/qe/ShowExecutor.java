@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
+import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
@@ -346,6 +347,8 @@ public class ShowExecutor {
             handleShowCreateMaterializedView();
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
+        } else if (stmt instanceof ShowCatalogStmt) {
+            handleDatasource();
         } else {
             handleEmtpy();
         }
@@ -2233,4 +2236,8 @@ public class ShowExecutor {
         resultSet = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showStmt);
     }
 
+    public void handleDatasource() throws AnalysisException {
+        ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
+        resultSet = Catalog.getCurrentCatalog().getDataSourceMgr().showCatalogs(showStmt);
+    }
 }

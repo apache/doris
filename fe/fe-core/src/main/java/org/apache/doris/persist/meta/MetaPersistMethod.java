@@ -197,6 +197,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Catalog.class.getDeclaredMethod("savePolicy", CountingDataOutputStream.class, long.class);
                 break;
+            case "datasource":
+                metaPersistMethod.readMethod =
+                        Catalog.class.getDeclaredMethod("loadDatasource", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Catalog.class.getDeclaredMethod("saveDatasource", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

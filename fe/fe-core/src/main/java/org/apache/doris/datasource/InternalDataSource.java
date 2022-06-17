@@ -326,6 +326,21 @@ public class InternalDataSource implements DataSourceIf {
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
+    @Override
+    public Map<String, String> getProperties() {
+        return Maps.newHashMap();
+    }
+
+    @Override
+    public void modifyDatasourceName(String name) {
+        LOG.warn("Ignore the modify datasource name in build-in datasource.");
+    }
+
+    @Override
+    public void modifyDatasourceProps(Map<String, String> props) {
+        LOG.warn("Ignore the modify datasource props in build-in datasource.");
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {

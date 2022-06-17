@@ -23,11 +23,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
 /**
- *
+ * The interface of DataSource(catalog).
  */
 public interface DataSourceIf {
 
@@ -66,4 +67,10 @@ public interface DataSourceIf {
     DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException;
 
     DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException;
+
+    Map<String, String> getProperties();
+
+    void modifyDatasourceName(String name);
+
+    void modifyDatasourceProps(Map<String, String> props);
 }

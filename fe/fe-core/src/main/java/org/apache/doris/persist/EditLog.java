@@ -41,6 +41,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -824,6 +825,26 @@ public class EditLog {
                     catalog.getPolicyMgr().replayDrop(log);
                     break;
                 }
+                case OperationType.OP_CREATE_DS: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayCreateCatalog(log);
+                    break;
+                }
+                case OperationType.OP_DROP_DS: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayDropCatalog(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_DS_NAME: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayAlterCatalogName(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_DS_PROPS: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    catalog.getDataSourceMgr().replayAlterCatalogProps(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1434,5 +1455,9 @@ public class EditLog {
 
     public void logDropPolicy(DropPolicyLog log) {
         logEdit(OperationType.OP_DROP_POLICY, log);
+    }
+
+    public void logDatasourceLog(short id, CatalogLog log) {
+        logEdit(id, log);
     }
 }
