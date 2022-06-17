@@ -147,9 +147,9 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 // If 1 OP 0 returns true, it means the predicate is > or >=
 // If 1 OP 1 returns true, it means the predicate is >= or <=
 // by this way, avoid redundant code
-#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP, IS_RANGE)                                       \
+#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, FUNC_NAME, OP, IS_RANGE, SELECTION_INITIALIZED)     \
     template <class T>                                                                             \
-    void CLASS<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {    \
+    void CLASS<T>::FUNC_NAME(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {   \
         uint16_t new_size = 0;                                                                     \
         if (column.is_nullable()) {                                                                \
             auto* nullable_col =                                                                   \
@@ -167,7 +167,8 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                             IS_RANGE ? nested_col_ptr->find_code_by_bound(_value, 1 OP 0, 1 OP 1)  \
                                      : nested_col_ptr->find_code(_value);                          \
                     for (uint16_t i = 0; i < *size; i++) {                                         \
-                        uint16_t idx = sel[i];                                                     \
+                        uint16_t idx = i;                                                          \
+                        if constexpr (SELECTION_INITIALIZED) idx = sel[i];                         \
                         sel[new_size] = idx;                                                       \
                         const auto& cell_value = data_array[idx];                                  \
                         bool ret = !null_bitmap[idx] && (cell_value OP dict_code);                 \
@@ -180,7 +181,8 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                                 nested_col);                                                       \
                 auto& data_array = nested_col_ptr->get_data();                                     \
                 for (uint16_t i = 0; i < *size; i++) {                                             \
-                    uint16_t idx = sel[i];                                                         \
+                    uint16_t idx = i;                                                              \
+                    if constexpr (SELECTION_INITIALIZED) idx = sel[i];                             \
                     sel[new_size] = idx;                                                           \
                     const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);          \
                     bool ret = !null_bitmap[idx] && (cell_value OP _value);                        \
@@ -196,7 +198,8 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                 auto dict_code = IS_RANGE ? dict_col.find_code_by_bound(_value, 1 OP 0, 1 OP 1)    \
                                           : dict_col.find_code(_value);                            \
                 for (uint16_t i = 0; i < *size; ++i) {                                             \
-                    uint16_t idx = sel[i];                                                         \
+                    uint16_t idx = i;                                                              \
+                    if constexpr (SELECTION_INITIALIZED) idx = sel[i];                             \
                     sel[new_size] = idx;                                                           \
                     const auto& cell_value = data_array[idx];                                      \
                     bool ret = cell_value OP dict_code;                                            \
@@ -207,7 +210,8 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
             auto& pred_column_ref = reinterpret_cast<vectorized::PredicateColumnType<T>&>(column); \
             auto& data_array = pred_column_ref.get_data();                                         \
             for (uint16_t i = 0; i < *size; i++) {                                                 \
-                uint16_t idx = sel[i];                                                             \
+                uint16_t idx = i;                                                                  \
+                if constexpr (SELECTION_INITIALIZED) idx = sel[i];                                 \
                 sel[new_size] = idx;                                                               \
                 const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);              \
                 auto ret = cell_value OP _value;                                                   \
@@ -217,12 +221,22 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         *size = new_size;                                                                          \
     }
 
-COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==, false)
-COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, !=, false)
-COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, <, true)
-COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=, true)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >, true)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=, true)
+COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, evaluate, ==, false, true)
+COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, evaluate, !=, false, true)
+COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, evaluate, <, true, true)
+COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, evaluate, <=, true, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, evaluate, >, true, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, evaluate, >=, true, true)
+
+COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, evaluate_uninitialized_selection, ==, false, false)
+COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, evaluate_uninitialized_selection, !=, false,
+                                false)
+COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, evaluate_uninitialized_selection, <, true, false)
+COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, evaluate_uninitialized_selection, <=, true,
+                                false)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, evaluate_uninitialized_selection, >, true, false)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, evaluate_uninitialized_selection, >=, true,
+                                false)
 
 #define COMPARISON_PRED_COLUMN_EVALUATE_VEC(CLASS, OP)                                           \
     template <class T>                                                                           \

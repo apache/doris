@@ -41,6 +41,8 @@ class VectorizedRowBatch;
                                 const std::vector<BitmapIndexIterator*>& iterators,                \
                                 uint32_t num_rows, roaring::Roaring* roaring) const override;      \
         void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;  \
+        void evaluate_uninitialized_selection(vectorized::IColumn& column, uint16_t* sel,          \
+                                              uint16_t* size) const override;                      \
         void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,               \
                           bool* flags) const override;                                             \
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,                \

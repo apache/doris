@@ -860,9 +860,6 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                         uint16_t& selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     if (!_is_need_vec_eval) {
-        for (uint32_t i = 0; i < selected_size; ++i) {
-            sel_rowid_idx[i] = i;
-        }
         return;
     }
 
@@ -904,6 +901,7 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         return;
     }
 
+    bool selection_initialized = _is_need_vec_eval;
     uint16_t original_size = *selected_size_ptr;
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
@@ -914,7 +912,13 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
             predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
-        predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
+        if (!selection_initialized) {
+            predicate->evaluate_uninitialized_selection(*short_cir_column, vec_sel_rowid_idx,
+                                                        selected_size_ptr);
+            selection_initialized = true;
+        } else {
+            predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
+        }
     }
     _opts.stats->rows_vec_cond_filtered += original_size - *selected_size_ptr;
 
@@ -1003,7 +1007,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _output_non_pred_columns(block);
     } else {
         uint16_t selected_size = nrows_read;
-        uint16_t sel_rowid_idx[selected_size];
+        std::unique_ptr<uint16_t> sel_rowid_idx_ptr(new uint16_t[selected_size]);
+        auto* sel_rowid_idx = sel_rowid_idx_ptr.get();
 
         // step 1: evaluate vectorization predicate
         _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
