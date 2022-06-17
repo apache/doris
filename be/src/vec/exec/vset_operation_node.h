@@ -112,23 +112,35 @@ void VSetOperationNode::refresh_hash_table() {
 
                     arg.init_once();
                     auto& iter = arg.iter;
-                    for (; iter != arg.hash_table.end(); ++iter) {
+                    auto iter_end = arg.hash_table.end();
+                    while (iter != iter_end) {
                         auto& mapped = iter->get_second();
                         auto it = mapped.begin();
 
                         if constexpr (keep_matched) { //intersected
                             if (it->visited) {
                                 it->visited = false;
-                                if (is_need_shrink)
+                                if (is_need_shrink) {
                                     tmp_hash_table.hash_table.insert(iter->get_value());
+                                }
+                                ++iter;
                             } else {
-                                arg.hash_table.delete_zero_key(iter->get_first());
-                                iter->set_zero();
+                                if (!is_need_shrink) {
+                                    arg.hash_table.delete_zero_key(iter->get_first());
+                                    // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
+                                    // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
+                                    auto iter_prev = iter;
+                                    ++iter;
+                                    iter_prev->set_zero();
+                                } else {
+                                    ++iter;
+                                }
                             }
                         } else { //except
                             if (!it->visited && is_need_shrink) {
                                 tmp_hash_table.hash_table.insert(iter->get_value());
                             }
+                            ++iter;
                         }
                     }
 

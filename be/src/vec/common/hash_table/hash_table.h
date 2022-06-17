@@ -887,9 +887,12 @@ public:
     }
 
     void delete_zero_key(Key key) {
-        if (Cell::is_zero(key, *this))
-             this->clear_get_has_zero();
+        if (this->get_has_zero() && Cell::is_zero(key, *this)) {
+            --m_size;
+            this->clear_get_has_zero();
+        }
     }
+
     void clear() {
         destroy_elements();
         this->clear_get_has_zero();
