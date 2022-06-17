@@ -49,6 +49,10 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
         this(PatternType.NORMAL, operatorType, children);
     }
 
+    public Pattern(OperatorType operatorType, List<Predicate<TYPE>> predicates, Pattern... children) {
+        this(PatternType.NORMAL, operatorType, predicates, children);
+    }
+
     private Pattern(PatternType patternType, Pattern... children) {
         this(patternType, OperatorType.UNKNOWN, children);
     }
@@ -73,7 +77,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
-    public Pattern(PatternType patternType, OperatorType operatorType,
+    private Pattern(PatternType patternType, OperatorType operatorType,
                    List<Predicate<TYPE>> predicates, Pattern... children) {
         super(NodeType.PATTERN, children);
         this.patternType = patternType;

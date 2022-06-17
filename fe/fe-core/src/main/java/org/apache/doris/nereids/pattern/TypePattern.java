@@ -31,12 +31,12 @@ public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE
     protected final Class<TYPE> type;
 
     public TypePattern(Class clazz, Pattern... children) {
-        super(PatternType.NORMAL, OperatorType.UNKNOWN, children);
+        super(OperatorType.UNKNOWN, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
     public TypePattern(Class<TYPE> clazz, List<Predicate<TYPE>> predicates, Pattern... children) {
-        super(PatternType.NORMAL, OperatorType.UNKNOWN, predicates, children);
+        super(OperatorType.UNKNOWN, predicates, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
