@@ -246,7 +246,8 @@ public class DiskRebalancer extends Rebalancer {
      * 3. Select a low load path from this backend as destination.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx,
+            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");

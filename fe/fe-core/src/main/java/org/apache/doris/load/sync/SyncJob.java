@@ -294,7 +294,8 @@ public abstract class SyncJob implements Writable {
         @SerializedName(value = "failMsg")
         protected SyncFailMsg failMsg;
 
-        public SyncJobUpdateStateInfo(long id, JobState jobState, long lastStartTimeMs, long lastStopTimeMs, long finishTimeMs, SyncFailMsg failMsg) {
+        public SyncJobUpdateStateInfo(long id, JobState jobState, long lastStartTimeMs,
+                long lastStopTimeMs, long finishTimeMs, SyncFailMsg failMsg) {
             this.id = id;
             this.jobState = jobState;
             this.lastStartTimeMs = lastStartTimeMs;

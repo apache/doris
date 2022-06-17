@@ -50,7 +50,8 @@ public class ColocatePersistInfo implements Writable {
 
     }
 
-    public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
+    public static ColocatePersistInfo createForAddTable(GroupId groupId,
+            long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq);
     }
 

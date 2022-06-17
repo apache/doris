@@ -79,7 +79,8 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                     }
                 }
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Update database[{}] partition in memory info, partitionInMemoryCount : {}.", db.getFullName(), partitionInMemoryCount);
+                    LOG.debug("Update database[{}] partition in memory info, partitionInMemoryCount : {}.",
+                            db.getFullName(), partitionInMemoryCount);
                 }
             } catch (Exception e) {
                 LOG.warn("Update database[" + db.getFullName() + "] partition in memory info failed", e);

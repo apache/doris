@@ -143,7 +143,8 @@ public class InsertStmt extends DdlStmt {
             isUserSpecifiedLabel = true;
         }
 
-        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
+                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -187,7 +188,8 @@ public class InsertStmt extends DdlStmt {
         return tblName.getTbl();
     }
 
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet)
+            throws AnalysisException {
         // get dbs of statement
         queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
@@ -269,8 +271,8 @@ public class InsertStmt extends DdlStmt {
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(),
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tblName.getDb() + ": " + tblName.getTbl());
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), tblName.getDb() + ": " + tblName.getTbl());
         }
 
         // check partition
@@ -457,7 +459,8 @@ public class InsertStmt extends DdlStmt {
             if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
                 SlotRef refColumn = column.getRefColumn();
                 if (refColumn == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, column.getName(), targetTable.getName());
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
+                            column.getName(), targetTable.getName());
                 }
                 String origName = refColumn.getColumnName();
                 for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
@@ -526,7 +529,8 @@ public class InsertStmt extends DdlStmt {
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         smap.getLhs().add(entry.second.getRefColumn());
                         smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
-                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0);
+                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
+                                smap, analyzer, false).get(0);
                         queryStmt.getResultExprs().add(e);
                     }
                 }
@@ -551,7 +555,8 @@ public class InsertStmt extends DdlStmt {
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         smap.getLhs().add(entry.second.getRefColumn());
                         smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
-                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0);
+                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
+                                smap, analyzer, false).get(0);
                         queryStmt.getBaseTblResultExprs().add(e);
                     }
                 }
@@ -605,7 +610,8 @@ public class InsertStmt extends DdlStmt {
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         smap.getLhs().add(entry.second.getRefColumn());
                         smap.getRhs().add(extentedRow.get(entry.first));
-                        extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0));
+                        extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
+                                smap, analyzer, false).get(0));
                     }
                 }
             }
@@ -620,7 +626,8 @@ public class InsertStmt extends DdlStmt {
 
             if (expr instanceof DefaultValueExpr) {
                 if (targetColumns.get(i).getDefaultValue() == null) {
-                    throw new AnalysisException("Column has no default value, column=" + targetColumns.get(i).getName());
+                    throw new AnalysisException("Column has no default value, column="
+                            + targetColumns.get(i).getName());
                 }
                 expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
             }
@@ -727,7 +734,8 @@ public class InsertStmt extends DdlStmt {
         if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).complete();
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId);
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(db.getId(), transactionId);
             if (txnState == null) {
                 throw new DdlException("txn does not exist: " + transactionId);
             }

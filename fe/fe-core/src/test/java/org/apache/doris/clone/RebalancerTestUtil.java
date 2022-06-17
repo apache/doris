@@ -44,7 +44,10 @@ public class RebalancerTestUtil {
     public static Backend createBackend(long id, long totalCap, long usedCap) {
         return createBackend(id, totalCap, Lists.newArrayList(usedCap), 1);
     }
-    // size of usedCaps should equal to diskNum
+
+    /**
+     * size of usedCaps should equal to diskNum.
+     */
     public static Backend createBackend(long id, long totalCap, List<Long> usedCaps, int diskNum) {
         // ip:port won't be checked
         Backend be = new Backend(id, "192.168.0." + id, 9051);
@@ -70,6 +73,7 @@ public class RebalancerTestUtil {
                                     int tabletId, List<Long> beIds) {
         createTablet(invertedIndex, db, olapTable, partitionName, medium, tabletId, beIds, null);
     }
+
     public static void createTablet(TabletInvertedIndex invertedIndex, Database db, OlapTable olapTable, String partitionName, TStorageMedium medium,
                                     int tabletId, List<Long> beIds, List<Long> replicaSizes) {
         Partition partition = olapTable.getPartition(partitionName);

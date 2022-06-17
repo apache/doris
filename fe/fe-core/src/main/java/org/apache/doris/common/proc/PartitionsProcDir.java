@@ -91,7 +91,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         }
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
-            if (subExpr.getChild(1) instanceof StringLiteral && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
+            if (subExpr.getChild(1) instanceof StringLiteral
+                    && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
                 return ((StringLiteral) subExpr.getChild(1)).getValue().equals(element);
             }
             long leftVal;
@@ -135,7 +136,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         return str.matches(expr);
     }
 
-    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs, LimitElement limitElement) throws AnalysisException {
+    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs,
+            LimitElement limitElement) throws AnalysisException {
         List<List<Comparable>> partitionInfos = getPartitionInfos();
         List<List<Comparable>> filterPartitionInfos;
         //where
@@ -216,7 +218,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
-                Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
+                Collection<Partition> partitions = isTempPartition
+                        ? olapTable.getTempPartitions() : olapTable.getPartitions();
                 partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             }
 

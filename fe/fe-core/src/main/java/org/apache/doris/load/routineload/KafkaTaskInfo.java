@@ -53,7 +53,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     // Last fetched and cached latest partition offsets.
     private List<Pair<Integer, Long>> cachedPartitionWithLatestOffsets = Lists.newArrayList();
 
-    public KafkaTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
+    public KafkaTaskInfo(UUID id, long jobId, String clusterName,
+            long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
         super(id, jobId, clusterName, timeoutMs);
         this.partitionIdToOffset = partitionIdToOffset;
     }
@@ -83,7 +84,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setDb(database.getFullName());
         tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
-        String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
+        String label = Joiner.on("-").join(routineLoadJob.getName(),
+                routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
         tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
@@ -125,6 +127,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         return tExecPlanFragmentParams;
     }
+
     // implement method for compatibility
     public String getHeaderType() {
         return "";

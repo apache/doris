@@ -48,8 +48,8 @@ public class InsertLoadJob extends LoadJob {
         super(EtlJobType.INSERT);
     }
 
-    public InsertLoadJob(String label, long transactionId, long dbId, long tableId, long createTimestamp, String failMsg,
-            String trackingUrl) throws MetaNotFoundException {
+    public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
+            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
         super(EtlJobType.INSERT, dbId, label);
         this.tableId = tableId;
         this.transactionId = transactionId;

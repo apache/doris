@@ -83,7 +83,8 @@ public class AdminCompactTableStmt extends DdlStmt {
 
         // analyze where clause if not null
         if (where == null) {
-            throw new AnalysisException("Compaction type must be specified in Where clause like: type = 'BASE/CUMULATIVE'");
+            throw new AnalysisException("Compaction type must be specified in"
+                    + " Where clause like: type = 'BASE/CUMULATIVE'");
         }
 
         if (!analyzeWhere()) {

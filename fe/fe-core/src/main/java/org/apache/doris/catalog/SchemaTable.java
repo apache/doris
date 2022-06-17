@@ -42,6 +42,7 @@ public class SchemaTable extends Table {
     private static final int GRANTEE_len = 81;
     private static final int PRIVILEGE_TYPE_LEN = 64;
     private static final int IS_GRANTABLE_LEN = 3;
+
     // Now we just mock tables, table_privileges, referential_constraints, key_column_usage and routines table
     // Because in MySQL ODBC, these tables are used.
     // TODO(zhaochun): Review some commercial BI to check if we need support where clause in show statement

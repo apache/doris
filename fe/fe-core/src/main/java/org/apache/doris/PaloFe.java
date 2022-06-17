@@ -132,7 +132,8 @@ public class PaloFe {
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
             // 3. QeService for MySQL Server
-            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
+            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
+                    ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
 
             feServer.start();
@@ -324,7 +325,8 @@ public class PaloFe {
         } else if (cmdLineOpts.runImageTool()) {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
-                System.out.println("image does not exist: " + imageFile.getAbsolutePath() + " . Please put an absolute path instead");
+                System.out.println("image does not exist: " + imageFile.getAbsolutePath()
+                        + " . Please put an absolute path instead");
                 System.exit(-1);
             } else {
                 System.out.println("Start to load image: ");

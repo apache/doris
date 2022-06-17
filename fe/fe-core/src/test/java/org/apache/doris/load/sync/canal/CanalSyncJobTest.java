@@ -139,9 +139,11 @@ public class CanalSyncJobTest {
             @Mock
             public void startup() {
             }
+
             @Mock
             public void shutdown(boolean needCleanUp) {
             }
+
             @Mock
             public void registerChannels(List<SyncChannel> channels) {
             }
@@ -300,9 +302,11 @@ public class CanalSyncJobTest {
             @Mock
             public void startup() {
             }
+
             @Mock
             public void shutdown(boolean needCleanUp) {
             }
+
             @Mock
             public void registerChannels(List<SyncChannel> channels) {
             }

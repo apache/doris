@@ -112,7 +112,8 @@ public class IcebergCatalogMgr {
         }
 
         if (!Enums.getIfPresent(IcebergCatalogMgr.CatalogType.class, icebergCatalogType).isPresent()) {
-            throw new DdlException("Unknown catalog type: " + icebergCatalogType + ". Current only support HiveCatalog.");
+            throw new DdlException("Unknown catalog type: " + icebergCatalogType
+                    + ". Current only support HiveCatalog.");
         }
 
         // only check table property when it's an iceberg table

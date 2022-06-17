@@ -42,7 +42,7 @@ public class Pair<F, S> {
         this.second = second;
     }
 
-    static public <F, S> Pair<F, S> create(F first, S second) {
+    public static <F, S> Pair<F, S> create(F first, S second) {
         return new Pair<F, S>(first, second);
     }
 

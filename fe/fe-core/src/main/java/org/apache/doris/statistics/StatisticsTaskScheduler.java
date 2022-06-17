@@ -48,7 +48,7 @@ import java.util.concurrent.TimeoutException;
 Schedule statistics task
  */
 public class StatisticsTaskScheduler extends MasterDaemon {
-    private final static Logger LOG = LogManager.getLogger(StatisticsTaskScheduler.class);
+    private static final Logger LOG = LogManager.getLogger(StatisticsTaskScheduler.class);
 
     private final Queue<StatisticsTask> queue = Queues.newLinkedBlockingQueue();
 
@@ -178,7 +178,8 @@ public class StatisticsTaskScheduler extends MasterDaemon {
                             // update the task and job info
                             statisticsJob.updateJobInfoByTaskId(taskId, errorMsg);
                         } catch (DdlException e) {
-                            LOG.info("Failed to update statistics job info. jobId: {}, taskId: {}, e: {}", jobId, taskId, e);
+                            LOG.info("Failed to update statistics job info. jobId: {}, taskId: {}, e: {}",
+                                    jobId, taskId, e);
                         }
                     }
                 }

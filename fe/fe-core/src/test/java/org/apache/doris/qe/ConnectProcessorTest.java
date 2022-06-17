@@ -159,22 +159,27 @@ public class ConnectProcessorTest {
             public void setKilled() {
                 myContext.setKilled();
             }
+
             @Override
             public MysqlSerializer getSerializer() {
                 return myContext.getSerializer();
             }
+
             @Override
             public QueryState getState() {
                 return myContext.getState();
             }
+
             @Override
             public void setStartTime() {
                 myContext.setStartTime();
             }
+
             @Override
             public String getDatabase() {
                 return myContext.getDatabase();
             }
+
             @Override
             public void setCommand(MysqlCommand command) {
                 if (firstTimeToSetCommand) {

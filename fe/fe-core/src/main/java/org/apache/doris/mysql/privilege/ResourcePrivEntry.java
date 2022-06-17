@@ -36,8 +36,8 @@ public class ResourcePrivEntry extends PrivEntry {
     protected ResourcePrivEntry() {
     }
 
-    protected ResourcePrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher resourcePattern, String origResource,
-                                PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
+    protected ResourcePrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher resourcePattern,
+            String origResource, PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
         super(hostPattern, origHost, userPattern, user, isDomain, privSet);
         this.resourcePattern = resourcePattern;
         this.origResource = origResource;
@@ -46,16 +46,19 @@ public class ResourcePrivEntry extends PrivEntry {
         }
     }
 
-    public static ResourcePrivEntry create(String host, String resourceName, String user, boolean isDomain, PrivBitSet privs)
+    public static ResourcePrivEntry create(String host, String resourceName,
+            String user, boolean isDomain, PrivBitSet privs)
             throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
-        PatternMatcher resourcePattern = PatternMatcher.createMysqlPattern(resourceName.equals(ANY_RESOURCE) ? "%" : resourceName,
-                                                                      CaseSensibility.RESOURCE.getCaseSensibility());
+        PatternMatcher resourcePattern = PatternMatcher.createMysqlPattern(
+                resourceName.equals(ANY_RESOURCE) ? "%" : resourceName,
+                CaseSensibility.RESOURCE.getCaseSensibility());
         PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
         if (privs.containsNodePriv() || privs.containsDbTablePriv()) {
             throw new AnalysisException("Resource privilege can not contains node or db table privileges: " + privs);
         }
-        return new ResourcePrivEntry(hostPattern, host, resourcePattern, resourceName, userPattern, user, isDomain, privs);
+        return new ResourcePrivEntry(hostPattern, host, resourcePattern,
+                resourceName, userPattern, user, isDomain, privs);
     }
 
     public PatternMatcher getResourcePattern() {
@@ -125,7 +128,8 @@ public class ResourcePrivEntry extends PrivEntry {
         super.readFields(in);
         origResource = Text.readString(in);
         try {
-            resourcePattern = PatternMatcher.createMysqlPattern(origResource, CaseSensibility.RESOURCE.getCaseSensibility());
+            resourcePattern = PatternMatcher.createMysqlPattern(origResource,
+                    CaseSensibility.RESOURCE.getCaseSensibility());
         } catch (AnalysisException e) {
             throw new IOException(e);
         }

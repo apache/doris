@@ -90,14 +90,18 @@ public class LoadChecker extends MasterDaemon {
 
         Map<TPriority, MasterTaskExecutor> pendingPriorityMap = Maps.newHashMap();
         pendingPriorityMap.put(TPriority.NORMAL,
-                               new MasterTaskExecutor("load_pending_thread_num_normal_priority", Config.load_pending_thread_num_normal_priority, true));
+                new MasterTaskExecutor("load_pending_thread_num_normal_priority",
+                        Config.load_pending_thread_num_normal_priority, true));
         pendingPriorityMap.put(TPriority.HIGH,
-                               new MasterTaskExecutor("load_pending_thread_num_high_priority", Config.load_pending_thread_num_high_priority, true));
+                new MasterTaskExecutor("load_pending_thread_num_high_priority",
+                        Config.load_pending_thread_num_high_priority, true));
         executors.put(JobState.PENDING, pendingPriorityMap);
 
         Map<TPriority, MasterTaskExecutor> etlPriorityMap = Maps.newHashMap();
-        etlPriorityMap.put(TPriority.NORMAL, new MasterTaskExecutor("load_etl_thread_num_normal_priority", Config.load_etl_thread_num_normal_priority, true));
-        etlPriorityMap.put(TPriority.HIGH, new MasterTaskExecutor("load_etl_thread_num_high_priority", Config.load_etl_thread_num_high_priority, true));
+        etlPriorityMap.put(TPriority.NORMAL, new MasterTaskExecutor("load_etl_thread_num_normal_priority",
+                Config.load_etl_thread_num_normal_priority, true));
+        etlPriorityMap.put(TPriority.HIGH, new MasterTaskExecutor("load_etl_thread_num_high_priority",
+                Config.load_etl_thread_num_high_priority, true));
         executors.put(JobState.ETL, etlPriorityMap);
     }
 
@@ -246,13 +250,15 @@ public class LoadChecker extends MasterDaemon {
         try {
             tables = db.getTablesOnIdOrderOrThrowException(tableIds);
         } catch (UserException e) {
-            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: " + dbId + ", err: " + e.getMessage());
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL,
+                    "table does not exist. dbId: " + dbId + ", err: " + e.getMessage());
             return;
         }
 
         if (job.getTransactionId() < 0) {
             LOG.warn("cancel load job {}  because it is an old type job, user should resubmit it", job);
-            load.cancelLoadJob(job, CancelType.UNKNOWN, "cancelled because system is during upgrade, user should resubmit it");
+            load.cancelLoadJob(job, CancelType.UNKNOWN,
+                    "cancelled because system is during upgrade, user should resubmit it");
             return;
         }
         // check if the job is aborted in transaction manager
@@ -323,7 +329,8 @@ public class LoadChecker extends MasterDaemon {
         // check transaction state
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getDbId(), job.getTransactionId());
+        TransactionState transactionState = globalTransactionMgr.getTransactionState(
+                job.getDbId(), job.getTransactionId());
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
         // when be finish load task, fe will update job's finish task info, use lock here to prevent
         // concurrent problems
@@ -332,7 +339,8 @@ public class LoadChecker extends MasterDaemon {
         try {
             MetaLockUtils.writeLockTablesOrMetaException(tables);
         } catch (UserException e) {
-            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: " + job.getDbId() + ", err: " + e.getMessage());
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: "
+                    + job.getDbId() + ", err: " + e.getMessage());
             return;
         }
         try {
@@ -393,7 +401,8 @@ public class LoadChecker extends MasterDaemon {
                         return null;
                     }
 
-                    short replicationNum = table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+                    short replicationNum = table.getPartitionInfo()
+                            .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                     // check all indices (base + roll up (not include ROLLUP state index))
                     List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {
@@ -417,8 +426,8 @@ public class LoadChecker extends MasterDaemon {
                         for (Tablet tablet : index.getTablets()) {
                             // the job is submitted before rollup finished and try to finish after rollup finished
                             // then the job's tablet load info does not contain the new rollup index's tablet
-                            // not deal with this case because the finished replica will include new rollup index's replica
-                            // and check it at commit time
+                            // not deal with this case because the finished replica will include new rollup index's
+                            // replica and check it at commit time
                             if (tabletLoadInfos.containsKey(tablet.getId())) {
                                 jobTotalTablets.add(tablet.getId());
                             }
@@ -430,11 +439,11 @@ public class LoadChecker extends MasterDaemon {
                             long tabletId = tablet.getId();
                             // get tablet file path
                             TabletLoadInfo tabletLoadInfo = tabletLoadInfos.get(tabletId);
-                            // the tabletinfo maybe null, in this case:
+                            // the tablet info maybe null, in this case:
                             // the job is submitted before rollup finished and try to finish after rollup finished
                             // then the job's tablet load info does not contain the new rollup index's tablet
-                            // not deal with this case because the finished replica will include new rollup index's replica
-                            // and check it at commit time
+                            // not deal with this case because the finished replica will include new rollup index's
+                            // replica and check it at commit time
                             if (tabletLoadInfo == null) {
                                 continue;
                             }
@@ -457,15 +466,12 @@ public class LoadChecker extends MasterDaemon {
                                 // check replica state and replica version
                                 if (!tabletLoadInfo.isReplicaSent(replicaId)) {
                                     PushTask pushTask = new PushTask(job.getResourceInfo(),
-                                                                      replica.getBackendId(), db.getId(), tableId,
-                                                                      partitionId, indexId,
-                                                                      tabletId, replicaId, schemaHash,
-                                                                      -1, filePath, fileSize, 0,
-                                                                      job.getId(), type, job.getConditions(),
-                                                                      needDecompress, job.getPriority(),
-                                                                      TTaskType.REALTIME_PUSH,
-                                                                      job.getTransactionId(),
-                                                                      Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+                                            replica.getBackendId(), db.getId(), tableId, partitionId, indexId,
+                                            tabletId, replicaId, schemaHash, -1, filePath, fileSize, 0,
+                                            job.getId(), type, job.getConditions(), needDecompress, job.getPriority(),
+                                            TTaskType.REALTIME_PUSH, job.getTransactionId(),
+                                            Catalog.getCurrentGlobalTransactionMgr()
+                                                    .getTransactionIDGenerator().getNextTransactionId());
                                     pushTask.setIsSchemaChanging(autoLoadToTwoTablet);
                                     if (AgentTaskQueue.addTask(pushTask)) {
                                         batchTask.addTask(pushTask);
@@ -473,8 +479,10 @@ public class LoadChecker extends MasterDaemon {
                                         tabletLoadInfo.addSentReplica(replicaId);
                                     }
                                 }
-                                // yiguolei: wait here to check if quorum finished, should exclude the replica that is in clone state
-                                // for example, there are 3 replicas, A normal  B normal C clone, if A and C finish loading, we should not commit
+                                // yiguolei: wait here to check if quorum finished,
+                                // should exclude the replica that is in clone state
+                                // for example, there are 3 replicas, A normal  B normal C clone,
+                                // if A and C finish loading, we should not commit
                                 // because commit will failed, then the job is failed
                                 if (job.isReplicaFinished(replicaId) && replica.getLastFailedVersion() < 0) {
                                     finishedReplicas.add(replicaId);

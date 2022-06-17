@@ -22,5 +22,6 @@ import java.util.Map;
 // Help object interface
 public interface HelpObjectIface {
     public String getName();
+
     public void loadFrom(Map.Entry<String, Map<String, String>> doc);
 }

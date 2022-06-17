@@ -255,7 +255,8 @@ public class Replica implements Writable {
         updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRowCount);
     }
 
-    public synchronized void updateVersionWithFailedInfo(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
+    public synchronized void updateVersionWithFailedInfo(
+            long newVersion, long lastFailedVersion, long lastSuccessVersion) {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, rowCount);
     }
 
@@ -292,11 +293,13 @@ public class Replica implements Writable {
 
         if (newVersion < this.version) {
             // This case means that replica meta version has been updated by ReportHandler before
-            // For example, the publish version daemon has already sent some publish version tasks to one be to publish version 2, 3, 4, 5, 6,
-            // and the be finish all publish version tasks, the be's replica version is 6 now, but publish version daemon need to wait
+            // For example, the publish version daemon has already sent some publish version tasks
+            // to one be to publish version 2, 3, 4, 5, 6, and the be finish all publish version tasks,
+            // the be's replica version is 6 now, but publish version daemon need to wait
             // for other be to finish most of publish version tasks to update replica version in fe.
-            // At the moment, the replica version in fe is 4, when ReportHandler sync tablet, it find reported replica version in be is 6 and then
-            // set version to 6 for replica in fe. And then publish version daemon try to finish txn, and use visible version(5)
+            // At the moment, the replica version in fe is 4, when ReportHandler sync tablet,
+            // it find reported replica version in be is 6 and then set version to 6 for replica in fe.
+            // And then publish version daemon try to finish txn, and use visible version(5)
             // to update replica. Finally, it find the newer version(5) is lower than replica version(6) in fe.
             if (LOG.isDebugEnabled()) {
                 LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
@@ -365,8 +368,10 @@ public class Replica implements Writable {
 
     /*
      * Check whether the replica's version catch up with the expected version.
-     * If ignoreAlter is true, and state is ALTER, and replica's version is PARTITION_INIT_VERSION, just return true, ignore the version.
-     *      This is for the case that when altering table, the newly created replica's version is PARTITION_INIT_VERSION,
+     * If ignoreAlter is true, and state is ALTER, and replica's version is
+     *  PARTITION_INIT_VERSION, just return true, ignore the version.
+     *      This is for the case that when altering table,
+     *      the newly created replica's version is PARTITION_INIT_VERSION,
      *      but we need to treat it as a "normal" replica which version is supposed to be "catch-up".
      *      But if state is ALTER but version larger than PARTITION_INIT_VERSION, which means this replica
      *      is already updated by load process, so we need to consider its version.

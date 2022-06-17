@@ -87,10 +87,12 @@ public class AlterTableStmt extends DdlStmt {
                 if (alterFeature == null || alterFeature == EnableFeatureClause.Features.UNKNOWN) {
                     throw new AnalysisException("unknown feature for alter clause");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS && alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS
+                        && alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                     throw new AnalysisException("Batch delete only supported in unique tables.");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS
+                        && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                     throw new AnalysisException("Sequence load only supported in unique tables.");
                 }
                 // analyse sequence column

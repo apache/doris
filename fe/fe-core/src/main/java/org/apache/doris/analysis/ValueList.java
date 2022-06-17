@@ -32,6 +32,7 @@ public class ValueList {
         rows = Lists.newArrayList();
         rows.add(row);
     }
+
     public ValueList(List<ArrayList<Expr>> rows) {
         this.rows = rows;
     }

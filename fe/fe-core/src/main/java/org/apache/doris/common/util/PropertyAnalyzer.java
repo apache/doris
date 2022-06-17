@@ -207,7 +207,8 @@ public class PropertyAnalyzer {
                 throw new AnalysisException("Remote storage cool down time should later than now");
             }
             if (hasCooldown && (remoteCooldownTimeStamp <= cooldownTimeStamp)) {
-                throw new AnalysisException("`remote_storage_cooldown_time` should later than `storage_cooldown_time`.");
+                throw new AnalysisException(
+                        "`remote_storage_cooldown_time` should later than `storage_cooldown_time`.");
             }
         }
 
@@ -238,7 +239,8 @@ public class PropertyAnalyzer {
     private static Short analyzeReplicationNum(Map<String, String> properties, String prefix, short oldReplicationNum)
             throws AnalysisException {
         Short replicationNum = oldReplicationNum;
-        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_NUM : prefix + "." + PROPERTIES_REPLICATION_NUM;
+        String propKey = Strings.isNullOrEmpty(prefix)
+                ? PROPERTIES_REPLICATION_NUM : prefix + "." + PROPERTIES_REPLICATION_NUM;
         if (properties != null && properties.containsKey(propKey)) {
             try {
                 replicationNum = Short.valueOf(properties.get(propKey));
@@ -246,7 +248,8 @@ public class PropertyAnalyzer {
                 throw new AnalysisException(e.getMessage());
             }
 
-            if (replicationNum < Config.min_replication_num_per_tablet || replicationNum > Config.max_replication_num_per_tablet) {
+            if (replicationNum < Config.min_replication_num_per_tablet
+                    || replicationNum > Config.max_replication_num_per_tablet) {
                 throw new AnalysisException("Replication num should between " + Config.min_replication_num_per_tablet
                         + " and " + Config.max_replication_num_per_tablet);
             }
@@ -543,7 +546,8 @@ public class PropertyAnalyzer {
         return ScalarType.createType(type);
     }
 
-    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key, Boolean defaultValue) throws AnalysisException {
+    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties,
+            String key, Boolean defaultValue) {
         if (properties.containsKey(key)) {
             String value = properties.remove(key);
             return Boolean.valueOf(value);
@@ -551,7 +555,8 @@ public class PropertyAnalyzer {
         return defaultValue;
     }
 
-    public static Tag analyzeBackendTagProperties(Map<String, String> properties, Tag defaultValue) throws AnalysisException {
+    public static Tag analyzeBackendTagProperties(Map<String, String> properties, Tag defaultValue)
+            throws AnalysisException {
         if (properties.containsKey(TAG_LOCATION)) {
             String tagVal = properties.remove(TAG_LOCATION);
             return Tag.create(Tag.TYPE_LOCATION, tagVal);
@@ -608,7 +613,8 @@ public class PropertyAnalyzer {
             replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
             totalReplicaNum += replicationNum;
         }
-        if (totalReplicaNum < Config.min_replication_num_per_tablet || totalReplicaNum > Config.max_replication_num_per_tablet) {
+        if (totalReplicaNum < Config.min_replication_num_per_tablet
+                || totalReplicaNum > Config.max_replication_num_per_tablet) {
             throw new AnalysisException("Total replication num should between " + Config.min_replication_num_per_tablet
                     + " and " + Config.max_replication_num_per_tablet);
         }
@@ -620,7 +626,7 @@ public class PropertyAnalyzer {
     }
 
     public static DataSortInfo analyzeDataSortInfo(Map<String, String> properties, KeysType keyType,
-                                                   int keyCount, TStorageFormat storageFormat) throws AnalysisException {
+            int keyCount, TStorageFormat storageFormat) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return new DataSortInfo(TSortType.LEXICAL, keyCount);
         }

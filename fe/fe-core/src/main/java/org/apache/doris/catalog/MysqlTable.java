@@ -158,7 +158,8 @@ public class MysqlTable extends Table {
 
         String property = odbcCatalogResource.getProperty(propertyName);
         if (property == null) {
-            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
+            throw new RuntimeException("The property:" + propertyName
+                    + " do not set in resource " + odbcCatalogResourceName);
         }
         return property;
     }

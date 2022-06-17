@@ -232,10 +232,12 @@ public class OdbcTable extends Table {
 
         String property = odbcCatalogResource.getProperty(propertyName);
         if (property == null) {
-            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
+            throw new RuntimeException("The property:" + propertyName
+                    + " do not set in resource " + odbcCatalogResourceName);
         }
         return property;
     }
+
     public String getExtraParameter(Map<String, String> extraMap) {
         if (extraMap == null || extraMap.isEmpty()) {
             return "";
@@ -252,6 +254,7 @@ public class OdbcTable extends Table {
         }
         return getExtraParameter(resourceProperties);
     }
+
     public String getOdbcCatalogResourceName() {
         return odbcCatalogResourceName;
     }
@@ -336,7 +339,8 @@ public class OdbcTable extends Table {
                         getCharset());
                 break;
             case POSTGRESQL:
-                connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s;UseDeclareFetch=1;Fetch=4096",
+                connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;"
+                                + "Uid=%s;Pwd=%s;charset=%s;UseDeclareFetch=1;Fetch=4096",
                         getOdbcDriver(),
                         getHost(),
                         getPort(),
@@ -346,7 +350,8 @@ public class OdbcTable extends Table {
                         getCharset());
                 break;
             case MYSQL:
-                connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s;forward_cursor=1;no_cache=1",
+                connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;"
+                                + "Uid=%s;Pwd=%s;charset=%s;forward_cursor=1;no_cache=1",
                         getOdbcDriver(),
                         getHost(),
                         getPort(),

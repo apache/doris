@@ -113,8 +113,8 @@ public class MultiLoadMgr {
             throw new DdlException("files count and file size count not match: [" + request.getFileSize().size()
                     + "!=" + request.getFiles().size() + "]");
         }
-        List<Pair<String, Long>> files = Streams.zip(request.getFiles().stream(), request.getFileSize().stream(), Pair::create)
-                .collect(Collectors.toList());
+        List<Pair<String, Long>> files = Streams.zip(request.getFiles().stream(),
+                        request.getFileSize().stream(), Pair::create).collect(Collectors.toList());
         load(request.getDb(), request.getLabel(), request.getSubLabel(), request.getTbl(),
                 files, request.getBackend(), request.getProperties(), request.getTimestamp());
     }
@@ -472,10 +472,12 @@ public class MultiLoadMgr {
                     }
                 }
                 if (properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS) != null) {
-                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS).trim().split("\\s*,\\s*");
+                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS)
+                            .trim().split("\\s*,\\s*");
                     partitionNames = new PartitionNames(false, Lists.newArrayList(partNames));
                 } else if (properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS) != null) {
-                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS).trim().split("\\s*,\\s*");
+                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS)
+                            .trim().split("\\s*,\\s*");
                     partitionNames = new PartitionNames(true, Lists.newArrayList(partNames));
                 }
                 if (properties.get(LoadStmt.KEY_IN_PARAM_MERGE_TYPE) != null) {

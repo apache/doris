@@ -77,7 +77,8 @@ public class SparkEtlJobHandler {
     private static final String YARN_KILL_CMD = "%s --config %s application -kill %s";
 
     public void submitEtlJob(long loadJobId, String loadLabel, EtlJobConfig etlJobConfig, SparkResource resource,
-                             BrokerDesc brokerDesc, SparkLoadAppHandle handle, SparkPendingTaskAttachment attachment) throws LoadException {
+            BrokerDesc brokerDesc, SparkLoadAppHandle handle, SparkPendingTaskAttachment attachment)
+            throws LoadException {
         // delete outputPath
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
 
@@ -262,7 +263,8 @@ public class SparkEtlJobHandler {
         return status;
     }
 
-    public void killEtlJob(SparkLoadAppHandle handle, String appId, long loadJobId, SparkResource resource) throws LoadException {
+    public void killEtlJob(SparkLoadAppHandle handle, String appId,
+            long loadJobId, SparkResource resource) throws LoadException {
         if (resource.isYarnMaster()) {
             // The appId may be empty when the load job is in PENDING phase. This is because the appId is
             // parsed from the spark launcher process's output (spark launcher process submit job and then
@@ -287,7 +289,8 @@ public class SparkEtlJobHandler {
             LOG.info("yarn application -kill {}, output: {}", appId, result.getStdout());
             if (result.getReturnCode() != 0) {
                 String stderr = result.getStderr();
-                LOG.warn("yarn application kill failed. app id: {}, load job id: {}, msg: {}", appId, loadJobId, stderr);
+                LOG.warn("yarn application kill failed. app id: {}, load job id: {}, msg: {}",
+                        appId, loadJobId, stderr);
             }
         } else {
             if (handle != null) {
