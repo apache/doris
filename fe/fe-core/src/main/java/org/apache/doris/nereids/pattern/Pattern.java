@@ -159,7 +159,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     /**
-     * match all predicates
+     * match all predicates.
      * @param root root plan
      * @return true if all predicates matched
      */

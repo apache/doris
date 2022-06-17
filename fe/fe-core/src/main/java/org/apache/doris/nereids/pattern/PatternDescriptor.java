@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.pattern;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.TreeNode;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
@@ -42,9 +42,9 @@ public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends T
 
     public PatternDescriptor<INPUT_TYPE, RULE_TYPE> when(Predicate<INPUT_TYPE> predicate) {
         List<Predicate<INPUT_TYPE>> predicates = ImmutableList.<Predicate<INPUT_TYPE>>builder()
-            .addAll(pattern.getPredicates())
-            .add(predicate)
-            .build();
+                .addAll(pattern.getPredicates())
+                .add(predicate)
+                .build();
         return new PatternDescriptor<>(pattern.withPredicates(predicates), defaultPromise);
     }
 

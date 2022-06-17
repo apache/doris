@@ -102,7 +102,7 @@ public class AnalyzeTest extends TestWithFeService {
     }
 
     /**
-     * PlanNode and its expressions are all bound
+     * PlanNode and its expressions are all bound.
      */
     private boolean checkPlanNodeBound(LogicalPlan plan) {
         if (plan instanceof Unbound) {

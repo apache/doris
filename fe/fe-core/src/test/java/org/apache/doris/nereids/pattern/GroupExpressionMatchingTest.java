@@ -17,25 +17,24 @@
 
 package org.apache.doris.nereids.pattern;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.pattern.GeneratedPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Iterator;
 
-public class GroupExpressionMatchingTest implements GeneratedPatterns, Plans {
+public class GroupExpressionMatchingTest implements Plans {
 
     @Test
     public void testLeafNode() {
@@ -128,7 +127,7 @@ public class GroupExpressionMatchingTest implements GeneratedPatterns, Plans {
         memo.initialize(plan);
 
         GroupExpressionMatching groupExpressionMatching
-            = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());
@@ -140,8 +139,8 @@ public class GroupExpressionMatchingTest implements GeneratedPatterns, Plans {
     @Test
     public void testAnyWithChild() {
         Plan root = plan(
-            new LogicalProject(Lists.newArrayList()),
-            plan(new UnboundRelation(Lists.newArrayList("test")))
+                new LogicalProject(Lists.newArrayList()),
+                plan(new UnboundRelation(Lists.newArrayList("test")))
         );
         Memo memo = new Memo();
         memo.initialize(root);
@@ -150,7 +149,7 @@ public class GroupExpressionMatchingTest implements GeneratedPatterns, Plans {
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
         GroupExpressionMatching groupExpressionMatching
-            = new GroupExpressionMatching(Pattern.ANY, memo.getRoot().getLogicalExpression());
+                = new GroupExpressionMatching(Pattern.ANY, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());
@@ -165,15 +164,15 @@ public class GroupExpressionMatchingTest implements GeneratedPatterns, Plans {
     @Test
     public void testInnerLogicalJoinMatch() {
         Plan root = plan(new LogicalJoin(JoinType.INNER_JOIN),
-            plan(new UnboundRelation(ImmutableList.of("a"))),
-            plan(new UnboundRelation(ImmutableList.of("b")))
+                plan(new UnboundRelation(ImmutableList.of("a"))),
+                plan(new UnboundRelation(ImmutableList.of("b")))
         );
 
         Memo memo = new Memo();
         memo.initialize(root);
 
         GroupExpressionMatching groupExpressionMatching
-            = new GroupExpressionMatching(innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
+                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());
@@ -195,14 +194,13 @@ public class GroupExpressionMatchingTest implements GeneratedPatterns, Plans {
         memo.initialize(root);
 
         GroupExpressionMatching groupExpressionMatching
-            = new GroupExpressionMatching(innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
+                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertFalse(iterator.hasNext());
     }
 
-    @Override
-    public RulePromise defaultPromise() {
-        return RulePromise.REWRITE;
+    private org.apache.doris.nereids.pattern.GeneratedPatterns patterns() {
+        return () -> RulePromise.REWRITE;
     }
 }
