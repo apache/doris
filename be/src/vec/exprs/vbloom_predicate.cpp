@@ -90,7 +90,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
 const std::string& VBloomPredicate::expr_name() const {
     return _expr_name;
 }
-void VBloomPredicate::set_filter(IBloomFilterFuncBase* filter) {
-    _filter.reset(filter);
+void VBloomPredicate::set_filter(std::unique_ptr<IBloomFilterFuncBase>& filter) {
+    _filter.reset(filter.release());
 }
 } // namespace doris::vectorized

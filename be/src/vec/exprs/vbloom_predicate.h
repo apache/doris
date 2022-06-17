@@ -25,19 +25,19 @@ class VBloomPredicate final : public VExpr {
 public:
     VBloomPredicate(const TExprNode& node);
     ~VBloomPredicate() = default;
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
-    virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope) override;
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
+    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
+                          int* result_column_id) override;
+    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
+                          VExprContext* context) override;
+    doris::Status open(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
+    void close(doris::RuntimeState* state, VExprContext* context,
+               FunctionContext::FunctionStateScope scope) override;
+    VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VBloomPredicate(*this));
     }
-    virtual const std::string& expr_name() const override;
-    void set_filter(IBloomFilterFuncBase* filter);
+    const std::string& expr_name() const override;
+    void set_filter(std::unique_ptr<IBloomFilterFuncBase>& filter);
 
 private:
     std::shared_ptr<IBloomFilterFuncBase> _filter;

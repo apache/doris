@@ -54,9 +54,9 @@ private:
 
     bool _has_calculate_filter = false;
     // loop size must be power of 2
-    constexpr static int64_t _threshold_to_calculate_rate = 8192;
+    constexpr static int64_t THRESHOLD_TO_CALCULATE_RATE = 8192;
     // if filter rate less than this, bloom filter will set always true
-    constexpr static double _expect_filter_rate = 0.2;
+    constexpr static double EXPECTED_FILTER_RATE = 0.2;
 
     std::string _expr_name;
 };

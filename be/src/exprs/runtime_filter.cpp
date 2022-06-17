@@ -1537,7 +1537,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         auto bloom_pred = _pool->add(new doris::vectorized::VBloomPredicate(node));
-        bloom_pred->set_filter(_bloomfilter_func.release());
+        bloom_pred->set_filter(_bloomfilter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bloom_pred->add_child(cloned_vexpr);
         auto wrapper = _pool->add(new doris::vectorized::VRuntimeFilterWrapper(node, bloom_pred));
