@@ -165,7 +165,7 @@ echo "===== Run Regression Test ====="
 
 JAVA_OPTS=${JAVA_OPTS}
 if [ ${TEAMCITY} -eq 1 ]; then
-  JAVA_OPTS="$JAVA_OPTS -DstdoutAppenderType=teamcity"
+  JAVA_OPTS="$JAVA_OPTS -DstdoutAppenderType=teamcity -Xmx2048m"
 fi
 
 $JAVA -DDORIS_HOME=$DORIS_HOME \
@@ -174,5 +174,4 @@ $JAVA -DDORIS_HOME=$DORIS_HOME \
       ${JAVA_OPTS} \
       -jar ${RUN_JAR} \
       -cf ${CONFIG_FILE} \
-      -Xmx2048m \
       ${REGRESSION_OPTIONS_PREFIX} "$@"
