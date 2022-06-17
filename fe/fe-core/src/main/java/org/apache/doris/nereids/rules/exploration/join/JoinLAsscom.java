@@ -41,8 +41,8 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
         return innerLogicalJoin(innerLogicalJoin(), any()).then(topJoin -> {
             LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> bottomJoin = topJoin.left();
 
-            Plan a = bottomJoin.left();
-            Plan b = bottomJoin.right();
+            GroupPlan a = bottomJoin.left();
+            GroupPlan b = bottomJoin.right();
             Plan c = topJoin.right();
 
             Plan newBottomJoin = plan(

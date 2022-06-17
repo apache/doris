@@ -36,6 +36,7 @@ import java.util.function.Predicate;
  */
 public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
         extends AbstractTreeNode<Pattern<? extends NODE_TYPE, NODE_TYPE>> {
+
     public static final Pattern ANY = new Pattern(PatternType.ANY);
     public static final Pattern MULTI = new Pattern(PatternType.MULTI);
     public static final Pattern GROUP = new Pattern(PatternType.GROUP);
@@ -111,6 +112,15 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
         return patternType;
     }
 
+    /**
+     * get all predicates in Pattern.
+     *
+     * @return all predicates
+     */
+    public List<Predicate<TYPE>> getPredicates() {
+        return predicates;
+    }
+
     public boolean isGroup() {
         return patternType == PatternType.GROUP;
     }
@@ -149,56 +159,12 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     /**
-     * Return ture if current Pattern match Plan in params.
-     *
-     * @param root wait to match
-     * @return ture if current Pattern match Plan in params
+     * match all predicates
+     * @param root root plan
+     * @return true if all predicates matched
      */
-    public boolean matchRoot(TYPE root) {
-        if (root == null) {
-            return false;
-        }
-
-        if (root.arity() > this.arity() && !children.contains(MULTI)) {
-            return false;
-        }
-
-        if (patternType == PatternType.MULTI || patternType == PatternType.ANY) {
-            return true;
-        }
-
-        return doMatchRoot(root);
-    }
-
-    protected boolean doMatchRoot(TYPE root) {
-        return getPatternType().equals(root.getOperator().getType())
-                && predicates.stream().allMatch(predicate -> predicate.test(root));
-    }
-
-    /**
-     * Return ture if children patterns match Plan in params.
-     *
-     * @param root wait to match
-     * @return ture if children Patterns match root's children in params
-     */
-    public boolean matchChildren(TYPE root) {
-        for (int i = 0; i < arity(); i++) {
-            Pattern child = child(i);
-            if (!child.match(root.child(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Return ture if children patterns match Plan in params.
-     *
-     * @param root wait to match
-     * @return ture if current pattern and children patterns match root in params
-     */
-    public boolean match(TYPE root) {
-        return matchRoot(root) && matchChildren(root);
+    public boolean matchPredicates(TYPE root) {
+        return predicates.stream().allMatch(predicate -> predicate.test(root));
     }
 
     @Override

@@ -41,11 +41,6 @@ public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE
     }
 
     @Override
-    protected boolean doMatchRoot(TYPE root) {
-        return type.isInstance(root) && predicates.stream().allMatch(predicate -> predicate.test(root));
-    }
-
-    @Override
     public TypePattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
         return new TypePattern(type, predicates, children.toArray(new Pattern[0]));
     }

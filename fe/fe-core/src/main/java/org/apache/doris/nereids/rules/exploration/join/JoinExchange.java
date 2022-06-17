@@ -43,10 +43,10 @@ public class JoinExchange extends OneExplorationRuleFactory {
             LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> leftJoin = topJoin.left();
             LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> rightJoin = topJoin.right();
 
-            Plan a = leftJoin.left();
-            Plan b = leftJoin.right();
-            Plan c = rightJoin.left();
-            Plan d = rightJoin.right();
+            GroupPlan a = leftJoin.left();
+            GroupPlan b = leftJoin.right();
+            GroupPlan c = rightJoin.left();
+            GroupPlan d = rightJoin.right();
 
             Plan newLeftJoin = plan(
                     new LogicalJoin(leftJoin.operator.getJoinType(), leftJoin.operator.getCondition()),

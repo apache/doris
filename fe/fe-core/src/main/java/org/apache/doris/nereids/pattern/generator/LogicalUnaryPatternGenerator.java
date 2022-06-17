@@ -44,7 +44,6 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
-        imports.add("org.apache.doris.nereids.operators.OperatorType");
         imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan");

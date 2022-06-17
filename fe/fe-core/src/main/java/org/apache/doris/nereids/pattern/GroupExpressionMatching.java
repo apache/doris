@@ -33,12 +33,12 @@ import java.util.Objects;
  * Get all pattern matching subtree in query plan from a group expression.
  */
 public class GroupExpressionMatching implements Iterable<Plan> {
-    private final Pattern<? extends Plan, Plan> pattern;
+    private final Pattern<Plan, Plan> pattern;
     private final GroupExpression groupExpression;
 
     public GroupExpressionMatching(Pattern<? extends Plan, Plan> pattern, GroupExpression groupExpression) {
-        this.pattern = Objects.requireNonNull(pattern);
-        this.groupExpression = Objects.requireNonNull(groupExpression);
+        this.pattern = (Pattern<Plan, Plan>) Objects.requireNonNull(pattern, "pattern can not be null");
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
     }
 
     @Override
@@ -59,7 +59,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
          * @param pattern pattern to match
          * @param groupExpression group expression to be matched
          */
-        public GroupExpressionIterator(Pattern<? extends Plan, Plan> pattern, GroupExpression groupExpression) {
+        public GroupExpressionIterator(Pattern<Plan, Plan> pattern, GroupExpression groupExpression) {
             if (!pattern.matchOperator(groupExpression.getOperator())) {
                 return;
             }
@@ -87,8 +87,11 @@ public class GroupExpressionMatching implements Iterable<Plan> {
             // toTreeNode will wrap operator to plan, and set GroupPlan as children placeholder
             Plan root = groupExpression.getOperator().toTreeNode(groupExpression);
             if (pattern.arity() == 0) {
-                // if no children pattern, we treat all children as GROUP. e.g. Pattern.ANY
-                results.add(root);
+                if (pattern.matchPredicates(root)) {
+                    // if no children pattern, we treat all children as GROUP. e.g. Pattern.ANY.
+                    // leaf plan will enter this branch too, e.g. logicalRelation().
+                    results.add(root);
+                }
             } else {
                 // matching children group, one List<Plan> per child
                 // first dimension is every child group's plan
@@ -100,7 +103,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     childrenPlans.add(childrenPlan);
                 }
 
-                assembleAllCombinationPlanTree(root, childrenPlans);
+                assembleAllCombinationPlanTree(root, pattern, childrenPlans);
             }
         }
 
@@ -124,7 +127,8 @@ public class GroupExpressionMatching implements Iterable<Plan> {
             return matchingChildren.build();
         }
 
-        private void assembleAllCombinationPlanTree(Plan root, List<List<Plan>> childrenPlans) {
+        private void assembleAllCombinationPlanTree(Plan root, Pattern<Plan, Plan> rootPattern,
+                                                    List<List<Plan>> childrenPlans) {
             int[] childrenPlanIndex = new int[childrenPlans.size()];
             int offset = 0;
 
@@ -135,7 +139,10 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     children.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }
                 // assemble children: replace GroupPlan to real plan
-                results.add(root.withChildren(children));
+                Plan rootWithChildren = root.withChildren(children);
+                if (rootPattern.matchPredicates(rootWithChildren)) {
+                    results.add(rootWithChildren);
+                }
                 offset = 0;
                 while (true) {
                     childrenPlanIndex[offset]++;
