@@ -723,21 +723,6 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (tablet_state() == TABLET_RUNNING) {
-        // if tablet state is running, we need to check if it has consistent versions.
-        // tablet in other state such as TABLET_NOTREADY may not have complete versions.
-        ReadLock rdlock(_meta_lock);
-        const RowsetSharedPtr lastest_delta = rowset_with_max_version();
-        if (lastest_delta == nullptr) {
-            return false;
-        }
-
-        Version test_version = Version(0, lastest_delta->end_version());
-        if (OLAP_SUCCESS != capture_consistent_versions(test_version, nullptr)) {
-            return false;
-        }
-    }
-
     if (tablet_state() == TABLET_NOTREADY) {
         // Before doing schema change, tablet's rowsets that versions smaller than max converting version will be
         // removed. So, we only need to do the compaction when it is being converted.
@@ -1103,12 +1088,12 @@ TabletInfo Tablet::get_tablet_info() const {
 }
 
 void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets) {
+        std::vector<RowsetSharedPtr>* candidate_rowsets) {
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
     ReadLock rdlock(_meta_lock);
-    _cumulative_compaction_policy->pick_candidate_rowsets(skip_window_sec, _rs_version_map,
+    _cumulative_compaction_policy->pick_candidate_rowsets(_rs_version_map,
                                                           _cumulative_point, candidate_rowsets);
 }
 

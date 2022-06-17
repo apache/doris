@@ -32,10 +32,11 @@ SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
           _size_based_promotion_ratio(size_based_promotion_ratio),
           _size_based_promotion_min_size(size_based_promotion_min_size),
           _size_based_compaction_lower_bound_size(size_based_compaction_lower_bound_size) {
-    // init _levels by divide 2 between size_based_promotion_size and size_based_compaction_lower_bound_size
+    // init _levels by divide 2 between size_based_compaction_lower_bound_size and 1K
+    // cu compaction handle file size less then size_based_compaction_lower_bound_size
     int64_t i_size = size_based_promotion_size / 2;
 
-    while (i_size >= size_based_compaction_lower_bound_size) {
+    while (i_size >= 1024) {
         _levels.push_back(i_size);
         i_size /= 2;
     }
@@ -458,16 +459,11 @@ void NumBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 }
 
 void CumulativeCompactionPolicy::pick_candidate_rowsets(
-        int64_t skip_window_sec,
         const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
         int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets) {
-    int64_t now = UnixSeconds();
     for (auto& it : rs_version_map) {
         // find all rowset version greater than cumulative_point and skip the create time in skip_window_sec
-        if (it.first.first >= cumulative_point
-            && ((it.second->creation_time() + skip_window_sec < now)
-            // this case means a rowset has been compacted before which is not a new published rowset, so it should participate compaction
-            || (it.first.first != it.first.second))) {
+        if (it.first.first >= cumulative_point) {
             candidate_rowsets->push_back(it.second);
         }
     }
