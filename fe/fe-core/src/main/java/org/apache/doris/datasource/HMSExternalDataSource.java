@@ -94,6 +94,15 @@ public class HMSExternalDataSource extends ExternalDataSource {
         }
     }
 
+    /**
+     * Default constructor for HMSExternalDataSource.
+     */
+    public HMSExternalDataSource(String name, Map<String, String> props) {
+        setName(name);
+        getDsProperty().setProperties(props);
+        setType("hms");
+    }
+
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
         try {
