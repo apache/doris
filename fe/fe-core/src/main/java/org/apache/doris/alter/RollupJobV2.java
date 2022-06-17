@@ -86,7 +86,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Version 2 of RollupJob.
  * This is for replacing the old RollupJob
- * https://github.com/apache/incubator-doris/issues/1429
+ * https://github.com/apache/doris/issues/1429
  */
 public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RollupJobV2.class);

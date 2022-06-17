@@ -1207,7 +1207,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public void resetReplicaState() {
         if (tablet != null) {
             for (Replica replica : tablet.getReplicas()) {
-                // To address issue: https://github.com/apache/incubator-doris/issues/9422
+                // To address issue: https://github.com/apache/doris/issues/9422
                 // the DECOMMISSION state is set in TabletScheduler and not persist to meta.
                 // So it is reasonable to reset this state if we failed to scheduler this tablet.
                 // That is, if the TabletScheduler cannot process the tablet, then it should reset
