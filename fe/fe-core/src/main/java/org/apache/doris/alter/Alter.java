@@ -674,8 +674,10 @@ public class Alter {
             // 4. data property
             // 4.1 get old data property from partition
             DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
+            Map<String, String> modifiedProperties = Maps.newHashMap();
+            modifiedProperties.putAll(properties);
             // 4.2 analyze new properties
-            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, dataProperty);
+            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(modifiedProperties, dataProperty);
 
             // 1. date property
             if (newDataProperty != null) {

@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -128,15 +129,10 @@ public class PropertyAnalyzer {
         String remoteStorageResourceName = oldDataProperty.getRemoteStorageResourceName();
         long remoteCooldownTimeStamp = oldDataProperty.getRemoteCooldownTimeMs();
 
-        boolean hasMedium = false;
-        boolean hasCooldown = false;
-        boolean hasRemoteStorageResource = false;
-        boolean hasRemoteCooldown = false;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
-            if (!hasMedium && key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
-                hasMedium = true;
+            if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
@@ -144,47 +140,32 @@ public class PropertyAnalyzer {
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
-            } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
+            } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
                 cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-                if (cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
-                    hasCooldown = true;
-                }
-            } else if (!hasRemoteStorageResource && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
+            } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
                 if (!Strings.isNullOrEmpty(value)) {
-                    hasRemoteStorageResource = true;
                     remoteStorageResourceName = value;
                 }
-            } else if (!hasRemoteCooldown && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME)) {
+            } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME)) {
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
                 remoteCooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-                if (remoteCooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
-                    hasRemoteCooldown = true;
-                }
             }
         } // end for properties
-
-        // Check properties
-
-        if (!hasCooldown && !hasMedium) {
-            return oldDataProperty;
-        }
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_REMOTE_STORAGE_RESOURCE);
         properties.remove(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME);
 
-
-        if (hasCooldown && !hasMedium) {
-            throw new AnalysisException("Invalid data property. storage medium property is not found");
-        }
-
-        if (storageMedium == TStorageMedium.HDD && hasCooldown) {
+        if (storageMedium == TStorageMedium.HDD) {
             cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
             LOG.info("Can not assign cool down timestamp to HDD storage medium, ignore user setting.");
-            hasCooldown = false;
         }
+
+        boolean hasCooldown = cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS;
+        boolean hasRemoteCooldown = remoteCooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS;
+        boolean hasRemoteStorageResource = StringUtils.isNotEmpty(remoteStorageResourceName);
 
         long currentTimeMs = System.currentTimeMillis();
         if (storageMedium == TStorageMedium.SSD && hasCooldown) {
