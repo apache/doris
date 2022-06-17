@@ -21,9 +21,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -31,20 +32,31 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * DataSourceProperty to store the properties for datasource.
+ * A union metadata log for all the catalog operator include create,drop and alter.
  */
+@NoArgsConstructor
+@Getter
 @Data
-public class DataSourceProperty implements Writable {
-    @SerializedName(value = "properties")
-    private Map<String, String> properties = Maps.newHashMap();
+public class CatalogLog implements Writable {
+    @SerializedName(value = "catalogName")
+    private String catalogName;
+
+    @SerializedName(value = "props")
+    private Map<String, String> props;
+
+    @SerializedName(value = "newCatalogName")
+    private String newCatalogName;
+
+    @SerializedName(value = "newProps")
+    private Map<String, String> newProps;
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static DataSourceProperty read(DataInput in) throws IOException {
+    public static CatalogLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DataSourceProperty.class);
+        return GsonUtils.GSON.fromJson(json, CatalogLog.class);
     }
 }
