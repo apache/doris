@@ -118,7 +118,7 @@ UserFunctionCache* UserFunctionCache::instance() {
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
 #ifndef BE_TEST
-    // _lib_dir may reused between unit tests
+    // _lib_dir may be reused between unit tests
     DCHECK(_lib_dir.empty()) << _lib_dir;
 #endif
     _lib_dir = lib_dir;
