@@ -20,27 +20,58 @@ package org.apache.doris.common;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 // Wrap for Java pattern and matcher
 public class PatternMatcher {
+    public static final PatternMatcher MATCH_ANY = new PatternMatcher(Pattern.compile(".*"));
     private Pattern pattern;
+    private String flatPattern;
+    private boolean caseSensitive;
 
     private static final Set<Character> FORBIDDEN_CHARS = Sets.newHashSet('<', '(', '[', '{', '^', '=',
                                                                           '$', '!', '|', ']', '}', ')',
                                                                           '?', '*', '+', '>', '@');
 
+    public PatternMatcher(Pattern pattern) {
+        this.pattern = pattern;
+    }
+
+    public PatternMatcher(String flatPattern, boolean caseSensitive) {
+        this.flatPattern = caseSensitive ? flatPattern : flatPattern.toLowerCase(Locale.ROOT);
+        this.caseSensitive = caseSensitive;
+    }
+
     public boolean match(String candidate) {
-        if (pattern == null || candidate == null) {
-            // No pattern, how can I explain this? Return false now.
-            // No candidate, return false.
+        if (candidate == null) {
             return false;
         }
-        if (pattern.matcher(candidate).matches()) {
-            return true;
+        if (pattern != null) {
+            return pattern.matcher(candidate).matches();
         }
-        return false;
+        if (caseSensitive) {
+            return candidate.equals(flatPattern);
+        } else {
+            return candidate.toLowerCase(Locale.ROOT).equals(flatPattern);
+        }
+    }
+
+    public static PatternMatcher createFlatPattern(String flatPattern, boolean caseSensitive) {
+        return createFlatPattern(flatPattern, caseSensitive, false);
+    }
+
+    /**
+     * In grant operation, database and table support matching a single wildcard,
+     * the other cases are string case-sensitive equivalent matching.
+     */
+    public static PatternMatcher createFlatPattern(
+            String flatPattern, boolean caseSensitive, boolean matchAny) {
+        if (matchAny) {
+            return MATCH_ANY;
+        }
+        return new PatternMatcher(flatPattern, caseSensitive);
     }
 
     /*
@@ -149,7 +180,7 @@ public class PatternMatcher {
 
     public static PatternMatcher createMysqlPattern(String mysqlPattern, boolean caseSensitive)
             throws AnalysisException {
-        PatternMatcher matcher = new PatternMatcher();
+        PatternMatcher matcher;
 
         // Match nothing
         String newMysqlPattern = Strings.nullToEmpty(mysqlPattern);
@@ -157,9 +188,9 @@ public class PatternMatcher {
         String javaPattern = convertMysqlPattern(newMysqlPattern);
         try {
             if (caseSensitive) {
-                matcher.pattern = Pattern.compile(javaPattern);
+                matcher = new PatternMatcher(Pattern.compile(javaPattern));
             } else {
-                matcher.pattern = Pattern.compile(javaPattern, Pattern.CASE_INSENSITIVE);
+                matcher = new PatternMatcher(Pattern.compile(javaPattern, Pattern.CASE_INSENSITIVE));
             }
         } catch (Exception e) {
             throw new AnalysisException("Bad pattern in SQL: " + e.getMessage());

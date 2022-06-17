@@ -54,7 +54,7 @@ public class DbPrivEntry extends PrivEntry {
 
         PatternMatcher dbPattern = createDbPatternMatcher(db);
 
-        PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
+        PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
             throw new AnalysisException("Db privilege can not contains global or resource privileges: " + privs);
@@ -70,8 +70,7 @@ public class DbPrivEntry extends PrivEntry {
             dbCaseSensibility = false;
         }
 
-        PatternMatcher dbPattern = PatternMatcher.createMysqlPattern(db.equals(ANY_DB) ? "%" : db, dbCaseSensibility);
-        return dbPattern;
+        return  PatternMatcher.createFlatPattern(db, dbCaseSensibility, db.equals(ANY_DB));
     }
 
     public PatternMatcher getDbPattern() {
