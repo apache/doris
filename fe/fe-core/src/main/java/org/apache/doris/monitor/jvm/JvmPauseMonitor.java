@@ -234,9 +234,9 @@ public class JvmPauseMonitor {
          */
         private void checkForDeadlocks() {
             ThreadMXBean threadMx = ManagementFactory.getThreadMXBean();
-            long deadlockedTids[] = threadMx.findDeadlockedThreads();
+            long[] deadlockedTids = threadMx.findDeadlockedThreads();
             if (deadlockedTids != null) {
-                ThreadInfo deadlockedThreads[] =
+                ThreadInfo[] deadlockedThreads =
                         threadMx.getThreadInfo(deadlockedTids, true, true);
                 // Log diagnostics with error before aborting the process with a FATAL log.
                 LOG.error("Found " + deadlockedThreads.length + " threads in deadlock: ");

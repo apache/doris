@@ -82,7 +82,7 @@ public class TabletRepairAndBalanceTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
     private static String runningDirBase = "fe";
-    private static String runningDir = runningDirBase + "/mocked/TabletRepairAndBalanceTest/" + UUID.randomUUID().toString() + "/";
+    private static String runningDir = runningDirBase + "/mocked/TabletRepairAndBalanceTest/" + UUID.randomUUID() + "/";
     private static ConnectContext connectContext;
 
     private static Random random = new Random(System.currentTimeMillis());
@@ -264,7 +264,8 @@ public class TabletRepairAndBalanceTest {
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         // alter table's replica allocation failed, tag not enough
-        String alterStr = "alter table test.tbl1 set (\"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\");";
+        String alterStr = "alter table test.tbl1"
+                + " set (\"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\");";
         ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr));
         ReplicaAllocation tblReplicaAlloc = tbl.getDefaultReplicaAllocation();
         Assert.assertEquals(3, tblReplicaAlloc.getTotalReplicaNum());
@@ -272,7 +273,8 @@ public class TabletRepairAndBalanceTest {
         Assert.assertEquals(Short.valueOf((short) 1), tblReplicaAlloc.getReplicaNumByTag(tag2));
 
         // alter partition's replica allocation succeed
-        String alterStr2 = "alter table test.tbl1 modify partition p1 set (\"replication_allocation\" = \"tag.location.zone1: 1, tag.location.zone2: 2\");";
+        String alterStr2 = "alter table test.tbl1 modify partition p1"
+                + " set (\"replication_allocation\" = \"tag.location.zone1: 1, tag.location.zone2: 2\");";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr2));
         Partition p1 = tbl.getPartition("p1");
         ReplicaAllocation p1ReplicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(p1.getId());
@@ -395,7 +397,8 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr3));
 
         // change tbl1's p1's replica allocation to zone1:4, which is forbidden
-        String alterStr4 = "alter table test.tbl1 modify partition p1 set ('replication_allocation' = 'tag.location.zone1:4')";
+        String alterStr4 = "alter table test.tbl1 modify partition p1"
+                + " set ('replication_allocation' = 'tag.location.zone1:4')";
         ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr4));
 
         // change col_tbl1's default replica allocation to zone2:4, which is allowed
@@ -416,7 +419,8 @@ public class TabletRepairAndBalanceTest {
             Backend backend = backends.get(i);
             String backendStmt = "alter system modify backend \"" + backend.getHost() + ":" + backend.getHeartbeatPort()
                     + "\" set ('tag.location' = 'default')";
-            AlterSystemStmt systemStmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(backendStmt, connectContext);
+            AlterSystemStmt systemStmt
+                    = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(backendStmt, connectContext);
             DdlExecutor.execute(Catalog.getCurrentCatalog(), systemStmt);
         }
         Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(0).getTag());
@@ -448,13 +452,15 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr6));
         Assert.assertEquals(4, tbl2.getPartitionNames().size());
         PartitionInfo partitionInfo = tbl2.getPartitionInfo();
-        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, partitionInfo.getReplicaAllocation(tbl2.getPartition("p4").getId()));
+        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION,
+                partitionInfo.getReplicaAllocation(tbl2.getPartition("p4").getId()));
 
         // change tbl2 to a colocate table
         String alterStr7 = "alter table test.tbl2 SET (\"colocate_with\"=\"newg\")";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr7));
         ColocateTableIndex.GroupId groupId1 = colocateTableIndex.getGroup(tbl2.getId());
-        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, colocateTableIndex.getGroupSchema(groupId1).getReplicaAlloc());
+        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION,
+                colocateTableIndex.getGroupSchema(groupId1).getReplicaAlloc());
 
         // test colocate table index persist
         ExceptionChecker.expectThrowsNoException(() -> testColocateTableIndexSerialization(colocateTableIndex));

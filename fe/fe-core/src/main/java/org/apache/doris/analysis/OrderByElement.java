@@ -60,11 +60,13 @@ public class OrderByElement {
     public Boolean getNullsFirstParam() {
         return nullsFirstParam;
     }
+
     public OrderByElement clone() {
         OrderByElement clone = new OrderByElement(
                 expr.clone(), isAsc, nullsFirstParam);
         return clone;
     }
+
     /**
      * Returns a new list of OrderByElements with the same (cloned) expressions but the
      * ordering direction reversed (asc becomes desc, nulls first becomes nulls last, etc.)
@@ -82,6 +84,7 @@ public class OrderByElement {
 
         return result;
     }
+
     /**
      * Extracts the order-by exprs from the list of order-by elements and returns them.
      */
@@ -111,6 +114,7 @@ public class OrderByElement {
 
         return result;
     }
+
     public String toSql() {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(expr.toSql());
@@ -167,6 +171,7 @@ public class OrderByElement {
         OrderByElement o = (OrderByElement) obj;
         return expr.equals(o.expr) && isAsc == o.isAsc  && nullsFirstParam == o.nullsFirstParam;
     }
+
     /**
      * Compute nullsFirst.
      *

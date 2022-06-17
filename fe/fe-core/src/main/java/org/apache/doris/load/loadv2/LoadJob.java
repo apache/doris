@@ -359,7 +359,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (ConnectContext.get() != null) {
             jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, ConnectContext.get().getSessionVariable().getMaxExecMemByte());
             jobProperties.put(LoadStmt.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
-            jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, ConnectContext.get().getSessionVariable().getSendBatchParallelism());
+            jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM,
+                    ConnectContext.get().getSessionVariable().getSendBatchParallelism());
         }
 
         if (properties == null || properties.isEmpty()) {
@@ -414,7 +415,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         isJobTypeRead = jobTypeRead;
     }
 
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException,
+            AnalysisException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
     }
 
     /**

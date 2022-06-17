@@ -30,7 +30,8 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectIn
 
 import java.io.IOException;
 
-@Description(name = "bitmap_xor", value = "a _FUNC_ b - Compute the symmetric union of two or more input bitmaps, return the new bitmap")
+@Description(name = "bitmap_xor", value = "a _FUNC_ b - Compute the symmetric"
+        + " union of two or more input bitmaps, return the new bitmap")
 public class BitmapXorUDF extends GenericUDF {
 
     private transient BinaryObjectInspector inputOI0;

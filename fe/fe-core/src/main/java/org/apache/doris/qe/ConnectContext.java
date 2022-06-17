@@ -80,7 +80,8 @@ public class ConnectContext {
     protected volatile String clusterName = "";
     // username@host of current login user
     protected volatile String qualifiedUser;
-    // LDAP authenticated but the Doris account does not exist, set the flag, and the user login Doris as Temporary user.
+    // LDAP authenticated but the Doris account does not exist,
+    // set the flag, and the user login Doris as Temporary user.
     protected volatile boolean isTempUser = false;
     // Save the privs from the ldap groups.
     protected volatile PaloRole ldapGroupsPrivs = null;

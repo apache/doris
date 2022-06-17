@@ -187,7 +187,8 @@ public class GlobalDictBuilder {
             String distinctColumnNameTmp = distinctColumnNameOrigin.toString();
             globalDictBuildWorkers.add(() -> {
                 // get global dict max value
-                List<Row> maxGlobalDictValueRow = spark.sql(getMaxGlobalDictValueSql(distinctColumnNameTmp)).collectAsList();
+                List<Row> maxGlobalDictValueRow
+                        = spark.sql(getMaxGlobalDictValueSql(distinctColumnNameTmp)).collectAsList();
                 if (maxGlobalDictValueRow.size() == 0) {
                     throw new RuntimeException(String.format("get max dict value failed: %s", distinctColumnNameTmp));
                 }
@@ -199,13 +200,16 @@ public class GlobalDictBuilder {
                     maxDictValue = (long) row.get(0);
                     minDictValue = (long) row.get(1);
                 }
-                LOG.info(" column " + distinctColumnNameTmp + " 's max value in dict is " + maxDictValue + ", min value is " + minDictValue);
+                LOG.info(" column " + distinctColumnNameTmp + " 's max value in dict is "
+                        + maxDictValue + ", min value is " + minDictValue);
                 // maybe never happened, but we need detect it
                 if (minDictValue < 0) {
-                    throw new RuntimeException(String.format(" column %s 's cardinality has exceed bigint's max value", distinctColumnNameTmp));
+                    throw new RuntimeException(String.format(" column %s 's cardinality has exceed bigint's max value",
+                            distinctColumnNameTmp));
                 }
 
-                if (veryHighCardinalityColumn.contains(distinctColumnNameTmp) && veryHighCardinalityColumnSplitNum > 1) {
+                if (veryHighCardinalityColumn.contains(distinctColumnNameTmp)
+                        && veryHighCardinalityColumnSplitNum > 1) {
                     // split distinct key first and then encode with count
                     buildGlobalDictBySplit(maxDictValue, distinctColumnNameTmp);
                 } else {
@@ -259,7 +263,8 @@ public class GlobalDictBuilder {
     }
 
     private String getCreateDistinctKeyTableSql() {
-        return "create table if not exists " + distinctKeyTableName + "(dict_key string) partitioned by (dict_column string) stored as sequencefile ";
+        return "create table if not exists " + distinctKeyTableName
+                + "(dict_key string) partitioned by (dict_column string) stored as sequencefile ";
     }
 
     private String getInsertDistinctKeyTableSql(String distinctColumnName, String sourceHiveTable) {
@@ -278,7 +283,8 @@ public class GlobalDictBuilder {
     }
 
     private String getMaxGlobalDictValueSql(String distinctColumnName) {
-        return "select max(dict_value) as max_value,min(dict_value) as min_value from " + globalDictTableName + " where dict_column='" + distinctColumnName + "'";
+        return "select max(dict_value) as max_value,min(dict_value) as min_value from "
+                + globalDictTableName + " where dict_column='" + distinctColumnName + "'";
     }
 
     private void buildGlobalDictBySplit(long maxGlobalDictValue, String distinctColumnName) {
@@ -294,9 +300,11 @@ public class GlobalDictBuilder {
             long currentDatasetStartDictValue = currentMaxDictValue;
             long splitDistinctValueCount = splitedDistinctValue[i].count();
             currentMaxDictValue += splitDistinctValueCount;
-            String tmpDictTableName = String.format("%s_%s_tmp_dict_%s", i, currentDatasetStartDictValue, distinctColumnName);
+            String tmpDictTableName = String.format("%s_%s_tmp_dict_%s", i,
+                    currentDatasetStartDictValue, distinctColumnName);
             distinctKeyMap.put(tmpDictTableName, currentDatasetStartDictValue);
-            Dataset<Row> distinctValueFrame = spark.createDataFrame(splitedDistinctValue[i].toJavaRDD(), getDistinctValueSchema());
+            Dataset<Row> distinctValueFrame = spark.createDataFrame(
+                    splitedDistinctValue[i].toJavaRDD(), getDistinctValueSchema());
             distinctValueFrame.createOrReplaceTempView(tmpDictTableName);
         }
 
@@ -306,8 +314,10 @@ public class GlobalDictBuilder {
 
     private String getSplitBuildGlobalDictSql(Map<String, Long> distinctKeyMap, String distinctColumnName) {
         StringBuilder sql = new StringBuilder();
-        sql.append("insert overwrite table ").append(globalDictTableName).append(" partition(dict_column='").append(distinctColumnName).append("') ")
-                .append(" select dict_key,dict_value from ").append(globalDictTableName).append(" where dict_column='").append(distinctColumnName).append("' ");
+        sql.append("insert overwrite table ").append(globalDictTableName)
+                .append(" partition(dict_column='").append(distinctColumnName).append("') ")
+                .append(" select dict_key,dict_value from ").append(globalDictTableName)
+                .append(" where dict_column='").append(distinctColumnName).append("' ");
         for (Map.Entry<String, Long> entry : distinctKeyMap.entrySet()) {
             sql.append(" union all select dict_key, CAST((row_number() over(order by dict_key)) as BIGINT) ")
                     .append(String.format("+ CAST(%s as BIGINT) as dict_value from %s",
@@ -334,12 +344,15 @@ public class GlobalDictBuilder {
 
     private String getBuildGlobalDictSql(long maxGlobalDictValue, String distinctColumnName) {
         return "insert overwrite table " + globalDictTableName + " partition(dict_column='" + distinctColumnName + "') "
-                + " select dict_key,dict_value from " + globalDictTableName + " where dict_column='" + distinctColumnName + "' "
+                + " select dict_key,dict_value from " + globalDictTableName
+                + " where dict_column='" + distinctColumnName + "' "
                 + " union all select t1.dict_key as dict_key,"
                 + "CAST((row_number() over(order by t1.dict_key)) as BIGINT) + "
                 + "CAST(" + maxGlobalDictValue + " as BIGINT) as dict_value from "
-                + "(select dict_key from " + distinctKeyTableName + " where dict_column='" + distinctColumnName + "' and dict_key is not null)t1 left join "
-                + " (select dict_key,dict_value from " + globalDictTableName + " where dict_column='" + distinctColumnName + "' )t2 "
+                + "(select dict_key from " + distinctKeyTableName
+                + " where dict_column='" + distinctColumnName + "' and dict_key is not null)t1 left join "
+                + " (select dict_key,dict_value from " + globalDictTableName
+                + " where dict_column='" + distinctColumnName + "' )t2 "
                 + "on t1.dict_key = t2.dict_key where t2.dict_value is null";
     }
 

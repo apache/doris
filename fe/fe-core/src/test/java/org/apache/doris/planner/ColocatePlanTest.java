@@ -68,8 +68,8 @@ public class ColocatePlanTest {
         String createMultiPartitionTableStmt = "create table db1.test_multi_partition(k1 int, k2 int)"
                 + "partition by range(k1) (partition p1 values less than(\"1\"), partition p2 values less than (\"2\"))"
                 + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')";
-        CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils.
-                parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
+        CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils
+                .parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
         Catalog.getCurrentCatalog().createTable(createMultiTableStmt);
     }
 

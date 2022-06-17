@@ -175,21 +175,26 @@ public class CanalSyncDataTest {
             @Mock
             void connect() throws CanalClientException {
             }
+
             @Mock
             void disconnect() throws CanalClientException {
             }
+
             @Mock
             Message getWithoutAck(int var1, Long var2, TimeUnit var3) throws CanalClientException {
                 offset += batchSize * 1; // Simply set one entry as one byte
                 return CanalTestUtil.fetchMessage(
                         ++nextId, false, batchSize, binlogFile, offset, "mysql_db", "mysql_tbl");
             }
+
             @Mock
             void rollback() throws CanalClientException {
             }
+
             @Mock
             void ack(long var1) throws CanalClientException {
             }
+
             @Mock
             void subscribe(String var1) throws CanalClientException {
             }

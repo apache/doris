@@ -92,7 +92,8 @@ public class EsUtil {
         try {
             return Boolean.parseBoolean(property);
         } catch (Exception e) {
-            throw new DdlException(String.format("fail to parse %s, %s = %s, `%s` should be like 'true' or 'false'， value should be double quotation marks", name, name, property, name));
+            throw new DdlException(String.format("fail to parse %s, %s = %s, `%s` should be like 'true' or 'false', "
+                    + "value should be double quotation marks", name, name, property, name));
         }
     }
 }

@@ -69,9 +69,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -316,7 +313,8 @@ public class BrokerScanNode extends LoadScanNode {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
+                broker = Catalog.getCurrentCatalog().getBrokerMgr()
+                        .getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }

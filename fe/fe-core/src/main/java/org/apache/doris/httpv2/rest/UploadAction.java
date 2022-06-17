@@ -67,7 +67,8 @@ public class UploadAction extends RestBaseController {
      * @param response
      * @return
      */
-    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload", method = {RequestMethod.POST})
+    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload",
+            method = {RequestMethod.POST})
     public Object upload(
             @PathVariable(value = NS_KEY) String ns,
             @PathVariable(value = DB_KEY) String dbName,
@@ -119,7 +120,8 @@ public class UploadAction extends RestBaseController {
      * @param response
      * @return
      */
-    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload", method = {RequestMethod.PUT})
+    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload",
+            method = {RequestMethod.PUT})
     public Object submit(
             @PathVariable(value = NS_KEY) String ns,
             @PathVariable(value = DB_KEY) String dbName,
@@ -152,7 +154,8 @@ public class UploadAction extends RestBaseController {
         }
         Preconditions.checkNotNull(tmpFile, fileIdStr);
 
-        LoadContext loadContext = new LoadContext(request, dbName, tblName, authInfo.fullUserName, authInfo.password, tmpFile);
+        LoadContext loadContext = new LoadContext(request, dbName, tblName,
+                authInfo.fullUserName, authInfo.password, tmpFile);
         Future<LoadSubmitter.SubmitResult> future = loadSubmitter.submit(loadContext);
 
         try {
@@ -173,7 +176,8 @@ public class UploadAction extends RestBaseController {
      * @param response
      * @return
      */
-    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload", method = {RequestMethod.GET})
+    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload",
+            method = {RequestMethod.GET})
     public Object list(
             @PathVariable(value = NS_KEY) String ns,
             @PathVariable(value = DB_KEY) String dbName,
@@ -216,7 +220,8 @@ public class UploadAction extends RestBaseController {
         }
     }
 
-    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload", method = {RequestMethod.DELETE})
+    @RequestMapping(path = "/api/{" + NS_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/upload",
+            method = {RequestMethod.DELETE})
     public Object delete(
             @PathVariable(value = NS_KEY) String ns,
             @PathVariable(value = DB_KEY) String dbName,
@@ -273,7 +278,8 @@ public class UploadAction extends RestBaseController {
         public String fuzzyParse;
 
 
-        public LoadContext(HttpServletRequest request, String db, String tbl, String user, String passwd, TmpFileMgr.TmpFile file) {
+        public LoadContext(HttpServletRequest request, String db,
+                String tbl, String user, String passwd, TmpFileMgr.TmpFile file) {
             this.db = db;
             this.tbl = tbl;
             this.user = user;

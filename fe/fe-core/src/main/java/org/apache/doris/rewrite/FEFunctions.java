@@ -44,7 +44,8 @@ import java.math.BigInteger;
 /**
  * compute functions in FE.
  *
- * when you add a new function, please ensure the name, argTypes , returnType and compute logic are consistent with BE's function
+ * when you add a new function, please ensure the name, argTypes,
+ * returnType and compute logic are consistent with BE's function
  */
 public class FEFunctions {
     private static final Logger LOG = LogManager.getLogger(FEFunctions.class);
@@ -71,7 +72,8 @@ public class FEFunctions {
         // DATEDIFF function only uses the date part for calculations and ignores the time part
         firstDate.castToDate();
         secondDate.castToDate();
-        long datediff = (firstDate.unixTimestamp(TimeUtils.getTimeZone()) - secondDate.unixTimestamp(TimeUtils.getTimeZone())) / 1000 / 60 / 60 / 24;
+        long datediff = (firstDate.unixTimestamp(TimeUtils.getTimeZone())
+                - secondDate.unixTimestamp(TimeUtils.getTimeZone())) / 1000 / 60 / 60 / 24;
         return new IntLiteral(datediff, Type.INT);
     }
 

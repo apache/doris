@@ -20,7 +20,6 @@ package org.apache.doris.httpv2.util;
 
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.ExportStmt;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -100,14 +99,15 @@ public class StatementSubmitter {
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
                 long startTime = System.currentTimeMillis();
                 if (stmtBase instanceof QueryStmt || stmtBase instanceof ShowStmt) {
-                    stmt = conn.prepareStatement(queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                    stmt = conn.prepareStatement(
+                            queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                     // set fetch size to 1 to enable streaming result set to avoid OOM.
                     ((PreparedStatement) stmt).setFetchSize(1);
                     ResultSet rs = ((PreparedStatement) stmt).executeQuery();
                     ExecutionResultSet resultSet = generateResultSet(rs, startTime);
                     rs.close();
                     return resultSet;
-                } else if (stmtBase instanceof InsertStmt || stmtBase instanceof DdlStmt || stmtBase instanceof ExportStmt) {
+                } else if (stmtBase instanceof DdlStmt || stmtBase instanceof ExportStmt) {
                     stmt = conn.createStatement();
                     stmt.execute(queryCtx.stmt);
                     ExecutionResultSet resultSet = generateExecStatus(startTime);

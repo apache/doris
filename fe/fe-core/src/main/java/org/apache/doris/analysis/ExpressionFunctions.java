@@ -75,7 +75,8 @@ public enum ExpressionFunctions {
             // 2. Not in NonNullResultWithNullParamFunctions
             // 3. Has null parameter
             if ((fn.getNullableMode() == Function.NullableMode.DEPEND_ON_ARGUMENT
-                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(fn.getFunctionName().getFunction()))
+                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(
+                            fn.getFunctionName().getFunction()))
                     && !fn.isUdf()) {
                 for (Expr e : constExpr.getChildren()) {
                     if (e instanceof NullLiteral) {
@@ -205,7 +206,8 @@ public enum ExpressionFunctions {
                 if (argType.isArray()) {
                     Preconditions.checkArgument(method.getParameterTypes().length == typeIndex + 1);
                     final List<Expr> variableLengthExprs = Lists.newArrayList();
-                    for (int variableLengthArgIndex = typeIndex; variableLengthArgIndex < args.size(); variableLengthArgIndex++) {
+                    for (int variableLengthArgIndex = typeIndex;
+                            variableLengthArgIndex < args.size(); variableLengthArgIndex++) {
                         variableLengthExprs.add(args.get(variableLengthArgIndex));
                     }
                     LiteralExpr[] variableLengthArgs = createVariableLengthArgs(variableLengthExprs, typeIndex);

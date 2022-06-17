@@ -340,8 +340,8 @@ public class OlapTable extends Table {
         this.indexIdToMeta.remove(indexId);
         // Some column of deleted index should be removed during `deleteIndexInfo` such as `mv_bitmap_union_c1`
         // If deleted index id == base index id, the schema will not be rebuilt.
-        // The reason is that the base index has been removed from indexIdToMeta while the new base index hasn't changed.
-        // The schema could not be rebuild in here with error base index id.
+        // The reason is that the base index has been removed from indexIdToMeta while the new base index
+        // hasn't changed. The schema could not be rebuild in here with error base index id.
         if (indexId != baseIndexId) {
             rebuildFullSchema();
         }
@@ -643,10 +643,12 @@ public class OlapTable extends Table {
             return partitionColumnNames;
         } else if (partitionInfo instanceof RangePartitionInfo) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            return rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+            return rangePartitionInfo.getPartitionColumns().stream()
+                    .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
         } else if (partitionInfo instanceof ListPartitionInfo) {
             ListPartitionInfo listPartitionInfo = (ListPartitionInfo) partitionInfo;
-            return listPartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+            return listPartitionInfo.getPartitionColumns().stream()
+                    .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
         } else {
             throw new DdlException("Unknown partition info type: " + partitionInfo.getType().name());
         }
@@ -1255,7 +1257,8 @@ public class OlapTable extends Table {
         }
 
         // remove shadow index from copied table
-        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst()
+                .get().getMaterializedIndices(IndexExtState.SHADOW);
         for (MaterializedIndex deleteIndex : shadowIndex) {
             LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
             copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
@@ -1292,7 +1295,8 @@ public class OlapTable extends Table {
         partNames.addAll(copied.getPartitionNames());
 
         // partition name is case insensitive:
-        Set<String> lowerReservedPartitionNames = reservedPartitions.stream().map(String::toLowerCase).collect(Collectors.toSet());
+        Set<String> lowerReservedPartitionNames = reservedPartitions.stream()
+                .map(String::toLowerCase).collect(Collectors.toSet());
         for (String partName : partNames) {
             if (!lowerReservedPartitionNames.contains(partName.toLowerCase())) {
                 copied.dropPartitionAndReserveTablet(partName);
@@ -1530,7 +1534,8 @@ public class OlapTable extends Table {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY, Boolean.valueOf(isInMemory).toString());
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY,
+                Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
     }
 

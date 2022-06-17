@@ -65,7 +65,7 @@ import java.util.stream.Collectors;
  * a single input tuple.
  */
 public class HashJoinNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(HashJoinNode.class);
+    private static final Logger LOG = LogManager.getLogger(HashJoinNode.class);
 
     private TableRef innerRef;
     private final JoinOperator joinOp;
@@ -477,8 +477,8 @@ public class HashJoinNode extends PlanNode {
      * - we adjust the NDVs from both sides to account for predicates that may
      * might have reduce the cardinality and NDVs
      */
-    private long getGenericJoinCardinality(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots, long lhsCard,
-            long rhsCard) {
+    private long getGenericJoinCardinality(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots,
+            long lhsCard, long rhsCard) {
         Preconditions.checkState(joinOp.isInnerJoin() || joinOp.isOuterJoin());
         Preconditions.checkState(!eqJoinConjunctSlots.isEmpty());
         Preconditions.checkState(lhsCard >= 0 && rhsCard >= 0);
@@ -768,8 +768,8 @@ public class HashJoinNode extends PlanNode {
             output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix).append("other join predicates: ").append(getExplainString(otherJoinConjuncts))
-                    .append("\n");
+            output.append(detailPrefix).append("other join predicates: ")
+                    .append(getExplainString(otherJoinConjuncts)).append("\n");
         }
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");

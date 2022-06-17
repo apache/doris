@@ -75,6 +75,7 @@ public class ResourceGroup implements Writable {
     public Map<ResourceType, Integer> getQuotaMap() {
         return quotaByType;
     }
+
     public static Builder builder() {
         return new Builder();
     }

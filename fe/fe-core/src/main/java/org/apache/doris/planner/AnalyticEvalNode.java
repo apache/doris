@@ -48,7 +48,7 @@ import java.util.List;
  * Computation of analytic exprs.
  */
 public class AnalyticEvalNode extends PlanNode {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
 
     private List<Expr> analyticFnCalls;
 
@@ -102,6 +102,7 @@ public class AnalyticEvalNode extends PlanNode {
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }
+
     public List<OrderByElement> getOrderByElements() {
         return orderByElements;
     }
@@ -261,6 +262,7 @@ public class AnalyticEvalNode extends PlanNode {
 
         return output.toString();
     }
+
     public void computeCosts(TQueryOptions queryOptions) {
         Preconditions.checkNotNull(fragmentId,
                                    "PlanNode must be placed into a fragment before calling this method.");

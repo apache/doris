@@ -206,7 +206,8 @@ public class StringLiteral extends LiteralExpr {
                 case LARGEINT:
                     if (VariableVarConverters.hasConverter(beConverted)) {
                         try {
-                            return new LargeIntLiteral(String.valueOf(VariableVarConverters.encode(beConverted, value)));
+                            return new LargeIntLiteral(String.valueOf(
+                                    VariableVarConverters.encode(beConverted, value)));
                         } catch (DdlException e) {
                             throw new AnalysisException(e.getMessage());
                         }

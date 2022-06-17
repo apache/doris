@@ -198,7 +198,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void runPendingJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
         LOG.info("begin to send create replica tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog()
+                .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
         if (!checkTableStable(db)) {
             return;
@@ -261,7 +262,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     tbl.getCompressionType());
-                            createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
+                            createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
+                                    .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
@@ -317,12 +319,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr()
+                .getTransactionIDGenerator().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
         // write edit log
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
-        LOG.info("transfer schema change job {} state to {}, watershed txn id: {}", jobId, this.jobState, watershedTxnId);
+        LOG.info("transfer schema change job {} state to {}, watershed txn id: {}",
+                jobId, this.jobState, watershedTxnId);
     }
 
     private void addShadowIndexToCatalog(OlapTable tbl) {
@@ -369,7 +373,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         LOG.info("previous transactions are all finished, begin to send schema change tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog()
+                .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
         OlapTable tbl;
         try {
@@ -473,7 +478,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog()
+                .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
         OlapTable tbl;
         try {
@@ -487,7 +493,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
-                    throw new AlterCancelException("schema change task failed after try three times: " + task.getErrorMsg());
+                    throw new AlterCancelException("schema change task failed after try three times: "
+                            + task.getErrorMsg());
                 }
             }
             return;
@@ -507,7 +514,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 Preconditions.checkNotNull(partition, partitionId);
 
                 long visiableVersion = partition.getVisibleVersion();
-                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+                short expectReplicationNum = tbl.getPartitionInfo()
+                        .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
@@ -680,7 +688,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
     protected boolean isPreviousLoadFinished() throws AnalysisException {
-        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
+        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 
     /**

@@ -88,7 +88,8 @@ public class TmpFileMgr {
      */
     public synchronized TmpFile upload(UploadFile uploadFile) throws TmpFileException {
         if (uploadFile.file.getSize() > MAX_SINGLE_FILE_SIZE) {
-            throw new TmpFileException("File size " + uploadFile.file.getSize() + " exceed limit " + MAX_SINGLE_FILE_SIZE);
+            throw new TmpFileException("File size " + uploadFile.file.getSize()
+                    + " exceed limit " + MAX_SINGLE_FILE_SIZE);
         }
 
         if (totalFileSize + uploadFile.file.getSize() > MAX_TOTAL_FILE_SIZE_BYTES) {
@@ -204,7 +205,8 @@ public class TmpFileMgr {
         // make a copy without lines and maxColNum.
         // so that can call `setPreview` and will not affect other instance
         public TmpFile copy() {
-            TmpFile copiedFile = new TmpFile(this.id, this.uuid, this.originFileName, this.fileSize, this.columnSeparator);
+            TmpFile copiedFile = new TmpFile(this.id, this.uuid, this.originFileName,
+                    this.fileSize, this.columnSeparator);
             copiedFile.absPath = this.absPath;
             return copiedFile;
         }

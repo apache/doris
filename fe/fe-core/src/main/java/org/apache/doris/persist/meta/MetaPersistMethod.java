@@ -130,7 +130,8 @@ public class MetaPersistMethod {
                 metaPersistMethod.readMethod =
                         Catalog.class.getDeclaredMethod("loadBackupHandler", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveBackupHandler", CountingDataOutputStream.class, long.class);
+                        Catalog.class.getDeclaredMethod("saveBackupHandler",
+                                CountingDataOutputStream.class, long.class);
                 break;
             case "paloAuth":
                 metaPersistMethod.readMethod =
@@ -181,7 +182,8 @@ public class MetaPersistMethod {
                 metaPersistMethod.readMethod =
                         Catalog.class.getDeclaredMethod("loadDeleteHandler", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveDeleteHandler", CountingDataOutputStream.class, long.class);
+                        Catalog.class.getDeclaredMethod("saveDeleteHandler",
+                                CountingDataOutputStream.class, long.class);
                 break;
             case "sqlBlockRule":
                 metaPersistMethod.readMethod =

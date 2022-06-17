@@ -52,7 +52,7 @@ import java.util.Set;
  * Sorting.
  */
 public class SortNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(SortNode.class);
+    private static final Logger LOG = LogManager.getLogger(SortNode.class);
     private final SortInfo info;
     private final boolean  useTopN;
     private final boolean  isDefaultLimit;
@@ -67,13 +67,17 @@ public class SortNode extends PlanNode {
     public void setIsAnalyticSort(boolean v) {
         isAnalyticSort = v;
     }
+
     public boolean isAnalyticSort() {
         return isAnalyticSort;
     }
+
     private DataPartition inputPartition;
+
     public void setInputPartition(DataPartition inputPartition) {
         this.inputPartition = inputPartition;
     }
+
     public DataPartition getInputPartition() {
         return inputPartition;
     }

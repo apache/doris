@@ -84,10 +84,10 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
-    private final static int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    private final static int ALLOW_SPACE_MASK = 4 | 64;
-    private final static int MAX_DATE_PARTS = 8;
-    private final static int YY_PART_YEAR = 70;
+    private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private static final int ALLOW_SPACE_MASK = 4 | 64;
+    private static final int MAX_DATE_PARTS = 8;
+    private static final int YY_PART_YEAR = 70;
 
     static {
         try {
@@ -148,6 +148,7 @@ public class DateLiteral extends LiteralExpr {
 
     //Regex used to determine if the TIME field exists int date_format
     private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
+
     //Date Literal persist type in meta
     private enum  DateLiteralType {
         DATETIME(0),
@@ -597,7 +598,9 @@ public class DateLiteral extends LiteralExpr {
                     case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
                         builder.appendWeekOfWeekyear(2);
                         break;
-                    case 'x': // %x Year for the week, where Monday is the first day of the week, numeric, four digits; used with %v
+                    case 'x':
+                        // %x Year for the week, where Monday is the first day of the week,
+                        // numeric, four digits; used with %v
                         builder.appendWeekyear(4, 4);
                         break;
                     case 'W': // %W Weekday name (Sunday..Saturday)
@@ -614,9 +617,12 @@ public class DateLiteral extends LiteralExpr {
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
                     case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                    case 'X': // %X Year for the week where Sunday is the first day of the week, numeric, four digits; used with %V
+                    case 'X':
+                        // %X Year for the week where Sunday is the first day of the week,
+                        // numeric, four digits; used with %V
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
-                        throw new AnalysisException(String.format("%%%s not supported in date format string", character));
+                        throw new AnalysisException(
+                                String.format("%%%s not supported in date format string", character));
                     case '%': // %% A literal "%" character
                         builder.appendLiteral('%');
                         break;
@@ -957,7 +963,8 @@ public class DateLiteral extends LiteralExpr {
                 }
             } else if (format.charAt(fp) != ' ') {
                 if (format.charAt(fp) != value.charAt(vp)) {
-                    throw new InvalidFormatException("Invalid char: " + value.charAt(vp) + ", expected: " + format.charAt(fp));
+                    throw new InvalidFormatException("Invalid char: " + value.charAt(vp)
+                            + ", expected: " + format.charAt(fp));
                 }
                 fp++;
                 vp++;
@@ -1053,6 +1060,7 @@ public class DateLiteral extends LiteralExpr {
                 || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
                 || microsecond > MAX_MICROSECOND;
     }
+
     private boolean checkDate() {
         if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
             if (month == 2 && day == 29 && Year.isLeap(year)) {
@@ -1195,7 +1203,8 @@ public class DateLiteral extends LiteralExpr {
             int start = pre;
             int tempVal = 0;
             boolean scanToDelim = (!isIntervalFormat) && (fieldIdx != 6);
-            while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre)) && (scanToDelim || fieldLen-- != 0)) {
+            while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre))
+                    && (scanToDelim || fieldLen-- != 0)) {
                 tempVal = tempVal * 10 + (dateStr.charAt(pre++) - '0');
             }
             dateVal[fieldIdx] = tempVal;

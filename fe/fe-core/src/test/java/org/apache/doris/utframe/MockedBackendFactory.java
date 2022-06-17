@@ -126,7 +126,7 @@ public class MockedBackendFactory {
 
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
-    public static abstract class BeThriftService implements BackendService.Iface {
+    public abstract static class BeThriftService implements BackendService.Iface {
         protected MockedBackend backend;
 
         public void setBackend(MockedBackend backend) {

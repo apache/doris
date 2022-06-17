@@ -80,7 +80,8 @@ public class CurrentQueryInfoProvider {
         final Map<String, RuntimeProfile> instanceProfiles = collectInstanceProfile(item.getQueryProfile());
         final List<InstanceStatistics> instanceStatisticsList = Lists.newArrayList();
         for (QueryStatisticsItem.FragmentInstanceInfo instanceInfo : item.getFragmentInstanceInfos()) {
-            final RuntimeProfile instanceProfile = instanceProfiles.get(DebugUtil.printId(instanceInfo.getInstanceId()));
+            final RuntimeProfile instanceProfile
+                    = instanceProfiles.get(DebugUtil.printId(instanceInfo.getInstanceId()));
             Preconditions.checkNotNull(instanceProfile);
             final InstanceStatistics Statistics =
                     new InstanceStatistics(
@@ -102,7 +103,8 @@ public class CurrentQueryInfoProvider {
         final Map<String, RuntimeProfile> instanceProfiles = Maps.newHashMap();
         for (RuntimeProfile fragmentProfile : queryProfile.getChildMap().values()) {
             for (Map.Entry<String, RuntimeProfile> entry : fragmentProfile.getChildMap().entrySet()) {
-                Preconditions.checkState(instanceProfiles.put(parseInstanceId(entry.getKey()), entry.getValue()) == null);
+                Preconditions.checkState(instanceProfiles.put(
+                        parseInstanceId(entry.getKey()), entry.getValue()) == null);
             }
         }
         return instanceProfiles;

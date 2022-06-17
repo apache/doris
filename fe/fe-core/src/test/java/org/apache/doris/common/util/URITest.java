@@ -35,6 +35,7 @@ public class URITest {
         Assert.assertEquals(javaURI.getFragment(), myURI.getFragment());
         Assert.assertEquals(javaURI.getUserInfo(), myURI.getUserInfo());
     }
+
     @Test
     public void testNormal() throws UserException, URISyntaxException {
         String str1 = "foo://username:password@example.com:8042/over/there/index.dtb?type=animal&name=narwhal#nose";

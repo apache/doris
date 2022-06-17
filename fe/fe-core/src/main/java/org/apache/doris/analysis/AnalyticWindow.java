@@ -55,6 +55,7 @@ public class AnalyticWindow {
         public String toString() {
             return description;
         }
+
         public TAnalyticWindowType toThrift() {
             return this == ROWS ? TAnalyticWindowType.ROWS : TAnalyticWindowType.RANGE;
         }
@@ -77,6 +78,7 @@ public class AnalyticWindow {
         public String toString() {
             return description;
         }
+
         public TAnalyticWindowBoundaryType toThrift() {
             Preconditions.checkState(!isAbsolutePos());
 
@@ -140,6 +142,7 @@ public class AnalyticWindow {
         public BoundaryType getType() {
             return type;
         }
+
         public Expr getExpr() {
             return expr;
         }
@@ -243,12 +246,15 @@ public class AnalyticWindow {
     public Type getType() {
         return type;
     }
+
     public Boundary getLeftBoundary() {
         return leftBoundary;
     }
+
     public Boundary getRightBoundary() {
         return rightBoundary;
     }
+
     public Boundary setRightBoundary(Boundary b) {
         return rightBoundary = b;
     }
