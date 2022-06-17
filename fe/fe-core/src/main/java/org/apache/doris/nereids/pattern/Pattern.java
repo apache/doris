@@ -74,7 +74,8 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     /**
      * Constructor for Pattern.
      *
-     * @param patternType operator type to matching
+     * @param patternType pattern type to matching
+     * @param operatorType operator type to matching
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
