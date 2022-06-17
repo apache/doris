@@ -32,7 +32,7 @@ under the License.
         <p class="sum">现代化的高性能MPP分析型数据库</p> 
         <div class="bannerHref">
           <a href="/zh-CN/docs/get-starting/get-starting.html" class="button1">快速开始</a> 
-          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
+          <a href="https://github.com/apache/doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
           <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-18u6vjopj-Th15vTVfmCzVfhhL5rz26A" target="_blank" class="button2 white">
           <i><img style="width: 20px; position: relative; left: 4px; top: 2px; margin: 0;" src="/images/slack.png" alt="Slack" /></i>SLACK</a>
         </div>
@@ -325,7 +325,7 @@ under the License.
         <p class="t">分享</p>
         <ul>
           <li><a href="mailto:dev@doris.apache.org" target="_blank"><img src="/blog-images/fx1.png" alt="Email" /></a></li>
-          <li><a href="https://github.com/apache/incubator-doris" target="_blank"><img src="/blog-images/fx2.png" alt="Github" /></a></li>
+          <li><a href="https://github.com/apache/doris" target="_blank"><img src="/blog-images/fx2.png" alt="Github" /></a></li>
           <li><a href="https://twitter.com/doris_apache" target="_blank"><img src="/blog-images/fx3.png" alt="Twitter" /></a></li>
           <li><a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-18u6vjopj-Th15vTVfmCzVfhhL5rz26A" target="_blank"><img src="/blog-images/fx4.png" alt="Slack" /></a></li>
           <!-- <li><a href="https://mp.weixin.qq.com/mp/homepage?__biz=Mzg5MDEyODc1OA==&hid=1&sn=eb2d31c20d5c4fc638b897c764e11195&scene=18" target="_blank"><img src="/blog-images/fx5.png" alt="WeChart" /></a></li> -->
