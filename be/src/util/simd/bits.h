@@ -74,7 +74,7 @@ inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __res
     size_t num = 0;
     const int8_t* end = data + size;
     for (; data < end; ++data, ++null_map) {
-        num += ((*data == 0) & *null_map);
+        num += ((*data == 0) | *null_map);
     }
     return num;
 }
