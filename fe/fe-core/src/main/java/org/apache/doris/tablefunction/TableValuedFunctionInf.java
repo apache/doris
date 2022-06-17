@@ -19,7 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TTVFunctionName;
@@ -30,7 +30,7 @@ public abstract class TableValuedFunctionInf {
 
     public abstract TTVFunctionName getFuncName();
     public Table getTable() {
-        Table table = new Table(-1, getTableName(), TableType.TABLE_VALUED_FUNCTION, getTableColumns());
+        Table table = new Table(-1, getTableName(), TableIf.TableType.TABLE_VALUED_FUNCTION, getTableColumns());
         return table;
     }
 
