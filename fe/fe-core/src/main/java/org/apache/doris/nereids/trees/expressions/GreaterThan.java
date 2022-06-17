@@ -50,7 +50,7 @@ public class GreaterThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ex
     }
 
     @Override
-    public GreaterThan<Expression, Expression> newChildren(List<Expression> children) {
+    public GreaterThan<Expression, Expression> withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new GreaterThan<>(children.get(0), children.get(1));
     }

@@ -63,7 +63,7 @@ export default defineComponent({
             }, algoliaOptions),
             handleSelected: (input, event, suggestion) => {
               const { pathname, hash } = new URL(suggestion.url)
-              this.$router.push(`${pathname}${hash}`)
+              instance.$router.push(`${pathname}${hash}`)
             }
           }
         ))

@@ -27,7 +27,10 @@ import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all logical operator that have one input.
@@ -40,15 +43,19 @@ public abstract class LogicalUnaryOperator extends AbstractOperator
     }
 
     @Override
-    public final List<Slot> computeOutput(Plan... inputs) {
-        return doComputeOutput(inputs[0]);
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 1);
+        return new LogicalProperties(computeOutput(inputs[0]));
     }
 
-    public abstract List<Slot> doComputeOutput(Plan input);
+    public abstract List<Slot> computeOutput(Plan input);
 
     @Override
     public LogicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new LogicalUnaryPlan(this, groupExpression, logicalProperties, new PlaceHolderPlan());
+        LogicalProperties childProperties = groupExpression.child(0).getLogicalProperties();
+        return new LogicalUnaryPlan(this, Optional.of(groupExpression),
+            Optional.of(logicalProperties), new PlaceHolderPlan(childProperties)
+        );
     }
 }

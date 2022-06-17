@@ -19,10 +19,13 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -367,14 +370,22 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         }
                     }
 
+                    List<Column> fullSchema = tbl.getBaseSchema(true);
+                    DescriptorTable descTable = new DescriptorTable();
+                    for (Column column : fullSchema) {
+                        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+                        SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
+                        destSlotDesc.setIsMaterialized(true);
+                        destSlotDesc.setColumn(column);
+                        destSlotDesc.setIsNullable(column.isAllowNull());
+                    }
+
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
                     for (Replica rollupReplica : rollupReplicas) {
-                        AlterReplicaTask rollupTask = new AlterReplicaTask(
-                                rollupReplica.getBackendId(), dbId, tableId, partitionId,
-                                rollupIndexId, baseIndexId,
-                                rollupTabletId, baseTabletId, rollupReplica.getId(),
-                                rollupSchemaHash, baseSchemaHash,
-                                visibleVersion, jobId, JobType.ROLLUP, defineExprs);
+                        AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
+                                partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
+                                rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
+                                JobType.ROLLUP, defineExprs, descTable);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

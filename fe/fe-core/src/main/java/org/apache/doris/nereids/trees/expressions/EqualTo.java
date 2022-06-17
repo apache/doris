@@ -45,7 +45,7 @@ public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extend
     }
 
     @Override
-    public EqualTo<Expression, Expression> newChildren(List<Expression> children) {
+    public EqualTo<Expression, Expression> withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new EqualTo<>(children.get(0), children.get(1));
     }

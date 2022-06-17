@@ -46,7 +46,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;

@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;

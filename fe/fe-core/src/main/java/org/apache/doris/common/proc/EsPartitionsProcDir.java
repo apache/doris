@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 

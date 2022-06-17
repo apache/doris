@@ -25,12 +25,10 @@
 #include "common/object_pool.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/predicate.h"
-#include "olap/bloom_filter.hpp"
 #include "olap/decimal12.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/uint24.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/raw_value.h"
 
 namespace doris {
 namespace detail {

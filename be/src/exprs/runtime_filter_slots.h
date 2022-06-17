@@ -20,7 +20,6 @@
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr.h"
 
 namespace doris {
 // this class used in a hash join node

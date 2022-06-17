@@ -354,11 +354,7 @@ public class InsertStmt extends DdlStmt {
                 slotDesc.setIsMaterialized(true);
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
-                if (col.isAllowNull()) {
-                    slotDesc.setIsNullable(true);
-                } else {
-                    slotDesc.setIsNullable(false);
-                }
+                slotDesc.setIsNullable(col.isAllowNull());
             }
             // will use it during create load job
             indexIdToSchemaHash = olapTable.getIndexIdToSchemaHash();

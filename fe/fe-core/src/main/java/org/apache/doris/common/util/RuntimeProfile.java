@@ -468,4 +468,8 @@ public class RuntimeProfile {
     public String getInfoString(String key) {
         return infoStrings.get(key);
     }
+
+    public Map<String, String> getInfoStrings() {
+        return infoStrings;
+    }
 }

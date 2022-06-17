@@ -174,4 +174,5 @@ $JAVA -DDORIS_HOME=$DORIS_HOME \
       ${JAVA_OPTS} \
       -jar ${RUN_JAR} \
       -cf ${CONFIG_FILE} \
+      -Xmx2048m \
       ${REGRESSION_OPTIONS_PREFIX} "$@"

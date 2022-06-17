@@ -20,10 +20,8 @@
 #include "exprs/anyval_util.h"
 #include "exprs/expr_context.h"
 #include "exprs/rpc_fn.h"
-#include "fmt/format.h"
 #include "rpc_fn.h"
 #include "runtime/runtime_state.h"
-#include "runtime/user_function_cache.h"
 
 namespace doris {
 

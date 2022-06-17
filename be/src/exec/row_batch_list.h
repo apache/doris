@@ -23,7 +23,6 @@
 #include <string>
 #include <vector>
 
-#include "common/logging.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 

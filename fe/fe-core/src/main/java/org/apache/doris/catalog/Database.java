@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -71,7 +71,7 @@ import javax.annotation.Nullable;
  * if the table has never been loaded * if the table loading failed on the
  * previous attempt
  */
-public class Database extends MetaObject implements Writable, InternalDatabase<Table> {
+public class Database extends MetaObject implements Writable, DatabaseIf<Table> {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private long id;

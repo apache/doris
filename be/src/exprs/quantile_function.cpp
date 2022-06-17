@@ -17,9 +17,7 @@
 
 #include "exprs/quantile_function.h"
 
-#include "exprs/anyval_util.h"
-#include "gutil/strings/numbers.h"
-#include "gutil/strings/split.h"
+#include "runtime/collection_value.h"
 #include "util/quantile_state.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"

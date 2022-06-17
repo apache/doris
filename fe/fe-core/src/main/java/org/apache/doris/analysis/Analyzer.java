@@ -27,7 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -800,11 +800,8 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        if (col.isAllowNull() || isOuterJoined(d.getId())) {
-            result.setIsNullable(true);
-        } else {
-            result.setIsNullable(false);
-        }
+        result.setIsNullable(col.isAllowNull() || isOuterJoined(d.getId()));
+
         slotRefMap.put(key, result);
         return result;
     }

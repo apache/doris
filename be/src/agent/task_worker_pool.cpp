@@ -29,10 +29,8 @@
 
 #include "common/status.h"
 #include "env/env.h"
-#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
-#include "http/http_client.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/snapshot_manager.h"
@@ -535,7 +533,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
             if (sc_status.precise_code() == OLAP_ERR_DATA_QUALITY_ERR) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
-            status = Status::DataQualityError("The data quality does not satisfy");
+            status = sc_status;
         } else {
             status = Status::OK();
         }
@@ -620,7 +618,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
             agent_task_req = _tasks[index];
             push_req = agent_task_req.push_req;
             _tasks.erase(_tasks.begin() + index);
-        } while (0);
+        } while (false);
 
         if (index < 0) {
             // there is no high priority task in queue
@@ -1764,7 +1762,7 @@ void TaskWorkerPool::_storage_medium_migrate_v2(const TAgentTaskRequest& agent_t
             if (sc_status.precise_code() == OLAP_ERR_DATA_QUALITY_ERR) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
-            status = Status::DataQualityError("The data quality does not satisfy");
+            status = sc_status;
         } else {
             status = Status::OK();
         }

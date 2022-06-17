@@ -21,7 +21,10 @@ import org.apache.doris.nereids.analyzer.identifier.TableIdentifier;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.Utils;
 
 import com.clearspring.analytics.util.Lists;
@@ -32,7 +35,7 @@ import java.util.List;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalLeafOperator {
+public class UnboundRelation extends LogicalLeafOperator implements Unbound {
     private final List<String> nameParts;
 
     public UnboundRelation(List<String> nameParts) {
@@ -64,9 +67,13 @@ public class UnboundRelation extends LogicalLeafOperator {
     }
 
     @Override
-    public List<Slot> doComputeOutput() {
-        // fixme: throw unchecked exception
-        throw new IllegalStateException(new UnboundException("output"));
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        return new UnboundLogicalProperties();
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        throw new UnboundException("output");
     }
 
     @Override

@@ -21,7 +21,7 @@
 #include <sstream>
 
 #include "common/config.h"
-#include "common/logging.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 

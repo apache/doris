@@ -61,7 +61,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     }
 
     @Override
-    public Expression newChildren(List<Expression> children) {
+    public Expression withChildren(List<Expression> children) {
         throw new RuntimeException();
     }
 

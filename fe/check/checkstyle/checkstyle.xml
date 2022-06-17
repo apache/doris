@@ -146,9 +146,18 @@ under the License.
         <module name="NoFinalizer"/>
         <module name="OneStatementPerLine"/>
         <module name="OverloadMethodsDeclarationOrder"/>
+<<<<<<< HEAD
         <module name="StringLiteralEquality"/>
         <module name="UnusedLocalVariable"/>
         <module name="VariableDeclarationUsageDistance"/>
+=======
+        <module name="StringLiteralEquality">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="UnusedLocalVariable">
+            <property name="severity" value="error"/>
+        </module>
+>>>>>>> upstream_master
 
         <!-- Headers -->
         <!-- Imports -->

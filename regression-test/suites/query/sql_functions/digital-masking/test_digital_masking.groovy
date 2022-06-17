@@ -15,30 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <iostream>
+suite("test_digital_masking", "query") {
+    sql """ SET enable_vectorized_engine = TRUE; """
 
-#include "plugin/plugin.h"
+    qt_sql """ select digital_masking(13812345678) """
 
-namespace doris {
-
-int init(void*) {
-    std::cout << "this is init" << std::endl;
-    return 1;
 }
 
-int close(void*) {
-    std::cout << "this is close" << std::endl;
-    return 2;
-}
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-declare_plugin(PluginExample) {nullptr, &init, &close, 3, nullptr, nullptr} declare_plugin_end
-
-#ifdef __cplusplus
-}
-#endif
-
-} // namespace doris

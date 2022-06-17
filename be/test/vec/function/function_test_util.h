@@ -38,7 +38,10 @@
 namespace doris::vectorized {
 
 using InputDataSet = std::vector<std::vector<std::any>>; // without result
-using DataSet = std::vector<std::pair<std::vector<std::any>, std::any>>;
+using CellSet = std::vector<std::any>;
+using Expect = std::any;
+using Row = std::pair<CellSet, Expect>;
+using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<std::any>;
 
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
@@ -64,6 +67,69 @@ inline auto DECIMALFIELD = [](double v) {
 
 using DATETIME = std::string;
 
+template <typename T>
+struct DataTypeTraits;
+
+template <>
+struct DataTypeTraits<DataTypeInt8> {
+    using type = Int8;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt16> {
+    using type = Int16;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt32> {
+    using type = Int32;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt64> {
+    using type = Int64;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt128> {
+    using type = Int128;
+};
+
+template <>
+struct DataTypeTraits<DataTypeFloat32> {
+    using type = Float32;
+};
+
+template <>
+struct DataTypeTraits<DataTypeFloat64> {
+    using type = Float64;
+};
+
+template <typename To, typename From>
+constexpr decltype(auto) convert_to(From value) {
+    using ToType = typename DataTypeTraits<To>::type;
+    return ToType(value);
+}
+
+template <typename T>
+constexpr TypeIndex get_type_index() {
+    if constexpr (std::is_same_v<T, DataTypeInt8>) {
+        return TypeIndex::Int8;
+    } else if constexpr (std::is_same_v<T, DataTypeInt16>) {
+        return TypeIndex::Int16;
+    } else if constexpr (std::is_same_v<T, DataTypeInt32>) {
+        return TypeIndex::Int32;
+    } else if constexpr (std::is_same_v<T, DataTypeInt64>) {
+        return TypeIndex::Int64;
+    } else if constexpr (std::is_same_v<T, DataTypeInt128>) {
+        return TypeIndex::Int128;
+    } else if constexpr (std::is_same_v<T, DataTypeFloat32>) {
+        return TypeIndex::Float32;
+    } else if constexpr (std::is_same_v<T, DataTypeFloat64>) {
+        return TypeIndex::Float64;
+    }
+}
+
 struct UTDataTypeDesc {
     DataTypePtr data_type;
     doris_udf::FunctionContext::TypeDesc type_desc;
@@ -76,7 +142,7 @@ using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
 } // namespace ut_type
 
 size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t index,
-                               doris_udf::FunctionContext::TypeDesc& desc, DataTypePtr& type);
+                               ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type);
 bool parse_ut_data_type(const std::vector<std::any>& input_types, ut_type::UTDataTypeDescs& descs);
 
 bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any& cell);
@@ -146,13 +212,13 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
     EXPECT_TRUE(func != nullptr);
 
     doris_udf::FunctionContext::TypeDesc fn_ctx_return;
-    if (std::is_same_v<ReturnType, DataTypeUInt8>) {
+    if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_BOOLEAN;
-    } else if (std::is_same_v<ReturnType, DataTypeFloat64>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
-    } else if (std::is_same_v<ReturnType, DataTypeInt32>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_INT;
-    } else if (std::is_same_v<ReturnType, DateTime>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64>) {
+        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
+    } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIME;
     } else {
         fn_ctx_return.type = doris_udf::FunctionContext::INVALID_TYPE;
@@ -187,6 +253,9 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
             if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
                 const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
                 EXPECT_EQ(column_data.value, expect_data.value);
+            } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32>) {
+                const auto& column_data = field.get<DataTypeFloat64::FieldType>();
+                EXPECT_EQ(column_data, expect_data);
             } else {
                 const auto& column_data = field.get<typename ReturnType::FieldType>();
                 EXPECT_EQ(column_data, expect_data);

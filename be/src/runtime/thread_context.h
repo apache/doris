@@ -123,8 +123,9 @@ public:
     void attach(const TaskType& type, const std::string& task_id,
                 const TUniqueId& fragment_instance_id,
                 const std::shared_ptr<doris::MemTracker>& mem_tracker) {
+        std::string new_tracker_label = mem_tracker == nullptr ? "null" : mem_tracker->label();
         DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) && _task_id == "")
-                << ",new tracker label: " << mem_tracker->label()
+                << ",new tracker label: " << new_tracker_label
                 << ",old tracker label: " << _thread_mem_tracker_mgr->mem_tracker()->label();
         DCHECK(type != TaskType::UNKNOWN);
         _type = type;

@@ -74,6 +74,8 @@ public interface DatabaseIf<T extends TableIf> {
 
     T getTableNullable(String tableName);
 
+    T getTableNullable(long tableId);
+
     Optional<T> getTable(String tableName);
 
     Optional<T> getTable(long tableId);
@@ -87,11 +89,10 @@ public interface DatabaseIf<T extends TableIf> {
     T getTableOrMetaException(long tableId) throws MetaNotFoundException;
 
     @SuppressWarnings("unchecked")
-    <V extends Table> V getTableOrMetaException(String tableName, Table.TableType tableType)
-            throws MetaNotFoundException;
+    T getTableOrMetaException(String tableName, Table.TableType tableType) throws MetaNotFoundException;
 
     @SuppressWarnings("unchecked")
-    <V extends Table> V getTableOrMetaException(long tableId, Table.TableType tableType) throws MetaNotFoundException;
+    T getTableOrMetaException(long tableId, Table.TableType tableType) throws MetaNotFoundException;
 
     T getTableOrDdlException(String tableName) throws DdlException;
 

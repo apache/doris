@@ -27,7 +27,6 @@
 
 #include "exec/exec_node.h"
 #include "exec/hash_table.h"
-#include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {

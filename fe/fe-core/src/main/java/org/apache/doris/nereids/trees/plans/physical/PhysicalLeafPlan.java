@@ -21,12 +21,14 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical plan that have no child.
@@ -39,13 +41,20 @@ public class PhysicalLeafPlan<OP_TYPE extends PhysicalLeafOperator>
         super(NodeType.PHYSICAL, operator, logicalProperties);
     }
 
-    public PhysicalLeafPlan(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+    public PhysicalLeafPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
+                            LogicalProperties logicalProperties) {
         super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties);
     }
 
     @Override
-    public PhysicalLeafPlan<OP_TYPE> newChildren(List<Plan> children) {
+    public PhysicalLeafPlan<OP_TYPE> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 0);
-        return new PhysicalLeafPlan(operator, groupExpression.orElse(null), logicalProperties);
+        return new PhysicalLeafPlan(operator, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public PhysicalLeafPlan<OP_TYPE> withOutput(List<Slot> output) {
+        LogicalProperties logicalProperties = new LogicalProperties(output);
+        return new PhysicalLeafPlan<>(operator, groupExpression, logicalProperties);
     }
 }

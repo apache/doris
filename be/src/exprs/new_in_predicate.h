@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include <set>
 #include <string>
 
-#include "exprs/predicate.h"
 #include "udf/udf.h"
 
 /* added by lide */
