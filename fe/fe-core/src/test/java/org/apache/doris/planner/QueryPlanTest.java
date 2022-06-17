@@ -2118,4 +2118,20 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("non-equal FULL OUTER JOIN is not supported"));
 
     }
+
+    @Test
+    public void testDefaultJoinReorder() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE t1 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createTable("CREATE TABLE t2 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createTable("CREATE TABLE t3 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        String sql = "explain select x.col2 from t1,t2,t3 x,t3 y "
+                + "where x.col1=t2.col1 and y.col1=t2.col2 and t1.col1=y.col1";
+        String explainString = getSQLPlanOrErrorMsg(sql);
+        Assert.assertFalse(explainString.contains("CROSS JOIN"));
+
+    }
 }
