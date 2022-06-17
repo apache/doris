@@ -338,7 +338,7 @@ private:
                     }
                 }
 
-                if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
+                if constexpr (!is_opposite) {
                     if (_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
                                   _values.end())) {
                         sel[new_size++] = idx;
