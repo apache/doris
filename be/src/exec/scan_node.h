@@ -25,7 +25,6 @@
 #include "exec/exec_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "util/runtime_profile.h"
-#include "vec/exprs/vexpr.h"
 
 namespace doris {
 

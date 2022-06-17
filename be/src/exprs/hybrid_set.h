@@ -22,10 +22,7 @@
 #include <cstring>
 
 #include "common/object_pool.h"
-#include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 
 namespace doris {

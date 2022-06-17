@@ -35,11 +35,9 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/small_file_mgr.h"
-#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
-#include "util/slice.h"
 
 namespace doris {
 class Tuple;

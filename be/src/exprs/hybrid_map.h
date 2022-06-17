@@ -20,12 +20,9 @@
 #include <unordered_map>
 
 #include "common/object_pool.h"
-#include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
 
 namespace doris {
 

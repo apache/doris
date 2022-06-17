@@ -17,7 +17,7 @@
 
 #include "exec/except_node.h"
 
-#include "exec/hash_table.hpp"
+#include "exec/hash_table.h"
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"

@@ -23,19 +23,19 @@
 #include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "olap/decimal12.h"
-#include "olap/field.h"
+#include "olap/storage_engine.h"
 #include "olap/uint24.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/mem_util.hpp"
-#include "util/network_util.h"
 
 namespace doris {
 

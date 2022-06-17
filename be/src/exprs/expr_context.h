@@ -27,7 +27,6 @@
 #include "exprs/expr_value.h"
 #include "exprs/slot_ref.h"
 #include "udf/udf.h"
-#include "udf/udf_internal.h" // for CollectionVal
 
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf

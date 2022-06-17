@@ -17,13 +17,10 @@
 
 #include "schema_scan_node.h"
 
-#include "exec/schema_scanner/schema_helper.h"
-#include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"

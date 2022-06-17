@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+
 #include "common/status.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "runtime/client_cache.h"
 
 namespace doris {
