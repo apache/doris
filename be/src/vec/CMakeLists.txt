@@ -128,6 +128,7 @@ set(VEC_FILES
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
   functions/array/function_array_size.cpp
+  functions/array/function_array_aggregation.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
