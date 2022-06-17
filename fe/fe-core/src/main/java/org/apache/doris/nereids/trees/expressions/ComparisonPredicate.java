@@ -73,7 +73,6 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
                 && Objects.equals(right(), other.right());
     }
 
-
     /**
      * create new ComparisonPredicate with new children.
      *
