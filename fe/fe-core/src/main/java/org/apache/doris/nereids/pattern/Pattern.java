@@ -155,8 +155,8 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
             case MULTI_GROUP:
                 return true;
             default:
+                return operatorType == operator.getType();
         }
-        return operatorType == operator.getType();
     }
 
     /**
