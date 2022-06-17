@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
@@ -59,18 +60,18 @@ public class GroupMatching<NODE_TYPE extends TreeNode> implements Iterable<NODE_
          * @param pattern pattern to match
          * @param group group to be matched
          */
-        public GroupIterator(Pattern<? extends NODE_TYPE, NODE_TYPE> pattern, Group group) {
+        public GroupIterator(Pattern<? extends Plan, Plan> pattern, Group group) {
             this.pattern = pattern;
             this.iterator = Lists.newArrayList();
             for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                GroupExpressionMatching.GroupExpressionIterator<NODE_TYPE> groupExpressionIterator =
+                GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =
                         new GroupExpressionMatching(pattern, groupExpression).iterator();
                 if (groupExpressionIterator.hasNext()) {
                     this.iterator.add(groupExpressionIterator);
                 }
             }
             for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                GroupExpressionMatching.GroupExpressionIterator<NODE_TYPE> groupExpressionIterator =
+                GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =
                         new GroupExpressionMatching(pattern, groupExpression).iterator();
                 if (groupExpressionIterator.hasNext()) {
                     this.iterator.add(groupExpressionIterator);

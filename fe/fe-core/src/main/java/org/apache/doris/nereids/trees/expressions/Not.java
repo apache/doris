@@ -47,7 +47,7 @@ public class Not<CHILD_TYPE extends Expression> extends Expression
     }
 
     @Override
-    public Not<Expression> newChildren(List<Expression> children) {
+    public Not<Expression> withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Not<>(children.get(0));
     }

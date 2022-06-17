@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
@@ -24,20 +25,16 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * Logical properties used for analysis and optimize in Nereids.
+ * LogicalPlanOperator must compute and return non-null LogicalProperties without exception,
+ * so UnboundRelation.computeLogicalProperties() return a UnboundLogicalProperties temporary.
  */
-public class LogicalProperties {
-    protected List<Slot> output;
-
-    public LogicalProperties(List<Slot> output) {
-        this.output = ImmutableList.copyOf(output);
+public class UnboundLogicalProperties extends LogicalProperties {
+    public UnboundLogicalProperties() {
+        super(ImmutableList.of());
     }
 
+    @Override
     public List<Slot> getOutput() {
-        return output;
-    }
-
-    public LogicalProperties withOutput(List<Slot> output) {
-        return new LogicalProperties(output);
+        throw new UnboundException("output");
     }
 }

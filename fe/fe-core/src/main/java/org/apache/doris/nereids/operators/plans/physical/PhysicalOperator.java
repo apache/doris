@@ -18,17 +18,9 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.Plan;
-
-import java.util.List;
 
 /**
  * interface for all concrete physical operator.
  */
 public interface PhysicalOperator extends PlanOperator {
-
-    List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs);
-
 }

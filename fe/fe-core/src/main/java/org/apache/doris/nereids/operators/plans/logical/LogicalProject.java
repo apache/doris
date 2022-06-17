@@ -56,7 +56,7 @@ public class LogicalProject extends LogicalUnaryOperator {
     }
 
     @Override
-    public List<Slot> doComputeOutput(Plan input) {
+    public List<Slot> computeOutput(Plan input) {
         // fixme: not throw a checked exception
         return projects.stream()
                 .map(namedExpr -> {

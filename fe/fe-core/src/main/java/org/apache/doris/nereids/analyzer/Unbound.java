@@ -15,29 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.properties;
+package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.expressions.Slot;
-
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
-
-/**
- * Logical properties used for analysis and optimize in Nereids.
- */
-public class LogicalProperties {
-    protected List<Slot> output;
-
-    public LogicalProperties(List<Slot> output) {
-        this.output = ImmutableList.copyOf(output);
-    }
-
-    public List<Slot> getOutput() {
-        return output;
-    }
-
-    public LogicalProperties withOutput(List<Slot> output) {
-        return new LogicalProperties(output);
-    }
+/** Use to marking unbound plan and unbound expression. */
+public interface Unbound {
 }
