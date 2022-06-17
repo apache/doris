@@ -134,8 +134,6 @@ private:
     std::vector<SlotDescriptor*> _query_slots;
 
     // time costed and row returned statistics
-    ExecNode::EvalConjunctsFn _eval_conjuncts_fn = nullptr;
-
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
     int64_t _compressed_bytes_read = 0;

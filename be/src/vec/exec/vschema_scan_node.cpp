@@ -41,7 +41,6 @@ VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
           _tuple_pool(nullptr),
           _schema_scanner(nullptr),
           _src_tuple(nullptr),
-          _dest_tuple(nullptr),
           _src_single_tuple(nullptr),
           _dest_single_tuple(nullptr) {}
 
