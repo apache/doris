@@ -199,12 +199,14 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Pattern pattern = (Pattern) o;
-        return patternType == pattern.patternType;
+        Pattern<?, ?> pattern = (Pattern<?, ?>) o;
+        return predicates.equals(pattern.predicates)
+                && patternType == pattern.patternType
+                && operatorType == pattern.operatorType;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(patternType);
+        return Objects.hash(predicates, patternType, operatorType);
     }
 }
