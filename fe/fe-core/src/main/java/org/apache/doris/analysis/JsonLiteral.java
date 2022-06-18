@@ -23,6 +23,8 @@ import java.io.UnsupportedEncodingException;
 import java.util.Objects;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
@@ -41,6 +43,7 @@ import org.apache.doris.qe.VariableVarConverters;
 
 public class JsonLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(JsonLiteral.class);
+    private JsonParser parser = new JsonParser();
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
@@ -50,8 +53,12 @@ public class JsonLiteral extends LiteralExpr {
         type = Type.JSON;
     }
 
-    public JsonLiteral(String value) {
-        super();
+    public JsonLiteral(String value) throws AnalysisException {
+        try {
+            parser.parse(value);
+        } catch (JsonSyntaxException e) {
+            throw new AnalysisException("Invalid json literal: " + e.getMessage());
+        }
         this.value = value;
         type = Type.JSON;
         analysisDone();
