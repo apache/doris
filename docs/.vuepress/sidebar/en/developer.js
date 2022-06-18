@@ -32,6 +32,7 @@ module.exports =  [
     initialOpenGroupIndex: -1,
     children: [
       "debug-tool",
+      "docker-dev",
       "benchmark-tool",
       "fe-eclipse-dev",
       "fe-idea-dev",
