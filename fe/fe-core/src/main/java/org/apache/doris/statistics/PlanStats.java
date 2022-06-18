@@ -28,7 +28,7 @@ public interface PlanStats {
 
     StatsDeriveResult getStatsDeriveResult();
 
-    StatisticalType getNodeType();
+    StatisticalType getStatisticalType();
 
     void setStatsDeriveResult(StatsDeriveResult result);
 

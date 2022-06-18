@@ -111,7 +111,7 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     }
 
     @Override
-    public StatisticalType getNodeType() {
+    public StatisticalType getStatisticalType() {
         return null;
     }
 

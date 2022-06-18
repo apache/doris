@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.PlanNode;
 
 public class StatsRecursiveDerive {
     private StatsRecursiveDerive() {}
@@ -36,17 +37,17 @@ public class StatsRecursiveDerive {
      * This parameter is an input and output parameter,
      * which will store the derivation result of statistical information in the corresponding node
      */
-    public void statsRecursiveDerive(PlanStats node) throws UserException {
+    public void statsRecursiveDerive(PlanNode node) throws UserException {
         if (node.getStatsDeriveResult() != null) {
             return;
         }
-        for (PlanStats childNode : node.getChildrenStats()) {
+        for (PlanNode childNode : node.getChildren()) {
             if (childNode.getStatsDeriveResult() == null) {
                 statsRecursiveDerive(childNode);
             }
         }
         DeriveFactory deriveFactory = new DeriveFactory();
-        BaseStatsDerive deriveStats = deriveFactory.getStatsDerive(node.getNodeType());
+        BaseStatsDerive deriveStats = deriveFactory.getStatsDerive(node.getStatisticalType());
         deriveStats.init(node);
         StatsDeriveResult result = deriveStats.deriveStats();
         node.setStatsDeriveResult(result);

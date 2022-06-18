@@ -191,7 +191,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return statsDeriveResult;
     }
 
-    public StatisticalType getNodeType() {
+    public StatisticalType getStatisticalType() {
         return statisticalType;
     }
 

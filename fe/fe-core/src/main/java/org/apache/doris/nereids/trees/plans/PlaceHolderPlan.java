@@ -88,31 +88,32 @@ public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolder
 
     @Override
     public List<? extends PlanStats> getChildrenStats() {
-        return null;
+        throw new RuntimeException("Unsupported Method");
     }
 
     @Override
     public StatsDeriveResult getStatsDeriveResult() {
-        return null;
+        throw new RuntimeException("Unsupported Method");
     }
 
     @Override
-    public StatisticalType getNodeType() {
-        return null;
+    public StatisticalType getStatisticalType() {
+        throw new RuntimeException("Unsupported Method");
     }
 
     @Override
     public void setStatsDeriveResult(StatsDeriveResult result) {
+        throw new RuntimeException("Unsupported Method");
     }
 
     @Override
     public long getLimit() {
-        return 0;
+        throw new RuntimeException("Unsupported Method");
     }
 
     @Override
     public List<? extends ExprStats> getConjuncts() {
-        return null;
+        throw new RuntimeException("Unsupported Method");
     }
 
 }

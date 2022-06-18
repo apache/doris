@@ -52,8 +52,8 @@ public class BaseStatsDerive {
             StatsDeriveResult result = childNode.getStatsDeriveResult();
             if (result == null) {
                 throw new UserException(
-                        "childNode statsDeriveResult is null, childNodeType is " + childNode.getNodeType()
-                                + "parentNodeType is " + node.getNodeType());
+                        "childNode statsDeriveResult is null, childNodeType is " + childNode.getStatisticalType()
+                                + "parentNodeType is " + node.getStatisticalType());
             }
             childrenStatsResult.add(result);
         }
