@@ -416,9 +416,17 @@ public:
 
     // If an ancestor of this tracker is a Task MemTracker, return that tracker. Otherwise return nullptr.
     MemTracker* parent_task_mem_tracker() {
-        MemTracker* tracker = this;
+        if (this->_level == MemTrackerLevel::TASK) {
+            return this;
+        } else {
+            return parent_task_mem_tracker_no_own().get();
+        }
+    }
+
+    std::shared_ptr<MemTracker> parent_task_mem_tracker_no_own() {
+        std::shared_ptr<MemTracker> tracker = this->_parent;
         while (tracker != nullptr && tracker->_level != MemTrackerLevel::TASK) {
-            tracker = tracker->_parent.get();
+            tracker = tracker->_parent;
         }
         return tracker;
     }
