@@ -114,6 +114,7 @@ class JsonbParserT {
 
     trim(in);
 
+    // TODO(wzy): parsePrimitive should be implemented
     if (in.peek() == '{') {
       skipChar(in);
       res = parseObject(in, handler);
