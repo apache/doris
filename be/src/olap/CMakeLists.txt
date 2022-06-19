@@ -48,6 +48,7 @@ add_library(Olap STATIC
     generic_iterators.cpp
     hll.cpp
     bloom_filter_predicate.cpp
+    like_column_predicate.cpp
     in_stream.cpp
     key_coder.cpp
     lru_cache.cpp

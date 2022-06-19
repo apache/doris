@@ -260,6 +260,7 @@ public:
     };
 
     static Expr* copy(ObjectPool* pool, Expr* old_expr);
+    int get_fn_context_index() { return _fn_context_index; }
 
 protected:
     friend class AggFnEvaluator;
