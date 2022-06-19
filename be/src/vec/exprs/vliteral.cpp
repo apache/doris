@@ -19,7 +19,9 @@
 
 #include <fmt/format.h>
 
+#include "runtime/json_value.h"
 #include "runtime/large_int_value.h"
+#include "util/jsonb_document.h"
 #include "util/string_parser.hpp"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -122,6 +124,13 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
             DCHECK(node.__isset.string_literal);
             field = node.string_literal.value;
+            break;
+        }
+        case TYPE_JSON: {
+            DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
+            DCHECK(node.__isset.json_literal);
+            JsonValue value(node.json_literal.value);
+            field = JsonField(value.value(), value.size());
             break;
         }
         case TYPE_DECIMALV2: {

@@ -19,8 +19,8 @@
 
 #include <string>
 
-#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_json.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 
@@ -33,6 +33,43 @@ class ColumnString;
 class DateTimeValue;
 class DecimalV2Value;
 struct StringValue;
+
+enum PrimitiveType {
+    INVALID_TYPE = 0,
+    TYPE_NULL,     /* 1 */
+    TYPE_BOOLEAN,  /* 2 */
+    TYPE_TINYINT,  /* 3 */
+    TYPE_SMALLINT, /* 4 */
+    TYPE_INT,      /* 5 */
+    TYPE_BIGINT,   /* 6 */
+    TYPE_LARGEINT, /* 7 */
+    TYPE_FLOAT,    /* 8 */
+    TYPE_DOUBLE,   /* 9 */
+    TYPE_VARCHAR,  /* 10 */
+    TYPE_DATE,     /* 11 */
+    TYPE_DATETIME, /* 12 */
+    TYPE_BINARY,
+    /* 13 */                     // Not implemented
+    TYPE_DECIMAL [[deprecated]], /* 14 */
+    TYPE_CHAR,                   /* 15 */
+
+    TYPE_STRUCT,    /* 16 */
+    TYPE_ARRAY,     /* 17 */
+    TYPE_MAP,       /* 18 */
+    TYPE_HLL,       /* 19 */
+    TYPE_DECIMALV2, /* 20 */
+
+    TYPE_TIME,           /* 21 */
+    TYPE_OBJECT,         /* 22 */
+    TYPE_STRING,         /* 23 */
+    TYPE_QUANTILE_STATE, /* 24 */
+    TYPE_DATEV2,         /* 25 */
+    TYPE_DATETIMEV2,     /* 26 */
+    TYPE_TIMEV2,         /* 27 */
+    TYPE_DECIMAL32,      /* 28 */
+    TYPE_DECIMAL64,      /* 29 */
+    TYPE_DECIMAL128,     /* 30 */
+};
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
 
@@ -173,6 +210,13 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using ColumnType = vectorized::ColumnString;
 };
 
+template <>
+struct PrimitiveTypeTraits<TYPE_JSON> {
+    using CppType = JsonValue;
+    using ColumnType = vectorized::ColumnJson;
+};
+
+// only for adapt get_predicate_column_ptr
 template <PrimitiveType type>
 struct PredicatePrimitiveTypeTraits {
     using PredicateFieldType = typename PrimitiveTypeTraits<type>::CppType;
