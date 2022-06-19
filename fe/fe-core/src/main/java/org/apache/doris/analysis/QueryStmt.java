@@ -534,7 +534,7 @@ public abstract class QueryStmt extends StatementBase {
     //                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet.
-    // issue link: https://github.com/apache/incubator-doris/issues/4598
+    // issue link: https://github.com/apache/doris/issues/4598
     public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet)
             throws AnalysisException;
 

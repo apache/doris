@@ -182,7 +182,7 @@ private:
 };
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
-// see https://github.com/apache/incubator-doris/pull/7911
+// see https://github.com/apache/doris/pull/7911
 //
 // If we want to avoid this error,
 // 1. For non-trivial variables in thread_local, such as std::string, you need to store them as pointers to

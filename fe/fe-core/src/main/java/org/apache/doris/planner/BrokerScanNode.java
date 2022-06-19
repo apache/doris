@@ -82,7 +82,7 @@ import java.util.stream.Collectors;
 /**
  * Broker scan node
  *
- * Since https://github.com/apache/incubator-doris/pull/5686, Doris can read data from HDFS without broker by
+ * Since https://github.com/apache/doris/pull/5686, Doris can read data from HDFS without broker by
  * broker scan node.
  * Broker scan node is more likely a file scan node for now.
  * With this feature, we can extend BrokerScanNode to query external table which data is stored in HDFS, such as
