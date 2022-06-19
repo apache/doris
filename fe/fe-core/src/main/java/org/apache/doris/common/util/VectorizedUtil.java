@@ -17,12 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
 
 public class VectorizedUtil {
     /**

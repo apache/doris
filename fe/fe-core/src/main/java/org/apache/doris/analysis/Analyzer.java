@@ -946,7 +946,7 @@ public class Analyzer {
             LOG.debug("registerOuterJoinedTids: " + globalState.outerJoinedTupleIds);
         }
     }
-    
+
     /**
      * Register the given tuple id as being the invisible side of a semi-join.
      */
