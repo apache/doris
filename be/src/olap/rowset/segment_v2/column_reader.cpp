@@ -1034,11 +1034,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     }
     case OLAP_FIELD_TYPE_STRING:
     case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_CHAR: {
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_JSON: {
         data_ptr = ((Slice*)mem_value)->data;
         data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);
-        break;
     }
     default: {
         data_ptr = (char*)mem_value;
