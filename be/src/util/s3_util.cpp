@@ -62,13 +62,10 @@ bool ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& p
 
 std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
         const std::map<std::string, std::string>& prop) {
-    StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
-        properties.find(S3_ENDPOINT) == properties.end() ||
-        properties.find(S3_REGION) == properties.end()) {
-        DCHECK(false) << "aws properties is incorrect.";
-        LOG(ERROR) << "aws properties is incorrect.";
+    if (!is_s3_conf_valid(prop)) {
+        return nullptr;
     }
+    StringCaseMap<std::string> properties(prop.begin(), prop.end());
     Aws::Auth::AWSCredentials aws_cred(properties.find(S3_AK)->second,
                                        properties.find(S3_SK)->second);
     DCHECK(!aws_cred.IsExpiredOrEmpty());

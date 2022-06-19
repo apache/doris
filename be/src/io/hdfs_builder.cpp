@@ -23,11 +23,10 @@
 
 #include "agent/utils.h"
 #include "common/logging.h"
+#include "util/string_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
 namespace doris {
-
-const std::string TICKET_CACHE_PATH = "/tmp/krb5cc_doris_";
 
 Status HDFSCommonBuilder::run_kinit() {
     if (hdfs_kerberos_principal.empty() || hdfs_kerberos_keytab.empty()) {
@@ -46,6 +45,35 @@ Status HDFSCommonBuilder::run_kinit() {
     }
     hdfsBuilderSetKerbTicketCachePath(hdfs_builder, ticket_path.c_str());
     return Status::OK();
+}
+
+THdfsParams parse_properties(const std::map<std::string, std::string>& properties) {
+    StringCaseMap<std::string> prop(properties.begin(), properties.end());
+    std::vector<THdfsConf> hdfs_configs;
+    THdfsParams hdfsParams;
+    for (auto iter = prop.begin(); iter != prop.end();) {
+        if (iter->first.compare(FS_KEY) == 0) {
+            hdfsParams.__set_fs_name(iter->second);
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(USER) == 0) {
+            hdfsParams.__set_user(iter->second);
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
+            hdfsParams.__set_hdfs_kerberos_principal(iter->second);
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(KERBEROS_KEYTAB) == 0) {
+            hdfsParams.__set_hdfs_kerberos_keytab(iter->second);
+            iter = prop.erase(iter);
+        } else {
+            THdfsConf item;
+            item.key = iter->first;
+            item.value = iter->second;
+            hdfs_configs.push_back(item);
+            iter = prop.erase(iter);
+        }
+    }
+    hdfsParams.__set_hdfs_conf(hdfs_configs);
+    return hdfsParams;
 }
 
 HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams) {
@@ -73,6 +101,11 @@ HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams) {
     }
 
     return builder;
+}
+
+HDFSCommonBuilder createHDFSBuilder(const std::map<std::string, std::string>& properties) {
+    THdfsParams hdfsParams = parse_properties(properties);
+    return createHDFSBuilder(hdfsParams);
 }
 
 } // namespace doris
