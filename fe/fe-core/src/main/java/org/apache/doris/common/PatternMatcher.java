@@ -28,7 +28,10 @@ import java.util.regex.Pattern;
 public class PatternMatcher {
     public static final PatternMatcher MATCH_ANY = new PatternMatcher(Pattern.compile(".*"));
     private Pattern pattern;
-    private String flatPattern;
+    // The name of 'user', 'database' and 'table' don't support complex matching in grant statement.
+    // Only using '%' to match any string. In other cases, it's string case-sensitive(or not) equivalent matching,
+    // so using the origin string to determine whether it matches.
+    private String originString;
     private boolean caseSensitive;
 
     private static final Set<Character> FORBIDDEN_CHARS = Sets.newHashSet('<', '(', '[', '{', '^', '=',
@@ -39,8 +42,8 @@ public class PatternMatcher {
         this.pattern = pattern;
     }
 
-    public PatternMatcher(String flatPattern, boolean caseSensitive) {
-        this.flatPattern = caseSensitive ? flatPattern : flatPattern.toLowerCase(Locale.ROOT);
+    public PatternMatcher(String originString, boolean caseSensitive) {
+        this.originString = caseSensitive ? originString : originString.toLowerCase(Locale.ROOT);
         this.caseSensitive = caseSensitive;
     }
 
@@ -52,26 +55,35 @@ public class PatternMatcher {
             return pattern.matcher(candidate).matches();
         }
         if (caseSensitive) {
-            return candidate.equals(flatPattern);
+            return candidate.equals(originString);
         } else {
-            return candidate.toLowerCase(Locale.ROOT).equals(flatPattern);
+            return candidate.toLowerCase(Locale.ROOT).equals(originString);
         }
-    }
-
-    public static PatternMatcher createFlatPattern(String flatPattern, boolean caseSensitive) {
-        return createFlatPattern(flatPattern, caseSensitive, false);
     }
 
     /**
-     * In grant operation, database and table support matching a single wildcard,
-     * the other cases are string case-sensitive equivalent matching.
+     * Use in grant statement to support case-sensitive(or not) equivalent matching.
+     *
+     * @param originString The string to match.
+     * @param caseSensitive Case sensitive.
+     */
+    public static PatternMatcher createFlatPattern(String originString, boolean caseSensitive) {
+        return createFlatPattern(originString, caseSensitive, false);
+    }
+
+    /**
+     * Use in grant statement to support case-sensitive(or not) equivalent matching, or arbitrary matching.
+     *
+     * @param originString The string to match. If matchAny = true, this parameter has no effect.
+     * @param caseSensitive Case sensitive.
+     * @param matchAny match any string.
      */
     public static PatternMatcher createFlatPattern(
-            String flatPattern, boolean caseSensitive, boolean matchAny) {
+            String originString, boolean caseSensitive, boolean matchAny) {
         if (matchAny) {
             return MATCH_ANY;
         }
-        return new PatternMatcher(flatPattern, caseSensitive);
+        return new PatternMatcher(originString, caseSensitive);
     }
 
     /*

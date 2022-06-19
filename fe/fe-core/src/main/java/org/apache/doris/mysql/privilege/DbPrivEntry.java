@@ -70,7 +70,7 @@ public class DbPrivEntry extends PrivEntry {
             dbCaseSensibility = false;
         }
 
-        return  PatternMatcher.createFlatPattern(db, dbCaseSensibility, db.equals(ANY_DB));
+        return PatternMatcher.createFlatPattern(db, dbCaseSensibility, db.equals(ANY_DB));
     }
 
     public PatternMatcher getDbPattern() {
