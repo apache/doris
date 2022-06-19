@@ -686,7 +686,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
     if (request->data().size() != request->size()) {
         std::stringstream ss;
         ss << "data size not same, expected: " << request->size()
-           << ", actrual: " << request->data().size();
+           << ", actual: " << request->data().size();
         response->mutable_status()->add_error_msgs(ss.str());
         response->mutable_status()->set_status_code(1);
 
@@ -696,7 +696,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
         digest.digest();
         if (!iequal(digest.hex(), request->md5())) {
             std::stringstream ss;
-            ss << "md5 not same, expected: " << request->md5() << ", actrual: " << digest.hex();
+            ss << "md5 not same, expected: " << request->md5() << ", actual: " << digest.hex();
             response->mutable_status()->add_error_msgs(ss.str());
             response->mutable_status()->set_status_code(1);
         }
