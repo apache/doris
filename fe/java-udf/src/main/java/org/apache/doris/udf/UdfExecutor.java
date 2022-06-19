@@ -49,7 +49,7 @@ public class UdfExecutor {
     public static final String UDF_FUNCTION_NAME = "evaluate";
 
     // Object to deserialize ctor params from BE.
-    private final static TBinaryProtocol.Factory PROTOCOL_FACTORY =
+    private static final TBinaryProtocol.Factory PROTOCOL_FACTORY =
             new TBinaryProtocol.Factory();
 
     private Object udf;
@@ -206,13 +206,11 @@ public class UdfExecutor {
         init(jarFile, className, retType, parameterTypes);
     }
 
-    // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
         close();
         super.finalize();
     }
-    // CHECKSTYLE ON
 
     /**
      * Close the class loader we may have created.
@@ -311,7 +309,8 @@ public class UdfExecutor {
                     return false;
                 }
                 outputOffset += 1;
-                UdfUtils.UNSAFE.putChar(null, UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + outputOffset - 1, UdfUtils.END_OF_STRING);
+                UdfUtils.UNSAFE.putChar(null, UdfUtils.UNSAFE.getLong(null, outputBufferPtr)
+                        + outputOffset - 1, UdfUtils.END_OF_STRING);
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr)
                         + 4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
             }
@@ -417,7 +416,8 @@ public class UdfExecutor {
                     return false;
                 }
                 outputOffset += (bytes.length + 1);
-                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + outputOffset - 1, UdfUtils.END_OF_STRING);
+                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr)
+                        + outputOffset - 1, UdfUtils.END_OF_STRING);
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row,
                         Integer.parseUnsignedInt(String.valueOf(outputOffset)));
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,

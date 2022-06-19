@@ -353,9 +353,11 @@ public enum PrimitiveType {
     public static ArrayList<PrimitiveType> getIntegerTypes() {
         return integerTypes;
     }
+
     public static ArrayList<PrimitiveType> getNumericTypes() {
         return numericTypes;
     }
+
     public static ArrayList<PrimitiveType> getSupportedTypes() {
         return supportedTypes;
     }
@@ -400,8 +402,10 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;    //TODO(weixiang): bitmap can be null?
-        compatibilityMatrix[NULL_TYPE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;   //TODO(weixiang): QUANTILE_STATE can be null?
+        //TODO(weixiang): bitmap can be null?
+        compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;
+        //TODO(weixiang): QUANTILE_STATE can be null?
+        compatibilityMatrix[NULL_TYPE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;
 
         compatibilityMatrix[BOOLEAN.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
         compatibilityMatrix[BOOLEAN.ordinal()][TINYINT.ordinal()] = TINYINT;

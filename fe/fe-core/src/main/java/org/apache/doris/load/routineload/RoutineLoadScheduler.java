@@ -102,10 +102,11 @@ public class RoutineLoadScheduler extends MasterDaemon {
 
             if (errorJobState != null) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                 .add("current_state", routineLoadJob.getState())
-                                 .add("desired_state", errorJobState)
-                                 .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + userException.getMessage())
-                                 .build(), userException);
+                        .add("current_state", routineLoadJob.getState())
+                        .add("desired_state", errorJobState)
+                        .add("warn_msg", "failed to scheduler job,"
+                                + " change job state to desired_state with error reason " + userException.getMessage())
+                        .build(), userException);
                 try {
                     ErrorReason reason = new ErrorReason(userException.getErrorCode(), userException.getMessage());
                     routineLoadJob.updateState(errorJobState, reason, false);

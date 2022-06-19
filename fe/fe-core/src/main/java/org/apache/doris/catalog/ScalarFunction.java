@@ -70,7 +70,8 @@ public class ScalarFunction extends Function {
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
                           TFunctionBinaryType binaryType, boolean userVisible, boolean isVec) {
-        super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec, NullableMode.DEPEND_ON_ARGUMENT);
+        super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec,
+                NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes,

@@ -133,7 +133,8 @@ public class Function implements Writable {
         this(0, name, args, retType, varArgs, vectorized, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized, NullableMode mode) {
+    public Function(FunctionName name, List<Type> args, Type retType,
+            boolean varArgs, boolean vectorized, NullableMode mode) {
         this(0, name, args, retType, varArgs, vectorized, mode);
     }
 
@@ -606,6 +607,7 @@ public class Function implements Writable {
         FunctionType(int code) {
             this.code = code;
         }
+
         public int getCode() {
             return code;
         }
@@ -627,10 +629,11 @@ public class Function implements Writable {
         public void write(DataOutput output) throws IOException {
             output.writeInt(code);
         }
+
         public static FunctionType read(DataInput input) throws IOException {
             return fromCode(input.readInt());
         }
-    };
+    }
 
     protected void writeFields(DataOutput output) throws IOException {
         output.writeLong(id);

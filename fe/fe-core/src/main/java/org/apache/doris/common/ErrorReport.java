@@ -39,7 +39,8 @@ public class ErrorReport {
 
     public static void reportAnalysisException(String pattern, Object... objs)
             throws AnalysisException {
-        throw new AnalysisException(reportCommon(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs), ErrorCode.ERR_UNKNOWN_ERROR);
+        throw new AnalysisException(reportCommon(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs),
+                ErrorCode.ERR_UNKNOWN_ERROR);
     }
 
     public static void reportAnalysisException(ErrorCode errorCode, Object... objs)

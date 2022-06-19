@@ -168,10 +168,10 @@ public class LdapPrivsCheckerTest {
     @Test
     public void testIsCurrentUser() {
         Assert.assertTrue(LdapPrivsChecker.isCurrentUser(userIdent));
-        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(UserIdentity.
-                createAnalyzedUserIdentWithIp("default_cluster:lisi", IP)));
-        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(UserIdentity.
-                createAnalyzedUserIdentWithIp(USER, "127.0.0.1")));
+        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(
+                UserIdentity.createAnalyzedUserIdentWithIp("default_cluster:lisi", IP)));
+        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(
+                UserIdentity.createAnalyzedUserIdentWithIp(USER, "127.0.0.1")));
     }
 
     @Test

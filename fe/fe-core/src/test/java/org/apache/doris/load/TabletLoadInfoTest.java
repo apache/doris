@@ -31,6 +31,7 @@ import java.io.FileOutputStream;
 
 public class TabletLoadInfoTest {
     private FakeCatalog fakeCatalog;
+
     @Test
     public void testSerialization() throws Exception {
         // mock catalog

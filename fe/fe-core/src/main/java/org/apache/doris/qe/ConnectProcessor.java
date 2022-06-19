@@ -502,8 +502,8 @@ public class ConnectProcessor {
         // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
         if (ctx.queryId() != null
-                // If none master FE not set query id or query id was reset in StmtExecutor when a query exec more than once,
-                // return it to none master FE.
+                // If none master FE not set query id or query id was reset in StmtExecutor
+                // when a query exec more than once, return it to none master FE.
                 && (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
         ) {
             result.setQueryId(ctx.queryId());

@@ -176,10 +176,12 @@ public class EsScanNode extends ScanNode {
 
     // only do partition(es index level) prune
     private List<TScanRangeLocations> getShardLocations() throws UserException {
-        // has to get partition info from es state not from table because the partition info is generated from es cluster state dynamically
+        // has to get partition info from es state not from table because the partition
+        // info is generated from es cluster state dynamically
         if (esTablePartitions == null) {
             if (table.getLastMetaDataSyncException() != null) {
-                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
+                throw new UserException("fetch es table [" + table.getName()
+                        + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
             }
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
@@ -214,7 +216,8 @@ public class EsScanNode extends ScanNode {
                 int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
-                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress() : item.getAddress());
+                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport())
+                            ? item.getHttpAddress() : item.getAddress());
                 }
 
                 Collections.shuffle(shardAllocations, random);

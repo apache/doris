@@ -67,7 +67,8 @@ public class TableNameComparedLowercaseTest {
                 + "\"storage_format\" = \"V2\"\n"
                 + ")";
         String table2 = "create table db1.TABLE2(k1 int, k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
-                + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+                + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 "
+                + "properties('replication_num' = '1');";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(table1)
@@ -81,7 +82,8 @@ public class TableNameComparedLowercaseTest {
 
     @Test
     public void testTableNameLowerCase() {
-        Set<String> tableNames = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1").getTableNamesWithLock();
+        Set<String> tableNames = Catalog.getCurrentCatalog()
+                .getDbNullable("default_cluster:db1").getTableNamesWithLock();
         Assert.assertEquals(2, tableNames.size());
         Assert.assertTrue(tableNames.contains("TABLE1"));
         Assert.assertTrue(tableNames.contains("TABLE2"));

@@ -284,8 +284,8 @@ public class EditLog {
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
-                        catalog.getMaterializedViewHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), catalog);
+                        catalog.getMaterializedViewHandler().replayDropRollup(new DropInfo(batchDropInfo.getDbId(),
+                                batchDropInfo.getTableId(), indexId, false), catalog);
                     }
                     break;
                 }
@@ -545,7 +545,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
-                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal.getData();
+                    final BatchRemoveTransactionsOperation operation
+                            = (BatchRemoveTransactionsOperation) journal.getData();
                     Catalog.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
@@ -729,17 +730,19 @@ public class EditLog {
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
-                    ModifyTablePropertyOperationLog modifyTablePropertyOperationLog = (ModifyTablePropertyOperationLog) journal.getData();
-                    catalog.replayModifyTableProperty(opCode, modifyTablePropertyOperationLog);
+                    ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
+                    catalog.replayModifyTableProperty(opCode, log);
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
-                    ModifyTableDefaultDistributionBucketNumOperationLog modifyTableDefaultDistributionBucketNumOperationLog = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
-                    catalog.replayModifyTableDefaultDistributionBucketNum(modifyTableDefaultDistributionBucketNumOperationLog);
+                    ModifyTableDefaultDistributionBucketNumOperationLog log
+                            = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
+                    catalog.replayModifyTableDefaultDistributionBucketNum(log);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
-                    ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal.getData();
+                    ReplacePartitionOperationLog replaceTempPartitionLog
+                            = (ReplacePartitionOperationLog) journal.getData();
                     catalog.replayReplaceTempPartition(replaceTempPartitionLog);
                     break;
                 }
@@ -850,7 +853,8 @@ public class EditLog {
             }
         } catch (MetaNotFoundException e) {
             /**
-             * In the following cases, doris may record metadata modification information for a table that no longer exists.
+             * In the following cases, doris may record metadata modification information
+             * for a table that no longer exists.
              * 1. Thread 1: get TableA object
              * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
              * 3. Thread 1: lock table, modify table and record edit log of the modified TableA

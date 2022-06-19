@@ -121,10 +121,13 @@ public class JobsProcDir implements ProcDirInterface {
         // rollup
         MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
         pendingNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
-        runningNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
+        runningNum = materializedViewHandler.getAlterJobV2Num(
+                org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
                 + materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
-        finishedNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.FINISHED, dbId);
-        cancelledNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.CANCELLED, dbId);
+        finishedNum = materializedViewHandler.getAlterJobV2Num(
+                org.apache.doris.alter.AlterJobV2.JobState.FINISHED, dbId);
+        cancelledNum = materializedViewHandler.getAlterJobV2Num(
+                org.apache.doris.alter.AlterJobV2.JobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(ROLLUP, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                                          cancelledNum.toString(), totalNum.toString()));

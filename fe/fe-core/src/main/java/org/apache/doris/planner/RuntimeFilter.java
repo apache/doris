@@ -54,7 +54,7 @@ import java.util.Map;
  * the filter and the scan nodes that apply the filter (destination nodes).
  */
 public final class RuntimeFilter {
-    private final static Logger LOG = LogManager.getLogger(RuntimeFilter.class);
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilter.class);
 
     // Identifier of the filter (unique within a query)
     private final RuntimeFilterId id;
@@ -226,8 +226,8 @@ public final class RuntimeFilter {
      * or null if a runtime filter cannot be generated from the specified predicate.
      */
     public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer,
-                                       Expr joinPredicate, int exprOrder, HashJoinNode filterSrcNode,
-                                       TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+            Expr joinPredicate, int exprOrder, HashJoinNode filterSrcNode,
+            TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         Preconditions.checkNotNull(idGen);
         Preconditions.checkNotNull(joinPredicate);
         Preconditions.checkNotNull(filterSrcNode);

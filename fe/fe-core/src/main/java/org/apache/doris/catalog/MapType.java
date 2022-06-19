@@ -30,10 +30,12 @@ import com.google.common.base.Strings;
 public class MapType extends Type {
     private final Type keyType;
     private final Type valueType;
+
     public MapType() {
         this.keyType = NULL;
         this.valueType = NULL;
     }
+
     public MapType(Type keyType, Type valueType) {
         Preconditions.checkNotNull(keyType);
         Preconditions.checkNotNull(valueType);

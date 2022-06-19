@@ -182,9 +182,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         // This is mainly for compatibility. In the previous version, we directly obtained the value of the
-        // KAFKA_DEFAULT_OFFSETS attribute. In the new version, we support date time as the value of KAFKA_DEFAULT_OFFSETS,
-        // and this attribute will be converted into a timestamp during the analyzing phase, thus losing some information.
-        // So we use KAFKA_ORIGIN_DEFAULT_OFFSETS to store the original datetime formatted KAFKA_DEFAULT_OFFSETS value
+        // KAFKA_DEFAULT_OFFSETS attribute. In the new version, we support date time as the value of
+        // KAFKA_DEFAULT_OFFSETS, and this attribute will be converted into a timestamp during the analyzing phase,
+        // thus losing some information. So we use KAFKA_ORIGIN_DEFAULT_OFFSETS to store the original datetime
+        // formatted KAFKA_DEFAULT_OFFSETS value
         if (convertedCustomProperties.containsKey(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS)) {
             kafkaDefaultOffSet = convertedCustomProperties.remove(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS);
         } else if (convertedCustomProperties.containsKey(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)) {
@@ -435,7 +436,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
                     List<Integer> newPartitions = Lists.newArrayList();
                     newPartitions.add(kafkaPartition);
-                    List<Pair<Integer, Long>> newPartitionsOffsets = getNewPartitionOffsetsFromDefaultOffset(newPartitions);
+                    List<Pair<Integer, Long>> newPartitionsOffsets
+                            = getNewPartitionOffsetsFromDefaultOffset(newPartitions);
                     Preconditions.checkState(newPartitionsOffsets.size() == 1);
                     for (Pair<Integer, Long> partitionOffset : newPartitionsOffsets) {
                         ((KafkaProgress) progress).addPartitionOffset(partitionOffset);
@@ -455,7 +457,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private List<Pair<Integer, Long>> getNewPartitionOffsetsFromDefaultOffset(List<Integer> newPartitions) throws UserException {
+    private List<Pair<Integer, Long>> getNewPartitionOffsetsFromDefaultOffset(List<Integer> newPartitions)
+            throws UserException {
         List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
         // get default offset
         long beginOffset = convertedDefaultOffsetToLong();
@@ -464,7 +467,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         if (isOffsetForTimes()) {
             try {
-                partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList, this.topic, convertedCustomProperties, partitionOffsets);
+                partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList,
+                        this.topic, convertedCustomProperties, partitionOffsets);
             } catch (LoadException e) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("partition:timestamp", Joiner.on(",").join(partitionOffsets))

@@ -43,6 +43,7 @@ public class SetOperationStmtTest {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
+
     @Test
     public void testNormal() throws Exception {
         String sql = "select k1,k2 from t where k1='a' union select k1,k2 from t where k1='b';";

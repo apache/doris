@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
  * analysis of the ORDER BY and LIMIT clauses.
  */
 public abstract class QueryStmt extends StatementBase {
-    private final static Logger LOG = LogManager.getLogger(QueryStmt.class);
+    private static final Logger LOG = LogManager.getLogger(QueryStmt.class);
 
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -455,7 +455,8 @@ public abstract class QueryStmt extends StatementBase {
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
         if (withClause != null) {
             withClause.getTables(analyzer, tableMap, parentViewNameSet);
         }
@@ -532,8 +533,10 @@ public abstract class QueryStmt extends StatementBase {
     //                "select a.siteid, b.citycode, a.siteid from (select siteid, citycode from tmp) a " +
     //                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
-    // so need to check is view name by parentViewNameSet. issue link: https://github.com/apache/incubator-doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet) throws AnalysisException;
+    // so need to check is view name by parentViewNameSet.
+    // issue link: https://github.com/apache/incubator-doris/issues/4598
+    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet)
+            throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.

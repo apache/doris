@@ -51,9 +51,11 @@ public class Util {
 
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
-    private static final String[] ORDINAL_SUFFIX = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+    private static final String[] ORDINAL_SUFFIX
+            = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
 
-    private static final List<String> REGEX_ESCAPES = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
+    private static final List<String> REGEX_ESCAPES
+            = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
 
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");

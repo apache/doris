@@ -49,7 +49,8 @@ public class RoutineLoadDataSourceProperties {
             .add(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)
             .build();
 
-    private static final ImmutableSet<String> CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
+    private static final ImmutableSet<String> CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET
+            = new ImmutableSet.Builder<String>()
             .add(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY)
@@ -160,7 +161,8 @@ public class RoutineLoadDataSourceProperties {
      * 4. other properties start with "property."
      */
     private void checkKafkaProperties() throws UserException {
-        ImmutableSet<String> propertySet = isAlter ? CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET : DATA_SOURCE_PROPERTIES_SET;
+        ImmutableSet<String> propertySet = isAlter
+                ? CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET : DATA_SOURCE_PROPERTIES_SET;
         Optional<String> optional = properties.keySet().stream()
                 .filter(entity -> !propertySet.contains(entity))
                 .filter(entity -> !entity.startsWith("property."))
@@ -170,7 +172,8 @@ public class RoutineLoadDataSourceProperties {
         }
 
         // check broker list
-        kafkaBrokerList = Strings.nullToEmpty(properties.get(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY)).replaceAll(" ", "");
+        kafkaBrokerList = Strings.nullToEmpty(properties.get(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY))
+                .replaceAll(" ", "");
         if (!isAlter && Strings.isNullOrEmpty(kafkaBrokerList)) {
             throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY + " is a required property");
         }
@@ -185,7 +188,8 @@ public class RoutineLoadDataSourceProperties {
         }
 
         // check topic
-        kafkaTopic = Strings.nullToEmpty(properties.get(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY)).replaceAll(" ", "");
+        kafkaTopic = Strings.nullToEmpty(properties.get(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY))
+                .replaceAll(" ", "");
         if (!isAlter && Strings.isNullOrEmpty(kafkaTopic)) {
             throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY + " is a required property");
         }
@@ -223,20 +227,23 @@ public class RoutineLoadDataSourceProperties {
             throw new AnalysisException("Only one of " + CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY
                     + " and " + CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS + " can be set.");
         }
-        if (isAlter && kafkaPartitionsString != null && kafkaOffsetsString == null && kafkaDefaultOffsetString == null) {
+        if (isAlter && kafkaPartitionsString != null
+                && kafkaOffsetsString == null && kafkaDefaultOffsetString == null) {
             // if this is an alter operation, the partition and (default)offset must be set together.
             throw new AnalysisException("Must set offset or default offset with partition property");
         }
 
         if (kafkaOffsetsString != null) {
-            this.isOffsetsForTimes = analyzeKafkaOffsetProperty(kafkaOffsetsString, this.kafkaPartitionOffsets, this.timezone);
+            this.isOffsetsForTimes = analyzeKafkaOffsetProperty(kafkaOffsetsString,
+                    this.kafkaPartitionOffsets, this.timezone);
         } else {
             // offset is not set, check default offset.
             this.isOffsetsForTimes = analyzeKafkaDefaultOffsetProperty(this.customKafkaProperties, this.timezone);
             if (!this.kafkaPartitionOffsets.isEmpty()) {
                 // Case C
                 kafkaDefaultOffsetString = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS);
-                setDefaultOffsetForPartition(this.kafkaPartitionOffsets, kafkaDefaultOffsetString, this.isOffsetsForTimes);
+                setDefaultOffsetForPartition(this.kafkaPartitionOffsets,
+                        kafkaDefaultOffsetString, this.isOffsetsForTimes);
             }
         }
     }
@@ -259,10 +266,12 @@ public class RoutineLoadDataSourceProperties {
     }
 
     // If the default offset is not set, set the default offset to OFFSET_END.
-    // If the offset is in datetime format, convert it to a timestamp, and also save the origin datatime formatted offset
+    // If the offset is in datetime format, convert it to a timestamp,
+    // and also save the origin datatime formatted offset
     // in "customKafkaProperties"
     // return true if the offset is in datetime format.
-    private static boolean analyzeKafkaDefaultOffsetProperty(Map<String, String> customKafkaProperties, String timeZoneStr)
+    private static boolean analyzeKafkaDefaultOffsetProperty(
+            Map<String, String> customKafkaProperties, String timeZoneStr)
             throws AnalysisException {
         customKafkaProperties.putIfAbsent(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS, KafkaProgress.OFFSET_END);
         String defaultOffsetStr = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS);
@@ -275,8 +284,10 @@ public class RoutineLoadDataSourceProperties {
             customKafkaProperties.put(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS, defaultOffsetStr);
             return true;
         } else {
-            if (!defaultOffsetStr.equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING) && !defaultOffsetStr.equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
-                throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS + " can only be set to OFFSET_BEGINNING, OFFSET_END or date time");
+            if (!defaultOffsetStr.equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)
+                    && !defaultOffsetStr.equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
+                throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS
+                        + " can only be set to OFFSET_BEGINNING, OFFSET_END or date time");
             }
             return false;
         }
@@ -285,16 +296,17 @@ public class RoutineLoadDataSourceProperties {
     // init "kafkaPartitionOffsets" with partition property.
     // The offset will be set to OFFSET_END for now, and will be changed in later analysis process.
     private static void analyzeKafkaPartitionProperty(String kafkaPartitionsString,
-                                                      List<Pair<Integer, Long>> kafkaPartitionOffsets) throws AnalysisException {
+            List<Pair<Integer, Long>> kafkaPartitionOffsets) throws AnalysisException {
         kafkaPartitionsString = kafkaPartitionsString.replaceAll(" ", "");
         if (kafkaPartitionsString.isEmpty()) {
-            throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY + " could not be a empty string");
+            throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY
+                    + " could not be a empty string");
         }
         String[] kafkaPartitionsStringList = kafkaPartitionsString.split(",");
         for (String s : kafkaPartitionsStringList) {
             try {
-                kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY),
-                        KafkaProgress.OFFSET_END_VAL));
+                kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(
+                        s, CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY), KafkaProgress.OFFSET_END_VAL));
             } catch (AnalysisException e) {
                 throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY
                         + " must be a number string with comma-separated");
@@ -304,8 +316,8 @@ public class RoutineLoadDataSourceProperties {
 
     // Fill the partition's offset with given kafkaOffsetsString,
     // Return true if offset is specified by timestamp.
-    private static boolean analyzeKafkaOffsetProperty(String kafkaOffsetsString, List<Pair<Integer, Long>> kafkaPartitionOffsets,
-                                                      String timeZoneStr)
+    private static boolean analyzeKafkaOffsetProperty(String kafkaOffsetsString,
+            List<Pair<Integer, Long>> kafkaPartitionOffsets, String timeZoneStr)
             throws UserException {
         if (Strings.isNullOrEmpty(kafkaOffsetsString)) {
             throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY + " could not be a empty string");
@@ -354,7 +366,8 @@ public class RoutineLoadDataSourceProperties {
                 } else if (NumberUtils.isDigits(kafkaOffsetsStr)) {
                     kafkaPartitionOffsets.get(i).second = Long.valueOf(NumberUtils.toLong(kafkaOffsetsStr));
                 } else {
-                    throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY + " must be an integer or a date time");
+                    throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY
+                            + " must be an integer or a date time");
                 }
             }
         }
@@ -368,7 +381,7 @@ public class RoutineLoadDataSourceProperties {
             if (dataSourceProperty.getKey().startsWith("property.")) {
                 String propertyKey = dataSourceProperty.getKey();
                 String propertyValue = dataSourceProperty.getValue();
-                String propertyValueArr[] = propertyKey.split("\\.");
+                String[] propertyValueArr = propertyKey.split("\\.");
                 if (propertyValueArr.length < 2) {
                     throw new AnalysisException("kafka property value could not be a empty string");
                 }

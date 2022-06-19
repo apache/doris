@@ -555,22 +555,26 @@ public class Catalog {
         this.metaContext.setThreadLocalInfo();
 
         this.stat = new TabletSchedulerStat();
-        this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat, Config.tablet_rebalancer_type);
+        this.tabletScheduler = new TabletScheduler(this, systemInfo,
+                tabletInvertedIndex, stat, Config.tablet_rebalancer_type);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
         // The pendingLoadTaskScheduler's queue size should not less than Config.desired_max_waiting_jobs.
         // So that we can guarantee that all submitted load jobs can be scheduled without being starved.
-        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_pending_load_task_pool_size,
+        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler",
+                Config.async_pending_load_task_pool_size,
                 Config.desired_max_waiting_jobs, !isCheckpointCatalog);
         // The loadingLoadTaskScheduler's queue size is unlimited, so that it can receive all loading tasks
         // created after pending tasks finish. And don't worry about the high concurrency, because the
         // concurrency is limited by Config.desired_max_waiting_jobs and Config.async_loading_load_task_pool_size.
-        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_loading_load_task_pool_size,
+        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler",
+                Config.async_loading_load_task_pool_size,
                 Integer.MAX_VALUE, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
-        this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager", Config.fetch_stream_load_record_interval_second * 1000);
+        this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
+                Config.fetch_stream_load_record_interval_second * 1000L);
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
@@ -776,7 +780,8 @@ public class Catalog {
         // 1. check and create dirs and files
         File meta = new File(metaDir);
         if (!meta.exists()) {
-            LOG.warn("Doris' meta dir {} does not exist. You need to create it before starting FE", meta.getAbsolutePath());
+            LOG.warn("Doris' meta dir {} does not exist."
+                    + " You need to create it before starting FE", meta.getAbsolutePath());
             throw new Exception(meta.getAbsolutePath() + " does not exist, will exit");
         }
 
@@ -894,9 +899,11 @@ public class Catalog {
                     // nodeName should be like "192.168.1.1_9217_1620296111213"
                     // and the selfNode should be the prefix of nodeName.
                     // If not, it means that the ip used last time is different from this time, which is not allowed.
-                    // But is metadata_failure_recovery is true, we will not check it because this may be a FE migration.
+                    // But is metadata_failure_recovery is true,
+                    // we will not check it because this may be a FE migration.
                     String[] split = nodeName.split("_");
-                    if (Config.metadata_failure_recovery.equals("false") && !selfNode.first.equalsIgnoreCase(split[0])) {
+                    if (Config.metadata_failure_recovery.equals("false")
+                            && !selfNode.first.equalsIgnoreCase(split[0])) {
                         throw new IOException("the self host " + selfNode.first
                                 + " does not equal to the host in ROLE"
                                 + " file " + split[0] + ". You need to set 'priority_networks' config"
@@ -969,7 +976,8 @@ public class Catalog {
             if (!versionFile.exists()) {
                 // If the version file doesn't exist, download it from helper node
                 if (!getVersionFileFromHelper(rightHelperNode)) {
-                    throw new IOException("fail to download version file from " + rightHelperNode.first + " will exit.");
+                    throw new IOException("fail to download version file from "
+                            + rightHelperNode.first + " will exit.");
                 }
 
                 // NOTE: cluster_id will be init when Storage object is constructed,
@@ -1008,7 +1016,8 @@ public class Catalog {
                         Preconditions.checkNotNull(token);
                         Preconditions.checkNotNull(remoteToken);
                         if (!token.equals(remoteToken)) {
-                            throw new IOException("token is not equal with helper node " + rightHelperNode.first + ". will exit.");
+                            throw new IOException("token is not equal with helper node "
+                                    + rightHelperNode.first + ". will exit.");
                         }
                     }
                 } catch (Exception e) {
@@ -1533,7 +1542,8 @@ public class Catalog {
             connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
 
             String response;
-            try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            try (BufferedReader bufferedReader
+                    = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
                 String line;
                 StringBuilder sb = new StringBuilder();
                 while ((line = bufferedReader.readLine()) != null) {
@@ -1612,7 +1622,7 @@ public class Catalog {
         LOG.info("finished replay masterInfo from image");
         return newChecksum;
     }
-    
+
     public long loadFrontends(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
@@ -1727,14 +1737,16 @@ public class Catalog {
         long newChecksum = checksum ^ size;
         if (size > 0) {
             // There should be no old alter jobs, if exist throw exception, should not use this FE version
-            throw new IOException("There are [" + size + "] old alter jobs. Please downgrade FE to an older version and handle residual jobs");
+            throw new IOException("There are [" + size + "] old alter jobs."
+                    + " Please downgrade FE to an older version and handle residual jobs");
         }
 
         // finished or cancelled jobs
         size = dis.readInt();
         newChecksum ^= size;
         if (size > 0) {
-            throw new IOException("There are [" + size + "] old finished or cancelled alter jobs. Please downgrade FE to an older version and handle residual jobs");
+            throw new IOException("There are [" + size + "] old finished or cancelled alter jobs."
+                    + " Please downgrade FE to an older version and handle residual jobs");
         }
 
         // alter job v2
@@ -2008,7 +2020,8 @@ public class Catalog {
 
     public long saveExportJob(CountingDataOutputStream dos, long checksum) throws IOException {
         long curTime = System.currentTimeMillis();
-        List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime)).collect(Collectors.toList());
+        List<ExportJob> jobs = exportMgr.getJobs().stream()
+                .filter(t -> !t.isExpired(curTime)).collect(Collectors.toList());
         int size = jobs.size();
         checksum ^= size;
         dos.writeInt(size);
@@ -2667,8 +2680,11 @@ public class Catalog {
 
         // 1.2 other table type
         sb.append("CREATE ");
-        if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
-                || table.getType() == TableType.BROKER || table.getType() == TableType.HIVE) {
+        if (table.getType() == TableType.ODBC
+                || table.getType() == TableType.MYSQL
+                || table.getType() == TableType.ELASTICSEARCH
+                || table.getType() == TableType.BROKER
+                || table.getType() == TableType.HIVE) {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
@@ -2864,7 +2880,8 @@ public class Catalog {
                 sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
                 sb.append("\"charset\" = \"").append(mysqlTable.getCharset()).append("\",\n");
             } else {
-                sb.append("\"odbc_catalog_resource\" = \"").append(mysqlTable.getOdbcCatalogResourceName()).append("\",\n");
+                sb.append("\"odbc_catalog_resource\" = \"")
+                        .append(mysqlTable.getOdbcCatalogResourceName()).append("\",\n");
             }
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
@@ -2884,7 +2901,8 @@ public class Catalog {
                 sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
                 sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
             } else {
-                sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName()).append("\",\n");
+                sb.append("\"odbc_catalog_resource\" = \"")
+                        .append(odbcTable.getOdbcCatalogResourceName()).append("\",\n");
             }
             sb.append("\"database\" = \"").append(odbcTable.getOdbcDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(odbcTable.getOdbcTableName()).append("\"\n");
@@ -3045,7 +3063,8 @@ public class Catalog {
         getInternalDataSource().replayCreateTable(dbName, table);
     }
 
-    public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema) throws MetaNotFoundException {
+    public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema)
+            throws MetaNotFoundException {
         getInternalDataSource().replayAlterExternalTableSchema(dbName, tableName, newSchema);
     }
 
@@ -3261,7 +3280,8 @@ public class Catalog {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long partitionId = partition.getId();
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
+                        Preconditions.checkNotNull(dataProperty, partition.getName()
+                                + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
@@ -3300,7 +3320,8 @@ public class Catalog {
                 // use try lock to avoid blocking a long time.
                 // if block too long, backend report rpc will timeout.
                 if (!olapTable.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                    LOG.warn("try get table {} writelock but failed when checking backend storage medium", table.getName());
+                    LOG.warn("try get table {} writelock but failed"
+                            + " when checking backend storage medium", table.getName());
                     continue;
                 }
                 Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
@@ -3763,13 +3784,15 @@ public class Catalog {
                         if (bucketsNum == -1) {
                             bucketsNum = partition.getDistributionInfo().getBucketNum();
                         } else if (bucketsNum != partition.getDistributionInfo().getBucketNum()) {
-                            throw new DdlException("Partitions in table " + table.getName() + " have different buckets number");
+                            throw new DdlException("Partitions in table " + table.getName()
+                                    + " have different buckets number");
                         }
 
                         if (replicaAlloc == null) {
                             replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
                         } else if (!replicaAlloc.equals(partitionInfo.getReplicaAllocation(partition.getId()))) {
-                            throw new DdlException("Partitions in table " + table.getName() + " have different replica allocation.");
+                            throw new DdlException("Partitions in table " + table.getName()
+                                    + " have different replica allocation.");
                         }
                     }
                 }
@@ -3794,7 +3817,8 @@ public class Catalog {
             }
 
             // set this group as unstable
-            colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user", false /* edit log is along with modify table log */);
+            colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
+                    false /* edit log is along with modify table log */);
             table.setColocateGroup(colocateGroup);
         } else {
             // unset colocation group
@@ -3908,7 +3932,8 @@ public class Catalog {
                 throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
             }
 
-            if (table.getPartitionInfo().getType() != PartitionType.RANGE && table.getPartitionInfo().getType() != PartitionType.LIST) {
+            if (table.getPartitionInfo().getType() != PartitionType.RANGE
+                    && table.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException("Table[" + table.getName() + "] is single partitioned. "
                         + "no need to rename partition name.");
             }
@@ -3978,8 +4003,8 @@ public class Catalog {
             // Merge the new properties with origin properties, and then analyze them
             Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
             origDynamicProperties.putAll(properties);
-            Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.
-                    analyzeDynamicPartition(origDynamicProperties, table.getPartitionInfo());
+            Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil
+                    .analyzeDynamicPartition(origDynamicProperties, table.getPartitionInfo());
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }
@@ -3987,13 +4012,14 @@ public class Catalog {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table, false);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
                 table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
+        ModifyTablePropertyOperationLog info
+                = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
         editLog.logDynamicPartition(info);
     }
 
     private void convertDynamicPartitionReplicaNumToReplicaAllocation(Map<String, String> properties) {
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
-            Short repNum = Short.valueOf(properties.remove(DynamicPartitionProperty.REPLICATION_NUM));
+            short repNum = Short.parseShort(properties.remove(DynamicPartitionProperty.REPLICATION_NUM));
             ReplicaAllocation replicaAlloc = new ReplicaAllocation(repNum);
             properties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         }
@@ -4007,7 +4033,8 @@ public class Catalog {
      * @throws DdlException
      */
     // The caller need to hold the table write lock
-    public void modifyTableReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) throws UserException {
+    public void modifyTableReplicaAllocation(Database db, OlapTable table,
+            Map<String, String> properties) throws UserException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
         PartitionInfo partitionInfo = table.getPartitionInfo();
@@ -4058,7 +4085,8 @@ public class Catalog {
         tableProperty.buildReplicaAllocation();
 
         // log
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
+        ModifyTablePropertyOperationLog info
+                = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logModifyReplicationNum(info);
         LOG.debug("modify table[{}] replication num to {}", table.getName(),
                 properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
@@ -4080,11 +4108,13 @@ public class Catalog {
             table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
         }
 
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
+        ModifyTablePropertyOperationLog info
+                = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logModifyInMemory(info);
     }
 
-    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info) throws MetaNotFoundException {
+    public void replayModifyTableProperty(short opCode,
+            ModifyTablePropertyOperationLog info) throws MetaNotFoundException {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
@@ -4113,7 +4143,8 @@ public class Catalog {
         }
     }
 
-    public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
+    public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable,
+            ModifyDistributionClause modifyDistributionClause) throws DdlException {
         olapTable.writeLockOrDdlException();
         try {
             if (olapTable.isColocateTable()) {
@@ -4131,12 +4162,14 @@ public class Catalog {
                 DistributionInfo distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                 // for now. we only support modify distribution's bucket num
                 if (distributionInfo.getType() != defaultDistributionInfo.getType()) {
-                    throw new DdlException("Cannot change distribution type when modify default distribution bucket num");
+                    throw new DdlException("Cannot change distribution type when modify"
+                            + " default distribution bucket num");
                 }
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
                     HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                     List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
-                    List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
+                    List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo)
+                            .getDistributionColumns();
                     if (!newDistriCols.equals(defaultDistriCols)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "default is: " + defaultDistriCols);
@@ -4150,7 +4183,9 @@ public class Catalog {
 
                 defaultDistributionInfo.setBucketNum(bucketNum);
 
-                ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(), bucketNum);
+                ModifyTableDefaultDistributionBucketNumOperationLog info
+                        = new ModifyTableDefaultDistributionBucketNumOperationLog(
+                                db.getId(), olapTable.getId(), bucketNum);
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }
@@ -4159,7 +4194,8 @@ public class Catalog {
         }
     }
 
-    public void replayModifyTableDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog info) throws MetaNotFoundException {
+    public void replayModifyTableDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog info)
+            throws MetaNotFoundException {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         int bucketNum = info.getBucketNum();
@@ -4576,9 +4612,10 @@ public class Catalog {
             // but it is wrong because we can not get replica from `tabletInvertedIndex` when doing checkpoint,
             // because when doing checkpoint, the tabletInvertedIndex is not initialized at all.
             //
-            // So we can only discard this information, in this case, it is equivalent to losing the record of these operations.
-            // But it doesn't matter, these records are currently only used to record whether a replica is in a bad state.
-            // This state has little effect on the system, and it can be restored after the system has processed the bad state replica.
+            // So we can only discard this information, in this case, it is equivalent to losing the record of these
+            // operations. But it doesn't matter, these records are currently only used to record whether a replica is
+            // in a bad state. This state has little effect on the system, and it can be restored after the system
+            // has processed the bad state replica.
             for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
                 LOG.warn("find an old backendTabletsInfo for tablet {}, ignore it", tabletInfo.first);
             }
@@ -4653,7 +4690,8 @@ public class Catalog {
     /*
      * The entry of replacing partitions with temp partitions.
      */
-    public void replaceTempPartition(Database db, OlapTable olapTable, ReplacePartitionClause clause) throws DdlException {
+    public void replaceTempPartition(Database db, OlapTable olapTable, ReplacePartitionClause clause)
+            throws DdlException {
         Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
         List<String> partitionNames = clause.getPartitionNames();
         List<String> tempPartitionNames = clause.getTempPartitionNames();
@@ -4680,7 +4718,8 @@ public class Catalog {
                 clause.getPartitionNames(), clause.getTempPartitionNames(), olapTable.getName());
     }
 
-    public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog) throws MetaNotFoundException {
+    public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog)
+            throws MetaNotFoundException {
         long dbId = replaceTempPartitionLog.getDbId();
         long tableId = replaceTempPartitionLog.getTblId();
         Database db = this.getDbOrMetaException(dbId);
@@ -4765,7 +4804,8 @@ public class Catalog {
         setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
     }
 
-    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, boolean isReplay) throws MetaNotFoundException {
+    private void setReplicaStatusInternal(long tabletId, long backendId,
+            ReplicaStatus status, boolean isReplay) throws MetaNotFoundException {
         try {
             TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
             if (meta == null) {
@@ -4782,7 +4822,8 @@ public class Catalog {
                 if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
                     if (replica.setBad(status == ReplicaStatus.BAD)) {
                         if (!isReplay) {
-                            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId, status);
+                            SetReplicaStatusOperationLog log
+                                    = new SetReplicaStatusOperationLog(backendId, tabletId, status);
                             getEditLog().logSetReplicaStatus(log);
                         }
                         LOG.info("set replica {} of tablet {} on backend {} as {}. is replay: {}",

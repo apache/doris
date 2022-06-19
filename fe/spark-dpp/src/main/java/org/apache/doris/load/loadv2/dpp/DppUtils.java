@@ -40,6 +40,7 @@ import java.util.zip.CRC32;
 
 public class DppUtils {
     public static final String BUCKET_ID = "__bucketId__";
+
     public static Class getClassFromDataType(DataType dataType) {
         if (dataType == null) {
             return null;
@@ -202,16 +203,19 @@ public class DppUtils {
         List<StructField> fields = new ArrayList<>();
         for (StructField originField : dstSchema.fields()) {
             if (binaryColumns.contains(originField.name())) {
-                fields.add(DataTypes.createStructField(originField.name(), DataTypes.BinaryType, originField.nullable()));
+                fields.add(DataTypes.createStructField(originField.name(),
+                        DataTypes.BinaryType, originField.nullable()));
             } else {
-                fields.add(DataTypes.createStructField(originField.name(), originField.dataType(), originField.nullable()));
+                fields.add(DataTypes.createStructField(originField.name(),
+                        originField.dataType(), originField.nullable()));
             }
         }
         StructType ret = DataTypes.createStructType(fields);
         return ret;
     }
 
-    public static StructType createDstTableSchema(List<EtlJobConfig.EtlColumn> columns, boolean addBucketIdColumn, boolean regardDistinctColumnAsBinary) {
+    public static StructType createDstTableSchema(List<EtlJobConfig.EtlColumn> columns,
+            boolean addBucketIdColumn, boolean regardDistinctColumnAsBinary) {
         List<StructField> fields = new ArrayList<>();
         if (addBucketIdColumn) {
             StructField bucketIdField = DataTypes.createStructField(BUCKET_ID, DataTypes.StringType, true);
@@ -226,14 +230,17 @@ public class DppUtils {
         return dstSchema;
     }
 
-    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws SparkDppException {
+    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
+            throws SparkDppException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
-            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                    + ", filePath: " + filePath);
+            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
@@ -243,13 +250,17 @@ public class DppUtils {
                 continue;
             }
             if (str == null || !str.contains("=")) {
-                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                        + ", filePath: " + filePath);
+                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
-                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                        + ", filePath: " + filePath);
+                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             int index = columnsFromPath.indexOf(pair[0]);
             if (index == -1) {
@@ -262,8 +273,10 @@ public class DppUtils {
             }
         }
         if (size != columnsFromPath.size()) {
-            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                    + ", filePath: " + filePath);
+            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         return Lists.newArrayList(columns);
     }

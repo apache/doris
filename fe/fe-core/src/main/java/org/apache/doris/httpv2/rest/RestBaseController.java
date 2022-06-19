@@ -155,7 +155,8 @@ public class RestBaseController extends BaseController {
         }
     }
 
-    public void writeFileResponse(HttpServletRequest request, HttpServletResponse response, File imageFile) throws IOException {
+    public void writeFileResponse(HttpServletRequest request,
+            HttpServletResponse response, File imageFile) throws IOException {
         Preconditions.checkArgument(imageFile != null && imageFile.exists());
         response.setHeader("Content-type", "application/octet-stream");
         response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());

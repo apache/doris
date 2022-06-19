@@ -78,7 +78,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-abstract public class DorisHttpTestCase {
+public abstract class DorisHttpTestCase {
 
     public OkHttpClient networkClient = new OkHttpClient.Builder()
             .readTimeout(100, TimeUnit.SECONDS)
@@ -338,18 +338,22 @@ abstract public class DorisHttpTestCase {
             SchemaChangeHandler getSchemaChangeHandler() {
                 return new SchemaChangeHandler();
             }
+
             @Mock
             MaterializedViewHandler getMaterializedViewHandler() {
                 return new MaterializedViewHandler();
             }
+
             @Mock
             Catalog getCurrentCatalog() {
                 return catalog;
             }
+
             @Mock
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
+
             @Mock
             TabletInvertedIndex getCurrentInvertedIndex() {
                 return tabletInvertedIndex;

@@ -178,8 +178,10 @@ public class TabletHealthProcDir implements ProcDirInterface {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
-                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
+                                .getReplicaAllocation(partition.getId());
+                        for (MaterializedIndex materializedIndex : partition
+                                .getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
                             List<Tablet> tablets = materializedIndex.getTablets();
                             for (int i = 0; i < tablets.size(); ++i) {
                                 Tablet tablet = tablets.get(i);
@@ -187,12 +189,12 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                 Tablet.TabletStatus res = null;
                                 if (groupId != null) {
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
-                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc, backendsSet);
+                                    res = tablet.getColocateHealthStatus(
+                                            partition.getVisibleVersion(), replicaAlloc, backendsSet);
                                 } else {
-                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
-                                            infoService, db.getClusterName(),
-                                            partition.getVisibleVersion(),
-                                            replicaAlloc, aliveBeIdsInCluster);
+                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair
+                                            = tablet.getHealthStatusWithPriority(infoService, db.getClusterName(),
+                                            partition.getVisibleVersion(), replicaAlloc, aliveBeIdsInCluster);
                                     res = pair.first;
                                 }
                                 switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
@@ -256,7 +258,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     oversizeTabletIds.add(tablet.getId());
                                 }
                                 for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow) {
+                                    if (replica.getVersionCount()
+                                            > Config.min_version_count_indicate_replica_compaction_too_slow) {
                                         replicaCompactionTooSlowNum++;
                                         replicaCompactionTooSlowTabletIds.add(tablet.getId());
                                         break;

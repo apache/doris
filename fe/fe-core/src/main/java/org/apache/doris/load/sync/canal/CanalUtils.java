@@ -53,7 +53,8 @@ public class CanalUtils {
         context_format += "| End : [{}] " + SEP;
         context_format += "----------------------------------------------------------" + SEP;
         row_format = SEP
-                + "----------------> binlog[{}:{}] , name[{},{}] , eventType : {} , executeTime : {}({}) , gtid : ({}) , delay : {} ms"
+                + "----------------> binlog[{}:{}] , name[{},{}] , eventType : {} ,"
+                + " executeTime : {}({}) , gtid : ({}) , delay : {} ms"
                 + SEP;
         transaction_format = SEP
                 + "================> binlog[{}:{}] , executeTime : {}({}) , gtid : ({}) , delay : {}ms"
@@ -68,7 +69,8 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(entries.get(0));
         String endPosition = buildPositionForDump(entries.get(entries.size() - 1));
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
-        logger.info(context_format, dataEvents.getId(), entries.size(), dataEvents.getMemSize(), format.format(new Date()), startPosition, endPosition);
+        logger.info(context_format, dataEvents.getId(), entries.size(), dataEvents.getMemSize(),
+                format.format(new Date()), startPosition, endPosition);
     }
 
     public static void printSummary(Message message, int size, long memsize) {
@@ -79,7 +81,8 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(message.getEntries().get(0));
         String endPosition = buildPositionForDump(message.getEntries().get(message.getEntries().size() - 1));
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
-        logger.info(context_format, message.getId(), size, memsize, format.format(new Date()), startPosition, endPosition);
+        logger.info(context_format, message.getId(), size, memsize,
+                format.format(new Date()), startPosition, endPosition);
     }
 
     public static String buildPositionForDump(CanalEntry.Entry entry) {

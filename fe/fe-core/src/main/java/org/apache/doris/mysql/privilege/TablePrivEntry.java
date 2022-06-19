@@ -61,7 +61,8 @@ public class TablePrivEntry extends DbPrivEntry {
             throw new AnalysisException("Table privilege can not contains global or resource privileges: " + privs);
         }
 
-        return new TablePrivEntry(hostPattern, host, dbPattern, db, userPattern, user, tblPattern, tbl, isDomain, privs);
+        return new TablePrivEntry(hostPattern, host, dbPattern, db,
+                userPattern, user, tblPattern, tbl, isDomain, privs);
     }
 
     public PatternMatcher getTblPattern() {

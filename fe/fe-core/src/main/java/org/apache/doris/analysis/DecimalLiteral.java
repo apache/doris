@@ -107,7 +107,8 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
         ByteBuffer buffer;
-        // no need to consider the overflow when cast decimal to other type, because this func only be used when querying, not storing.
+        // no need to consider the overflow when cast decimal to other type,
+        // because this func only be used when querying, not storing.
         // e.g. For column A with type INT, the data stored certainly no overflow.
         switch (type) {
             case TINYINT:
