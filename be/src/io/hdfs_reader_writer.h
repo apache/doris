@@ -34,7 +34,10 @@ public:
     static Status create_reader(const THdfsParams& hdfs_params, const std::string& path,
                                 int64_t start_offset, FileReader** reader);
 
-    static Status create_writer(std::map<std::string, std::string>& properties,
+    static Status create_reader(const std::map<std::string, std::string>& properties,
+                                const std::string& path, int64_t start_offset, FileReader** reader);
+
+    static Status create_writer(const std::map<std::string, std::string>& properties,
                                 const std::string& path, std::unique_ptr<FileWriter>& writer);
 };
 

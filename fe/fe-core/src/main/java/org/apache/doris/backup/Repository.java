@@ -489,6 +489,18 @@ public class Repository implements Writable {
             if (!st.ok()) {
                 return st;
             }
+        } else if (storage instanceof HdfsStorage) {
+            LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            st = storage.delete(finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+
+            // upload final file
+            st = storage.upload(localFilePath, finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
         }
 
         LOG.info("finished to upload local file {} to remote file: {}", localFilePath, finalRemotePath);

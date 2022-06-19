@@ -24,8 +24,16 @@
 
 namespace doris {
 
+const std::string FS_KEY = "fs.defaultFS";
+const std::string USER = "hadoop.username";
+const std::string KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
+const std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
+const std::string TICKET_CACHE_PATH = "/tmp/krb5cc_doris_";
+
 class HDFSCommonBuilder {
     friend HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams);
+    friend HDFSCommonBuilder createHDFSBuilder(
+            const std::map<std::string, std::string>& properties);
 
 public:
     HDFSCommonBuilder() : hdfs_builder(hdfsNewBuilder()) {};
@@ -42,6 +50,9 @@ private:
     std::string hdfs_kerberos_principal;
 };
 
+THdfsParams parse_properties(const std::map<std::string, std::string>& properties);
+
 HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams);
+HDFSCommonBuilder createHDFSBuilder(const std::map<std::string, std::string>& properties);
 
 } // namespace doris
