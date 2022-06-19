@@ -103,6 +103,9 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 MemTable::~MemTable() {
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
+    _buffer_mem_pool->free_all();
+    _table_mem_pool->free_all();
+    MemTracker::memory_leak_check(_mem_tracker.get(), true);
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}

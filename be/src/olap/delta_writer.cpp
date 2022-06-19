@@ -96,8 +96,10 @@ Status DeltaWriter::init() {
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
+    // Only consume mem tracker manually in mem table. Using the virtual tracker can avoid
+    // frequent recursive consumption of the parent tracker, thereby improving performance.
+    _mem_tracker = MemTracker::create_virtual_tracker(
+            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         //trigger quick compaction
@@ -301,6 +303,11 @@ Status DeltaWriter::close_wait() {
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
 
+    _mem_table.reset();
+    // In allocate/free of mem_pool, the consume_cache of _mem_tracker will be called,
+    // and _untracked_mem must be flushed first.
+    MemTracker::memory_leak_check(_mem_tracker.get());
+
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
@@ -333,6 +340,7 @@ Status DeltaWriter::cancel() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
     }
+    MemTracker::memory_leak_check(_mem_tracker.get());
     _is_cancelled = true;
     return Status::OK();
 }
