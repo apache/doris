@@ -1542,9 +1542,17 @@ public abstract class Type {
                 || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.STRING)) {
             return Type.STRING;
         }
-        // TODO(wzy): JSON <-> STRING <-> VARCHAR
+        // TODO(wzy): support NUMERIC/CHAR cast to JSON
         if (t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.JSON) {
             return Type.JSON;
+        }
+        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.VARCHAR) 
+                || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.JSON)){
+            return Type.VARCHAR;
+        }
+        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.STRING) 
+                || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.JSON)){
+            return Type.SMALLINT;
         }
 
         // int family type and char family type should cast to char family type

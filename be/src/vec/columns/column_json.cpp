@@ -54,27 +54,7 @@ MutableColumnPtr ColumnJson::clone_resized(size_t to_size) const {
 void ColumnJson::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 
-    // transform string json to jsonb
     const ColumnJson& src_concrete = reinterpret_cast<const ColumnJson&>(src);
-    // const ColumnString& col_string = reinterpret_cast<const ColumnString&>(src);
-    // auto col_json = ColumnJson::create();
-
-    // // TODO(wzy): insert batch
-    // // get all string value in columnString and covert to jsonb, then store in columnJson
-    // size_t size = col_string.size();
-    // JsonbParser parser;
-    // bool is_parsed;
-    // for (size_t i = 0; i < size; ++i) {
-    //     std::string str_data = col_string.get_data_at(i).to_string();
-    //     is_parsed = parser.parse(str_data.c_str());
-    //     if (is_parsed) {
-    //         col_json->insert_data(parser.getWriter().getOutput()->getBuffer(),
-    //         (unsigned)parser.getWriter().getOutput()->getSize());
-    //     } else {
-    //         LOG(FATAL) << "failed to parse string to jsonb, str value: " << str_data;
-    //     }
-    // }
-    // const ColumnJson& src_concrete = *col_json.get();
 
     if (start + length > src_concrete.offsets.size()) {
         LOG(FATAL) << "Parameter out of bound in IColumnJson::insert_range_from method.";

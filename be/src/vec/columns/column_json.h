@@ -85,12 +85,6 @@ public:
         res.assign_json(&chars[offset_at(n)], size_at(n) - 1);
     }
 
-    // TODO(wzy): does JSON has '\0'?
-    StringRef get_json_at_with_terminating_zero(size_t n) const {
-        assert(n < size());
-        return StringRef(&chars[offset_at(n)], size_at(n));
-    }
-
     StringRef get_data_at(size_t n) const override {
         assert(n < size());
         return StringRef(&chars[offset_at(n)], size_at(n) - 1);
@@ -166,16 +160,6 @@ public:
         }
     }
 
-    /// Like getData, but inserting data should be zero-ending (i.e. length is 1 byte greater than real string size).
-    void insert_data_with_terminating_zero(const char* pos, size_t length) {
-        const size_t old_size = chars.size();
-        const size_t new_size = old_size + length;
-
-        chars.resize(new_size);
-        memcpy(chars.data() + old_size, pos, length);
-        offsets.push_back(new_size);
-    }
-
     void pop_back(size_t n) override {
         size_t nested_n = offsets.back() - offset_at(offsets.size() - n);
         chars.resize(chars.size() - nested_n);
@@ -228,7 +212,6 @@ public:
         }
     }
 
-    // TODO(wzy): compare_at used in find_partition?
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
                    int /*nan_direction_hint*/) const override {
         const ColumnJson& rhs = assert_cast<const ColumnJson&>(rhs_);
