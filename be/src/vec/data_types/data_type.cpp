@@ -145,6 +145,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::LIST;
     case TypeIndex::FixedLengthObject:
         return PGenericType::FIXEDLENGTHOBJECT;
+    case TypeIndex::JSON:
+        return PGenericType::JSON;
     default:
         return PGenericType::UNKNOWN;
     }
