@@ -335,12 +335,6 @@ Default: 104857600
 
 One of the trigger conditions of BaseCompaction: Singleton file size limit, 100MB
 
-### `cumulative_compaction_skip_window_seconds`
-
-Default: 30（s）
-
-CumulativeCompaction skips the most recently released increments to prevent compacting versions that may be queried (in case the query planning phase takes some time). Change the parameter is to set the skipped window time size
-
 ### cumulative_compaction_trace_threshold
 
 * Type: int32
