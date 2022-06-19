@@ -59,7 +59,7 @@ public:
         auto dst_column = ColumnInt64::create(input_rows_count);
         auto& dst_data = dst_column->get_data();
 
-        for (size_t i = 0; i < offsets.size(); ++i) {
+        for (ssize_t i = 0; i < offsets.size(); ++i) {
             dst_data[i] = offsets[i] - offsets[i - 1];
         }
 

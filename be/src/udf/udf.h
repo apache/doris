@@ -742,7 +742,7 @@ struct HllVal : public StringVal {
 
 struct CollectionVal : public AnyVal {
     void* data;
-    uint32_t length;
+    uint64_t length;
     // item has no null value if has_null is false.
     // item ```may``` has null value if has_null is true.
     bool has_null;
@@ -751,7 +751,7 @@ struct CollectionVal : public AnyVal {
 
     CollectionVal() = default;
 
-    CollectionVal(void* data, uint32_t length, bool has_null, bool* null_signs)
+    CollectionVal(void* data, uint64_t length, bool has_null, bool* null_signs)
             : data(data), length(length), has_null(has_null), null_signs(null_signs) {};
 
     static CollectionVal null() {

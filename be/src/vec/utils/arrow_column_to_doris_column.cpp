@@ -100,8 +100,8 @@ static size_t fill_nullable_column(const arrow::Array* array, size_t array_idx,
 /// Also internal strings are null terminated.
 static Status convert_column_with_string_data(const arrow::Array* array, size_t array_idx,
                                               MutableColumnPtr& data_column, size_t num_elements) {
-    PaddedPODArray<UInt8>& column_chars_t = assert_cast<ColumnString&>(*data_column).get_chars();
-    PaddedPODArray<UInt32>& column_offsets = assert_cast<ColumnString&>(*data_column).get_offsets();
+    auto& column_chars_t = assert_cast<ColumnString&>(*data_column).get_chars();
+    auto& column_offsets = assert_cast<ColumnString&>(*data_column).get_offsets();
 
     auto concrete_array = down_cast<const arrow::BinaryArray*>(array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
@@ -121,8 +121,8 @@ static Status convert_column_with_string_data(const arrow::Array* array, size_t 
 static Status convert_column_with_fixed_size_data(const arrow::Array* array, size_t array_idx,
                                                   MutableColumnPtr& data_column,
                                                   size_t num_elements) {
-    PaddedPODArray<UInt8>& column_chars_t = assert_cast<ColumnString&>(*data_column).get_chars();
-    PaddedPODArray<UInt32>& column_offsets = assert_cast<ColumnString&>(*data_column).get_offsets();
+    auto& column_chars_t = assert_cast<ColumnString&>(*data_column).get_chars();
+    auto& column_offsets = assert_cast<ColumnString&>(*data_column).get_offsets();
 
     auto concrete_array = down_cast<const arrow::FixedSizeBinaryArray*>(array);
     uint32_t width = concrete_array->byte_width();

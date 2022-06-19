@@ -635,7 +635,7 @@ public:
         //
         fmt::memory_buffer buffer;
         res_offsets.resize(input_row_size);
-        for (size_t i = 0; i < input_row_size; ++i) {
+        for (ssize_t i = 0; i < input_row_size; ++i) {
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int size = offsets[i] - offsets[i - 1] - 1;
