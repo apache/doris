@@ -48,6 +48,7 @@ set(VEC_FILES
   columns/column_decimal.cpp
   columns/column_nullable.cpp
   columns/column_string.cpp
+  columns/column_json.cpp
   columns/column_vector.cpp
   columns/columns_common.cpp
   common/demangle.cpp
@@ -81,6 +82,7 @@ set(VEC_FILES
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
+  data_types/data_type_json.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/ves_http_scan_node.cpp
