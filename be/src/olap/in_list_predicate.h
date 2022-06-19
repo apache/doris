@@ -201,7 +201,7 @@ public:
         return Status::OK();
     }
 
-    void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override {
+    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override {
         if (column.is_nullable()) {
             auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -211,15 +211,15 @@ public:
             auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
-                _base_evaluate<true, true>(&nested_col, &null_bitmap, sel, size);
+                return _base_evaluate<true, true>(&nested_col, &null_bitmap, sel, size);
             } else {
-                _base_evaluate<true, false>(&nested_col, &null_bitmap, sel, size);
+                return _base_evaluate<true, false>(&nested_col, &null_bitmap, sel, size);
             }
         } else {
             if (_opposite) {
-                _base_evaluate<false, true>(&column, nullptr, sel, size);
+                return _base_evaluate<false, true>(&column, nullptr, sel, size);
             } else {
-                _base_evaluate<false, false>(&column, nullptr, sel, size);
+                return _base_evaluate<false, false>(&column, nullptr, sel, size);
             }
         }
     }
@@ -285,9 +285,9 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite>
-    void _base_evaluate(const vectorized::IColumn* column,
-                        const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                        uint16_t* sel, uint16_t* size) const {
+    uint16_t _base_evaluate(const vectorized::IColumn* column,
+                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+                            uint16_t* sel, uint16_t size) const {
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
@@ -298,7 +298,7 @@ private:
                 std::vector<vectorized::UInt8> selected;
                 nested_col_ptr->find_codes(_values, selected);
 
-                for (uint16_t i = 0; i < *size; i++) {
+                for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
                     if constexpr (is_nullable) {
                         if ((*null_map)[idx]) {
@@ -327,7 +327,7 @@ private:
                     vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 if constexpr (is_nullable) {
                     if ((*null_map)[idx]) {
@@ -352,7 +352,7 @@ private:
             }
         }
 
-        *size = new_size;
+        return new_size;
     }
 
     phmap::flat_hash_set<T> _values;

@@ -65,7 +65,7 @@ public:
         return Status::OK();
     }
 
-    void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
+    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override;
 
 private:
     std::shared_ptr<IBloomFilterFuncBase> _filter;
@@ -111,12 +111,12 @@ void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
 }
 
 template <PrimitiveType T>
-void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
-                                             uint16_t* size) const {
+uint16_t BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
+                                                 uint16_t size) const {
     uint16_t new_size = 0;
     using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
     if (!_enable_pred) {
-        return;
+        return size;
     }
     if (column.is_nullable()) {
         auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -127,7 +127,7 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
                     nullable_col->get_nested_column());
             const_cast<vectorized::ColumnDictI32*>(dict_col)
                     ->generate_hash_values_for_runtime_filter();
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 new_size += (!null_map_data[idx]) &&
@@ -137,7 +137,7 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
             auto* pred_col = vectorized::check_and_get_column<vectorized::PredicateColumnType<FT>>(
                     nullable_col->get_nested_column());
             auto& pred_col_data = pred_col->get_data();
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
@@ -147,7 +147,7 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
     } else if (column.is_column_dictionary()) {
         auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
         const_cast<vectorized::ColumnDictI32*>(dict_col)->generate_hash_values_for_runtime_filter();
-        for (uint16_t i = 0; i < *size; i++) {
+        for (uint16_t i = 0; i < size; i++) {
             uint16_t idx = sel[i];
             sel[new_size] = idx;
             new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
@@ -156,7 +156,7 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
         auto* pred_col =
                 vectorized::check_and_get_column<vectorized::PredicateColumnType<FT>>(column);
         auto& pred_col_data = pred_col->get_data();
-        for (uint16_t i = 0; i < *size; i++) {
+        for (uint16_t i = 0; i < size; i++) {
             uint16_t idx = sel[i];
             sel[new_size] = idx;
             const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
@@ -166,14 +166,14 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
     // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
     // Some bloomfilter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
     // useless.
-    _evaluated_rows += *size;
+    _evaluated_rows += size;
     _passed_rows += new_size;
     if (_evaluated_rows > config::bloom_filter_predicate_check_row_num) {
         if (_passed_rows / (_evaluated_rows * 1.0) > 0.5) {
             _enable_pred = false;
         }
     }
-    *size = new_size;
+    return new_size;
 }
 
 class BloomFilterColumnPredicateFactory {
