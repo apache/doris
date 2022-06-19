@@ -20,5 +20,5 @@ package org.apache.doris.nereids.operators.plans;
 /**
  * interface for all concrete leaf plan operator.
  */
-public interface LeafPlanOperator<TYPE extends LeafPlanOperator<TYPE>> extends PlanOperator<TYPE> {
+public interface LeafPlanOperator extends PlanOperator {
 }

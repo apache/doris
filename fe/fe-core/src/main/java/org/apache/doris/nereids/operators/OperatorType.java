@@ -34,6 +34,7 @@ public enum OperatorType {
     LOGICAL_PROJECT,
     LOGICAL_FILTER,
     LOGICAL_JOIN,
+    PLACE_HOLDER,
 
     // physical plan
     PHYSICAL_OLAP_SCAN,
@@ -46,6 +47,7 @@ public enum OperatorType {
     PHYSICAL_EXCHANGE,
 
     // pattern
+    NORMAL_PATTERN,
     ANY,
     MULTI,
     FIXED,

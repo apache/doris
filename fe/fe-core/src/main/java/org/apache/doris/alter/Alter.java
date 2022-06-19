@@ -51,7 +51,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
@@ -171,7 +171,8 @@ public class Alter {
                     }
                     Catalog.getCurrentCatalog().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
                 } else if (alterClause instanceof ReplacePartitionClause) {
-                    Catalog.getCurrentCatalog().replaceTempPartition(db, olapTable, (ReplacePartitionClause) alterClause);
+                    Catalog.getCurrentCatalog().replaceTempPartition(
+                            db, olapTable, (ReplacePartitionClause) alterClause);
                 } else if (alterClause instanceof ModifyPartitionClause) {
                     ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                     // expand the partition names if it is 'Modify Partition(*)'
@@ -206,7 +207,8 @@ public class Alter {
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_DISTRIBUTION)) {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
-            Catalog.getCurrentCatalog().modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionClause) alterClause);
+            Catalog.getCurrentCatalog().modifyDefaultDistributionBucketNum(
+                    db, olapTable, (ModifyDistributionClause) alterClause);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_COLUMN_COMMENT)) {
             processModifyColumnComment(db, olapTable, alterClauses);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_COMMENT)) {
@@ -227,7 +229,8 @@ public class Alter {
             ModifyTableCommentClause clause = (ModifyTableCommentClause) alterClause;
             tbl.setComment(clause.getComment());
             // log
-            ModifyCommentOperationLog op = ModifyCommentOperationLog.forTable(db.getId(), tbl.getId(), clause.getComment());
+            ModifyCommentOperationLog op = ModifyCommentOperationLog
+                    .forTable(db.getId(), tbl.getId(), clause.getComment());
             Catalog.getCurrentCatalog().getEditLog().logModifyComment(op);
         } finally {
             tbl.writeUnlock();
@@ -338,7 +341,8 @@ public class Alter {
         }
     }
 
-    private void processModifyEngineInternal(Database db, Table externalTable, Map<String, String> prop, boolean isReplay) {
+    private void processModifyEngineInternal(Database db, Table externalTable,
+            Map<String, String> prop, boolean isReplay) {
         MysqlTable mysqlTable = (MysqlTable) externalTable;
         Map<String, String> newProp = Maps.newHashMap(prop);
         newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
@@ -393,7 +397,8 @@ public class Alter {
                 processAlterExternalTable(stmt, table, db);
                 return;
             default:
-                throw new DdlException("Do not support alter " + table.getType().toString() + " table[" + tableName + "]");
+                throw new DdlException("Do not support alter "
+                        + table.getType().toString() + " table[" + tableName + "]");
         }
 
         // the following ops should done outside table lock. because it contain synchronized create operation
@@ -402,7 +407,8 @@ public class Alter {
             AlterClause alterClause = alterClauses.get(0);
             if (alterClause instanceof AddPartitionClause) {
                 if (!((AddPartitionClause) alterClause).isTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                    DynamicPartitionUtil.checkAlterAllowed(
+                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Catalog.getCurrentCatalog().addPartition(db, tableName, (AddPartitionClause) alterClause);
             } else if (alterClause instanceof ModifyPartitionClause) {
@@ -432,7 +438,8 @@ public class Alter {
     }
 
     // entry of processing replace table
-    private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses) throws UserException {
+    private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses)
+            throws UserException {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
         boolean swapTable = clause.isSwapTable();
@@ -452,7 +459,8 @@ public class Alter {
                 }
                 replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
                 // write edit log
-                ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), origTable.getId(), olapNewTbl.getId(), swapTable);
+                ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(),
+                        origTable.getId(), olapNewTbl.getId(), swapTable);
                 Catalog.getCurrentCatalog().getEditLog().logReplaceTable(log);
                 LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
             } finally {
@@ -533,7 +541,8 @@ public class Alter {
         modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
     }
 
-    private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode, List<Column> newFullSchema) throws DdlException {
+    private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
+            List<Column> newFullSchema) throws DdlException {
         db.writeLockOrDdlException();
         try {
             view.writeLockOrDdlException();
@@ -549,7 +558,8 @@ public class Alter {
                 db.dropTable(viewName);
                 db.createTable(view);
 
-                AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, newFullSchema, sqlMode);
+                AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
+                        inlineViewDef, newFullSchema, sqlMode);
                 Catalog.getCurrentCatalog().getEditLog().logModifyViewDef(alterViewInfo);
                 LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
             } finally {

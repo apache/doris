@@ -66,11 +66,11 @@ There are two ways to configure BE configuration items:
 
 ## Examples
 
-1. Modify `max_compaction_concurrency` statically
+1. Modify `max_base_compaction_concurrency` statically
 
      By adding in the `be.conf` file:
 
-     ```max_compaction_concurrency=5```
+     ```max_base_compaction_concurrency=5```
 
      Then restart the BE process to take effect the configuration.
 
@@ -334,12 +334,6 @@ Generally it needs to be turned off. When you want to manually operate the compa
 Default: 104857600
 
 One of the trigger conditions of BaseCompaction: Singleton file size limit, 100MB
-
-### `cumulative_compaction_skip_window_seconds`
-
-Default: 30（s）
-
-CumulativeCompaction skips the most recently released increments to prevent compacting versions that may be queried (in case the query planning phase takes some time). Change the parameter is to set the skipped window time size
 
 ### cumulative_compaction_trace_threshold
 
@@ -736,10 +730,16 @@ Default: 10
 
 The maximum number of client caches per host. There are multiple client caches in BE, but currently we use the same cache size configuration. If necessary, use different configurations to set up different client-side caches
 
-### `max_compaction_threads`
+### `max_base_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in compaction thread pool.
+* Description: The maximum of thread number in base compaction thread pool.
+* Default value: 4
+
+### `max_cumu_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in cumulative compaction thread pool.
 * Default value: 10
 
 ### `max_consumer_num_per_group`

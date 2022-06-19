@@ -28,8 +28,7 @@ import java.util.Objects;
 /**
  * Logical filter plan operator.
  */
-public class LogicalFilter<INPUT_TYPE extends Plan>
-         extends LogicalUnaryOperator<LogicalFilter<INPUT_TYPE>, INPUT_TYPE> {
+public class LogicalFilter extends LogicalUnaryOperator {
 
     private final Expression predicates;
 
@@ -44,7 +43,7 @@ public class LogicalFilter<INPUT_TYPE extends Plan>
 
 
     @Override
-    public List<Slot> doComputeOutput(INPUT_TYPE input) {
+    public List<Slot> computeOutput(Plan input) {
         return input.getOutput();
     }
 

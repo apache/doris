@@ -91,6 +91,7 @@ public class CreateDataSyncJobStmtTest {
             }
         };
     }
+
     @Test
     public void testNoDb() {
         CreateDataSyncJobStmt stmt = new CreateDataSyncJobStmt(

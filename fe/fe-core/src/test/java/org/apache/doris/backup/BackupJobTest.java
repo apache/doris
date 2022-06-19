@@ -94,6 +94,7 @@ public class BackupJobTest {
         public MockBackupHandler(Catalog catalog) {
             super(catalog);
         }
+
         @Override
         public RepositoryMgr getRepoMgr() {
             return repoMgr;
@@ -105,6 +106,7 @@ public class BackupJobTest {
         public MockRepositoryMgr() {
             super();
         }
+
         @Override
         public Repository getRepo(long repoId) {
             return repo;

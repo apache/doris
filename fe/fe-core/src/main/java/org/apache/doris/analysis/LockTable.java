@@ -34,6 +34,7 @@ public class LockTable {
             return desc;
         }
     }
+
     private TableName tableName;
     private String alias;
     private LockType lockType;

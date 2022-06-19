@@ -866,7 +866,8 @@ public class SystemInfoService {
                 return;
             }
             atomicLong.set(newReportVersion);
-            LOG.debug("update backend {} report version: {}, db: {}, table: {}", backendId, newReportVersion, dbId, tableId);
+            LOG.debug("update backend {} report version: {}, db: {}, table: {}",
+                    backendId, newReportVersion, dbId, tableId);
         }
     }
 

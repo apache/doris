@@ -137,7 +137,8 @@ public class TabletReplicaTooSlowTest {
             tabletId = cell.getRowKey();
             long beId = cell.getColumnKey();
             Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
-            List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash).collect(Collectors.toList());
+            List<Long> pathHashes = be.getDisks().values().stream()
+                    .map(DiskInfo::getPathHash).collect(Collectors.toList());
             if (be == null) {
                 continue;
             }

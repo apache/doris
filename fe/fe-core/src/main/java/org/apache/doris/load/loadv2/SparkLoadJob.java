@@ -107,7 +107,8 @@ import java.util.Set;
 /**
  * There are 4 steps in SparkLoadJob:
  * Step1: SparkLoadPendingTask will be created by unprotectedExecuteJob method and submit spark etl job.
- * Step2: LoadEtlChecker will check spark etl job status periodically and send push tasks to be when spark etl job is finished.
+ * Step2: LoadEtlChecker will check spark etl job status periodically
+ *        and send push tasks to be when spark etl job is finished.
  * Step3: LoadLoadingChecker will check loading status periodically and commit transaction when push tasks are finished.
  * Step4: PublishVersionDaemon will send publish version tasks to be and finish transaction.
  */
@@ -294,7 +295,8 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // get etl status
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        EtlStatus status = handler.getEtlJobStatus(sparkLoadAppHandle, appId, id, etlOutputPath, sparkResource, brokerDesc);
+        EtlStatus status = handler.getEtlJobStatus(sparkLoadAppHandle,
+                appId, id, etlOutputPath, sparkResource, brokerDesc);
         writeLock();
         try {
             switch (status.getState()) {
@@ -361,7 +363,8 @@ public class SparkLoadJob extends BulkLoadJob {
         unprotectedPrepareLoadingInfos();
     }
 
-    private void unprotectedUpdateToLoadingState(EtlStatus etlStatus, Map<String, Long> filePathToSize) throws LoadException {
+    private void unprotectedUpdateToLoadingState(EtlStatus etlStatus,
+            Map<String, Long> filePathToSize) throws LoadException {
         try {
             for (Map.Entry<String, Long> entry : filePathToSize.entrySet()) {
                 String filePath = entry.getKey();
@@ -427,13 +430,15 @@ public class SparkLoadJob extends BulkLoadJob {
         AgentBatchTask batchTask = new AgentBatchTask();
         boolean hasLoadPartitions = false;
         Set<Long> totalTablets = Sets.newHashSet();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(tableToLoadPartitions.keySet()));
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
+                Lists.newArrayList(tableToLoadPartitions.keySet()));
         MetaLockUtils.readLockTables(tableList);
         try {
             writeLock();
             try {
                 // check state is still loading. If state is cancelled or finished, return.
-                // if state is cancelled or finished and not return, this would throw all partitions have no load data exception,
+                // if state is cancelled or finished and not return,
+                // this would throw all partitions have no load data exception,
                 // because tableToLoadPartitions was already cleaned up,
                 if (state != JobState.LOADING) {
                     LOG.warn("job state is not loading. job id: {}, state: {}", id, state);
@@ -451,7 +456,8 @@ public class SparkLoadJob extends BulkLoadJob {
                         }
 
                         hasLoadPartitions = true;
-                        int quorumReplicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
+                        int quorumReplicaNum = olapTable.getPartitionInfo()
+                                .getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
 
                         List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.ALL);
                         for (MaterializedIndex index : indexes) {
@@ -478,7 +484,8 @@ public class SparkLoadJob extends BulkLoadJob {
                                         PushBrokerReaderParams params = getPushBrokerReaderParams(olapTable, indexId);
                                         // deep copy TBrokerScanRange because filePath and fileSize will be updated
                                         // in different tablet push task
-                                        TBrokerScanRange tBrokerScanRange = new TBrokerScanRange(params.tBrokerScanRange);
+                                        TBrokerScanRange tBrokerScanRange
+                                                = new TBrokerScanRange(params.tBrokerScanRange);
                                         // update filePath fileSize
                                         TBrokerRangeDesc tBrokerRangeDesc = tBrokerScanRange.getRanges().get(0);
                                         tBrokerRangeDesc.setPath("");
@@ -503,11 +510,11 @@ public class SparkLoadJob extends BulkLoadJob {
                                                 tBrokerRangeDesc.path,
                                                 tBrokerRangeDesc.file_size);
 
-                                        PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(), partitionId,
-                                                                         indexId, tabletId, replicaId, schemaHash,
-                                                                         0, id, TPushType.LOAD_V2,
-                                                                         TPriority.NORMAL, transactionId, taskSignature,
-                                                                         tBrokerScanRange, params.tDescriptorTable);
+                                        PushTask pushTask = new PushTask(
+                                                backendId, dbId, olapTable.getId(), partitionId, indexId, tabletId,
+                                                replicaId, schemaHash, 0, id, TPushType.LOAD_V2,
+                                                TPriority.NORMAL, transactionId, taskSignature,
+                                                tBrokerScanRange, params.tDescriptorTable);
                                         if (AgentTaskQueue.addTask(pushTask)) {
                                             batchTask.addTask(pushTask);
                                             if (!tabletToSentReplicaPushTask.containsKey(tabletId)) {
@@ -632,7 +639,8 @@ public class SparkLoadJob extends BulkLoadJob {
                          .add("msg", "Load job try to commit txn")
                          .build());
         Database db = getDb();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(tableToLoadPartitions.keySet()));
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
+                Lists.newArrayList(tableToLoadPartitions.keySet()));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
@@ -824,9 +832,10 @@ public class SparkLoadJob extends BulkLoadJob {
         @SerializedName(value = "tabletMetaToFileInfo")
         private Map<String, Pair<String, Long>> tabletMetaToFileInfo;
 
-        public SparkLoadJobStateUpdateInfo(long jobId, JobState state, long transactionId, SparkLoadAppHandle sparkLoadAppHandle,
-                                           long etlStartTimestamp, String appId, String etlOutputPath, long loadStartTimestamp,
-                                           Map<String, Pair<String, Long>> tabletMetaToFileInfo) {
+        public SparkLoadJobStateUpdateInfo(
+                long jobId, JobState state, long transactionId, SparkLoadAppHandle sparkLoadAppHandle,
+                long etlStartTimestamp, String appId, String etlOutputPath, long loadStartTimestamp,
+                Map<String, Pair<String, Long>> tabletMetaToFileInfo) {
             super(jobId, state, transactionId, loadStartTimestamp);
             this.sparkLoadAppHandle = sparkLoadAppHandle;
             this.etlStartTimestamp = etlStartTimestamp;
@@ -881,11 +890,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                 destSlotDesc.setIsMaterialized(true);
                 destSlotDesc.setColumn(column);
-                if (column.isAllowNull()) {
-                    destSlotDesc.setIsNullable(true);
-                } else {
-                    destSlotDesc.setIsNullable(false);
-                }
+                destSlotDesc.setIsNullable(column.isAllowNull());
             }
             initTBrokerScanRange(descTable, destTupleDesc, columns, brokerDesc);
             initTDescriptorTable(descTable);

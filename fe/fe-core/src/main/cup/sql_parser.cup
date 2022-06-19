@@ -277,7 +277,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
     KW_YEAR,
-    KW_NOT_NULL;
+    KW_NOT_NULL,
+    KW_CATALOG, KW_CATALOGS;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -863,6 +864,15 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
     :}
+    /* Catalog */
+    | KW_ALTER KW_CATALOG ident:catalogName KW_RENAME ident:newCatalogName
+    {:
+        RESULT = new AlterCatalogNameStmt(catalogName, newCatalogName);
+    :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    {:
+        RESULT = new AlterCatalogPropertyStmt(catalogName, map);
+    :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
@@ -1224,6 +1234,11 @@ create_stmt ::=
     | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
     {:
         RESULT = new CreateDbStmt(ifNotExists, db, null);
+    :}
+    /* Catalog */
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_properties:properties
+    {:
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, properties);
     :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
@@ -2014,6 +2029,11 @@ drop_stmt ::=
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
+    /* Catalog */
+    | KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
+    {:
+        RESULT = new DropCatalogStmt(ifExists, catalogName);
+    :}
     /* cluster */
     | KW_DROP KW_CLUSTER opt_if_exists:ifExists ident:cluster
     {:
@@ -2705,6 +2725,16 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
     :}
+    /* Catalog */
+    | KW_CATALOGS
+    {:
+        RESULT = new ShowCatalogStmt();
+    :}
+    /* show Catalog name */
+    | KW_CATALOG ident:catalogName
+    {:
+        RESULT = new ShowCatalogStmt(catalogName);
+    :}
     /* Dynamic Partition */
     | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db
     {:
@@ -2850,10 +2880,6 @@ show_param ::=
     | KW_FRONTENDS
     {:
         RESULT = new ShowFrontendsStmt();
-    :}
-    | KW_USER
-    {:
-        RESULT = new ShowUserStmt();
     :}
     | KW_REPOSITORIES
     {:
@@ -5829,6 +5855,10 @@ keyword ::=
     | KW_POLICY:id
     {: RESULT = id; :}
     | KW_CURRENT_TIMESTAMP:id
+    {: RESULT = id; :}
+    | KW_CATALOG:id
+    {: RESULT = id; :}
+    | KW_CATALOGS:id
     {: RESULT = id; :}
     ;
 

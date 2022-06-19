@@ -56,6 +56,7 @@ public class CreateTableInfo implements Writable {
         Text.writeString(out, dbName);
         table.write(out);
     }
+
     public void readFields(DataInput in) throws IOException {
         dbName = Text.readString(in);
         table = Table.read(in);

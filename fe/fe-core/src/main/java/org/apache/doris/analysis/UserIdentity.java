@@ -98,7 +98,8 @@ public class UserIdentity implements Writable {
     }
 
     public static UserIdentity fromThrift(TUserIdentity tUserIdent) {
-        UserIdentity userIdentity = new UserIdentity(tUserIdent.getUsername(), tUserIdent.getHost(), tUserIdent.is_domain);
+        UserIdentity userIdentity = new UserIdentity(tUserIdent.getUsername(),
+                tUserIdent.getHost(), tUserIdent.is_domain);
         userIdentity.setIsAnalyzed();
         return userIdentity;
     }

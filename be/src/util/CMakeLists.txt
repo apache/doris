@@ -103,6 +103,8 @@ set(UTIL_FILES
   s3_uri.cpp
   s3_storage_backend.cpp
   s3_util.cpp
+  hdfs_storage_backend.cpp
+  hdfs_util.cpp
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
   quantile_state.cpp

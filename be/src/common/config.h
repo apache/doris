@@ -244,6 +244,9 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
+// whether enable vectorized schema change
+CONF_Bool(enable_vectorized_alter_table, "false");
+
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
@@ -282,23 +285,23 @@ CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
 CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
-// cumulative compaction skips recently published deltas in order to prevent
-// compacting a version that might be queried (in case the query planning phase took some time).
-// the following config set the window size
-CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 
 // if compaction of a tablet failed, this tablet should not be chosen to
 // compaction until this interval passes.
 CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 
 // This config can be set to limit thread number in compaction thread pool.
-CONF_mInt32(max_compaction_threads, "10");
+CONF_mInt32(max_base_compaction_threads, "4");
+CONF_mInt32(max_cumu_compaction_threads, "10");
 
 // This config can be set to limit thread number in convert rowset thread pool.
 CONF_mInt32(convert_rowset_thread_num, "0");
 
 // initial sleep interval in seconds of scan alpha rowset
 CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
+
+// This config can be set to limit thread number in  smallcompaction thread pool.
+CONF_mInt32(quick_compaction_max_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
@@ -632,7 +635,14 @@ CONF_Bool(track_new_delete, "true");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
-CONF_Bool(memory_verbose_track, "true");
+//
+// At present, there is a performance problem in the frequent switch thread mem tracker.
+// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
+// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
+// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
+// TODO: 1. Reduce unnecessary thread mem tracker switches,
+//       2. Consider using raw pointers for mem tracker in thread local
+CONF_Bool(memory_verbose_track, "false");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
@@ -742,6 +752,15 @@ CONF_Int32(parquet_reader_max_buffer_size, "50");
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+
+//whether turn on quick compaction feature
+CONF_Bool(enable_quick_compaction, "false");
+// For continuous versions that rows less than quick_compaction_max_rows will  trigger compaction quickly
+CONF_Int32(quick_compaction_max_rows, "1000");
+// min compaction versions
+CONF_Int32(quick_compaction_batch_size, "10");
+// do compaction min rowsets
+CONF_Int32(quick_compaction_min_rowsets, "10");
 
 } // namespace config
 

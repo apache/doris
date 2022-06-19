@@ -20,7 +20,6 @@ package org.apache.doris.nereids.operators.plans.physical;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -28,9 +27,7 @@ import java.util.Optional;
 /**
  * Physical operator represents broadcast hash join.
  */
-public class PhysicalBroadcastHashJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends Plan>
-        extends PhysicalBinaryOperator<PhysicalBroadcastHashJoin<LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
-            LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
+public class PhysicalBroadcastHashJoin extends PhysicalBinaryOperator {
 
     private final JoinType joinType;
     private final Optional<Expression> onClause;

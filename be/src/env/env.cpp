@@ -17,7 +17,6 @@
 
 #include "env/env.h"
 
-#include "common/config.h"
 #include "env/env_posix.h"
 
 namespace doris {

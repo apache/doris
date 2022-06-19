@@ -20,11 +20,8 @@
 #include <sstream>
 
 #include "gen_cpp/Exprs_types.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
-#include "util/debug_util.h"
 
 namespace doris {
 

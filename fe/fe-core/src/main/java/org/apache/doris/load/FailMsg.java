@@ -77,6 +77,7 @@ public class FailMsg implements Writable {
         Text.writeString(out, cancelType.name());
         Text.writeString(out, msg);
     }
+
     public void readFields(DataInput in) throws IOException {
         cancelType = CancelType.valueOf(Text.readString(in));
         msg = Text.readString(in);

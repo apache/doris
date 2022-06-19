@@ -713,27 +713,11 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (tablet_state() == TABLET_RUNNING) {
-        // if tablet state is running, we need to check if it has consistent versions.
-        // tablet in other state such as TABLET_NOTREADY may not have complete versions.
-        std::shared_lock rdlock(_meta_lock);
-        const RowsetSharedPtr lastest_delta = rowset_with_max_version();
-        if (lastest_delta == nullptr) {
-            return false;
-        }
-
-        Version test_version = Version(0, lastest_delta->end_version());
-        if (!capture_consistent_versions(test_version, nullptr)) {
-            return false;
-        }
-    }
-
     if (tablet_state() == TABLET_NOTREADY) {
         // Before doing schema change, tablet's rowsets that versions smaller than max converting version will be
         // removed. So, we only need to do the compaction when it is being converted.
         // After being converted, tablet's state will be changed to TABLET_RUNNING.
-        auto schema_change_handler = SchemaChangeHandler::instance();
-        return schema_change_handler->tablet_in_converting(tablet_id());
+        return SchemaChangeHandler::tablet_in_converting(tablet_id());
     }
 
     return true;
@@ -872,8 +856,57 @@ void Tablet::calculate_cumulative_point() {
     if (ret_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
-
     set_cumulative_layer_point(ret_cumulative_point);
+}
+
+//find rowsets that rows less then "config::quick_compaction_max_rows"
+Status Tablet::pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
+                                             int64_t* permits) {
+    int max_rows = config::quick_compaction_max_rows;
+    if (!config::enable_quick_compaction || max_rows <= 0) {
+        return Status::OK();
+    }
+    if (!init_succeeded()) {
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
+    }
+    int max_series_num = 1000;
+
+    std::vector<std::vector<RowsetSharedPtr>> quick_compaction_rowsets(max_series_num);
+    int idx = 0;
+    std::shared_lock rdlock(_meta_lock);
+    std::vector<RowsetSharedPtr> sortedRowset;
+    for (auto& rs : _rs_version_map) {
+        sortedRowset.push_back(rs.second);
+    }
+    std::sort(sortedRowset.begin(), sortedRowset.end(), Rowset::comparator);
+    if (tablet_state() == TABLET_RUNNING) {
+        for (int i = 0; i < sortedRowset.size(); i++) {
+            bool is_delete = version_for_delete_predicate(sortedRowset[i]->version());
+            if (!is_delete && sortedRowset[i]->start_version() > 0 &&
+                sortedRowset[i]->start_version() > cumulative_layer_point()) {
+                if (sortedRowset[i]->num_rows() < max_rows) {
+                    quick_compaction_rowsets[idx].push_back(sortedRowset[i]);
+                } else {
+                    idx++;
+                    if (idx > max_series_num) {
+                        break;
+                    }
+                }
+            }
+        }
+        if (quick_compaction_rowsets.size() == 0) return Status::OK();
+        std::vector<RowsetSharedPtr> result = quick_compaction_rowsets[0];
+        for (int i = 0; i < quick_compaction_rowsets.size(); i++) {
+            if (quick_compaction_rowsets[i].size() > result.size()) {
+                result = quick_compaction_rowsets[i];
+            }
+        }
+        for (int i = 0; i < result.size(); i++) {
+            *permits += result[i]->num_segments();
+            input_rowsets->push_back(result[i]);
+        }
+    }
+    return Status::OK();
 }
 
 Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
@@ -1044,13 +1077,13 @@ TabletInfo Tablet::get_tablet_info() const {
 }
 
 void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets) {
+        std::vector<RowsetSharedPtr>* candidate_rowsets) {
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
     std::shared_lock rdlock(_meta_lock);
-    _cumulative_compaction_policy->pick_candidate_rowsets(skip_window_sec, _rs_version_map,
-                                                          _cumulative_point, candidate_rowsets);
+    _cumulative_compaction_policy->pick_candidate_rowsets(_rs_version_map, _cumulative_point,
+                                                          candidate_rowsets);
 }
 
 void Tablet::find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const {

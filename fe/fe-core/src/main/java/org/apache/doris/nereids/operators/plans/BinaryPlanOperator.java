@@ -17,13 +17,8 @@
 
 package org.apache.doris.nereids.operators.plans;
 
-import org.apache.doris.nereids.trees.plans.Plan;
-
 /**
  * interface for all concrete binary plan operator.
  */
-public interface BinaryPlanOperator<
-            TYPE extends BinaryPlanOperator<TYPE, LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
-            LEFT_INPUT_TYPE extends Plan,
-            RIGHT_INPUT_TYPE extends Plan> extends PlanOperator<TYPE> {
+public interface BinaryPlanOperator extends PlanOperator {
 }

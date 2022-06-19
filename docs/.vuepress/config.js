@@ -20,6 +20,7 @@ under the License.
 const BUILDING_BRANCH = process.env.BRANCH || "";
 const ALGOLIA_API_KEY = process.env.ALGOLIA_API_KEY || "";
 const ALGOLIA_INDEX_NAME = process.env.ALGOLIA_INDEX_NAME || "";
+const ALGOLIA_APP_ID = process.env.ALGOLIA_APP_ID || "";
 
 function convertSidebar(list, path) {
   if (list.length > 0) {
@@ -39,9 +40,7 @@ function buildAlgoliaSearchConfig(lang) {
   return {
     apiKey: ALGOLIA_API_KEY,
     indexName: ALGOLIA_INDEX_NAME,
-    algoliaOptions: {
-      facetFilters: ["lang:" + lang, "version:" + BUILDING_BRANCH],
-    },
+    appId: ALGOLIA_APP_ID,
   };
 }
 
@@ -67,14 +66,14 @@ module.exports = {
       "link",
       {
         rel: "stylesheet",
-        href: "//at.alicdn.com/t/font_3319292_bdqvc63l075.css",
+        href: "/font/font.css",
       },
     ],
     [
       "link",
       {
         rel: "stylesheet",
-        href: "https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css",
+        href: "/css/animate.min.css",
       },
     ],
     // meta 描述
@@ -90,7 +89,7 @@ module.exports = {
       "script",
       {
         type: "text/javascript",
-        src: "https://cdn.jsdelivr.net/npm/jquery@2.1.4/dist/jquery.min.js",
+        src: "/js/jquery.min.js",
       },
     ],
     ["script", { type: "text/javascript", src: "/js/xRoll.js" }],
@@ -113,32 +112,32 @@ module.exports = {
             {
               text: "master",
               link: "/en/docs/get-starting/get-starting.html",
-            }
-          ]
+            },
+          ],
         },
         // 导航栏
         nav: [
           {
-            text: "Document",
+            text: "Docs",
             link: "",
             name: "document",
           },
           {
             text: "Blog",
             icon: "doris doris-xiala",
-            name: 'blog',
+            name: "blog",
             items: [
               // { text: "Doris Weekly", link: "/en/categories/DorisWeekly/" },
               { text: "Best Practice", link: "/en/categories/PracticalCases/" },
               { text: "Release Note", link: "/en/categories/ReleaseNote/" },
-              {
-                text: "Doris Internal",
-                link: "/en/categories/DorisInternals/",
-              },
+              // {
+              //   text: "Doris Internal",
+              //   link: "/en/categories/DorisInternals/",
+              // },
             ],
           },
           {
-            text: "Developer",
+            text: "Development",
             link: "/en/developer/developer-guide/debug-tool.html",
           },
           {
@@ -206,8 +205,8 @@ module.exports = {
             {
               text: "master",
               link: "/zh-CN/docs/get-starting/get-starting.html",
-            }
-          ]
+            },
+          ],
         },
         // 导航栏
         nav: [
@@ -219,7 +218,7 @@ module.exports = {
           {
             text: "博客",
             icon: "doris doris-xiala",
-            name: 'blog',
+            name: "blog",
             items: [
               // { text: "每周通报", link: "/zh-CN/categories/DorisWeekly/" },
               { text: "最佳实践", link: "/zh-CN/categories/PracticalCases/" },

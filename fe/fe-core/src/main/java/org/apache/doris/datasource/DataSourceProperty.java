@@ -23,12 +23,17 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import lombok.Data;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
+/**
+ * DataSourceProperty to store the properties for datasource.
+ */
+@Data
 public class DataSourceProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();

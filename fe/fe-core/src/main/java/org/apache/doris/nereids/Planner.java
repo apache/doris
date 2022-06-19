@@ -23,7 +23,6 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -48,10 +47,10 @@ public class Planner {
             LogicalPlan plan,
             PhysicalProperties outputProperties,
             ConnectContext connectContext) throws AnalysisException {
-        Memo<Plan> memo = new Memo<>();
+        Memo memo = new Memo();
         memo.initialize(plan);
 
-        OptimizerContext<Plan> optimizerContext = new OptimizerContext<>(memo);
+        OptimizerContext optimizerContext = new OptimizerContext(memo);
         plannerContext = new PlannerContext(optimizerContext, connectContext, outputProperties);
 
         plannerContext.getOptimizerContext().pushJob(

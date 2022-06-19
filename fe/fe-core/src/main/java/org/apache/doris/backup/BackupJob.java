@@ -32,7 +32,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.io.Text;
@@ -162,7 +162,8 @@ public class BackupJob extends AbstractJob {
             // snapshot task could not finish if status_code is OLAP_ERR_VERSION_ALREADY_MERGED,
             // so cancel this job
             if (request.getTaskStatus().getStatusCode() == TStatusCode.OLAP_ERR_VERSION_ALREADY_MERGED) {
-                status = new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED, "make snapshot failed, version already merged");
+                status = new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED,
+                        "make snapshot failed, version already merged");
                 cancelInternal();
             }
             return false;
@@ -427,7 +428,8 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable, TableRef backupTableRef, AgentBatchTask batchTask) {
+    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable,
+            TableRef backupTableRef, AgentBatchTask batchTask) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -654,8 +656,8 @@ public class BackupJob extends AbstractJob {
             File jobDir = new File(localJobDirPath.toString());
             if (jobDir.exists()) {
                 // if dir exists, delete it first
-                Files.walk(localJobDirPath,
-                           FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                Files.walk(localJobDirPath, FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder())
+                        .map(Path::toFile).forEach(File::delete);
             }
             if (!jobDir.mkdir()) {
                 status = new Status(ErrCode.COMMON_ERROR, "Failed to create tmp dir: " + localJobDirPath);
@@ -673,7 +675,8 @@ public class BackupJob extends AbstractJob {
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
 
             // 3. save job info file
-            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, getContent(), backupMeta, snapshotInfos);
+            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
+                    getContent(), backupMeta, snapshotInfos);
             LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
@@ -805,8 +808,8 @@ public class BackupJob extends AbstractJob {
             try {
                 File jobDir = new File(localJobDirPath.toString());
                 if (jobDir.exists()) {
-                    Files.walk(localJobDirPath,
-                               FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                    Files.walk(localJobDirPath, FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder())
+                            .map(Path::toFile).forEach(File::delete);
                 }
             } catch (Exception e) {
                 LOG.warn("failed to clean the backup job dir: " + localJobDirPath.toString());

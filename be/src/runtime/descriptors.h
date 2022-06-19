@@ -149,7 +149,7 @@ private:
 class TableDescriptor {
 public:
     TableDescriptor(const TTableDescriptor& tdesc);
-    virtual ~TableDescriptor() {}
+    virtual ~TableDescriptor() = default;
     int num_cols() const { return _num_cols; }
     int num_clustering_cols() const { return _num_clustering_cols; }
     virtual std::string debug_string() const;
@@ -173,14 +173,14 @@ private:
 class OlapTableDescriptor : public TableDescriptor {
 public:
     OlapTableDescriptor(const TTableDescriptor& tdesc);
-    virtual std::string debug_string() const;
+    std::string debug_string() const override;
 };
 
 class SchemaTableDescriptor : public TableDescriptor {
 public:
     SchemaTableDescriptor(const TTableDescriptor& tdesc);
-    virtual ~SchemaTableDescriptor();
-    virtual std::string debug_string() const;
+    ~SchemaTableDescriptor() override;
+    std::string debug_string() const override;
     TSchemaTableType::type schema_table_type() const { return _schema_table_type; }
 
 private:
@@ -190,8 +190,8 @@ private:
 class BrokerTableDescriptor : public TableDescriptor {
 public:
     BrokerTableDescriptor(const TTableDescriptor& tdesc);
-    virtual ~BrokerTableDescriptor();
-    virtual std::string debug_string() const;
+    ~BrokerTableDescriptor() override;
+    std::string debug_string() const override;
 
 private:
 };
@@ -199,8 +199,8 @@ private:
 class HiveTableDescriptor : public TableDescriptor {
 public:
     HiveTableDescriptor(const TTableDescriptor& tdesc);
-    virtual ~HiveTableDescriptor();
-    virtual std::string debug_string() const;
+    ~HiveTableDescriptor() override;
+    std::string debug_string() const override;
 
 private:
 };
@@ -208,8 +208,8 @@ private:
 class IcebergTableDescriptor : public TableDescriptor {
 public:
     IcebergTableDescriptor(const TTableDescriptor& tdesc);
-    virtual ~IcebergTableDescriptor();
-    virtual std::string debug_string() const;
+    ~IcebergTableDescriptor() override;
+    std::string debug_string() const override;
 
 private:
 };
@@ -217,8 +217,8 @@ private:
 class EsTableDescriptor : public TableDescriptor {
 public:
     EsTableDescriptor(const TTableDescriptor& tdesc);
-    virtual ~EsTableDescriptor();
-    virtual std::string debug_string() const;
+    ~EsTableDescriptor() override;
+    std::string debug_string() const override;
 
 private:
 };
@@ -226,7 +226,7 @@ private:
 class MySQLTableDescriptor : public TableDescriptor {
 public:
     MySQLTableDescriptor(const TTableDescriptor& tdesc);
-    virtual std::string debug_string() const;
+    std::string debug_string() const override;
     const std::string mysql_db() const { return _mysql_db; }
     const std::string mysql_table() const { return _mysql_table; }
     const std::string host() const { return _host; }
@@ -248,7 +248,7 @@ private:
 class ODBCTableDescriptor : public TableDescriptor {
 public:
     ODBCTableDescriptor(const TTableDescriptor& tdesc);
-    virtual std::string debug_string() const;
+    std::string debug_string() const override;
     const std::string db() const { return _db; }
     const std::string table() const { return _table; }
     const std::string host() const { return _host; }
@@ -348,22 +348,32 @@ public:
     TableDescriptor* get_table_descriptor(TableId id) const;
     TupleDescriptor* get_tuple_descriptor(TupleId id) const;
     SlotDescriptor* get_slot_descriptor(SlotId id) const;
+    const std::vector<TTupleId>& get_row_tuples() const { return _row_tuples; }
 
     // return all registered tuple descriptors
-    void get_tuple_descs(std::vector<TupleDescriptor*>* descs) const;
+    std::vector<TupleDescriptor*> get_tuple_descs() const {
+        std::vector<TupleDescriptor*> descs;
+
+        for (auto it : _tuple_desc_map) {
+            descs.push_back(it.second);
+        }
+
+        return descs;
+    }
 
     std::string debug_string() const;
 
 private:
-    typedef std::unordered_map<TableId, TableDescriptor*> TableDescriptorMap;
-    typedef std::unordered_map<TupleId, TupleDescriptor*> TupleDescriptorMap;
-    typedef std::unordered_map<SlotId, SlotDescriptor*> SlotDescriptorMap;
+    using TableDescriptorMap = std::unordered_map<TableId, TableDescriptor*>;
+    using TupleDescriptorMap = std::unordered_map<TupleId, TupleDescriptor*>;
+    using SlotDescriptorMap = std::unordered_map<SlotId, SlotDescriptor*>;
 
     TableDescriptorMap _tbl_desc_map;
     TupleDescriptorMap _tuple_desc_map;
     SlotDescriptorMap _slot_desc_map;
+    std::vector<TTupleId> _row_tuples;
 
-    DescriptorTbl() : _tbl_desc_map(), _tuple_desc_map(), _slot_desc_map() {}
+    DescriptorTbl() = default;
 };
 
 // Records positions of tuples within row produced by ExecNode.
@@ -377,6 +387,11 @@ class RowDescriptor {
 public:
     RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
                   const std::vector<bool>& nullable_tuples);
+
+    static RowDescriptor create_default(const DescriptorTbl& desc_tbl,
+                                        const std::vector<bool>& nullable_tuples) {
+        return RowDescriptor(desc_tbl, desc_tbl.get_row_tuples(), nullable_tuples);
+    }
 
     // standard copy c'tor, made explicit here
     RowDescriptor(const RowDescriptor& desc)
@@ -399,7 +414,7 @@ public:
     RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc);
 
     // dummy descriptor, needed for the JNI EvalPredicate() function
-    RowDescriptor() {}
+    RowDescriptor() = default;
 
     // Returns total size in bytes.
     // TODO: also take avg string lengths into account, ie, change this

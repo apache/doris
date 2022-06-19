@@ -785,13 +785,19 @@ build_bitshuffle() {
 
 # croaring bitmap
 build_croaringbitmap() {
+    avx_flag=
+    if [ ! -z "$USE_AVX2" -a "$USE_AVX2" -eq 0 ];then
+        echo "set USE_AVX2=$USE_AVX2 to FORCE disable AVX2 in croaringbitmap"
+        avx_flag="-DROARING_DISABLE_AVX=ON"
+    fi
+
     check_if_source_exist $CROARINGBITMAP_SOURCE
     cd $TP_SOURCE_DIR/$CROARINGBITMAP_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    ${CMAKE_CMD} -G "${GENERATOR}" ${avx_flag} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DENABLE_ROARING_TESTS=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
@@ -993,8 +999,8 @@ build_simdjson() {
     cd $TP_SOURCE_DIR/$SIMDJSON_SOURCE
 
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    CXX_FLAGS="-O3" \
-    C_FLAGS="-O3" \
+    CXXFLAGS="-O3" \
+    CFLAGS="-O3" \
     $CMAKE_CMD ..
     $CMAKE_CMD --build .
 

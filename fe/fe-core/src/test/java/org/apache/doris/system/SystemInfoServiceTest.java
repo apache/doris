@@ -158,20 +158,23 @@ public class SystemInfoServiceTest {
         be4.setTag(tagb);
         be5.setTag(tagb);
 
-        BeSelectionPolicy policy7 = new BeSelectionPolicy.Builder().needQueryAvailable().addTags(Sets.newHashSet(taga)).build();
+        BeSelectionPolicy policy7 = new BeSelectionPolicy.Builder().needQueryAvailable()
+                .addTags(Sets.newHashSet(taga)).build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy7, 1).size());
         Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy7, 2).size());
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy7, 2).contains(10001L));
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy7, 2).contains(10002L));
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy7, 3).size());
 
-        BeSelectionPolicy policy8 = new BeSelectionPolicy.Builder().needQueryAvailable().addTags(Sets.newHashSet(tagb)).build();
+        BeSelectionPolicy policy8 = new BeSelectionPolicy.Builder()
+                .needQueryAvailable().addTags(Sets.newHashSet(tagb)).build();
         Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy8, 3).size());
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy8, 3).contains(10003L));
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy8, 3).contains(10004L));
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy8, 3).contains(10005L));
 
-        BeSelectionPolicy policy9 = new BeSelectionPolicy.Builder().needQueryAvailable().addTags(Sets.newHashSet(taga, tagb)).build();
+        BeSelectionPolicy policy9 = new BeSelectionPolicy.Builder().needQueryAvailable()
+                .addTags(Sets.newHashSet(taga, tagb)).build();
         Assert.assertEquals(5, infoService.selectBackendIdsByPolicy(policy9, 5).size());
 
         // 6. check storage medium

@@ -67,8 +67,8 @@ public class AlterColumnStatsStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid statistic");
         }
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
-                PrivPredicate.ALTER)) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+                ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),

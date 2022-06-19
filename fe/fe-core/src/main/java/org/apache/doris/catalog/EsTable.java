@@ -93,12 +93,12 @@ public class EsTable extends Table {
     private boolean httpSslEnabled = false;
 
     // Solr doc_values vs stored_fields performance-smackdown indicate:
-    // It is possible to notice that retrieving an high number of fields leads
-    // to a sensible worsening of performance if DocValues are used.
-    // Instead,  the (almost) surprising thing is that, by returning less than 20 fields,
-    // DocValues performs better than stored fields and the difference gets little as the number of fields returned increases.
-    // Asking for 9 DocValues fields and 1 stored field takes an average query time is 6.86 (more than returning 10 stored fields)
-    // Here we have a slightly conservative value of 20, but at the same time we also provide configurable parameters for expert-using
+    // It is possible to notice that retrieving an high number of fields leads to a sensible worsening of performance
+    // if DocValues are used. Instead, the (almost) surprising thing is that, by returning less than 20 fields,
+    // DocValues performs better than stored fields and the difference gets little as the number of fields
+    // returned increases. Asking for 9 DocValues fields and 1 stored field takes an average query time is 6.86
+    // (more than returning 10 stored fields) Here we have a slightly conservative value of 20, but at the same time
+    // we also provide configurable parameters for expert-using
     // @see `MAX_DOCVALUE_FIELDS`
     private static final int DEFAULT_MAX_DOCVALUE_FIELDS = 20;
 
@@ -230,8 +230,8 @@ public class EsTable extends Table {
                 && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
             transport = properties.get(TRANSPORT).trim();
             if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
-                throw new DdlException("transport of ES table must be http/https(recommend) or thrift(reserved inner usage),"
-                        + " but value is " + transport);
+                throw new DdlException("transport of ES table must be http/https(recommend)"
+                        + " or thrift(reserved inner usage), but value is " + transport);
             }
         }
 

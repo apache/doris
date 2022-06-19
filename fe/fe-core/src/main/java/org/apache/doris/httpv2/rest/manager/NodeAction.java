@@ -96,7 +96,7 @@ public class NodeAction extends RestBaseController {
             .build();
 
     private Object httpExecutorLock = new Object();
-    private volatile static ExecutorService httpExecutor = null;
+    private static volatile ExecutorService httpExecutor = null;
 
     // Returns all fe information, similar to 'show frontends'.
     @RequestMapping(path = "/frontends", method = RequestMethod.GET)
@@ -535,8 +535,8 @@ public class NodeAction extends RestBaseController {
         if (jsonObject.get("code").getAsInt() != HttpUtils.REQUEST_SUCCESS_CODE) {
             throw new Exception(jsonObject.get("msg").getAsString());
         }
-        SetConfigAction.SetConfigEntity setConfigEntity = GsonUtils.GSON.fromJson(jsonObject.get("data").getAsJsonObject(),
-                SetConfigAction.SetConfigEntity.class);
+        SetConfigAction.SetConfigEntity setConfigEntity = GsonUtils.GSON.fromJson(
+                jsonObject.get("data").getAsJsonObject(), SetConfigAction.SetConfigEntity.class);
         for (SetConfigAction.ErrConfig errConfig : setConfigEntity.getErrConfigs()) {
             Map<String, String> failed = Maps.newHashMap();
             addFailedConfig(errConfig.getConfigName(), errConfig.getConfigValue(),

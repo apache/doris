@@ -40,6 +40,7 @@ public class BuiltinAggregateFunction extends Function {
     public boolean isAnalyticFn() {
         return isAnalyticFn;
     }
+
     // TODO: this is not used yet until the planner understand this.
     private org.apache.doris.catalog.Type intermediateType;
     private boolean reqIntermediateTuple = false;

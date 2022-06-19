@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
 import com.clearspring.analytics.util.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Physical olap scan plan operator.
  */
-public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
+public class PhysicalOlapScan extends PhysicalScan {
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;
@@ -80,9 +80,8 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan<?, ?> plan, C context) {
-        return visitor.visitPhysicalOlapScanPlan(
-                (PhysicalPlan<? extends PhysicalPlan, PhysicalOlapScan>) plan, context);
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalOlapScanPlan((PhysicalLeafPlan<PhysicalOlapScan>) plan, context);
     }
 
 }

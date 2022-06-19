@@ -95,7 +95,8 @@ public class MetaWriter {
 
     public static void write(File imageFile, Catalog catalog) throws IOException {
         // save image does not need any lock. because only checkpoint thread will call this method.
-        LOG.info("start to save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
+        LOG.info("start to save image to {}. is ckpt: {}",
+                imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
         final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
         // MetaHeader should use output stream in the future.

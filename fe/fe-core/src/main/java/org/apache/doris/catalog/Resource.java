@@ -137,6 +137,7 @@ public abstract class Resource implements Writable {
 
 
     public abstract Map<String, String> getCopiedProperties();
+
     /**
      * Fill BaseProcResult with different properties in child resources
      * ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES format:

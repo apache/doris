@@ -224,7 +224,8 @@ public class ProfileManager {
         return builder.getFragmentTreeRoot(executionId);
     }
 
-    public List<Triple<String, String, Long>> getFragmentInstanceList(String queryID, String executionId, String fragmentId)
+    public List<Triple<String, String, Long>> getFragmentInstanceList(String queryID,
+            String executionId, String fragmentId)
             throws AnalysisException {
         MultiProfileTreeBuilder builder;
         readLock.lock();
@@ -242,7 +243,8 @@ public class ProfileManager {
         return builder.getInstanceList(executionId, fragmentId);
     }
 
-    public ProfileTreeNode getInstanceProfileTree(String queryID, String executionId, String fragmentId, String instanceId)
+    public ProfileTreeNode getInstanceProfileTree(String queryID, String executionId,
+            String fragmentId, String instanceId)
             throws AnalysisException {
         MultiProfileTreeBuilder builder;
         readLock.lock();

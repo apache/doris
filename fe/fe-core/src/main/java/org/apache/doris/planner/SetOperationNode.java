@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
  * tuples.
  */
 public abstract class SetOperationNode extends PlanNode {
-    private final static Logger LOG = LoggerFactory.getLogger(SetOperationNode.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SetOperationNode.class);
 
     // List of set operation result exprs of the originating SetOperationStmt. Used for
     // determining passthrough-compatibility of children.
@@ -143,8 +143,9 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
-        // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs from this.init()
-        // to this.finalize(), and will not call SetOperationNode::init() again at the end of createSetOperationNodeFragment().
+        // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs
+        // from this.init() to this.finalize(), and will not call SetOperationNode::init() again at the end
+        // of createSetOperationNodeFragment().
         //
         // Reasons for move computePassthrough():
         //      Because the byteSize of the tuple corresponding to OlapScanNode is updated after
@@ -154,10 +155,10 @@ public abstract class SetOperationNode extends PlanNode {
         //      at the end of createSetOperationNodeFragment().
         //
         // Reasons for move materialized position of resultExprs/constExprs:
-        //      Because the output slot is materialized at various positions in the planner stage, this is to ensure that
-        //      eventually the resultExprs/constExprs and the corresponding output slot have the same materialized state.
-        //      And the order of materialized resultExprs must be the same as the order of child adjusted by
-        //      computePassthrough(), so resultExprs materialized must be placed after computePassthrough().
+        //     Because the output slot is materialized at various positions in the planner stage, this is to ensure that
+        //     eventually the resultExprs/constExprs and the corresponding output slot have the same materialized state.
+        //     And the order of materialized resultExprs must be the same as the order of child adjusted by
+        //     computePassthrough(), so resultExprs materialized must be placed after computePassthrough().
 
         // except Node must not reorder the child
         if (!(this instanceof ExceptNode)) {

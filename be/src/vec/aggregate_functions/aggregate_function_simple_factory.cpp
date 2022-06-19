@@ -46,6 +46,7 @@ void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
     static AggregateFunctionSimpleFactory instance;
@@ -68,6 +69,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_percentile(instance);
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
+        register_aggregate_function_orthogonal_bitmap(instance);
 
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);

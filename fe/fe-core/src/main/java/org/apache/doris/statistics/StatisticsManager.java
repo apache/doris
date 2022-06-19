@@ -40,7 +40,7 @@ import java.util.List;
 import java.util.Map;
 
 public class StatisticsManager {
-    private final static Logger LOG = LogManager.getLogger(StatisticsManager.class);
+    private static final Logger LOG = LogManager.getLogger(StatisticsManager.class);
 
     private Statistics statistics;
 

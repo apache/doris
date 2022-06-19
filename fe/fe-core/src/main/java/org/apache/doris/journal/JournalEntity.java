@@ -36,6 +36,7 @@ import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
@@ -650,6 +651,14 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_POLICY: {
                 data = DropPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_DS:
+            case OperationType.OP_DROP_DS:
+            case OperationType.OP_ALTER_DS_NAME:
+            case OperationType.OP_ALTER_DS_PROPS: {
+                data = CatalogLog.read(in);
                 isRead = true;
                 break;
             }

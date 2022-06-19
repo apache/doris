@@ -45,7 +45,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
@@ -297,6 +297,7 @@ public class ShowExecutorTest {
             Catalog getCurrentCatalog() {
                 return catalog;
             }
+
             @Mock
             SystemInfoService getCurrentSystemInfo() {
                 return clusterInfo;

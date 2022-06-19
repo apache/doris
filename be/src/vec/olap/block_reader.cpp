@@ -17,12 +17,9 @@
 
 #include "vec/olap/block_reader.h"
 
-#include "olap/row_block.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/schema.h"
-#include "olap/storage_engine.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
@@ -350,7 +347,9 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (is_close) {
             function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
-            function->create(place); // reset aggregate data
+            // reset aggregate data
+            function->destroy(place);
+            function->create(place);
         }
     }
 }

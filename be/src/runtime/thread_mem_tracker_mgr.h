@@ -24,8 +24,7 @@
 
 namespace doris {
 
-typedef void (*ERRCALLBACK)();
-
+using ERRCALLBACK = void (*)();
 struct ConsumeErrCallBackInfo {
     std::string cancel_msg;
     bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit.
@@ -62,7 +61,7 @@ inline thread_local bool start_thread_mem_tracker = false;
 // If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
 // But the statistics of memory through TCMalloc new/delete Hook are after the memory is actually allocated,
 // which is different from the previous behavior. Therefore, when alloc for some large memory,
-// need to manually call cosume after stop_mem_tracker, and then start_mem_tracker.
+// need to manually call consume after stop_mem_tracker, and then start_mem_tracker.
 class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() {}

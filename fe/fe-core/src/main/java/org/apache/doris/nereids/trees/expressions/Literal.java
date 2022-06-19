@@ -33,7 +33,7 @@ import java.util.Objects;
 /**
  * All data type literal expression in Nereids.
  */
-public class Literal extends Expression<Literal> implements LeafExpression<Literal> {
+public class Literal extends Expression implements LeafExpression {
     private final DataType dataType;
     private final Object value;
 

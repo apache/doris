@@ -28,13 +28,13 @@ import java.util.stream.Collectors;
 /**
  * Temp definition of FunctionCallExpression.
  */
-public class FunctionCallExpression extends Expression<FunctionCallExpression> {
+public class FunctionCallExpression extends Expression {
 
-    private FunctionName functionName;
+    private final FunctionName functionName;
 
-    private List<Expression> params;
+    private final List<Expression> params;
 
-    private Function fn;
+    private final Function fn;
 
     /**
      * Constructor of FunctionCallExpression.

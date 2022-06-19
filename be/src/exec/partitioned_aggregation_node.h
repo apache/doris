@@ -28,7 +28,6 @@
 #include "runtime/bufferpool/suballocator.h"
 #include "runtime/descriptors.h" // for TupleId
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.h"
 
 namespace doris {
 

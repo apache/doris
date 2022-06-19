@@ -2018,7 +2018,8 @@ public class SingleNodePlanner {
      * TODO: Simplify the plan of unions with only a single non-empty operand to not
      * use a union node (this is tricky because a union materializes a new tuple).
      */
-    private PlanNode createSetOperationPlan(SetOperationStmt setOperationStmt, Analyzer analyzer, long defaultOrderByLimit)
+    private PlanNode createSetOperationPlan(
+            SetOperationStmt setOperationStmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException, AnalysisException {
         // TODO(zc): get unassigned conjuncts
         // List<Expr> conjuncts =

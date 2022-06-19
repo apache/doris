@@ -40,6 +40,7 @@ public class CIDR {
 
     // Count the number of 1-bits in a 32-bit integer
     private static ImmutableMap<Integer, Integer> maskBitNumMap;
+
     static {
         ImmutableMap.Builder<Integer, Integer> builder = ImmutableMap.builder();
         builder.put(0, 0);

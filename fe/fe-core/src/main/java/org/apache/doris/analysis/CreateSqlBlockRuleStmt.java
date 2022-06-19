@@ -123,12 +123,17 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
 
-        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null, SCANNED_PARTITION_NUM + " should be a long");
-        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, 0L, null, SCANNED_TABLET_NUM + " should be a long");
-        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null, SCANNED_CARDINALITY + " should be a long");
+        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null,
+                SCANNED_PARTITION_NUM + " should be a long");
+        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, 0L, null,
+                SCANNED_TABLET_NUM + " should be a long");
+        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null,
+                SCANNED_CARDINALITY + " should be a long");
 
-        this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY), false, GLOBAL_PROPERTY + " should be a boolean");
-        this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true, ENABLE_PROPERTY + " should be a boolean");
+        this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY),
+                false, GLOBAL_PROPERTY + " should be a boolean");
+        this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY),
+                true, ENABLE_PROPERTY + " should be a boolean");
     }
 
     public static void checkCommonProperties(Map<String, String> properties) throws UserException {

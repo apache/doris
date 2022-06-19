@@ -136,6 +136,26 @@ If `function_column.sequence_type` is set when creating a new table, the new tab
 Let's take the stream Load as an example to show how to use it
 1. Create a table that supports sequence column. 
 
+Create the test_table data table of the unique model and specify that the type of the specified sequence column is Date
+
+```sql
+CREATE TABLE test.test_table
+(
+    user_id bigint,
+    date date,
+    group_id bigint,
+    modify_date date,
+    keyword VARCHAR(128)
+)
+UNIQUE KEY(user_id, date, group_id)
+DISTRIBUTED BY HASH (user_id) BUCKETS 32
+PROPERTIES(
+    "function_column.sequence_type" = 'Date',
+    "replication_num" = "1",
+    "in_memory" = "false"
+);
+```
+
 The table structure is shown below
 ```sql
 MySQL > desc test_table;
@@ -154,12 +174,12 @@ MySQL > desc test_table;
 
 Import the following data
 ```
-1       2020-02-22      1       2020-02-22      a
+1       2020-02-22      1       2020-02-21      a
 1       2020-02-22      1       2020-02-22      b
 1       2020-02-22      1       2020-03-05      c
 1       2020-02-22      1       2020-02-26      d
-1       2020-02-22      1       2020-02-22      e
-1       2020-02-22      1       2020-02-22      b
+1       2020-02-22      1       2020-02-23      e
+1       2020-02-22      1       2020-02-24      b
 ```
 Take the Stream Load as an example here and map the sequence column to the modify_date column
 ```shell

@@ -552,7 +552,8 @@ public class VariableMgr {
 
     public static void createDefaultSessionVariableForCkpt() {
         defaultSessionVariableForCkpt = new SessionVariable();
-        ImmutableSortedMap.Builder<String, VarContext> builder = getStringVarContextBuilder(defaultSessionVariableForCkpt);
+        ImmutableSortedMap.Builder<String, VarContext> builder
+                = getStringVarContextBuilder(defaultSessionVariableForCkpt);
         ctxByVarNameForCkpt = builder.build();
     }
 
@@ -562,7 +563,8 @@ public class VariableMgr {
     }
 
     @NotNull
-    private static ImmutableSortedMap.Builder<String, VarContext> getStringVarContextBuilder(SessionVariable sessionVariable) {
+    private static ImmutableSortedMap.Builder<String, VarContext> getStringVarContextBuilder(
+            SessionVariable sessionVariable) {
         ImmutableSortedMap.Builder<String, VarContext> builder =
                 ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (Field field : SessionVariable.class.getDeclaredFields()) {

@@ -300,7 +300,8 @@ public class SmallFileMgr implements Writable {
 
             int contentLength = urlConnection.getContentLength();
             if (contentLength == -1 || contentLength > Config.max_small_file_size_bytes) {
-                throw new DdlException("Failed to download file from url: " + url + ", invalid content length: " + contentLength);
+                throw new DdlException("Failed to download file from url: " + url
+                        + ", invalid content length: " + contentLength);
             }
 
             int bytesRead = 0;
@@ -309,7 +310,7 @@ public class SmallFileMgr implements Writable {
             if (saveContent) {
                 // download from url, and check file size
                 bytesRead = 0;
-                byte buf[] = new byte[contentLength];
+                byte[] buf = new byte[contentLength];
                 try (BufferedInputStream in = new BufferedInputStream(url.openStream())) {
                     while (bytesRead < contentLength) {
                         bytesRead += in.read(buf, bytesRead, contentLength - bytesRead);
@@ -449,7 +450,8 @@ public class SmallFileMgr implements Writable {
     }
 
     private File getAbsoluteFile(long dbId, String catalog, String fileName) {
-        return Paths.get(Config.small_file_dir, String.valueOf(dbId), catalog, fileName).normalize().toAbsolutePath().toFile();
+        return Paths.get(Config.small_file_dir, String.valueOf(dbId), catalog, fileName)
+                .normalize().toAbsolutePath().toFile();
     }
 
     public List<List<String>> getInfo(String dbName) throws DdlException {

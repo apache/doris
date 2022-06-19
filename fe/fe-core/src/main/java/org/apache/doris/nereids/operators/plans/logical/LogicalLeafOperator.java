@@ -21,32 +21,37 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all logical operator that have no input.
  */
-public abstract class LogicalLeafOperator<TYPE extends LogicalLeafOperator<TYPE>>
-        extends AbstractOperator<TYPE>
-        implements LogicalOperator<TYPE>, LeafPlanOperator<TYPE> {
+public abstract class LogicalLeafOperator extends AbstractOperator
+        implements LogicalOperator, LeafPlanOperator {
 
     public LogicalLeafOperator(OperatorType type) {
         super(type);
     }
 
     @Override
-    public final List<Slot> computeOutput(Plan... inputs) {
-        return doComputeOutput();
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 0);
+        return new LogicalProperties(computeOutput());
     }
 
-    public abstract List<Slot> doComputeOutput();
+    public abstract List<Slot> computeOutput();
 
     @Override
-    public LogicalLeaf toTreeNode(GroupExpression groupExpression) {
-        return new LogicalLeaf(this, groupExpression, groupExpression.getParent().getLogicalProperties());
+    public LogicalLeafPlan toTreeNode(GroupExpression groupExpression) {
+        LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        return new LogicalLeafPlan(this, Optional.of(groupExpression), Optional.of(logicalProperties));
     }
 }

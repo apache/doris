@@ -83,7 +83,7 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
    ```sql
    BACKUP SNAPSHOT example_db.snapshot_label2
    TO example_repo
-   ON 
+   ON
    (
       example_tbl PARTITION (p1,p2),
       example_tbl2
@@ -104,9 +104,9 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
    SnapshotFinishedTime: 2022-04-08 15:52:32
      UploadFinishedTime: 2022-04-08 15:52:38
            FinishedTime: 2022-04-08 15:52:44
-        UnfinishedTasks: 
-               Progress: 
-             TaskErrMsg: 
+        UnfinishedTasks:
+               Progress:
+             TaskErrMsg:
                  Status: [OK]
                 Timeout: 86400
    1 row in set (0.01 sec)
@@ -156,7 +156,7 @@ BACKUP的更多用法可参考 [这里](../../sql-manual/sql-reference/Data-Defi
 
 1. CREATE REPOSITORY
 
-   创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../../advanced/broker.md)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，具体参考 [创建远程仓库文档](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md)
+   创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../../advanced/broker.md)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，也可以直接备份到HDFS，具体参考 [创建远程仓库文档](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md)
 
 2. BACKUP
 

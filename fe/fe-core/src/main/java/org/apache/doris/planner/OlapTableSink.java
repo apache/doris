@@ -102,7 +102,8 @@ public class OlapTableSink extends DataSink {
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
-            throw new AnalysisException("if load_to_single_tablet set to true, the olap table must be with random distribution");
+            throw new AnalysisException("if load_to_single_tablet set to true,"
+                    + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
@@ -327,11 +328,13 @@ public class OlapTableSink extends DataSink {
                 for (Tablet tablet : index.getTablets()) {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < quorum) {
-                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
-                                "tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size()
-                                        + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]");
+                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, "tablet " + tablet.getId()
+                                + " has few replicas: " + bePathsMap.keySet().size()
+                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",")
+                                + "]");
                     }
-                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    locationParam.addToTablets(new TTabletLocation(tablet.getId(),
+                            Lists.newArrayList(bePathsMap.keySet())));
                     allBePathsMap.putAll(bePathsMap);
                 }
             }

@@ -17,7 +17,6 @@
 
 #include "exprs/array_functions.h"
 
-#include "common/logging.h"
 #include "runtime/collection_value.h"
 
 namespace doris {
