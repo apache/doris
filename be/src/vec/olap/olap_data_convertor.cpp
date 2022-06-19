@@ -17,6 +17,7 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_vector.h"
@@ -599,25 +600,50 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap() {
     const ColumnArray* column_array = nullptr;
-    const DataTypeArray* data_type_ptr_array = nullptr;
+    const DataTypeArray* data_type_array = nullptr;
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
         column_array =
                 assert_cast<const ColumnArray*>(nullable_column->get_nested_column_ptr().get());
-        data_type_ptr_array = assert_cast<const DataTypeArray*>(
+        data_type_array = assert_cast<const DataTypeArray*>(
                 (assert_cast<const DataTypeNullable*>(_typed_column.type.get())->get_nested_type())
                         .get());
     } else {
         column_array = assert_cast<const ColumnArray*>(_typed_column.column.get());
-        data_type_ptr_array = assert_cast<const DataTypeArray*>(_typed_column.type.get());
+        data_type_array = assert_cast<const DataTypeArray*>(_typed_column.type.get());
     }
     assert(column_array);
-    assert(data_type_ptr_array);
+    assert(data_type_array);
+
+    return convert_to_olap(_nullmap, column_array, data_type_array);
+}
+
+Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
+        const UInt8* null_map, const ColumnArray* column_array,
+        const DataTypeArray* data_type_array) {
+    const UInt8* item_null_map = nullptr;
+    ColumnPtr item_data = column_array->get_data_ptr();
+    if (column_array->get_data().is_nullable()) {
+        const auto& data_nullable_column =
+                assert_cast<const ColumnNullable&>(column_array->get_data());
+        item_null_map = data_nullable_column.get_null_map_data().data();
+        item_data = data_nullable_column.get_nested_column_ptr();
+    }
 
     const auto& offsets = column_array->get_offsets();
+    int64_t start_index = _row_pos - 1;
+    int64_t end_index = _row_pos + _num_rows - 1;
+    auto start = offsets[start_index];
+    auto size = offsets[end_index] - start;
+
+    ColumnWithTypeAndName item_typed_column = {
+            item_data, remove_nullable(data_type_array->get_nested_type()), ""};
+    _item_convertor->set_source_column(item_typed_column, start, size);
+    _item_convertor->convert_to_olap();
+
     CollectionValue* collection_value = _values.data();
-    for (int i = 0; i < _num_rows; ++i, ++collection_value) {
+    for (size_t i = 0; i < _num_rows; ++i, ++collection_value) {
         int64_t cur_pos = _row_pos + i;
         int64_t prev_pos = cur_pos - 1;
         if (_nullmap && _nullmap[cur_pos]) {
@@ -632,18 +658,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap() {
         }
 
         if (column_array->get_data().is_nullable()) {
-            const auto& data_nullable_column =
-                    assert_cast<const ColumnNullable&>(column_array->get_data());
-            const auto* data_null_map = data_nullable_column.get_null_map_data().data();
             collection_value->set_has_null(true);
             collection_value->set_null_signs(
-                    const_cast<bool*>(reinterpret_cast<const bool*>(data_null_map + offset)));
+                    const_cast<bool*>(reinterpret_cast<const bool*>(item_null_map + offset)));
         }
-        ColumnWithTypeAndName item_typed_column = {column_array->get_data_ptr(),
-                                                   data_type_ptr_array->get_nested_type(), ""};
-        _item_convertor->set_source_column(item_typed_column, offset, size);
-        _item_convertor->convert_to_olap();
-        collection_value->set_data(const_cast<void*>(_item_convertor->get_data()));
+        collection_value->set_data(const_cast<void*>(_item_convertor->get_data_at(offset)));
     }
     return Status::OK();
 }

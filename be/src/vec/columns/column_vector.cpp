@@ -327,7 +327,7 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 
     // vectorized this code to speed up
     IColumn::Offset counts[size];
-    for (size_t i = 0; i < size; ++i) {
+    for (ssize_t i = 0; i < size; ++i) {
         counts[i] = offsets[i] - offsets[i - 1];
     }
 
