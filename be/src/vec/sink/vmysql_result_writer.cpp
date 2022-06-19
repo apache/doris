@@ -74,7 +74,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     MysqlRowBuffer _buffer;
     int buf_ret = 0;
 
-    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR) {
+    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR || type == TYPE_JSON) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -105,6 +105,21 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     }
                 } else {
                     buf_ret = _buffer.push_string(string_val.data, string_val.size);
+                }
+            }
+            if constexpr (type == TYPE_JSON) {
+                const auto json_val = column->get_data_at(i);
+
+                if (json_val.data == nullptr) {
+                    if (json_val.size == 0) {
+                        // 0x01 is a magic num, not useful actually, just for present ""
+                        char* tmp_val = reinterpret_cast<char*>(0x01);
+                        buf_ret = _buffer.push_json(tmp_val, json_val.size);
+                    } else {
+                        buf_ret = _buffer.push_null();
+                    }
+                } else {
+                    buf_ret = _buffer.push_json(json_val.data, json_val.size);
                 }
             }
 
@@ -247,6 +262,12 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 DecimalV2Value decimal_val(data[i]);
                 auto decimal_str = decimal_val.to_string();
                 buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
+            }
+
+            if constexpr (type == TYPE_JSON) {
+                JsonValue json_val(data[i]);
+                auto json_str = json_val.to_string();
+                buf_ret = _buffer.push_string(json_str.c_str(), json_str.size());
             }
 
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
@@ -565,6 +586,14 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, false>(column_ptr, result,
                                                                                 type_ptr);
+            }
+            break;
+        }
+        case TYPE_JSON: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_JSON, true>(column_ptr, result);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_JSON, false>(column_ptr, result);
             }
             break;
         }

@@ -26,6 +26,8 @@
 #include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
+#include "util/jsonb_utils.h"
+#include "util/jsonb_document.h"
 
 namespace doris {
 
@@ -349,6 +351,14 @@ int MysqlRowBuffer::push_string(const char* str, int64_t length) {
     memcpy(_pos, str, length);
     _pos += length;
     return 0;
+}
+
+int MysqlRowBuffer::push_json(const char* data, int64_t length) {
+    JsonbToJson toStr;
+    
+    std::string json_str = toStr.json(JsonbDocument::createDocument(data, length)->getValue());
+
+    return push_string(json_str.c_str(), json_str.size());
 }
 
 int MysqlRowBuffer::push_null() {
