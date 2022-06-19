@@ -313,14 +313,18 @@ public class HashJoinNode extends PlanNode {
         Iterator<SlotDescriptor> iterator = vOutputTupleDesc.getSlots().iterator();
         while (iterator.hasNext()) {
             SlotDescriptor slotDescriptor = iterator.next();
+            boolean keep = false;
             for (SlotId outputSlotId : outputSlotIds) {
                 if (slotDescriptor.getId().equals(outputSlotId)) {
+                    keep = true;
                     break;
                 }
             }
-            iterator.remove();
-            SlotRef slotRef = new SlotRef(slotDescriptor);
-            vSrcToOutputSMap.removeByRhsExpr(slotRef);
+            if (!keep) {
+                iterator.remove();
+                SlotRef slotRef = new SlotRef(slotDescriptor);
+                vSrcToOutputSMap.removeByRhsExpr(slotRef);
+            }
         }
         vOutputTupleDesc.computeStatAndMemLayout();
     }
