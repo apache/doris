@@ -208,7 +208,7 @@ public:
         }
 
         // use SIMD instruction to speed up call function `RoundUpToPowerOfTwo`
-        auto mem_size = 0;
+        size_t mem_size = 0;
         for (int i = 0; i < max_fetch; ++i) {
             mem_len[i] = BitUtil::RoundUpToPowerOf2Int32(mem_len[i], MemPool::DEFAULT_ALIGNMENT);
             mem_size += mem_len[i];
