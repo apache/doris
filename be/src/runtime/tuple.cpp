@@ -93,7 +93,7 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
     // copy collection slot
     deep_copy_collection_slots(
             dst, desc,
-            [pool](int size) -> MemFootprint {
+            [pool](int64_t size) -> MemFootprint {
                 int64_t offset = pool->total_allocated_bytes();
                 uint8_t* data = pool->allocate(size);
                 return {offset, data};
@@ -186,7 +186,7 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
     // copy collection slots
     deep_copy_collection_slots(
             dst, desc,
-            [offset, data](int size) -> MemFootprint {
+            [offset, data](int64_t size) -> MemFootprint {
                 MemFootprint footprint = {*offset, reinterpret_cast<uint8_t*>(*data)};
                 *offset += size;
                 *data += size;

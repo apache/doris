@@ -65,7 +65,7 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
     // row num
-    *reinterpret_cast<uint32_t*>(buf) = column.size();
+    *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
     buf += sizeof(IColumn::Offset);
     // offsets
     memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
@@ -79,7 +79,7 @@ const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
     auto& offsets = data_column->get_offsets();
 
     // row num
-    uint32_t row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
     buf += sizeof(IColumn::Offset);
     // offsets
     offsets.resize(row_num);
