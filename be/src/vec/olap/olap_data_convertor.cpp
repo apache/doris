@@ -77,6 +77,8 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128>>();
+    case FieldType::OLAP_FIELD_TYPE_JSON: {
+        return std::make_unique<OlapColumnDataConvertorJson>();
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::UInt8>>();
@@ -570,6 +572,174 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
             }
             assert(nullmap_cur == _nullmap + _row_pos + _num_rows &&
                    value == _values.get_end_ptr());
+        } else {
+            while (datetime_cur != datetime_end) {
+                *value = datetime_cur->to_olap_date();
+                ++value;
+                ++datetime_cur;
+            }
+            assert(value == _values.get_end_ptr());
+        }
+        return Status::OK();
+    }
+}
+// class OlapBlockDataConvertor::OlapColumnDataConvertorJson
+void OlapBlockDataConvertor::OlapColumnDataConvertorJson::set_source_column(
+        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
+    OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
+                                                                           num_rows);
+    _slice.resize(num_rows);
+}
+
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorJson::get_data() const {
+    return _slice.data();
+}
+
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorJson::get_data_at(size_t offset) const {
+    assert(offset < _num_rows && _num_rows == _slice.size());
+    UInt8 null_flag = 0;
+    if (_nullmap) {
+        null_flag = _nullmap[offset];
+    }
+    return null_flag ? nullptr : _slice.data() + offset;
+}
+
+Status OlapBlockDataConvertor::OlapColumnDataConvertorJson::convert_to_olap() {
+    assert(_typed_column.column);
+    const vectorized::ColumnJson* column_json = nullptr;
+    if (_nullmap) {
+        auto nullable_column =
+                assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+        column_json = assert_cast<const vectorized::ColumnJson*>(
+                nullable_column->get_nested_column_ptr().get());
+    } else {
+        column_json = assert_cast<const vectorized::ColumnJson*>(_typed_column.column.get());
+    }
+
+    assert(column_json);
+
+    const char* char_data = (const char*)(column_json->get_chars().data());
+    const ColumnJson::Offset* offset_cur = column_json->get_offsets().data() + _row_pos;
+    const ColumnJson::Offset* offset_end = offset_cur + _num_rows;
+
+    Slice* slice = _slice.data();
+    size_t string_offset = *(offset_cur - 1);
+    if (_nullmap) {
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        while (offset_cur != offset_end) {
+            if (!*nullmap_cur) {
+                slice->data = const_cast<char*>(char_data + string_offset);
+                slice->size = *offset_cur - string_offset - 1;
+            } else {
+                // TODO: this may not be necessary, check and remove later
+                slice->data = nullptr;
+                slice->size = 0;
+            }
+            string_offset = *offset_cur;
+            ++nullmap_cur;
+            ++slice;
+            ++offset_cur;
+        }
+        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
+    } else {
+        while (offset_cur != offset_end) {
+            slice->data = const_cast<char*>(char_data + string_offset);
+            slice->size = *offset_cur - string_offset - 1;
+            string_offset = *offset_cur;
+            ++slice;
+            ++offset_cur;
+        }
+        assert(slice == _slice.get_end_ptr());
+    }
+    return Status::OK();
+}
+
+Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
+    assert(_typed_column.column);
+    const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
+    if (_nullmap) {
+        auto nullable_column =
+                assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+        column_datetime = assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
+                nullable_column->get_nested_column_ptr().get());
+    } else {
+        from_date_v2_ = false;
+    }
+}
+
+Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
+    assert(_typed_column.column);
+    if (from_date_v2_) {
+        const vectorized::ColumnVector<vectorized::UInt32>* column_datetime = nullptr;
+        if (_nullmap) {
+            auto nullable_column =
+                    assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+            column_datetime = assert_cast<const vectorized::ColumnVector<vectorized::UInt32>*>(
+                    nullable_column->get_nested_column_ptr().get());
+        } else {
+            column_datetime = assert_cast<const vectorized::ColumnVector<vectorized::UInt32>*>(
+                    _typed_column.column.get());
+        }
+
+        assert(column_datetime);
+
+        const DateV2Value* datetime_cur =
+                (const DateV2Value*)(column_datetime->get_data().data()) + _row_pos;
+        const DateV2Value* datetime_end = datetime_cur + _num_rows;
+        uint24_t* value = _values.data();
+        if (_nullmap) {
+            const UInt8* nullmap_cur = _nullmap;
+            while (datetime_cur != datetime_end) {
+                if (!*nullmap_cur) {
+                    *value = datetime_cur->to_olap_date();
+                } else {
+                    // do nothing
+                }
+                ++value;
+                ++datetime_cur;
+                ++nullmap_cur;
+            }
+            assert(nullmap_cur == _nullmap + _num_rows && value == _values.get_end_ptr());
+        } else {
+            while (datetime_cur != datetime_end) {
+                *value = datetime_cur->to_olap_date();
+                ++value;
+                ++datetime_cur;
+            }
+            assert(value == _values.get_end_ptr());
+        }
+        return Status::OK();
+    } else {
+        const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
+        if (_nullmap) {
+            auto nullable_column =
+                    assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+            column_datetime = assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
+                    nullable_column->get_nested_column_ptr().get());
+        } else {
+            column_datetime = assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
+                    _typed_column.column.get());
+        }
+
+        assert(column_datetime);
+
+        const VecDateTimeValue* datetime_cur =
+                (const VecDateTimeValue*)(column_datetime->get_data().data()) + _row_pos;
+        const VecDateTimeValue* datetime_end = datetime_cur + _num_rows;
+        uint24_t* value = _values.data();
+        if (_nullmap) {
+            const UInt8* nullmap_cur = _nullmap;
+            while (datetime_cur != datetime_end) {
+                if (!*nullmap_cur) {
+                    *value = datetime_cur->to_olap_date();
+                } else {
+                    // do nothing
+                }
+                ++value;
+                ++datetime_cur;
+                ++nullmap_cur;
+            }
+            assert(nullmap_cur == _nullmap + _num_rows && value == _values.get_end_ptr());
         } else {
             while (datetime_cur != datetime_end) {
                 *value = datetime_cur->to_olap_date();

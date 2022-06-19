@@ -166,6 +166,21 @@ private:
         PaddedPODArray<Slice> _slice;
     };
 
+    class OlapColumnDataConvertorJson : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorJson() = default;
+        ~OlapColumnDataConvertorJson() override = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+        Status convert_to_olap() override;
+
+    private:
+        PaddedPODArray<Slice> _slice;
+    };
+
     template <typename T>
     class OlapColumnDataConvertorPaddedPODArray : public OlapColumnDataConvertorBase {
     public:

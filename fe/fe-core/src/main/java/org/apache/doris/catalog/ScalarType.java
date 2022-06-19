@@ -122,14 +122,9 @@ public class ScalarType extends Type {
                 return createVarcharType(len);
             case STRING:
                 return createStringType();
-<<<<<<< HEAD
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-=======
-            case JSON:
-                return createJsonType();
->>>>>>> c7da55afe (add FE support for JSON datatype and RPC definitions)
             case DECIMALV2:
                 return createDecimalType(precision, scale);
             default:
