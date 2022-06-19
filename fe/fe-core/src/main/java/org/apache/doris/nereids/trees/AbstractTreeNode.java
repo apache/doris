@@ -40,8 +40,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
-    protected final GroupExpression groupExpression;
-
+    protected final Optional<GroupExpression> groupExpression;
 
     public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
         this(type, Optional.empty(), children);
