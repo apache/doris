@@ -16,13 +16,25 @@
 // under the License.
 
 #pragma once
-#include "olap/tablet_schema.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/block.h"
 
-namespace doris::vectorized {
+#include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+
+namespace doris {
+
+class TabletSchema;
+class TabletColumn;
+class MemTracker;
+class Status;
+
+namespace vectorized {
+
+class Block;
+class ColumnArray;
+class DataTypeArray;
 
 class IOlapColumnDataAccessor {
 public:
@@ -242,6 +254,8 @@ private:
         Status convert_to_olap() override;
 
     private:
+        Status convert_to_olap(const UInt8* null_map, const ColumnArray* column_array,
+                               const DataTypeArray* data_type_array);
         OlapColumnDataConvertorBaseUPtr _item_convertor;
     };
 
@@ -249,4 +263,5 @@ private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;
 };
 
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris
