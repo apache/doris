@@ -245,13 +245,6 @@ public class QueryStmtTest {
             constMap.clear();
             constMap = getConstantExprMap(exprsMap, analyzer);
             Assert.assertEquals(4, constMap.size());
-        } else {
-            try {
-                UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-                Assert.fail();
-            } catch (VecNotImplException e) {
-                Assert.assertTrue(e.getMessage().contains("could not be changed to nullable"));
-            }
         }
     }
 
