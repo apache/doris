@@ -30,6 +30,8 @@
 #include "gutil/hash/hash128to64.h"
 #include "udf/udf.h"
 #include "util/slice.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_utils.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -72,6 +74,18 @@ struct StringRef {
 
     static StringRef from_string_val(StringVal sv) {
         return StringRef(reinterpret_cast<char*>(sv.ptr), sv.len);
+    }
+
+    doris::JsonbDocument& to_jsonb_doc() const {
+        doris::JsonbDocument* pdoc = doris::JsonbDocument::createDocument(data, size);
+        doris::JsonbDocument& doc = *pdoc;
+        return doc;
+    }
+
+    std::string json_to_string() const {
+        doris::JsonbToJson toStr;
+        doris::JsonbValue* val = doris::JsonbDocument::createDocument(data, size)->getValue();
+        return toStr.json(val);
     }
 };
 
