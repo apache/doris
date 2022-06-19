@@ -123,8 +123,9 @@ public:
     void attach(const TaskType& type, const std::string& task_id,
                 const TUniqueId& fragment_instance_id,
                 const std::shared_ptr<doris::MemTracker>& mem_tracker) {
+        std::string new_tracker_label = mem_tracker == nullptr ? "null" : mem_tracker->label();
         DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) && _task_id == "")
-                << ",new tracker label: " << mem_tracker->label()
+                << ",new tracker label: " << new_tracker_label
                 << ",old tracker label: " << _thread_mem_tracker_mgr->mem_tracker()->label();
         DCHECK(type != TaskType::UNKNOWN);
         _type = type;
@@ -181,7 +182,7 @@ private:
 };
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
-// see https://github.com/apache/incubator-doris/pull/7911
+// see https://github.com/apache/doris/pull/7911
 //
 // If we want to avoid this error,
 // 1. For non-trivial variables in thread_local, such as std::string, you need to store them as pointers to

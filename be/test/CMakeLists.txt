@@ -318,6 +318,7 @@ set(UTIL_TEST_FILES
     util/tuple_row_zorder_compare_test.cpp
     util/array_parser_test.cpp
     util/quantile_state_test.cpp
+    util/hdfs_storage_backend_test.cpp
 )
 set(VEC_TEST_FILES
     vec/aggregate_functions/agg_test.cpp
@@ -336,6 +337,7 @@ set(VEC_TEST_FILES
     vec/exec/vorc_scanner_test.cpp
     vec/exec/vparquet_scanner_test.cpp
     vec/exprs/vexpr_test.cpp
+    vec/function/function_array_aggregation_test.cpp
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp
     vec/function/function_array_size_test.cpp

@@ -44,7 +44,7 @@ public:
     // Close the odbc_scanner, and report errors.
     virtual Status close(RuntimeState* state) override;
     // No use
-    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
+    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
     const TupleDescriptor* get_tuple_desc() { return _tuple_desc; }
     TextConverter* get_text_converter() { return _text_converter.get(); }
     ODBCConnector* get_odbc_scanner() { return _odbc_scanner.get(); }

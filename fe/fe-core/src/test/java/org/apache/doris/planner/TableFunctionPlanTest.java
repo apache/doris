@@ -479,7 +479,8 @@ public class TableFunctionPlanTest {
     */
     @Test
     public void aggColumnInOuterQuery() throws Exception {
-        String sql = "desc verbose select min(c1) from (select c1 from (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
+        String sql = "desc verbose select min(c1) from (select c1 from"
+                + " (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
                 + "lateral view explode_split(c2, \",\") tmp1 as e1) tmp2";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "TABLE FUNCTION NODE"));
@@ -492,7 +493,8 @@ public class TableFunctionPlanTest {
     @Test
     public void testLateralViewWithView() throws Exception {
         // test 1
-        String createViewStr = "create view db1.v1 (k1,e1) as select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1;";
+        String createViewStr = "create view db1.v1 (k1,e1) as select k1,e1"
+                + " from db1.table_for_view lateral view explode_split(k3,',') tmp as e1;";
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
         Catalog.getCurrentCatalog().createView(createViewStmt);
 
@@ -506,7 +508,8 @@ public class TableFunctionPlanTest {
 
     @Test
     public void testLateralViewWithWhere() throws Exception {
-        String sql = "select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1 where k1 in (select k2 from db1.table_for_view);";
+        String sql = "select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1"
+                + " where k1 in (select k2 from db1.table_for_view);";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("join op: LEFT SEMI JOIN(BROADCAST)"));
         Assert.assertTrue(explainString.contains("equal join conjunct: `k1` = `k2`"));
@@ -515,16 +518,19 @@ public class TableFunctionPlanTest {
 
     @Test
     public void testLateralViewWithCTE() throws Exception {
-        String sql = "with tmp as (select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp2 as e1) select * from tmp;";
+        String sql = "with tmp as (select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp2 as e1)"
+                + " select * from tmp;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`table_for_view`.`k3`, ',') "));
+        Assert.assertTrue(explainString.contains("table function:"
+                + " explode_split(`default_cluster:db1`.`table_for_view`.`k3`, ',') "));
     }
 
     @Test
     public void testLateralViewWithCTEBug() throws Exception {
-        String sql = "with tmp as (select * from db1.table_for_view where k2=1) select k1,e1 from tmp lateral view explode_split(k3,',') tmp2 as e1;";
+        String sql = "with tmp as (select * from db1.table_for_view where k2=1)"
+                + " select k1,e1 from tmp lateral view explode_split(k3,',') tmp2 as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(!explainString.contains("Unknown column 'e1' in 'table list'"));
+        Assert.assertFalse(explainString.contains("Unknown column 'e1' in 'table list'"));
     }
 
     @Test
@@ -535,7 +541,7 @@ public class TableFunctionPlanTest {
         Catalog.getCurrentCatalog().createView(createViewStmt);
         String sql = "select k1,e1 from db1.v2 lateral view explode_split(k3,',') tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(!explainString.contains("Unknown column 'e1' in 'table list'"));
+        Assert.assertFalse(explainString.contains("Unknown column 'e1' in 'table list'"));
     }
 
 
@@ -546,6 +552,7 @@ public class TableFunctionPlanTest {
         String sql = "with d as (select k1+k1 as k1 from db1.table_for_view ) "
                 + "select k1 from d lateral view explode_split(k1,',') tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(!explainString.contains("Unexpected exception: org.apache.doris.analysis.FunctionCallExpr cannot be cast to org.apache.doris.analysis.SlotRef"));
+        Assert.assertFalse(explainString.contains("Unexpected exception: org.apache.doris.analysis.FunctionCallExpr"
+                + " cannot be cast to org.apache.doris.analysis.SlotRef"));
     }
 }

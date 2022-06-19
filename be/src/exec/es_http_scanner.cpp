@@ -23,8 +23,6 @@
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 

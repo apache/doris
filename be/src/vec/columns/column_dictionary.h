@@ -21,21 +21,10 @@
 
 #include <algorithm>
 
-#include "gutil/hash/string_hash.h"
-#include "olap/column_predicate.h"
-#include "olap/comparison_predicate.h"
-#include "olap/decimal12.h"
-#include "olap/in_list_predicate.h"
-#include "olap/uint24.h"
 #include "runtime/string_value.h"
-#include "util/slice.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -259,7 +248,7 @@ public:
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
     void find_codes(const phmap::flat_hash_set<StringValue>& values,
-                    std::vector<bool>& selected) const {
+                    std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
     }
 
@@ -363,13 +352,12 @@ public:
         }
 
         void find_codes(const phmap::flat_hash_set<StringValue>& values,
-                        std::vector<bool>& selected) const {
+                        std::vector<vectorized::UInt8>& selected) const {
             size_t dict_word_num = _dict_data.size();
             selected.resize(dict_word_num);
             selected.assign(dict_word_num, false);
             for (const auto& value : values) {
-                auto it = _inverted_index.find(value);
-                if (it != _inverted_index.end()) {
+                if (auto it = _inverted_index.find(value); it != _inverted_index.end()) {
                     selected[it->second] = true;
                 }
             }

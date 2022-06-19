@@ -71,8 +71,8 @@ import java.util.Set;
  * this node, ie, they only reference tuples materialized by this node or one of
  * its children (= are bound by tupleIds).
  */
-abstract public class PlanNode extends TreeNode<PlanNode> {
-    private final static Logger LOG = LogManager.getLogger(PlanNode.class);
+public abstract class PlanNode extends TreeNode<PlanNode> {
+    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
 
@@ -360,7 +360,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             List<Type> args = new ArrayList<>();
             args.add(Type.BOOLEAN);
             args.add(Type.BOOLEAN);
-            Function function = new Function(new FunctionName("", compoundPredicate.getOp().toString()), args, Type.BOOLEAN, false);
+            Function function = new Function(new FunctionName("", compoundPredicate.getOp().toString()),
+                    args, Type.BOOLEAN, false);
             function.setBinaryType(TFunctionBinaryType.BUILTIN);
             expr.setFn(function);
         }
@@ -375,7 +376,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
             for (int i = 0; i < targetConjuncts.size(); i += 2) {
-                Expr expr = i + 1 < targetConjuncts.size() ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
+                Expr expr = i + 1 < targetConjuncts.size()
+                        ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
                         targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
             }
@@ -797,7 +799,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * The second issue is addressed by an exponential backoff when multiplying each
      * additional selectivity into the final result.
      */
-    static protected double computeCombinedSelectivity(List<Expr> conjuncts) {
+    protected static double computeCombinedSelectivity(List<Expr> conjuncts) {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {

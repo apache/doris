@@ -41,6 +41,7 @@ github:
           - P0 regression (Doris P0 Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
+          - CheckStyle
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true

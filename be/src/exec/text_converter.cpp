@@ -19,12 +19,8 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
-#include "runtime/tuple.h"
-#include "util/string_parser.hpp"
 
 namespace doris {
 

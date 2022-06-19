@@ -42,6 +42,13 @@ standard java package
 * 禁止使用 `import *`
 * 禁止使用 `import static`
 
+## 编译时检查
+
+现在，在使用`maven`进行编译时，会默认进行`CheckStyle`检查。此检查会略微降低编译速度。如果想跳过此检查，请使用如下命令进行编译
+```
+mvn clean install -DskipTests -Dcheckstyle.skip
+```
+
 ## Checkstyle 插件
 
 现在的 `CI` 之中会有 `formatter-check` 进行代码格式化检测。

@@ -43,7 +43,7 @@ public class LogicalFilter extends LogicalUnaryOperator {
 
 
     @Override
-    public List<Slot> doComputeOutput(Plan input) {
+    public List<Slot> computeOutput(Plan input) {
         return input.getOutput();
     }
 

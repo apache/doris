@@ -17,15 +17,22 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.external.ExternalScanRange;
-
 import java.util.List;
+import java.util.Map;
 
 /**
  * External data source for elasticsearch
  */
 public class EsExternalDataSource extends ExternalDataSource {
+
+    /**
+     * Default constructor for EsExternalDataSource.
+     */
+    public EsExternalDataSource(String name, Map<String, String> props) {
+        setName(name);
+        getDsProperty().setProperties(props);
+        setType("es");
+    }
 
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
@@ -40,15 +47,5 @@ public class EsExternalDataSource extends ExternalDataSource {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return false;
-    }
-
-    @Override
-    public List<Column> getSchema(SessionContext ctx, String dbName, String tblName) {
-        return null;
-    }
-
-    @Override
-    public List<ExternalScanRange> getExternalScanRanges(SessionContext ctx) {
-        return null;
     }
 }

@@ -69,9 +69,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -85,7 +82,7 @@ import java.util.stream.Collectors;
 /**
  * Broker scan node
  *
- * Since https://github.com/apache/incubator-doris/pull/5686, Doris can read data from HDFS without broker by
+ * Since https://github.com/apache/doris/pull/5686, Doris can read data from HDFS without broker by
  * broker scan node.
  * Broker scan node is more likely a file scan node for now.
  * With this feature, we can extend BrokerScanNode to query external table which data is stored in HDFS, such as
@@ -316,7 +313,8 @@ public class BrokerScanNode extends LoadScanNode {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
+                broker = Catalog.getCurrentCatalog().getBrokerMgr()
+                        .getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }

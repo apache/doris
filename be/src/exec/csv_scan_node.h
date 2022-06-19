@@ -20,7 +20,6 @@
 #include <fstream>
 #include <sstream>
 
-#include "common/config.h"
 #include "exec/csv_scanner.h"
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"

@@ -64,11 +64,11 @@ BE 的配置项有两种方式进行配置：
 
 ## 应用举例
 
-1. 静态方式修改 `max_compaction_concurrency`
+1. 静态方式修改 `max_base_compaction_concurrency`
 
   通过在 `be.conf` 文件中添加：
 
-  ```max_compaction_concurrency=5```
+  ```max_base_compaction_concurrency=5```
 
   之后重启 BE 进程以生效该配置。
 
@@ -330,12 +330,6 @@ BE创建tablet的工作线程数
 默认值：104857600
 
 BaseCompaction触发条件之一：Singleton文件大小限制，100MB
-
-### `cumulative_compaction_skip_window_seconds`
-
-默认值：30 （s）
-
-CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查询的版本（以防查询计划阶段花费一些时间）。改参数是设置跳过的窗口时间大小
 
 ### `cumulative_compaction_trace_threshold`
 
@@ -737,10 +731,16 @@ load错误日志将在此时间后删除
 
 每个主机的最大客户端缓存数，BE 中有多种客户端缓存，但目前我们使用相同的缓存大小配置。 如有必要，使用不同的配置来设置不同的客户端缓存。
 
-### `max_compaction_threads`
+### `max_base_compaction_threads`
 
 * 类型：int32
-* 描述：Compaction线程池中线程数量的最大值。
+* 描述：Base Compaction线程池中线程数量的最大值。
+* 默认值：4
+
+### `max_cumu_compaction_threads`
+
+* 类型：int32
+* 描述：Cumulative Compaction线程池中线程数量的最大值。
 * 默认值：10
 
 ### `max_consumer_num_per_group`

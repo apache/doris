@@ -45,23 +45,24 @@ import java.util.stream.Collectors;
 public class ClusterLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(ClusterLoadStatistic.class);
 
-    private SystemInfoService infoService;
-    private TabletInvertedIndex invertedIndex;
+    private final SystemInfoService infoService;
+    private final TabletInvertedIndex invertedIndex;
 
-    private String clusterName;
-    private Tag tag;
+    private final String clusterName;
+    private final Tag tag;
 
-    private Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
-    private Map<TStorageMedium, Long> totalUsedCapacityMap = Maps.newHashMap();
-    private Map<TStorageMedium, Long> totalReplicaNumMap = Maps.newHashMap();
-    private Map<TStorageMedium, Double> avgUsedCapacityPercentMap = Maps.newHashMap();
-    private Map<TStorageMedium, Double> avgReplicaNumPercentMap = Maps.newHashMap();
-    private Map<TStorageMedium, Double> avgLoadScoreMap = Maps.newHashMap();
+    private final Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
+    private final Map<TStorageMedium, Long> totalUsedCapacityMap = Maps.newHashMap();
+    private final Map<TStorageMedium, Long> totalReplicaNumMap = Maps.newHashMap();
+    private final Map<TStorageMedium, Double> avgUsedCapacityPercentMap = Maps.newHashMap();
+    private final Map<TStorageMedium, Double> avgReplicaNumPercentMap = Maps.newHashMap();
+    private final Map<TStorageMedium, Double> avgLoadScoreMap = Maps.newHashMap();
     // storage medium -> number of backend which has this kind of medium
-    private Map<TStorageMedium, Integer> backendNumMap = Maps.newHashMap();
-    private List<BackendLoadStatistic> beLoadStatistics = Lists.newArrayList();
-    private Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps = Maps.newHashMap();
-    private Map<TStorageMedium, TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo>> skewMaps = Maps.newHashMap();
+    private final Map<TStorageMedium, Integer> backendNumMap = Maps.newHashMap();
+    private final List<BackendLoadStatistic> beLoadStatistics = Lists.newArrayList();
+    private final Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps = Maps.newHashMap();
+    private Map<TStorageMedium, TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo>> skewMaps
+            = Maps.newHashMap();
 
     public ClusterLoadStatistic(String clusterName, Tag tag, SystemInfoService infoService,
                                 TabletInvertedIndex invertedIndex) {
@@ -99,20 +100,24 @@ public class ClusterLoadStatistic {
             }
 
             for (TStorageMedium medium : TStorageMedium.values()) {
-                totalCapacityMap.put(medium, totalCapacityMap.getOrDefault(medium, 0L) + beStatistic.getTotalCapacityB(medium));
-                totalUsedCapacityMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L) + beStatistic.getTotalUsedCapacityB(medium));
-                totalReplicaNumMap.put(medium, totalReplicaNumMap.getOrDefault(medium, 0L) + beStatistic.getReplicaNum(medium));
+                totalCapacityMap.put(medium, totalCapacityMap.getOrDefault(medium, 0L)
+                        + beStatistic.getTotalCapacityB(medium));
+                totalUsedCapacityMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L)
+                        + beStatistic.getTotalUsedCapacityB(medium));
+                totalReplicaNumMap.put(medium, totalReplicaNumMap.getOrDefault(medium, 0L)
+                        + beStatistic.getReplicaNum(medium));
                 if (beStatistic.hasMedium(medium)) {
                     backendNumMap.put(medium, backendNumMap.getOrDefault(medium, 0) + 1);
                 }
             }
-
             beLoadStatistics.add(beStatistic);
         }
 
         for (TStorageMedium medium : TStorageMedium.values()) {
-            avgUsedCapacityPercentMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L) / (double) totalCapacityMap.getOrDefault(medium, 1L));
-            avgReplicaNumPercentMap.put(medium, totalReplicaNumMap.getOrDefault(medium, 0L) / (double) backendNumMap.getOrDefault(medium, 1));
+            avgUsedCapacityPercentMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L)
+                    / (double) totalCapacityMap.getOrDefault(medium, 1L));
+            avgReplicaNumPercentMap.put(medium, totalReplicaNumMap.getOrDefault(medium, 0L)
+                    / (double) backendNumMap.getOrDefault(medium, 1));
         }
 
         for (BackendLoadStatistic beStatistic : beLoadStatistics) {
@@ -141,8 +146,10 @@ public class ClusterLoadStatistic {
             // Multimap<skew -> PartitionBalanceInfo>
             //                  PartitionBalanceInfo: <pid -> <partitionReplicaCount, beId>>
             // Only count available bes here, aligned with the beByTotalReplicaCountMaps.
-            skewMaps = invertedIndex.buildPartitionInfoBySkew(beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).
-                    map(BackendLoadStatistic::getBeId).collect(Collectors.toList()));
+            skewMaps = invertedIndex.buildPartitionInfoBySkew(beLoadStatistics.stream()
+                    .filter(BackendLoadStatistic::isAvailable)
+                    .map(BackendLoadStatistic::getBeId)
+                    .collect(Collectors.toList()));
         }
     }
 
@@ -167,6 +174,7 @@ public class ClusterLoadStatistic {
             if (!beStat.hasMedium(medium)) {
                 continue;
             }
+
 
             if (Config.be_rebalancer_fuzzy_test) {
                 if (beStat.getLoadScore(medium) > avgLoadScore) {
@@ -252,8 +260,10 @@ public class ClusterLoadStatistic {
                 destBeStat.getTotalCapacityB(medium), destBeStat.getReplicaNum(medium) + 1,
                 avgUsedCapacityPercentMap.get(medium), avgReplicaNumPercentMap.get(medium));
 
-        double currentDiff = Math.abs(currentSrcBeScore - avgLoadScoreMap.get(medium)) + Math.abs(currentDestBeScore - avgLoadScoreMap.get(medium));
-        double newDiff = Math.abs(newSrcBeScore.score - avgLoadScoreMap.get(medium)) + Math.abs(newDestBeScore.score - avgLoadScoreMap.get(medium));
+        double currentDiff = Math.abs(currentSrcBeScore - avgLoadScoreMap.get(medium))
+                + Math.abs(currentDestBeScore - avgLoadScoreMap.get(medium));
+        double newDiff = Math.abs(newSrcBeScore.score - avgLoadScoreMap.get(medium))
+                + Math.abs(newDestBeScore.score - avgLoadScoreMap.get(medium));
 
         LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
                         + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
@@ -294,8 +304,8 @@ public class ClusterLoadStatistic {
                 pathStat.add(pathStatistic.getStorageMedium().name());
                 pathStat.add(String.valueOf(pathStatistic.getUsedCapacityB()));
                 pathStat.add(String.valueOf(pathStatistic.getCapacityB()));
-                pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(pathStatistic.getUsedCapacityB() * 100
-                        / (double) pathStatistic.getCapacityB())));
+                pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
+                        pathStatistic.getUsedCapacityB() * 100 / (double) pathStatistic.getCapacityB())));
                 pathStat.add(pathStatistic.getClazz().name());
                 pathStat.add(pathStatistic.getDiskState().name());
                 statistics.add(pathStat);

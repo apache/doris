@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -30,16 +30,14 @@ import java.util.Map;
 
 /**
  * Representation for memo in cascades optimizer.
- *
- * @param <NODE_TYPE> should be {@link Plan} or {@link Expression}
  */
-public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
+public class Memo {
     private final List<Group> groups = Lists.newArrayList();
     // we could not use Set, because Set has no get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private Group root;
 
-    public void initialize(NODE_TYPE node) {
+    public void initialize(Plan node) {
         root = copyIn(node, null, false).getParent();
     }
 
@@ -56,10 +54,10 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @param rewrite whether to rewrite the node to the target group
      * @return Reference of node in Memo
      */
-    public GroupExpression copyIn(NODE_TYPE node, Group target, boolean rewrite) {
+    public GroupExpression copyIn(Plan node, Group target, boolean rewrite) {
         Preconditions.checkArgument(!rewrite || target != null);
         List<Group> childrenGroups = Lists.newArrayList();
-        for (NODE_TYPE child : node.children()) {
+        for (Plan child : node.children()) {
             childrenGroups.add(copyIn(child, null, rewrite).getParent());
         }
         if (node.getGroupExpression().isPresent() && groupExpressions.containsKey(node.getGroupExpression().get())) {
@@ -67,7 +65,7 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         }
         GroupExpression newGroupExpression = new GroupExpression(node.getOperator());
         newGroupExpression.setChildren(childrenGroups);
-        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite);
+        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, node.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
@@ -82,8 +80,8 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @param rewrite whether to rewrite the groupExpression to target group
      * @return existing groupExpression in memo or newly generated groupExpression
      */
-    private GroupExpression insertOrRewriteGroupExpression(
-            GroupExpression groupExpression, Group target, boolean rewrite) {
+    private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
+                                                           boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getParent().getGroupId())) {
@@ -93,13 +91,13 @@ public class Memo<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         }
         if (target != null) {
             if (rewrite) {
-                GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression);
+                GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression, logicalProperties);
                 groupExpressions.remove(oldExpression);
             } else {
                 target.addGroupExpression(groupExpression);
             }
         } else {
-            Group group = new Group(groupExpression);
+            Group group = new Group(groupExpression, logicalProperties);
             Preconditions.checkArgument(!groups.contains(group), "new group with already exist output");
             groups.add(group);
         }

@@ -132,7 +132,8 @@ public class DeleteStmt extends DdlStmt {
             int inElementNum = inPredicate.getInElementNum();
             int maxAllowedInElementNumOfDelete = Config.max_allowed_in_element_num_of_delete;
             if (inElementNum > maxAllowedInElementNumOfDelete) {
-                throw new AnalysisException("Element num of in predicate should not be more than " + maxAllowedInElementNumOfDelete);
+                throw new AnalysisException("Element num of in predicate should not be more than "
+                        + maxAllowedInElementNumOfDelete);
             }
             for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                 Expr expr = inPredicate.getChild(i);
@@ -142,7 +143,8 @@ public class DeleteStmt extends DdlStmt {
             }
             deleteConditions.add(inPredicate);
         } else {
-            throw new AnalysisException("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate");
+            throw new AnalysisException("Where clause only supports compound predicate,"
+                    + " binary predicate, is_null predicate or in predicate");
         }
     }
 

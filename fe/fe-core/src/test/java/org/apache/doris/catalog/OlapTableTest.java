@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -56,8 +56,8 @@ public class OlapTableTest {
                 continue;
             }
             OlapTable tbl = (OlapTable) table;
-            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"), IndexDef.IndexType.BITMAP
-                    , "xxxxxx")));
+            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"),
+                    IndexDef.IndexType.BITMAP, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();

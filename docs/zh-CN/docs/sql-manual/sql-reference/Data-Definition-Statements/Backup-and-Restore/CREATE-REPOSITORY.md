@@ -38,16 +38,16 @@ CREATE REPOSITORY
 
 ```sql
 CREATE [READ ONLY] REPOSITORY `repo_name`
-WITH [BROKER `broker_name`|S3]
+WITH [BROKER `broker_name`|S3|hdfs]
 ON LOCATION `repo_location`
 PROPERTIES ("key"="value", ...);
 ```
 
 说明：
 
-- 仓库的创建，依赖于已存在的 broker 或者直接通过AWS s3 协议访问云存储
+- 仓库的创建，依赖于已存在的 broker 或者直接通过AWS s3 协议访问云存储，或者直接访问HDFS
 - 如果是只读仓库，则只能在仓库上进行恢复。如果不是，则可以进行备份和恢复操作。
-- 根据 broker 或者S3的不同类型，PROPERTIES 有所不同，具体见示例。
+- 根据 broker 或者S3、hdfs的不同类型，PROPERTIES 有所不同，具体见示例。
 
 ### Example
 
@@ -104,6 +104,19 @@ PROPERTIES
     "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
     "AWS_SECRET_KEY"="AWS_SECRET_KEY",
     "AWS_REGION" = "REGION"
+);
+```
+
+5. 创建名为 hdfs_repo 的仓库，直接链接HDFS，而不通过broker.
+
+```sql
+CREATE REPOSITORY `hdfs_repo`
+WITH hdfs
+ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+PROPERTIES
+(
+    "fs.defaultFS"="hdfs://hadoop-name-node:54310",
+    "hadoop.username"="user"
 );
 ```
 

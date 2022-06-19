@@ -18,18 +18,10 @@
 #include "exec/parquet_scanner.h"
 
 #include "exec/arrow/parquet_reader.h"
-#include "exec/decompressor.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "exprs/expr.h"
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
-#include "runtime/tuple.h"
 
 namespace doris {
 

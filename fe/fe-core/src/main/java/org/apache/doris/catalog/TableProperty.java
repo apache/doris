@@ -283,9 +283,11 @@ public class TableProperty implements Writable {
         return tableProperty;
     }
 
-    // For some historical reason, both "dynamic_partition.replication_num" and "dynamic_partition.replication_allocation"
+    // For some historical reason,
+    // both "dynamic_partition.replication_num" and "dynamic_partition.replication_allocation"
     // may be exist in "properties". we need remove the "dynamic_partition.replication_num", or it will always replace
-    // the "dynamic_partition.replication_allocation", result in unable to set "dynamic_partition.replication_allocation".
+    // the "dynamic_partition.replication_allocation",
+    // result in unable to set "dynamic_partition.replication_allocation".
     private void removeDuplicateReplicaNumProperty() {
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {

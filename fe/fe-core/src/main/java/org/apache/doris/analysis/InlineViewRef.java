@@ -288,7 +288,8 @@ public class InlineViewRef extends TableRef {
                     false, null, selectItemExpr.isNullable(),
                     null, ""));
         }
-        InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
+        InlineView inlineView = (view != null) ? new InlineView(view, columnList)
+                : new InlineView(getExplicitAlias(), columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();

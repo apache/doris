@@ -27,17 +27,11 @@
 #include "exec/exec_node.h"
 #include "exec/olap_utils.h"
 #include "exprs/bloomfilter_predicate.h"
-#include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "olap/delete_handler.h"
-#include "olap/olap_cond.h"
-#include "olap/rowset/column_data.h"
-#include "olap/storage_engine.h"
 #include "olap/tuple_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
-#include "runtime/vectorized_row_batch.h"
 
 namespace doris {
 

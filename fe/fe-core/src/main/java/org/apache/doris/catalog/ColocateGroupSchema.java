@@ -45,7 +45,8 @@ public class ColocateGroupSchema implements Writable {
 
     }
 
-    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum, ReplicaAllocation replicaAlloc) {
+    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols,
+            int bucketsNum, ReplicaAllocation replicaAlloc) {
         this.groupId = groupId;
         this.distributionColTypes = distributionCols.stream().map(c -> c.getType()).collect(Collectors.toList());
         this.bucketsNum = bucketsNum;

@@ -121,6 +121,7 @@ public class DeleteHandlerTest {
             @Mock
             public void logSaveTransactionId(long transactionId) {
             }
+
             @Mock
             public void logInsertTransactionState(TransactionState transactionState) {
             }

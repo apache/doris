@@ -95,7 +95,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class GsonUtils {
 
     // runtime adapter for class "Type"
-    private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory = RuntimeTypeAdapterFactory
+    private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
+            = RuntimeTypeAdapterFactory
             .of(org.apache.doris.catalog.Type.class, "clazz")
             // TODO: register other sub type after Doris support more types.
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName())
@@ -104,7 +105,8 @@ public class GsonUtils {
             .registerSubtype(StructType.class, StructType.class.getSimpleName());
 
     // runtime adapter for class "DistributionInfo"
-    private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory = RuntimeTypeAdapterFactory
+    private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
+            = RuntimeTypeAdapterFactory
             .of(DistributionInfo.class, "clazz")
             .registerSubtype(HashDistributionInfo.class, HashDistributionInfo.class.getSimpleName())
             .registerSubtype(RandomDistributionInfo.class, RandomDistributionInfo.class.getSimpleName());
@@ -383,7 +385,7 @@ public class GsonUtils {
         }
     }
 
-    public final static class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
+    public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
         public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
                                              final JsonDeserializationContext context) throws JsonParseException {

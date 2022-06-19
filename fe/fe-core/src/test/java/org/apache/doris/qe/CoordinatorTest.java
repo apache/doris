@@ -65,10 +65,12 @@ import java.util.Set;
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
     static ConnectContext context = new ConnectContext(null);
+
     static {
         context.setQueryId(new TUniqueId(1, 2));
         context.setQualifiedUser("root");
     }
+
     @Mocked
     static Catalog catalog;
     @Mocked
@@ -269,8 +271,8 @@ public class CoordinatorTest extends Coordinator {
         Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap =
                 Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBuckendIdBucketCountMap");
 
-        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values().
-                stream().flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
+        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values()
+                .stream().flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
                 .filter(count -> count == 22).count();
         Assert.assertEquals(targetBeCount, 3);
     }

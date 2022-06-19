@@ -417,7 +417,8 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> diskInfos = disksRef;
         boolean exceedLimit = true;
         for (DiskInfo diskInfo : diskInfos.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium() == storageMedium && !diskInfo.exceedLimit(true)) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium()
+                    == storageMedium && !diskInfo.exceedLimit(true)) {
                 exceedLimit = false;
                 break;
             }

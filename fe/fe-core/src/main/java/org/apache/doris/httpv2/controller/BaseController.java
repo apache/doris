@@ -60,7 +60,8 @@ public class BaseController {
         checkWithCookie(request, response, true);
     }
 
-    public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request, HttpServletResponse response, boolean checkAuth) {
+    public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request,
+            HttpServletResponse response, boolean checkAuth) {
         // First we check if the request has Authorization header.
         String encodedAuthString = request.getHeader("Authorization");
         if (encodedAuthString != null) {

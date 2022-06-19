@@ -20,20 +20,13 @@
 #include <fmt/format.h>
 
 #include "runtime/fragment_mgr.h"
-#include "runtime/user_function_cache.h"
-#include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 
 namespace doris {
 

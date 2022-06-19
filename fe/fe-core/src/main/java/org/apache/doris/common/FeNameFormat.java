@@ -23,6 +23,8 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 
+import java.util.Map;
+
 public class FeNameFormat {
     private static final String LABEL_REGEX = "^[-_A-Za-z0-9]{1,128}$";
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
@@ -110,6 +112,15 @@ public class FeNameFormat {
     public static void checkCommonName(String type, String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name) || !name.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
+        }
+    }
+
+    /**
+     * Check the type property of the catalog props.
+     */
+    public static void checkCatalogProperties(Map<String, String> props) throws AnalysisException {
+        if (!props.containsKey("type")) {
+            throw new AnalysisException("All the external catalog should contain the type property.");
         }
     }
 }

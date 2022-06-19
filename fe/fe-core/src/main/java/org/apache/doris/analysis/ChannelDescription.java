@@ -62,7 +62,8 @@ public class ChannelDescription implements Writable {
     @SerializedName(value = "channelId")
     private long channelId;
 
-    public ChannelDescription(String srcDatabase, String srcTableName, String targetTable, PartitionNames partitionNames, List<String> colNames) {
+    public ChannelDescription(String srcDatabase, String srcTableName, String targetTable,
+            PartitionNames partitionNames, List<String> colNames) {
         this.srcDatabase = srcDatabase;
         this.srcTableName = srcTableName;
         this.targetTable = targetTable;

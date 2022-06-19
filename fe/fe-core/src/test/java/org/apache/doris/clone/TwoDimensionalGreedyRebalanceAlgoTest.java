@@ -42,7 +42,8 @@ import java.util.stream.IntStream;
 public class TwoDimensionalGreedyRebalanceAlgoTest {
     private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyRebalanceAlgoTest.class);
 
-    TwoDimensionalGreedyRebalanceAlgo algo = new TwoDimensionalGreedyRebalanceAlgo(TwoDimensionalGreedyRebalanceAlgo.EqualSkewOption.PICK_FIRST);
+    TwoDimensionalGreedyRebalanceAlgo algo = new TwoDimensionalGreedyRebalanceAlgo(
+            TwoDimensionalGreedyRebalanceAlgo.EqualSkewOption.PICK_FIRST);
 
     // Structure to describe rebalancing-related state of the cluster expressively
     // enough for the tests.
@@ -112,7 +113,8 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
             TestClusterConfig.PartitionPerBeReplicas distribution = tcc.partitionReplicas.get(pIdx);
             PartitionBalanceInfo info = new PartitionBalanceInfo(distribution.partitionId, distribution.indexId);
             List<Long> replicaCount = distribution.numReplicasByServer;
-            IntStream.range(0, replicaCount.size()).forEach(i -> info.beByReplicaCount.put(replicaCount.get(i), tcc.beIds.get(i)));
+            IntStream.range(0, replicaCount.size())
+                    .forEach(i -> info.beByReplicaCount.put(replicaCount.get(i), tcc.beIds.get(i)));
 
             Long maxCount = info.beByReplicaCount.keySet().last();
             Long minCount = info.beByReplicaCount.keySet().first();
@@ -142,7 +144,8 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         beByTotalReplicaCount.put(10L, 10001L);
         beByTotalReplicaCount.put(10L, 10002L);
         // no info of partition
-        TreeMultimap<Long, PartitionBalanceInfo> skewMap = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
+        TreeMultimap<Long, PartitionBalanceInfo> skewMap
+                = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
         try {
             TwoDimensionalGreedyRebalanceAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
         } catch (Exception e) {

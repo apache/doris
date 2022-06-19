@@ -40,7 +40,7 @@ public class SqlBlockUtil {
 
     // check (sql or sqlHash) and (limitations: partitioNum, tabletNum, cardinality) are not set both
     public static void checkSqlAndLimitationsSetBoth(String sql, String sqlHash,
-                                                     String partitionNumString, String tabletNumString, String cardinalityString) throws AnalysisException {
+            String partitionNumString, String tabletNumString, String cardinalityString) throws AnalysisException {
         if ((!STRING_DEFAULT.equals(sql) || !STRING_DEFAULT.equals(sqlHash))
                 && !isSqlBlockLimitationsEmpty(partitionNumString, tabletNumString, cardinalityString)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
@@ -50,7 +50,7 @@ public class SqlBlockUtil {
     // 1. check (sql or sqlHash) and (limitations: partitioNum, tabletNum, cardinality) are not set both
     // 2. check any of limitations is set while sql or sqlHash is not set
     public static void checkPropertiesValidate(String sql, String sqlHash,
-                                        String partitionNumString, String tabletNumString, String cardinalityString)  throws AnalysisException {
+            String partitionNumString, String tabletNumString, String cardinalityString)  throws AnalysisException {
         if (((!STRING_DEFAULT.equals(sql) || !STRING_DEFAULT.equals(sqlHash))
                 && !isSqlBlockLimitationsEmpty(partitionNumString, tabletNumString, cardinalityString))
                 || ((STRING_DEFAULT.equals(sql) && STRING_DEFAULT.equals(sqlHash))
@@ -60,8 +60,10 @@ public class SqlBlockUtil {
     }
 
     // check at least one of the (limitations: partitioNum, tabletNum, cardinality) is not empty
-    public static Boolean isSqlBlockLimitationsEmpty(String partitionNumString, String tabletNumString, String cardinalityString) {
-        return StringUtils.isEmpty(partitionNumString) && StringUtils.isEmpty(tabletNumString) && StringUtils.isEmpty(cardinalityString);
+    public static Boolean isSqlBlockLimitationsEmpty(String partitionNumString,
+            String tabletNumString, String cardinalityString) {
+        return StringUtils.isEmpty(partitionNumString)
+                && StringUtils.isEmpty(tabletNumString) && StringUtils.isEmpty(cardinalityString);
     }
 
     public static Boolean isSqlBlockLimitationsDefault(Long partitionNum, Long tabletNum, Long cardinality) {
@@ -87,11 +89,14 @@ public class SqlBlockUtil {
         } else if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())) {
             if (!STRING_DEFAULT.equals(sqlBlockRule.getSql()) && StringUtils.isNotEmpty(sqlBlockRule.getSql())) {
                 throw new AnalysisException("Only sql or sqlHash can be configured");
-            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
-                    && !isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
+            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
+                    && !isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
-        } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
+        } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(),
+                sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
             if (!STRING_DEFAULT.equals(sqlBlockRule.getSql()) || !STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }

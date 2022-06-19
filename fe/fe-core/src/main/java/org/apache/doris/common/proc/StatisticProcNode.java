@@ -23,7 +23,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 
@@ -95,7 +95,8 @@ public class StatisticProcNode implements ProcNodeInterface {
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         ++partitionNum;
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex materializedIndex
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             ++indexNum;
                             List<Tablet> tablets = materializedIndex.getTablets();
                             for (int i = 0; i < tablets.size(); ++i) {

@@ -27,6 +27,7 @@
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "testutil/function_utils.h"
+#include "util/bitmap_intersect.h"
 #include "util/bitmap_value.h"
 #include "util/logging.h"
 
@@ -266,10 +267,10 @@ void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     BitmapIntersect<ValueType> intersect2;
     for (size_t i = 2; i < const_vals.size(); i++) {
         ValType* arg = reinterpret_cast<ValType*>(const_vals[i]);
-        intersect2.add_key(detail::get_val<ValType, ValueType>(*arg));
+        intersect2.add_key(detail::Helper::get_val<ValType, ValueType>(*arg));
     }
-    intersect2.update(detail::get_val<ValType, ValueType>(key1), bitmap1);
-    intersect2.update(detail::get_val<ValType, ValueType>(key2), bitmap2);
+    intersect2.update(detail::Helper::get_val<ValType, ValueType>(key1), bitmap1);
+    intersect2.update(detail::Helper::get_val<ValType, ValueType>(key2), bitmap2);
     StringVal expected = convert_bitmap_intersect_to_string(ctx, intersect2);
     EXPECT_EQ(expected, intersect1);
 

@@ -20,140 +20,11 @@
 #include "exprs/anyval_util.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
+#include "util/bitmap_intersect.h"
 #include "util/bitmap_value.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
-
-namespace detail {
-
-const int DATETIME_PACKED_TIME_BYTE_SIZE = 8;
-const int DATETIME_TYPE_BYTE_SIZE = 4;
-
-const int DECIMAL_BYTE_SIZE = 16;
-
-// get_val start
-template <typename ValType, typename T>
-T get_val(const ValType& x) {
-    DCHECK(!x.is_null);
-    return x.val;
-}
-
-template <>
-StringValue get_val(const StringVal& x) {
-    DCHECK(!x.is_null);
-    return StringValue::from_string_val(x);
-}
-
-template <>
-DateTimeValue get_val(const DateTimeVal& x) {
-    return DateTimeValue::from_datetime_val(x);
-}
-
-template <>
-DecimalV2Value get_val(const DecimalV2Val& x) {
-    return DecimalV2Value::from_decimal_val(x);
-}
-// get_val end
-
-// serialize_size start
-template <typename T>
-int32_t serialize_size(const T& v) {
-    return sizeof(T);
-}
-
-template <>
-int32_t serialize_size(const DateTimeValue& v) {
-    return DATETIME_PACKED_TIME_BYTE_SIZE + DATETIME_TYPE_BYTE_SIZE;
-}
-
-template <>
-int32_t serialize_size(const DecimalV2Value& v) {
-    return DECIMAL_BYTE_SIZE;
-}
-
-template <>
-int32_t serialize_size(const StringValue& v) {
-    return v.len + 4;
-}
-// serialize_size end
-
-// write_to start
-template <typename T>
-char* write_to(const T& v, char* dest) {
-    size_t type_size = sizeof(T);
-    memcpy(dest, &v, type_size);
-    dest += type_size;
-    return dest;
-}
-
-template <>
-char* write_to(const DateTimeValue& v, char* dest) {
-    DateTimeVal value;
-    v.to_datetime_val(&value);
-    *(int64_t*)dest = value.packed_time;
-    dest += DATETIME_PACKED_TIME_BYTE_SIZE;
-    *(int*)dest = value.type;
-    dest += DATETIME_TYPE_BYTE_SIZE;
-    return dest;
-}
-
-template <>
-char* write_to(const DecimalV2Value& v, char* dest) {
-    __int128 value = v.value();
-    memcpy(dest, &value, DECIMAL_BYTE_SIZE);
-    dest += DECIMAL_BYTE_SIZE;
-    return dest;
-}
-
-template <>
-char* write_to(const StringValue& v, char* dest) {
-    *(int32_t*)dest = v.len;
-    dest += 4;
-    memcpy(dest, v.ptr, v.len);
-    dest += v.len;
-    return dest;
-}
-// write_to end
-
-// read_from start
-template <typename T>
-void read_from(const char** src, T* result) {
-    size_t type_size = sizeof(T);
-    memcpy(result, *src, type_size);
-    *src += type_size;
-}
-
-template <>
-void read_from(const char** src, DateTimeValue* result) {
-    DateTimeVal value;
-    value.is_null = false;
-    value.packed_time = *(int64_t*)(*src);
-    *src += DATETIME_PACKED_TIME_BYTE_SIZE;
-    value.type = *(int*)(*src);
-    *src += DATETIME_TYPE_BYTE_SIZE;
-    *result = DateTimeValue::from_datetime_val(value);
-    ;
-}
-
-template <>
-void read_from(const char** src, DecimalV2Value* result) {
-    __int128 v = 0;
-    memcpy(&v, *src, DECIMAL_BYTE_SIZE);
-    *src += DECIMAL_BYTE_SIZE;
-    *result = DecimalV2Value(v);
-}
-
-template <>
-void read_from(const char** src, StringValue* result) {
-    int32_t length = *(int32_t*)(*src);
-    *src += 4;
-    *result = StringValue((char*)*src, length);
-    *src += length;
-}
-// read_from end
-
-} // namespace detail
 
 static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
     if (!value) {
@@ -167,98 +38,6 @@ static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
         return result;
     }
 }
-
-// Calculate the intersection of two or more bitmaps
-// Usage: intersect_count(bitmap_column_to_count, filter_column, filter_values ...)
-// Example: intersect_count(user_id, event, 'A', 'B', 'C'), meaning find the intersect count of user_id in all A/B/C 3 bitmaps
-// Todo(kks) Use Array type instead of variable arguments
-template <typename T>
-struct BitmapIntersect {
-public:
-    BitmapIntersect() {}
-
-    explicit BitmapIntersect(const char* src) { deserialize(src); }
-
-    void add_key(const T key) {
-        BitmapValue empty_bitmap;
-        _bitmaps[key] = empty_bitmap;
-    }
-
-    void update(const T& key, const BitmapValue& bitmap) {
-        if (_bitmaps.find(key) != _bitmaps.end()) {
-            _bitmaps[key] |= bitmap;
-        }
-    }
-
-    void merge(const BitmapIntersect& other) {
-        for (auto& kv : other._bitmaps) {
-            if (_bitmaps.find(kv.first) != _bitmaps.end()) {
-                _bitmaps[kv.first] |= kv.second;
-            } else {
-                _bitmaps[kv.first] = kv.second;
-            }
-        }
-    }
-
-    // intersection
-    BitmapValue intersect() const {
-        BitmapValue result;
-        auto it = _bitmaps.begin();
-        result |= it->second;
-        it++;
-        for (; it != _bitmaps.end(); it++) {
-            result &= it->second;
-        }
-        return result;
-    }
-
-    // calculate the intersection for _bitmaps's bitmap values
-    int64_t intersect_count() const {
-        if (_bitmaps.empty()) {
-            return 0;
-        }
-        return intersect().cardinality();
-    }
-
-    // the serialize size
-    size_t size() {
-        size_t size = 4;
-        for (auto& kv : _bitmaps) {
-            size += detail::serialize_size(kv.first);
-            ;
-            size += kv.second.getSizeInBytes();
-        }
-        return size;
-    }
-
-    //must call size() first
-    void serialize(char* dest) {
-        char* writer = dest;
-        *(int32_t*)writer = _bitmaps.size();
-        writer += 4;
-        for (auto& kv : _bitmaps) {
-            writer = detail::write_to(kv.first, writer);
-            kv.second.write(writer);
-            writer += kv.second.getSizeInBytes();
-        }
-    }
-
-    void deserialize(const char* src) {
-        const char* reader = src;
-        int32_t bitmaps_size = *(int32_t*)reader;
-        reader += 4;
-        for (int32_t i = 0; i < bitmaps_size; i++) {
-            T key;
-            detail::read_from(&reader, &key);
-            BitmapValue bitmap(reader);
-            reader += bitmap.getSizeInBytes();
-            _bitmaps[key] = bitmap;
-        }
-    }
-
-private:
-    std::map<T, BitmapValue> _bitmaps;
-};
 
 void BitmapFunctions::init() {}
 
@@ -403,7 +182,7 @@ StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVa
     return result;
 }
 
-// This is a init function for intersect_count not for bitmap_intersect.
+// This is a init function for intersect_count not for bitmap_intersect, not for _orthogonal_bitmap_intersect(bitmap,t,t)
 template <typename T, typename ValType>
 void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
@@ -414,12 +193,14 @@ void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst
     for (int i = 2; i < ctx->get_num_constant_args(); ++i) {
         DCHECK(ctx->is_arg_constant(i));
         ValType* arg = reinterpret_cast<ValType*>(ctx->get_constant_arg(i));
-        intersect->add_key(detail::get_val<ValType, T>(*arg));
+        intersect->add_key(detail::Helper::get_val<ValType, T>(*arg));
     }
 
     dst->ptr = (uint8_t*)intersect;
 }
 
+// This is a update function for intersect_count/ORTHOGONAL_BITMAP_INTERSECT_COUNT/ORTHOGONAL_BITMAP_INTERSECT(bitmap,t,t)
+// not for bitmap_intersect(Bitmap)
 template <typename T, typename ValType>
 void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const StringVal& src,
                                               const ValType& key, int num_key, const ValType* keys,
@@ -427,13 +208,14 @@ void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const String
     auto* dst_bitmap = reinterpret_cast<BitmapIntersect<T>*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
-        dst_bitmap->update(detail::get_val<ValType, T>(key),
+        dst_bitmap->update(detail::Helper::get_val<ValType, T>(key),
                            *reinterpret_cast<BitmapValue*>(src.ptr));
     } else {
-        dst_bitmap->update(detail::get_val<ValType, T>(key), BitmapValue((char*)src.ptr));
+        dst_bitmap->update(detail::Helper::get_val<ValType, T>(key), BitmapValue((char*)src.ptr));
     }
 }
 
+//only for intersect_count(bitmap,t,t)
 template <typename T>
 void BitmapFunctions::bitmap_intersect_merge(FunctionContext* ctx, const StringVal& src,
                                              const StringVal* dst) {
@@ -441,6 +223,7 @@ void BitmapFunctions::bitmap_intersect_merge(FunctionContext* ctx, const StringV
     dst_bitmap->merge(BitmapIntersect<T>((char*)src.ptr));
 }
 
+//only for intersect_count(bitmap,t,t)
 template <typename T>
 StringVal BitmapFunctions::bitmap_intersect_serialize(FunctionContext* ctx, const StringVal& src) {
     auto* src_bitmap = reinterpret_cast<BitmapIntersect<T>*>(src.ptr);
@@ -450,6 +233,7 @@ StringVal BitmapFunctions::bitmap_intersect_serialize(FunctionContext* ctx, cons
     return result;
 }
 
+//only for intersect_count(bitmap,t,t)
 template <typename T>
 BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src) {
     auto* src_bitmap = reinterpret_cast<BitmapIntersect<T>*>(src.ptr);
@@ -928,13 +712,15 @@ StringVal BitmapFunctions::bitmap_subset_limit(FunctionContext* ctx, const Strin
 
     return serialize(ctx, &ret_bitmap);
 }
-
+// init ORTHOGONAL_BITMAP_UNION_COUNT(bitmap)
+// update bitmap_union()
 void BitmapFunctions::orthogonal_bitmap_union_count_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(BitmapValue);
     dst->ptr = (uint8_t*)new BitmapValue();
 }
 
+// serialize for ORTHOGONAL_BITMAP_UNION_COUNT(bitmap)
 StringVal BitmapFunctions::orthogonal_bitmap_count_serialize(FunctionContext* ctx,
                                                              const StringVal& src) {
     if (src.is_null) {
@@ -950,7 +736,7 @@ StringVal BitmapFunctions::orthogonal_bitmap_count_serialize(FunctionContext* ct
     return result;
 }
 
-// This is a init function for bitmap_intersect.
+// This is a init function for orthogonal_bitmap_intersect(bitmap,t,t).
 template <typename T, typename ValType>
 void BitmapFunctions::orthogonal_bitmap_intersect_init(FunctionContext* ctx, StringVal* dst) {
     // constant args start from index 2
@@ -961,7 +747,7 @@ void BitmapFunctions::orthogonal_bitmap_intersect_init(FunctionContext* ctx, Str
 
         for (int i = 2; i < ctx->get_num_constant_args(); ++i) {
             ValType* arg = reinterpret_cast<ValType*>(ctx->get_constant_arg(i));
-            intersect->add_key(detail::get_val<ValType, T>(*arg));
+            intersect->add_key(detail::Helper::get_val<ValType, T>(*arg));
         }
 
         dst->ptr = (uint8_t*)intersect;
@@ -972,7 +758,7 @@ void BitmapFunctions::orthogonal_bitmap_intersect_init(FunctionContext* ctx, Str
     }
 }
 
-// This is a init function for intersect_count.
+// This is a init function for orthogonal_bitmap_intersect_count(bitmap,t,t).
 template <typename T, typename ValType>
 void BitmapFunctions::orthogonal_bitmap_intersect_count_init(FunctionContext* ctx, StringVal* dst) {
     if (ctx->get_num_constant_args() > 1) {
@@ -983,7 +769,7 @@ void BitmapFunctions::orthogonal_bitmap_intersect_count_init(FunctionContext* ct
         // constant args start from index 2
         for (int i = 2; i < ctx->get_num_constant_args(); ++i) {
             ValType* arg = reinterpret_cast<ValType*>(ctx->get_constant_arg(i));
-            intersect->add_key(detail::get_val<ValType, T>(*arg));
+            intersect->add_key(detail::Helper::get_val<ValType, T>(*arg));
         }
 
         dst->ptr = (uint8_t*)intersect;
@@ -995,6 +781,9 @@ void BitmapFunctions::orthogonal_bitmap_intersect_count_init(FunctionContext* ct
     }
 }
 
+// This is a serialize function for orthogonal_bitmap_intersect(bitmap,t,t).
+// merge is ths simple bitmap_union() function LINE(80);
+// finalize is the bitmap_serialize() function LINE(173)
 template <typename T>
 StringVal BitmapFunctions::orthogonal_bitmap_intersect_serialize(FunctionContext* ctx,
                                                                  const StringVal& src) {
@@ -1014,6 +803,8 @@ BigIntVal BitmapFunctions::orthogonal_bitmap_intersect_finalize(FunctionContext*
     return result;
 }
 
+// This is a merge function for orthogonal_bitmap_intersect_count(bitmap,t,t).
+// and merge for ORTHOGONAL_BITMAP_UNION_COUNT(bitmap)
 void BitmapFunctions::orthogonal_bitmap_count_merge(FunctionContext* context, const StringVal& src,
                                                     StringVal* dst) {
     if (dst->len != sizeof(int64_t)) {
@@ -1027,6 +818,8 @@ void BitmapFunctions::orthogonal_bitmap_count_merge(FunctionContext* context, co
     *(int64_t*)dst->ptr += *(int64_t*)src.ptr;
 }
 
+// This is a finalize function for orthogonal_bitmap_intersect_count(bitmap,t,t).
+// finalize for ORTHOGONAL_BITMAP_UNION_COUNT(bitmap)
 BigIntVal BitmapFunctions::orthogonal_bitmap_count_finalize(FunctionContext* context,
                                                             const StringVal& src) {
     auto* pval = reinterpret_cast<int64_t*>(src.ptr);
@@ -1035,6 +828,7 @@ BigIntVal BitmapFunctions::orthogonal_bitmap_count_finalize(FunctionContext* con
     return result;
 }
 
+// This is a serialize function for orthogonal_bitmap_intersect_count(bitmap,t,t).
 template <typename T>
 StringVal BitmapFunctions::orthogonal_bitmap_intersect_count_serialize(FunctionContext* ctx,
                                                                        const StringVal& src) {

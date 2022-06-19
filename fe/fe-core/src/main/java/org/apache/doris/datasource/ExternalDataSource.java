@@ -17,40 +17,42 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.external.ExternalScanRange;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Data;
+import org.apache.commons.lang.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
 /**
  * The abstract class for all types of external data sources.
  */
+@Data
 public abstract class ExternalDataSource implements DataSourceIf, Writable {
     // Unique id of this data source, will be assigned after data source is loaded.
     @SerializedName(value = "id")
-    private long id;
+    protected long id;
     @SerializedName(value = "name")
-    private String name;
+    protected String name;
     @SerializedName(value = "type")
-    private String type;
+    protected String type;
     // save properties of this data source, such as hive meta store url.
     @SerializedName(value = "dsProperty")
-    private DataSourceProperty dsProperty = new DataSourceProperty();
+    protected DataSourceProperty dsProperty = new DataSourceProperty();
 
     /**
      * @return names of database in this data source.
@@ -72,21 +74,6 @@ public abstract class ExternalDataSource implements DataSourceIf, Writable {
      */
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
 
-    /**
-     * get schema of the specified table
-     *
-     * @param dbName
-     * @param tblName
-     * @return list of columns as table's schema
-     */
-    public abstract List<Column> getSchema(SessionContext ctx, String dbName, String tblName);
-
-    /**
-     * @return list of ExternalScanRange
-     */
-    public abstract List<ExternalScanRange> getExternalScanRanges(SessionContext ctx);
-
-
     @Override
     public long getId() {
         return id;
@@ -104,69 +91,84 @@ public abstract class ExternalDataSource implements DataSourceIf, Writable {
 
     @Override
     public List<String> getDbNames() {
-        return null;
+        return listDatabaseNames(null);
     }
 
     @Nullable
     @Override
     public DatabaseIf getDbNullable(String dbName) {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Nullable
     @Override
     public DatabaseIf getDbNullable(long dbId) {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public Optional<DatabaseIf> getDb(String dbName) {
-        return Optional.empty();
+        throw new NotImplementedException();
     }
 
     @Override
     public Optional<DatabaseIf> getDb(long dbId) {
-        return Optional.empty();
+        throw new NotImplementedException();
     }
 
     @Override
     public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return null;
+        throw new NotImplementedException();
     }
 
     @Override
     public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return null;
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return dsProperty.getProperties();
+    }
+
+    @Override
+    public void modifyDatasourceName(String name) {
+        this.name = name;
+    }
+
+    @Override
+    public void modifyDatasourceProps(Map<String, String> props) {
+        dsProperty.setProperties(props);
     }
 
     @Override

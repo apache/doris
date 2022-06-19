@@ -50,12 +50,13 @@ public class Group {
      *
      * @param groupExpression first {@link GroupExpression} in this Group
      */
-    public Group(GroupExpression groupExpression) {
+    public Group(GroupExpression groupExpression, LogicalProperties logicalProperties) {
         if (groupExpression.getOperator() instanceof LogicalOperator) {
             this.logicalExpressions.add(groupExpression);
         } else {
             this.physicalExpressions.add(groupExpression);
         }
+        this.logicalProperties = logicalProperties;
         groupExpression.setParent(this);
     }
 
@@ -101,12 +102,12 @@ public class Group {
      * @param newExpression new logical group expression
      * @return old logical group expression
      */
-    public GroupExpression rewriteLogicalExpression(
-            GroupExpression newExpression) {
-        GroupExpression oldExpression = getLogicalExpression();
+    public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
+                                                    LogicalProperties logicalProperties) {
         logicalExpressions.clear();
         logicalExpressions.add(newExpression);
-        return oldExpression;
+        this.logicalProperties = logicalProperties;
+        return getLogicalExpression();
     }
 
     public double getCostLowerBound() {
@@ -141,6 +142,10 @@ public class Group {
 
     public LogicalProperties getLogicalProperties() {
         return logicalProperties;
+    }
+
+    public void setLogicalProperties(LogicalProperties logicalProperties) {
+        this.logicalProperties = logicalProperties;
     }
 
     public boolean isExplored() {

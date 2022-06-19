@@ -62,6 +62,7 @@ public class RandomDistributionInfo extends DistributionInfo {
         super.write(out);
         out.writeInt(bucketNum);
     }
+
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         bucketNum = in.readInt();

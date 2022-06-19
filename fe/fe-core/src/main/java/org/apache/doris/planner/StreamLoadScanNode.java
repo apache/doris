@@ -136,7 +136,8 @@ public class StreamLoadScanNode extends LoadScanNode {
                 columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
             }
             if (taskInfo.hasSequenceCol()) {
-                columnExprDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
+                columnExprDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, taskInfo.getSequenceCol())));
             }
         }
 

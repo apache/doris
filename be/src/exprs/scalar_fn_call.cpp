@@ -27,7 +27,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
 #include "util/symbols_util.h"
 
 namespace doris {

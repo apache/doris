@@ -36,6 +36,10 @@ VNodeChannel::VNodeChannel(OlapTableSink* parent, IndexChannel* index_channel, i
 }
 
 VNodeChannel::~VNodeChannel() {
+    if (_add_block_closure != nullptr) {
+        delete _add_block_closure;
+        _add_block_closure = nullptr;
+    }
     _cur_add_block_request.release_id();
 }
 

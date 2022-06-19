@@ -32,7 +32,7 @@ public interface LogicalPlan extends Plan {
     LogicalOperator getOperator();
 
     @Override
-    LogicalPlan newChildren(List<Plan> children);
+    LogicalPlan withChildren(List<Plan> children);
 
     /**
      * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the

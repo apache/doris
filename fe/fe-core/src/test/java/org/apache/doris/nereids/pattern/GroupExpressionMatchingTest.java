@@ -38,10 +38,10 @@ public class GroupExpressionMatchingTest implements Plans {
 
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan plan = plan(unboundRelation);
-        Memo<Plan> memo = new Memo<>();
+        Memo memo = new Memo();
         memo.initialize(plan);
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
+        GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
@@ -60,15 +60,15 @@ public class GroupExpressionMatchingTest implements Plans {
         Plan leaf = plan(unboundRelation);
         LogicalProject project = new LogicalProject(Lists.newArrayList());
         Plan root = plan(project, leaf);
-        Memo<Plan> memo = new Memo();
+        Memo memo = new Memo();
         memo.initialize(root);
 
         UnboundRelation anotherUnboundRelation = new UnboundRelation(Lists.newArrayList("test2"));
         Plan anotherLeaf = plan(anotherUnboundRelation);
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
-                = new GroupExpressionMatching<>(pattern, memo.getRoot().getLogicalExpression());
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());
@@ -93,15 +93,15 @@ public class GroupExpressionMatchingTest implements Plans {
         Plan leaf = plan(unboundRelation);
         LogicalProject project = new LogicalProject(Lists.newArrayList());
         Plan root = plan(project, leaf);
-        Memo<Plan> memo = new Memo();
+        Memo memo = new Memo();
         memo.initialize(root);
 
         UnboundRelation anotherUnboundRelation = new UnboundRelation(Lists.newArrayList("test2"));
         Plan anotherLeaf = plan(anotherUnboundRelation);
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
-                = new GroupExpressionMatching<>(pattern, memo.getRoot().getLogicalExpression());
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());

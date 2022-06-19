@@ -199,7 +199,8 @@ public class SparkRepository {
                 String destFilePath = remoteArchivePath + PATH_DELIMITER
                         + assemblyFileName(PREFIX_LIB, md5sum, SPARK_2X, ".zip");
                 rename(origFilePath, destFilePath);
-                currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
+                currentArchive.libraries.add(new SparkLibrary(
+                        destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
             } // CHECKSTYLE IGNORE THIS LINE
             LOG.info("finished to upload archive to repository, currentDppVersion={}, path={}",
                     currentDppVersion, remoteArchivePath);
@@ -342,8 +343,8 @@ public class SparkRepository {
 
         public SparkLibrary getDppLibrary() {
             SparkLibrary result = null;
-            Optional<SparkLibrary> library = libraries.stream().
-                    filter(lib -> lib.libType == SparkLibrary.LibType.DPP).findFirst();
+            Optional<SparkLibrary> library = libraries.stream()
+                    .filter(lib -> lib.libType == SparkLibrary.LibType.DPP).findFirst();
             if (library.isPresent()) {
                 result = library.get();
             }
@@ -352,8 +353,8 @@ public class SparkRepository {
 
         public SparkLibrary getSpark2xLibrary() {
             SparkLibrary result = null;
-            Optional<SparkLibrary> library = libraries.stream().
-                    filter(lib -> lib.libType == SparkLibrary.LibType.SPARK2X).findFirst();
+            Optional<SparkLibrary> library = libraries.stream()
+                    .filter(lib -> lib.libType == SparkLibrary.LibType.SPARK2X).findFirst();
             if (library.isPresent()) {
                 result = library.get();
             }

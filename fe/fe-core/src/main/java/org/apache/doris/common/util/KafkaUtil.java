@@ -87,8 +87,8 @@ public class KafkaUtil {
     // The input parameter "timestampOffsets" is <partition, timestamp>
     // Tne return value is <partition, offset>
     public static List<Pair<Integer, Long>> getOffsetsForTimes(String brokerList, String topic,
-                                                               Map<String, String> convertedCustomProperties,
-                                                               List<Pair<Integer, Long>> timestampOffsets) throws LoadException {
+            Map<String, String> convertedCustomProperties, List<Pair<Integer, Long>> timestampOffsets)
+            throws LoadException {
         TNetworkAddress address = null;
         LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
         try {

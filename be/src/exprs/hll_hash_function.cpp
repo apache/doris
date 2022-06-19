@@ -18,6 +18,9 @@
 #include "exprs/hll_hash_function.h"
 
 #include "exprs/aggregate_functions.h"
+#include "exprs/anyval_util.h"
+#include "olap/hll.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 

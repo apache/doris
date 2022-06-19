@@ -21,7 +21,6 @@ import com.google.common.base.Preconditions;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
@@ -105,12 +104,5 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
         return "dppColumns{"
                 + "columns=" + columns
                 + '}';
-    }
-}
-
-class DppColumnsComparator implements Comparator<DppColumns> {
-    @Override
-    public int compare(DppColumns left, DppColumns right) {
-        return left.compareTo(right);
     }
 }

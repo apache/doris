@@ -132,9 +132,11 @@ public abstract class Type {
     public static ArrayList<ScalarType> getIntegerTypes() {
         return integerTypes;
     }
+
     public static ArrayList<ScalarType> getNumericTypes() {
         return numericTypes;
     }
+
     public static ArrayList<ScalarType> getSupportedTypes() {
         return supportedTypes;
     }
@@ -323,6 +325,7 @@ public abstract class Type {
     public boolean isDate() {
         return isScalarType(PrimitiveType.DATE);
     }
+
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
@@ -401,8 +404,6 @@ public abstract class Type {
         }
         if (t1.isComplexType() || t2.isComplexType()) {
             if (t1.isArrayType() && t2.isArrayType()) {
-                // Subtype of Array do not support cast now, for example:
-                //     Array<Int8> can not cast to Array<Int32>
                 return t1.matchesType(t2);
             } else if (t1.isMapType() && t2.isMapType()) {
                 return true;
@@ -569,6 +570,7 @@ public abstract class Type {
                 return null;
         }
     }
+
     public static List<TTypeDesc> toThrift(Type[] types) {
         return toThrift(Lists.newArrayList(types));
     }

@@ -27,7 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -98,7 +98,7 @@ import java.util.stream.Collectors;
  * simple.
  */
 public class Analyzer {
-    private final static Logger LOG = LogManager.getLogger(Analyzer.class);
+    private static final Logger LOG = LogManager.getLogger(Analyzer.class);
     // used for contains inlineview analytic function's tuple changed
     private ExprSubstitutionMap changeResSmap = new ExprSubstitutionMap();
 
@@ -969,7 +969,8 @@ public class Analyzer {
      *     At this time, vectorization cannot support this situation,
      *     so it is necessary to fall back to non-vectorization for processing.
      *     For example:
-     *       Query: select * from t1 left join (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
+     *       Query: select * from t1 left join
+     *              (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
      *       Origin: tmp.k1 not null, tmp.count_k2 not null
      *       Result: throw VecNotImplException
      */
@@ -1528,6 +1529,7 @@ public class Analyzer {
     public Set<Expr> getGlobalInDeDuplication() {
         return Sets.newHashSet(globalState.globalInDeDuplication);
     }
+
     /**
      * Makes the given semi-joined tuple visible such that its slots can be referenced.
      * If tid is null, makes the currently visible semi-joined tuple invisible again.
@@ -2000,7 +2002,8 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost()
+                && !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
 
     public boolean enableInferPredicate() {
@@ -2028,7 +2031,8 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost()
+                && !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
 
     public boolean safeIsEnableFoldConstantByBe() {
@@ -2176,6 +2180,7 @@ public class Analyzer {
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
         return getUnassignedConjuncts(node.getTblRefIds());
     }
+
     /**
      * Returns true if e must be evaluated by a join node. Note that it may still be
      * safe to evaluate e elsewhere as well, but in any case the join must evaluate e.
@@ -2196,6 +2201,7 @@ public class Analyzer {
 
         return false;
     }
+
     /**
      * Mark all slots that are referenced in exprs as materialized.
      */

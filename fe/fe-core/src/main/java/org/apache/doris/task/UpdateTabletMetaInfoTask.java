@@ -110,7 +110,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                     TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                     metaInfo.setTabletId(pair.first);
                     metaInfo.setSchemaHash(pair.second);
-                    TabletMeta tabletMeta = Catalog.getCurrentCatalog().getTabletInvertedIndex().getTabletMeta(pair.first);
+                    TabletMeta tabletMeta = Catalog.getCurrentCatalog()
+                            .getTabletInvertedIndex().getTabletMeta(pair.first);
                     if (tabletMeta == null) {
                         LOG.warn("could not find tablet [{}] in meta ignore it", pair.second);
                         continue;
