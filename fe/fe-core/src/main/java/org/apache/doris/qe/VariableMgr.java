@@ -249,19 +249,19 @@ public class VariableMgr {
 
         if (setVar.getType() == SetType.GLOBAL) {
             setGlobalVarAndWriteEditLog(ctx, attr.name(), setVar.getValue().getStringValue());
-        } else {
-            // set session variable
-            Field field = ctx.getField();
-            // if stmt is "Select /*+ SET_VAR(...)*/"
-            if (sessionVariable.getIsSingleSetVar()) {
-                try {
-                    sessionVariable.addSessionOriginValue(field, field.get(sessionVariable).toString());
-                } catch (Exception e) {
-                    LOG.warn("failed to collect origin session value ", e);
-                }
-            }
-            setValue(sessionVariable, field, value);
         }
+
+        // No matter this is a global setting or not, always set session variable.
+        Field field = ctx.getField();
+        // if stmt is "Select /*+ SET_VAR(...)*/"
+        if (sessionVariable.getIsSingleSetVar()) {
+            try {
+                sessionVariable.addSessionOriginValue(field, field.get(sessionVariable).toString());
+            } catch (Exception e) {
+                LOG.warn("failed to collect origin session value ", e);
+            }
+        }
+        setValue(sessionVariable, field, value);
     }
 
     private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
