@@ -35,6 +35,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -63,8 +64,8 @@ public abstract class ScanNode extends PlanNode {
     protected String sortColumn = null;
     protected Analyzer analyzer;
 
-    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
-        super(id, desc.getId().asList(), planNodeName, nodeType);
+    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
+        super(id, desc.getId().asList(), planNodeName, statisticalType);
         this.desc = desc;
     }
 

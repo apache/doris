@@ -17,8 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
+import org.apache.doris.common.IdGenerator;
 
 /**
  * The util of named expression.
@@ -27,10 +26,9 @@ public class NamedExpressionUtil {
     /**
      * Tool class for generate next ExprId.
      */
-    private static final UUID JVM_ID = UUID.randomUUID();
-    private static final AtomicLong CURRENT_ID = new AtomicLong();
+    private static IdGenerator<ExprId> idIdGenerator = ExprId.createGenerator();
 
     public static ExprId newExprId() {
-        return new ExprId(CURRENT_ID.getAndIncrement(), JVM_ID);
+        return idIdGenerator.getNextId();
     }
 }

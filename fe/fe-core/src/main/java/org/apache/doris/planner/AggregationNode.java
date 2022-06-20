@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -65,7 +66,7 @@ public class AggregationNode extends PlanNode {
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
      */
     public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo) {
-        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", NodeType.AGG_NODE);
+        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", StatisticalType.AGG_NODE);
         this.aggInfo = aggInfo;
         this.children.add(input);
         this.needsFinalize = true;
@@ -76,7 +77,7 @@ public class AggregationNode extends PlanNode {
      * Copy c'tor used in clone().
      */
     private AggregationNode(PlanNodeId id, AggregationNode src) {
-        super(id, src, "AGGREGATE", NodeType.AGG_NODE);
+        super(id, src, "AGGREGATE", StatisticalType.AGG_NODE);
         aggInfo = src.aggInfo;
         needsFinalize = src.needsFinalize;
     }

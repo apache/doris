@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
@@ -73,7 +74,7 @@ public class OdbcScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
-        super(id, desc, "SCAN ODBC", NodeType.ODBC_SCAN_NODE);
+        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = OdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
