@@ -26,7 +26,7 @@ suite("test_schema_change", "schema_change") {
 
      sql """ DROP TABLE IF EXISTS ${tbName} """
      sql """
-            CREATE TABLE ${tbName}
+            CREATE TABLE IF NOT EXISTS ${tbName}
             (
                 event_day DATE,
                 siteid INT DEFAULT '10',
