@@ -23,7 +23,7 @@ suite("test_date_function", "query") {
     sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 test_datetime datetime NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(test_datetime)
