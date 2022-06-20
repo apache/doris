@@ -426,33 +426,32 @@ public class HashJoinNode extends PlanNode {
             default:
                 break;
         }
-        ExprSubstitutionMap srcTblRefToOutputTupleSmap = new ExprSubstitutionMap();
+        // 2. compute srcToOutputMap
+        vSrcToOutputSMap = new ExprSubstitutionMap();
         if (copyLeft) {
-            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getTblRefIds())) {
+            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getTupleIds())) {
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
                     if (leftNullable) {
                         outputSlotDesc.setIsNullable(true);
                     }
-                    srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
+                    vSrcToOutputSMap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
                 }
             }
         }
         if (copyRight) {
-            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(1).getTblRefIds())) {
+            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(1).getTupleIds())) {
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
                     if (rightNullable) {
                         outputSlotDesc.setIsNullable(true);
                     }
-                    srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
+                    vSrcToOutputSMap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
                 }
             }
         }
-        // 2. compute srcToOutputMap
-        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap);
         for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
             Preconditions.checkState(vSrcToOutputSMap.getRhs().get(i) instanceof SlotRef);
             SlotRef rSlotRef = (SlotRef) vSrcToOutputSMap.getRhs().get(i);
@@ -465,7 +464,7 @@ public class HashJoinNode extends PlanNode {
         }
         vOutputTupleDesc.computeStatAndMemLayout();
         // 3. change the outputSmap
-        outputSmap = ExprSubstitutionMap.combineAndReplace(outputSmap, srcTblRefToOutputTupleSmap);
+        outputSmap = ExprSubstitutionMap.compose(outputSmap, vSrcToOutputSMap, analyzer);
     }
 
     private void replaceOutputSmapForOuterJoin() {

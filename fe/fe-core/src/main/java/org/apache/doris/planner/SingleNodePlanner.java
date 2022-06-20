@@ -1354,9 +1354,14 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
-                //set outputSmap to substitute literal in outputExpr
-                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
+                //set outputSmap to substitute literal in outputExpr
+                unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
+                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
+                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
+                    unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
+                }
                 return unionNode;
             }
         }
