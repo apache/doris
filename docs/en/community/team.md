@@ -36,7 +36,7 @@ under the License.
 
 We'd like to thank the following committers to the Apache Doris (incubating) project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
 
-## PPMC (22)
+## PMC (22)
 
 (the listing below excludes mentors)
 
@@ -64,7 +64,7 @@ We'd like to thank the following committers to the Apache Doris (incubating) pro
 
 ## Committers (33)
 
-(the listing excludes PPMC members above)
+(the listing excludes PMC members above)
 
 | Apache ID                                                    | Github Username  | Public Name    |
 | :----------------------------------------------------------- | :--------------- | :------------- |

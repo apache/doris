@@ -36,7 +36,7 @@ under the License.
 
 我们要感谢以下提交者，他们帮助Apache Doris (incubating) 取得了今天的进展。此列表可能已过时，正式列表位于 [Apache 的网站上](https://people.apache.org/committers-by-project.html#doris) 。
 
-## PPMC (22)
+## PMC (22)
 
 (如下列表不包含 mentors)
 
@@ -64,7 +64,7 @@ under the License.
 
 ## Committers (33)
 
-(如下列表不包含上述 PPMC 成员)
+(如下列表不包含上述 PMC 成员)
 
 | Apache ID                                                    | Github 用户名    | 公开名         |
 | :----------------------------------------------------------- | :--------------- | :------------- |
