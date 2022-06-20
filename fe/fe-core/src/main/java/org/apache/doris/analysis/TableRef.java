@@ -301,7 +301,7 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public Table getTable() {
-        return desc.getTable();
+        return (Table) desc.getTable();
     }
 
     public void setUsingClause(List<String> colNames) {

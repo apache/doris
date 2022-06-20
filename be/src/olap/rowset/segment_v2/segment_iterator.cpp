@@ -856,14 +856,14 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     return Status::OK();
 }
 
-void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
-                                                        uint16_t& selected_size) {
+uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
+                                                            uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     if (!_is_need_vec_eval) {
         for (uint32_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
         }
-        return;
+        return selected_size;
     }
 
     uint16_t original_size = selected_size;
@@ -871,40 +871,57 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
     memset(ret_flags, 1, selected_size);
     _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
 
-    uint32_t sel_pos = 0;
-    const uint32_t sel_end = sel_pos + selected_size;
-    static constexpr size_t SIMD_BYTES = 32;
-    const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
     uint16_t new_size = 0;
-
-    while (sel_pos < sel_end_simd) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
-        while (mask) {
-            const size_t bit_pos = __builtin_ctzll(mask);
-            sel_rowid_idx[new_size++] = sel_pos + bit_pos;
-            mask = mask & (mask - 1);
+    size_t num_zeros = simd::count_zero_num(reinterpret_cast<int8_t*>(ret_flags), original_size);
+    if (0 == num_zeros) {
+        for (uint16_t i = 0; i < original_size; i++) {
+            sel_rowid_idx[i] = i;
         }
-        sel_pos += SIMD_BYTES;
-    }
+        new_size = original_size;
+    } else if (num_zeros == original_size) {
+        //no row pass, let new_size = 0
+    } else {
+        uint32_t sel_pos = 0;
+        const uint32_t sel_end = sel_pos + selected_size;
+        static constexpr size_t SIMD_BYTES = 32;
+        const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
-    for (; sel_pos < sel_end; sel_pos++) {
-        if (ret_flags[sel_pos]) {
-            sel_rowid_idx[new_size++] = sel_pos;
+        while (sel_pos < sel_end_simd) {
+            auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+            if (0 == mask) {
+                //pass
+            } else if (0xffffffff == mask) {
+                for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                    sel_rowid_idx[new_size++] = sel_pos + i;
+                }
+            } else {
+                while (mask) {
+                    const size_t bit_pos = __builtin_ctzll(mask);
+                    sel_rowid_idx[new_size++] = sel_pos + bit_pos;
+                    mask = mask & (mask - 1);
+                }
+            }
+            sel_pos += SIMD_BYTES;
+        }
+
+        for (; sel_pos < sel_end; sel_pos++) {
+            if (ret_flags[sel_pos]) {
+                sel_rowid_idx[new_size++] = sel_pos;
+            }
         }
     }
-
     _opts.stats->rows_vec_cond_filtered += original_size - new_size;
-    selected_size = new_size;
+    return new_size;
 }
 
-void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
-                                                        uint16_t* selected_size_ptr) {
+uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
+                                                            uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
     if (!_is_need_short_eval) {
-        return;
+        return selected_size;
     }
 
-    uint16_t original_size = *selected_size_ptr;
+    uint16_t original_size = selected_size;
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
@@ -914,15 +931,16 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
             predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
-        predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
+        selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
-    _opts.stats->rows_vec_cond_filtered += original_size - *selected_size_ptr;
+    _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
 
     // evaluate delete condition
-    original_size = *selected_size_ptr;
-    _opts.delete_condition_predicates->evaluate(_current_return_columns, vec_sel_rowid_idx,
-                                                selected_size_ptr);
-    _opts.stats->rows_vec_del_cond_filtered += original_size - *selected_size_ptr;
+    original_size = selected_size;
+    selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
+                                                                vec_sel_rowid_idx, selected_size);
+    _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
+    return selected_size;
 }
 
 void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
@@ -1006,13 +1024,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         uint16_t sel_rowid_idx[selected_size];
 
         // step 1: evaluate vectorization predicate
-        _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
+        selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
 
         // step 2: evaluate short ciruit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
-        _evaluate_short_circuit_predicate(sel_rowid_idx, &selected_size);
+        selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
 
         if (!_lazy_materialization_read) {
             Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,

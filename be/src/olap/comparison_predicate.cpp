@@ -149,7 +149,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 // by this way, avoid redundant code
 #define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP, IS_RANGE)                                       \
     template <class T>                                                                             \
-    void CLASS<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {    \
+    uint16_t CLASS<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const { \
         uint16_t new_size = 0;                                                                     \
         if (column.is_nullable()) {                                                                \
             auto* nullable_col =                                                                   \
@@ -166,7 +166,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                     auto dict_code =                                                               \
                             IS_RANGE ? nested_col_ptr->find_code_by_bound(_value, 1 OP 0, 1 OP 1)  \
                                      : nested_col_ptr->find_code(_value);                          \
-                    for (uint16_t i = 0; i < *size; i++) {                                         \
+                    for (uint16_t i = 0; i < size; i++) {                                          \
                         uint16_t idx = sel[i];                                                     \
                         sel[new_size] = idx;                                                       \
                         const auto& cell_value = data_array[idx];                                  \
@@ -179,7 +179,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                         vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(      \
                                 nested_col);                                                       \
                 auto& data_array = nested_col_ptr->get_data();                                     \
-                for (uint16_t i = 0; i < *size; i++) {                                             \
+                for (uint16_t i = 0; i < size; i++) {                                              \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
                     const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);          \
@@ -195,7 +195,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                 auto& data_array = dict_col.get_data();                                            \
                 auto dict_code = IS_RANGE ? dict_col.find_code_by_bound(_value, 1 OP 0, 1 OP 1)    \
                                           : dict_col.find_code(_value);                            \
-                for (uint16_t i = 0; i < *size; ++i) {                                             \
+                for (uint16_t i = 0; i < size; ++i) {                                              \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
                     const auto& cell_value = data_array[idx];                                      \
@@ -206,7 +206,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         } else {                                                                                   \
             auto& pred_column_ref = reinterpret_cast<vectorized::PredicateColumnType<T>&>(column); \
             auto& data_array = pred_column_ref.get_data();                                         \
-            for (uint16_t i = 0; i < *size; i++) {                                                 \
+            for (uint16_t i = 0; i < size; i++) {                                                  \
                 uint16_t idx = sel[i];                                                             \
                 sel[new_size] = idx;                                                               \
                 const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);              \
@@ -214,7 +214,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                 new_size += _opposite ? !ret : ret;                                                \
             }                                                                                      \
         }                                                                                          \
-        *size = new_size;                                                                          \
+        return new_size;                                                                           \
     }
 
 COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==, false)
@@ -609,31 +609,31 @@ COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(LessEqualPredicate)
 COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(GreaterPredicate)
 COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(GreaterEqualPredicate)
 
-#define COMPARISON_PRED_COLUMN_EVALUATE_DECLARATION(CLASS)                                 \
-    template void CLASS<int8_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,      \
-                                          uint16_t* size) const;                           \
-    template void CLASS<int16_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,     \
-                                           uint16_t* size) const;                          \
-    template void CLASS<int32_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,     \
-                                           uint16_t* size) const;                          \
-    template void CLASS<int64_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,     \
-                                           uint16_t* size) const;                          \
-    template void CLASS<int128_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
-                                            uint16_t* size) const;                         \
-    template void CLASS<float>::evaluate(vectorized::IColumn& column, uint16_t* sel,       \
-                                         uint16_t* size) const;                            \
-    template void CLASS<double>::evaluate(vectorized::IColumn& column, uint16_t* sel,      \
-                                          uint16_t* size) const;                           \
-    template void CLASS<decimal12_t>::evaluate(vectorized::IColumn& column, uint16_t* sel, \
-                                               uint16_t* size) const;                      \
-    template void CLASS<StringValue>::evaluate(vectorized::IColumn& column, uint16_t* sel, \
-                                               uint16_t* size) const;                      \
-    template void CLASS<uint24_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
-                                            uint16_t* size) const;                         \
-    template void CLASS<uint64_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
-                                            uint16_t* size) const;                         \
-    template void CLASS<bool>::evaluate(vectorized::IColumn& column, uint16_t* sel,        \
-                                        uint16_t* size) const;
+#define COMPARISON_PRED_COLUMN_EVALUATE_DECLARATION(CLASS)                                     \
+    template uint16_t CLASS<int8_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,      \
+                                              uint16_t size) const;                            \
+    template uint16_t CLASS<int16_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,     \
+                                               uint16_t size) const;                           \
+    template uint16_t CLASS<int32_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,     \
+                                               uint16_t size) const;                           \
+    template uint16_t CLASS<int64_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,     \
+                                               uint16_t size) const;                           \
+    template uint16_t CLASS<int128_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
+                                                uint16_t size) const;                          \
+    template uint16_t CLASS<float>::evaluate(vectorized::IColumn& column, uint16_t* sel,       \
+                                             uint16_t size) const;                             \
+    template uint16_t CLASS<double>::evaluate(vectorized::IColumn& column, uint16_t* sel,      \
+                                              uint16_t size) const;                            \
+    template uint16_t CLASS<decimal12_t>::evaluate(vectorized::IColumn& column, uint16_t* sel, \
+                                                   uint16_t size) const;                       \
+    template uint16_t CLASS<StringValue>::evaluate(vectorized::IColumn& column, uint16_t* sel, \
+                                                   uint16_t size) const;                       \
+    template uint16_t CLASS<uint24_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
+                                                uint16_t size) const;                          \
+    template uint16_t CLASS<uint64_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
+                                                uint16_t size) const;                          \
+    template uint16_t CLASS<bool>::evaluate(vectorized::IColumn& column, uint16_t* sel,        \
+                                            uint16_t size) const;
 
 COMPARISON_PRED_COLUMN_EVALUATE_DECLARATION(EqualPredicate)
 COMPARISON_PRED_COLUMN_EVALUATE_DECLARATION(NotEqualPredicate)

@@ -15,28 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.planner.external;
 
-import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.statistics.PlanStats;
-
-import java.util.List;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.thrift.TFileFormatType;
 
 /**
- * Abstract class for all plan node.
+ * A file scan provider for hudi.
+ * HudiProvier is extended with hive since they both use input format interface to get the spilt.
  */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
 
-    PlanOperator getOperator();
+    public ExternalHudiScanProvider(HMSExternalTable hmsTable) {
+        super(hmsTable);
+    }
 
-    LogicalProperties getLogicalProperties();
-
-    List<Slot> getOutput();
-
-    String treeString();
-
-    Plan withOutput(List<Slot> output);
+    @Override
+    public TFileFormatType getTableFormatType() throws DdlException {
+        return TFileFormatType.FORMAT_PARQUET;
+    }
 }
