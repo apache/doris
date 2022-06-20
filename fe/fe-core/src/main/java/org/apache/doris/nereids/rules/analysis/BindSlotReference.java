@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -36,9 +34,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -80,8 +78,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
     private <E extends Expression> E bind(E expr, List<Plan> inputs) {
         List<Slot> boundedSlots = inputs.stream()
-            .flatMap(input -> input.getOutput().stream())
-            .collect(Collectors.toList());
+                .flatMap(input -> input.getOutput().stream())
+                .collect(Collectors.toList());
         return (E) new SlotBinder(boundedSlots).visit(expr, null);
     }
 
@@ -121,23 +119,30 @@ public class BindSlotReference implements AnalysisRuleFactory {
             switch (qualifier.size()) {
                 case 0: // select *
                     boundSlots.addAll(boundSlots);
+                    break;
                 case 1: // select table.*
+                    analyzeBoundSlots(qualifier, context);
+                    break;
                 case 2: // select db.table.*
-                    this.boundSlots.stream()
-                        .forEach(slot ->
-                            boundSlots.add(visitUnboundSlot(new UnboundSlot(
-                                ImmutableList.<String>builder()
-                                    .addAll(qualifier)
-                                    .add(slot.getName())
-                                    .build()
-                            ), context))
-                        );
+                    analyzeBoundSlots(qualifier, context);
                     break;
                 default:
                     throw new AnalysisException("Not supported qualifier: "
                         + StringUtils.join(qualifier, "."));
             }
             return null;
+        }
+
+        private void analyzeBoundSlots(List<String> qualifier, Void context) {
+            this.boundSlots.stream()
+                    .forEach(slot ->
+                        boundSlots.add(visitUnboundSlot(new UnboundSlot(
+                            ImmutableList.<String>builder()
+                                .addAll(qualifier)
+                                .add(slot.getName())
+                                .build()
+                        ), context))
+                    );
         }
 
         private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
