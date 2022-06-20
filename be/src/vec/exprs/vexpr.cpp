@@ -33,6 +33,7 @@
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vliteral.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
 
@@ -56,6 +57,15 @@ VExpr::VExpr(const doris::TExprNode& node)
     }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
+
+VExpr::VExpr(const VExpr& vexpr)
+        : _node_type(vexpr._node_type),
+          _type(vexpr._type),
+          _data_type(vexpr._data_type),
+          _children(vexpr._children),
+          _fn(vexpr._fn),
+          _fn_context_index(vexpr._fn_context_index),
+          _constant_col(vexpr._constant_col) {}
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
         : _type(type), _fn_context_index(-1) {
