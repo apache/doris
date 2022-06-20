@@ -469,7 +469,7 @@ public class HashJoinNode extends PlanNode {
     }
 
     private void replaceOutputSmapForOuterJoin() {
-        if (joinOp.isOuterJoin()) {
+        if (joinOp.isOuterJoin() && !VectorizedUtil.isVectorized()) {
             List<Expr> lhs = new ArrayList<>();
             List<Expr> rhs = new ArrayList<>();
 
