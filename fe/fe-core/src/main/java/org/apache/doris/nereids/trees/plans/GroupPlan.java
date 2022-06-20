@@ -96,4 +96,9 @@ public class GroupPlan extends LogicalLeafPlan<GroupPlanOperator> {
     public List<? extends ExprStats> getConjuncts() {
         throw new RuntimeException("GroupPlan can not invoke getConjuncts()");
     }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        throw new RuntimeException("GroupPlan can not invoke withGroupExpression()");
+    }
 }

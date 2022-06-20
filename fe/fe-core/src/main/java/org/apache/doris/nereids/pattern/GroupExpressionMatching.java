@@ -86,6 +86,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
 
             // toTreeNode will wrap operator to plan, and set GroupPlan as children placeholder
             Plan root = groupExpression.getOperator().toTreeNode(groupExpression);
+            // pattern.arity() == 0 equals to root.arity() == 0
             if (pattern.arity() == 0) {
                 if (pattern.matchPredicates(root)) {
                     // if no children pattern, we treat all children as GROUP. e.g. Pattern.ANY.
@@ -138,8 +139,11 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 for (int i = 0; i < childrenPlans.size(); i++) {
                     children.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }
-                // assemble children: replace GroupPlan to real plan
-                Plan rootWithChildren = root.withChildren(children);
+                // assemble children: replace GroupPlan to real plan,
+                // withChildren will erase groupExpression, so we must
+                // withGroupExpression too.
+                Plan rootWithChildren = root.withChildren(children)
+                        .withGroupExpression(root.getGroupExpression());
                 if (rootPattern.matchPredicates(rootWithChildren)) {
                     results.add(rootWithChildren);
                 }

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -35,14 +34,14 @@ import java.util.Objects;
  */
 public class PhysicalProject extends PhysicalUnaryOperator {
 
-    private final List<? extends NamedExpression> projects;
+    private final List<NamedExpression> projects;
 
-    public PhysicalProject(List<? extends NamedExpression> projects) {
+    public PhysicalProject(List<NamedExpression> projects) {
         super(OperatorType.PHYSICAL_PROJECT);
         this.projects = Objects.requireNonNull(projects, "projects can not be null");
     }
 
-    public List<? extends NamedExpression> getProjects() {
+    public List<NamedExpression> getProjects() {
         return projects;
     }
 
@@ -58,6 +57,6 @@ public class PhysicalProject extends PhysicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return ImmutableList.of();
+        return (List) projects;
     }
 }
