@@ -161,7 +161,7 @@ public class DescriptorTable {
                 // but its table has no id
                 if (tupleD.getTable() != null
                         && tupleD.getTable().getId() >= 0) {
-                    referencedTbls.add(tupleD.getTable());
+                    referencedTbls.add((Table) tupleD.getTable());
                 }
                 for (SlotDescriptor slotD : tupleD.getMaterializedSlots()) {
                     result.addToSlotDescriptors(slotD.toThrift());
