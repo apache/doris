@@ -77,4 +77,5 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
     public PhysicalProperties getPhysicalProperties() {
         return physicalProperties;
     }
+
 }
