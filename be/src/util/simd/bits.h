@@ -59,5 +59,25 @@ inline uint32_t bytes32_mask_to_bits32_mask(const bool* data) {
     return bytes32_mask_to_bits32_mask(reinterpret_cast<const uint8_t*>(data));
 }
 
+// compiler will make this SIMD automatically
+inline size_t count_zero_num(const int8_t* __restrict data, size_t size) {
+    size_t num = 0;
+    const int8_t* end = data + size;
+    for (; data < end; ++data) {
+        num += (*data == 0);
+    }
+    return num;
+}
+
+inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict null_map,
+                             size_t size) {
+    size_t num = 0;
+    const int8_t* end = data + size;
+    for (; data < end; ++data, ++null_map) {
+        num += ((*data == 0) | *null_map);
+    }
+    return num;
+}
+
 } // namespace simd
 } // namespace doris
