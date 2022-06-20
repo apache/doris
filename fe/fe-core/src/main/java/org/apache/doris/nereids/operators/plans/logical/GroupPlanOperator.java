@@ -21,7 +21,9 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 
 import com.google.common.collect.ImmutableList;
 
@@ -32,6 +34,11 @@ import java.util.List;
 public class GroupPlanOperator extends LogicalLeafOperator {
     public GroupPlanOperator() {
         super(OperatorType.GROUP_PLAN);
+    }
+
+    @Override
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitGroupPlan((GroupPlan) plan, context);
     }
 
     @Override

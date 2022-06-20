@@ -60,6 +60,10 @@ public abstract class PlanOperatorVisitor<R, C> {
         return visit(join, context);
     }
 
+    public R visitGroupPlan(GroupPlan groupPlan, C context) {
+        return visit(groupPlan, context);
+    }
+
     // *******************************
     // Physical plans
     // *******************************
@@ -87,5 +91,4 @@ public abstract class PlanOperatorVisitor<R, C> {
     public R visitPhysicalFilter(PhysicalUnaryPlan<PhysicalFilter, Plan> filter, C context) {
         return visit(filter, context);
     }
-
 }

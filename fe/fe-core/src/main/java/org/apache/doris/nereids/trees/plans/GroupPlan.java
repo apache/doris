@@ -23,6 +23,9 @@ import org.apache.doris.nereids.operators.plans.logical.GroupPlanOperator;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.List;
 import java.util.Optional;
@@ -62,5 +65,35 @@ public class GroupPlan extends LogicalLeafPlan<GroupPlanOperator> {
     @Override
     public GroupPlan withChildren(List<Plan> children) {
         throw new IllegalStateException("GroupPlan can not invoke withChildren()");
+    }
+
+    @Override
+    public List<StatsDeriveResult> getChildrenStats() {
+        throw new RuntimeException("GroupPlan can not invoke getChildrenStats()");
+    }
+
+    @Override
+    public StatsDeriveResult getStatsDeriveResult() {
+        throw new RuntimeException("GroupPlan can not invoke getStatsDeriveResult()");
+    }
+
+    @Override
+    public StatisticalType getStatisticalType() {
+        throw new RuntimeException("GroupPlan can not invoke getStatisticalType()");
+    }
+
+    @Override
+    public void setStatsDeriveResult(StatsDeriveResult result) {
+        throw new RuntimeException("GroupPlan can not invoke setStatsDeriveResult()");
+    }
+
+    @Override
+    public long getLimit() {
+        throw new RuntimeException("GroupPlan can not invoke getLimit()");
+    }
+
+    @Override
+    public List<? extends ExprStats> getConjuncts() {
+        throw new RuntimeException("GroupPlan can not invoke getConjuncts()");
     }
 }
