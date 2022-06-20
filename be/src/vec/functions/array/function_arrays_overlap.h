@@ -85,8 +85,13 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(remove_nullable(arguments[0]))) << arguments[0]->get_name();
-        DCHECK(is_array(remove_nullable(arguments[1]))) << arguments[0]->get_name();
+        auto left_data_type = remove_nullable(arguments[0]);
+        auto right_data_type = remove_nullable(arguments[1]);
+        DCHECK(is_array(left_data_type)) << arguments[0]->get_name();
+        DCHECK(is_array(right_data_type)) << arguments[1]->get_name();
+        DCHECK(left_data_type->equals(*right_data_type))
+                << "data type " << arguments[0]->get_name() << " not equal with "
+                << arguments[1]->get_name();
         return make_nullable(std::make_shared<DataTypeUInt8>());
     }
 
@@ -107,13 +112,6 @@ public:
         // extract array column
         if (!extract_column_array_info(*left_column, left_exec_data) ||
             !extract_column_array_info(*right_column, right_exec_data)) {
-            return ret;
-        }
-
-        // data type compare
-        auto left_data_type = remove_nullable(block.get_by_position(arguments[0]).type);
-        auto right_data_type = remove_nullable(block.get_by_position(arguments[1]).type);
-        if (!left_data_type->equals(*right_data_type)) {
             return ret;
         }
 
@@ -201,12 +199,14 @@ private:
             }
 
             // any element inside array is NULL, return NULL
-            ssize_t start = (*data.offsets_ptr)[row - 1];
-            ssize_t size = (*data.offsets_ptr)[row] - start;
-            for (ssize_t i = start; i < start + size; ++i) {
-                if (data.nested_nullmap_data && data.nested_nullmap_data[i]) {
-                    dst_nullmap_data[row] = 1;
-                    break;
+            if (data.nested_nullmap_data) {
+                ssize_t start = (*data.offsets_ptr)[row - 1];
+                ssize_t size = (*data.offsets_ptr)[row] - start;
+                for (ssize_t i = start; i < start + size; ++i) {
+                    if (data.nested_nullmap_data[i]) {
+                        dst_nullmap_data[row] = 1;
+                        break;
+                    }
                 }
             }
         }
@@ -229,13 +229,16 @@ private:
             ssize_t right_size = (*right_data.offsets_ptr)[row] - right_start;
             if (left_size == 0 || right_size == 0) {
                 dst_data[row] = 0;
+                continue;
             }
 
             ExecutorImpl impl;
-            impl.insert_array(left_data.nested_col, left_start, left_size);
-
-            if (impl.find_any(right_data.nested_col, right_start, right_size)) {
-                dst_data[row] = 1;
+            if (right_size < left_size) {
+                impl.insert_array(right_data.nested_col, right_start, right_size);
+                dst_data[row] = impl.find_any(left_data.nested_col, left_start, left_size);
+            } else {
+                impl.insert_array(left_data.nested_col, left_start, left_size);
+                dst_data[row] = impl.find_any(right_data.nested_col, right_start, right_size);
             }
         }
         return Status::OK();
