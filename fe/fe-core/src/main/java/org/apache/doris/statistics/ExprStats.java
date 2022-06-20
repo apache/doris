@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,28 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
-
-import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.statistics.PlanStats;
-
-import java.util.List;
+package org.apache.doris.statistics;
 
 /**
- * Abstract class for all plan node.
+ * Used to abstract a common expression interface for statistics deduction to fit both optimizers.
  */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+public interface ExprStats {
 
-    PlanOperator getOperator();
+    boolean hasSelectivity();
 
-    LogicalProperties getLogicalProperties();
+    double getSelectivity();
 
-    List<Slot> getOutput();
+    void setSelectivity();
 
-    String treeString();
+    long getNumDistinctValues();
 
-    Plan withOutput(List<Slot> output);
 }
