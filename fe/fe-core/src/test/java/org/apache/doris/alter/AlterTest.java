@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
@@ -198,6 +199,18 @@ public class AlterTest {
                 + "   \"s3_connection_timeout_ms\" = \"1000\"\n"
                 + ");");
 
+        createRemoteStoragePolicy("CREATE STORAGE POLICY testPolicy\n"
+                + "PROPERTIES(\n"
+                + "  \"storage_resource\" = \"remote_s3\",\n"
+                + "  \"cooldown_datetime\" = \"2100-05-10 00:00:00\"\n"
+                + ");");
+
+        createRemoteStoragePolicy("CREATE STORAGE POLICY testPolicy2\n"
+                + "PROPERTIES(\n"
+                + "  \"storage_resource\" = \"remote_s3\",\n"
+                + "  \"cooldown_ttl\" = \"1d\"\n"
+                + ");");
+
         createTable("CREATE TABLE test.tbl_remote\n"
                 + "(\n"
                 + "    k1 date,\n"
@@ -217,9 +230,8 @@ public class AlterTest {
                 + "    'replication_num' = '1',\n"
                 + "    'in_memory' = 'false',\n"
                 + "    'storage_medium' = 'SSD',\n"
-                + "    'storage_cooldown_time' = '2122-04-01 20:24:00',\n"
-                + "    'remote_storage_resource' = 'remote_s3',\n"
-                + "    'remote_storage_cooldown_time' = '2122-12-01 20:23:00'"
+                + "    'storage_cooldown_time' = '2100-05-09 00:00:00',\n"
+                + "    'remote_storage_policy' = 'testPolicy'\n"
                 + ");");
     }
 
@@ -237,6 +249,11 @@ public class AlterTest {
     private static void createRemoteStorageResource(String sql) throws Exception {
         CreateResourceStmt stmt = (CreateResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().getResourceMgr().createResource(stmt);
+    }
+
+    private static void createRemoteStoragePolicy(String sql) throws Exception {
+        CreatePolicyStmt stmt = (CreatePolicyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getPolicyMgr().createPolicy(stmt);
     }
 
     private static void alterTable(String sql, boolean expectedException) throws Exception {
@@ -447,13 +464,13 @@ public class AlterTest {
         stmt = "alter table test.tbl4 modify partition (p3, p4) set ('storage_medium' = 'HDD')";
         DateLiteral dateLiteral = new DateLiteral("2999-12-31 00:00:00", Type.DATETIME);
         long cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "", DataProperty.MAX_COOLDOWN_TIME_MS);
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "");
         partitionList = Lists.newArrayList(p3, p4);
         for (Partition partition : partitionList) {
             Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }
         alterTable(stmt, false);
-        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "", DataProperty.MAX_COOLDOWN_TIME_MS);
+        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "");
         for (Partition partition : partitionList) {
             Assert.assertEquals(newDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }
@@ -466,7 +483,7 @@ public class AlterTest {
 
         dateLiteral = new DateLiteral("2100-12-31 00:00:00", Type.DATETIME);
         cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty newDataProperty1 = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "", DataProperty.MAX_COOLDOWN_TIME_MS);
+        DataProperty newDataProperty1 = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "");
         partitionList = Lists.newArrayList(p1, p2);
         for (Partition partition : partitionList) {
             Assert.assertEquals(newDataProperty1, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
@@ -492,11 +509,9 @@ public class AlterTest {
         Partition p3 = tblRemote.getPartition("p3");
         Partition p4 = tblRemote.getPartition("p4");
 
-        DateLiteral dateLiteral = new DateLiteral("2122-04-01 20:24:00", Type.DATETIME);
+        DateLiteral dateLiteral = new DateLiteral("2100-05-09 00:00:00", Type.DATETIME);
         long cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DateLiteral dateLiteral1 = new DateLiteral("2122-12-01 20:23:00", Type.DATETIME);
-        long remoteCooldownTimeMs = dateLiteral1.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "remote_s3", remoteCooldownTimeMs);
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "testPolicy");
         List<Partition> partitionList = Lists.newArrayList(p2, p3, p4);
         for (Partition partition : partitionList) {
             Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
@@ -507,7 +522,7 @@ public class AlterTest {
         alterTable(stmt, false);
         DateLiteral newDateLiteral = new DateLiteral("2100-04-01 22:22:22", Type.DATETIME);
         long newCooldownTimeMs = newDateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty dataProperty2 = new DataProperty(TStorageMedium.SSD, newCooldownTimeMs, "remote_s3", remoteCooldownTimeMs);
+        DataProperty dataProperty2 = new DataProperty(TStorageMedium.SSD, newCooldownTimeMs, "testPolicy");
         for (Partition partition : partitionList) {
             Assert.assertEquals(dataProperty2, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
         }
@@ -516,33 +531,22 @@ public class AlterTest {
         // alter storage_medium
         stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
         alterTable(stmt, false);
-        DataProperty dataProperty1 = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "remote_s3", remoteCooldownTimeMs);
+        DataProperty dataProperty1 = new DataProperty(
+                TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "testPolicy");
         for (Partition partition : partitionList) {
             Assert.assertEquals(dataProperty1, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
         }
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
         // alter remote_storage
-        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('remote_storage_resource' = 'remote_s3_1')";
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('remote_storage_policy' = 'testPolicy3')";
         alterTable(stmt, true);
-        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
-
-        // alter remote_storage_cooldown_time
-        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('remote_storage_cooldown_time' = '2122-12-01 20:23:00')";
-        alterTable(stmt, false);
-        DateLiteral newRemoteDate = new DateLiteral("2122-12-01 20:23:00", Type.DATETIME);
-        long newRemoteCooldownTimeMs = newRemoteDate.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty dataProperty4 = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "remote_s3", newRemoteCooldownTimeMs);
-        for (Partition partition : partitionList) {
-            Assert.assertEquals(dataProperty4, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
-        }
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
         // alter recover to old state
         stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ("
                 + "'storage_medium' = 'SSD', "
-                + "'storage_cooldown_time' = '2122-04-01 20:24:00', "
-                + "'remote_storage_cooldown_time' = '2122-12-01 20:23:00'"
+                + "'storage_cooldown_time' = '2100-05-09 00:00:00'"
                 + ")";
         alterTable(stmt, false);
         for (Partition partition : partitionList) {
