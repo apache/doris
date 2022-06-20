@@ -871,28 +871,45 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     memset(ret_flags, 1, selected_size);
     _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
 
-    uint32_t sel_pos = 0;
-    const uint32_t sel_end = sel_pos + selected_size;
-    static constexpr size_t SIMD_BYTES = 32;
-    const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
     uint16_t new_size = 0;
-
-    while (sel_pos < sel_end_simd) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
-        while (mask) {
-            const size_t bit_pos = __builtin_ctzll(mask);
-            sel_rowid_idx[new_size++] = sel_pos + bit_pos;
-            mask = mask & (mask - 1);
+    size_t num_zeros = simd::count_zero_num(reinterpret_cast<int8_t*>(ret_flags), original_size);
+    if (0 == num_zeros){
+        for(uint16_t i=0; i<original_size; i++){
+            sel_rowid_idx[i] = i;
         }
-        sel_pos += SIMD_BYTES;
-    }
+        new_size = original_size;
+    }else if (num_zeros == original_size){
+        //no row pass, let new_size = 0
+    }else{
+        uint32_t sel_pos = 0;
+        const uint32_t sel_end = sel_pos + selected_size;
+        static constexpr size_t SIMD_BYTES = 32;
+        const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
-    for (; sel_pos < sel_end; sel_pos++) {
-        if (ret_flags[sel_pos]) {
-            sel_rowid_idx[new_size++] = sel_pos;
+        while (sel_pos < sel_end_simd) {
+            auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+            if (0 == mask){
+                //pass
+            }else if (0xffffffff == mask){
+                for(uint32_t i=0; i<SIMD_BYTES; i++){
+                    sel_rowid_idx[new_size++] = sel_pos + i;
+                }
+            }else{
+                while (mask) {
+                    const size_t bit_pos = __builtin_ctzll(mask);
+                    sel_rowid_idx[new_size++] = sel_pos + bit_pos;
+                    mask = mask & (mask - 1);
+                }
+            }
+            sel_pos += SIMD_BYTES;
+        }
+
+        for (; sel_pos < sel_end; sel_pos++) {
+            if (ret_flags[sel_pos]) {
+                sel_rowid_idx[new_size++] = sel_pos;
+            }
         }
     }
-
     _opts.stats->rows_vec_cond_filtered += original_size - new_size;
     return new_size;
 }
