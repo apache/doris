@@ -45,7 +45,7 @@ under the License.
 $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
 ```
 
-此处按需注意 [挂载的问题](../install/source-install/compilation.md)
+此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 
