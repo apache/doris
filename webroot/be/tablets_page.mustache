@@ -23,15 +23,13 @@ under the License.
   <thead>
     <tr class="bg-primary">
       <th data-field='tablet id' data-valign='middle' data-align='center' data-sortable='false' data-sorter='stringsSorter'>Tablet Id</th>
-      <th data-file= 'schema hash' data-valign='middle' data-align='center' data-sortable='false' data-sorter='stringsSorter'>Schema Hash</th>
     </tr>
   </thead>
   <tbody>
     {{#data}}
       {{#tablets}}
         <tr>
-          <td><a href="/api/meta/header/{{tablet_id}}/{{schema_hash}}" target="_blank">{{tablet_id}}</a></td>
-          <td><a href="/api/meta/header/{{tablet_id}}/{{schema_hash}}" target="_blank">{{schema_hash}}</a></td>
+          <td><a href="/api/meta/header/{{tablet_id}}}" target="_blank">{{tablet_id}}</a></td>
         </tr>
       {{/tablets}}
     {{/data}}
