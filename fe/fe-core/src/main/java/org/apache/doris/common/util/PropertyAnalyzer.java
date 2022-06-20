@@ -174,7 +174,7 @@ public class PropertyAnalyzer {
         }
 
         if (hasRemoteStoragePolicy) {
-            // check remote policy
+            // check remote storage policy
             StoragePolicy checkedPolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
             Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedPolicy);
             if (!(policy instanceof StoragePolicy)) {
