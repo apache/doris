@@ -84,6 +84,8 @@ public:
 
     int64_t mem_consumption() const;
 
+    int64_t memtable_consumption() const;
+
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
@@ -91,9 +93,9 @@ public:
 
     int32_t schema_hash() { return _tablet->schema_hash(); }
 
-    int64_t save_mem_consumption_snapshot();
+    int64_t save_memtable_consumption_snapshot();
 
-    int64_t get_mem_consumption_snapshot() const;
+    int64_t get_memtable_consumption_snapshot() const;
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
@@ -130,7 +132,7 @@ private:
     bool _is_vec;
 
     //only used for std::sort more detail see issue(#9237)
-    int64_t _mem_consumption_snapshot = 0;
+    int64_t _memtable_consumption_snapshot = 0;
 };
 
 } // namespace doris

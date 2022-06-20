@@ -109,7 +109,7 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
 
     std::shared_ptr<TabletsChannel> channel;
     if (_find_largest_consumption_channel(&channel)) {
-        channel->reduce_mem_usage(_mem_tracker->limit());
+        channel->reduce_mem_usage(_mem_tracker->consumption());
     } else {
         // should not happen, add log to observe
         LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "

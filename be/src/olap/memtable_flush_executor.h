@@ -103,7 +103,10 @@ public:
 
     Status create_flush_token(std::unique_ptr<FlushToken>* flush_token, RowsetTypePB rowset_type,
                               bool is_high_priority);
-
+    
+    //thread pool overload: if thread_pool runs more than _min_threads tasks, and there are some tasks in quey
+    bool thread_pool_overloaded();
+    
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
     std::unique_ptr<ThreadPool> _high_prio_flush_pool;

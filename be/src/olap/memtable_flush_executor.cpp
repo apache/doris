@@ -145,4 +145,8 @@ Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* fl
     return Status::OK();
 }
 
+bool MemTableFlushExecutor::thread_pool_overloaded() {
+    return _flush_pool->get_queue_size() > 0 && _flush_pool->num_active_threads() > _flush_pool->min_threads();
+}
+
 } // namespace doris
