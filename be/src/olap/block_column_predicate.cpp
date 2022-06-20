@@ -41,11 +41,11 @@ void SingleColumnBlockPredicate::evaluate_or(RowBlockV2* block, uint16_t selecte
     _predicate->evaluate_or(&column_block, block->selection_vector(), selected_size, flags);
 }
 
-void SingleColumnBlockPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
-                                          uint16_t* selected_size) const {
+uint16_t SingleColumnBlockPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                                              uint16_t selected_size) const {
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
-    _predicate->evaluate(*column, sel, selected_size);
+    return _predicate->evaluate(*column, sel, selected_size);
 }
 
 void SingleColumnBlockPredicate::evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
@@ -90,25 +90,25 @@ void OrBlockColumnPredicate::evaluate(RowBlockV2* block, uint16_t* selected_size
     }
 }
 
-void OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
-                                      uint16_t* selected_size) const {
+uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                                          uint16_t selected_size) const {
     if (num_of_column_predicate() == 1) {
-        _block_column_predicate_vec[0]->evaluate(block, sel, selected_size);
+        return _block_column_predicate_vec[0]->evaluate(block, sel, selected_size);
     } else {
-        bool ret_flags[*selected_size];
-        memset(ret_flags, false, *selected_size);
+        bool ret_flags[selected_size];
+        memset(ret_flags, false, selected_size);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
             auto column_predicate = _block_column_predicate_vec[i];
-            column_predicate->evaluate_or(block, sel, *selected_size, ret_flags);
+            column_predicate->evaluate_or(block, sel, selected_size, ret_flags);
         }
 
         uint16_t new_size = 0;
-        for (int i = 0; i < *selected_size; ++i) {
+        for (int i = 0; i < selected_size; ++i) {
             if (ret_flags[i]) {
                 sel[new_size++] = sel[i];
             }
         }
-        *selected_size = new_size;
+        return new_size;
     }
 }
 
@@ -168,11 +168,12 @@ void AndBlockColumnPredicate::evaluate(RowBlockV2* block, uint16_t* selected_siz
     }
 }
 
-void AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
-                                       uint16_t* selected_size) const {
+uint16_t AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                                           uint16_t selected_size) const {
     for (auto block_column_predicate : _block_column_predicate_vec) {
-        block_column_predicate->evaluate(block, sel, selected_size);
+        selected_size = block_column_predicate->evaluate(block, sel, selected_size);
     }
+    return selected_size;
 }
 
 void AndBlockColumnPredicate::evaluate_and(RowBlockV2* block, uint16_t selected_size,
