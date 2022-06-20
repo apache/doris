@@ -856,14 +856,14 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     return Status::OK();
 }
 
-void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
-                                                        uint16_t& selected_size) {
+uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
+                                                            uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     if (!_is_need_vec_eval) {
         for (uint32_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
         }
-        return;
+        return selected_size;
     }
 
     uint16_t original_size = selected_size;
@@ -894,17 +894,17 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
     }
 
     _opts.stats->rows_vec_cond_filtered += original_size - new_size;
-    selected_size = new_size;
+    return new_size;
 }
 
-void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
-                                                        uint16_t* selected_size_ptr) {
+uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
+                                                            uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
     if (!_is_need_short_eval) {
-        return;
+        return selected_size;
     }
 
-    uint16_t original_size = *selected_size_ptr;
+    uint16_t original_size = selected_size;
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
@@ -914,15 +914,16 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
             predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
-        predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
+        selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
-    _opts.stats->rows_vec_cond_filtered += original_size - *selected_size_ptr;
+    _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
 
     // evaluate delete condition
-    original_size = *selected_size_ptr;
-    _opts.delete_condition_predicates->evaluate(_current_return_columns, vec_sel_rowid_idx,
-                                                selected_size_ptr);
-    _opts.stats->rows_vec_del_cond_filtered += original_size - *selected_size_ptr;
+    original_size = selected_size;
+    selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
+                                                                vec_sel_rowid_idx, selected_size);
+    _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
+    return selected_size;
 }
 
 void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
@@ -1006,13 +1007,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         uint16_t sel_rowid_idx[selected_size];
 
         // step 1: evaluate vectorization predicate
-        _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
+        selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
 
         // step 2: evaluate short ciruit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
-        _evaluate_short_circuit_predicate(sel_rowid_idx, &selected_size);
+        selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
 
         if (!_lazy_materialization_read) {
             Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
