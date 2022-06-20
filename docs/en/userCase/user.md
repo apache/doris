@@ -88,6 +88,10 @@
       {
         "logo": "/images/home/logo-aispeech.png",
         "alt": "AISpeech"
+      },
+      {
+        "logo": "/images/home/logo-zhihu.png",
+        "alt": "Zhihu"
       }
     ]
 }

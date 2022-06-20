@@ -88,6 +88,10 @@
       {
         "logo": "/images/home/logo-aispeech.png",
         "alt": "思必驰"
+      },
+      {
+        "logo": "/images/home/logo-zhihu.png",
+        "alt": "知乎"
       }
     ]
 }
