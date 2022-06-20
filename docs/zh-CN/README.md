@@ -32,7 +32,7 @@ under the License.
         <p class="sum">现代化的高性能MPP分析型数据库</p> 
         <div class="bannerHref">
           <a href="/zh-CN/docs/get-starting/get-starting.html" class="button1">快速开始</a> 
-          <a href="https://github.com/apache/incubator-doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
+          <a href="https://github.com/apache/doris" target="_blank" class="button2"><i class="doris doris-github-fill"></i>GITHUB</a>
           <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-18u6vjopj-Th15vTVfmCzVfhhL5rz26A" target="_blank" class="button2 white">
           <i><img style="width: 20px; position: relative; left: 4px; top: 2px; margin: 0;" src="/images/slack.png" alt="Slack" /></i>SLACK</a>
         </div>
@@ -57,14 +57,14 @@ under the License.
 <div class="newsBox">
   <ul class="wow fadeInUp">
     <li>
-      <a href="/zh-CN/blogs/ReleaseNote/release-note-1.0.0.html">
+      <a href="/zh-CN/blogs/ReleaseNote/Announcing.html">
         <div class="newsboxTitle">
-          <p class="t">[Doris 发版通告] Apache Doris(Incubating) 1.0.0 Release</p>
+          <p class="t">[Doris 毕业通告] Apache Doris 正式成为顶级项目</p>
           <i class="doris doris-jiantou_xiangyouliangci"></i>
         </div>
         <div class="newsboxImg">
           <div class="newsboxImgBox">
-            <img src="/blog-images/news1.jpg" alt="img">
+            <img src="/blog-images/graduate.jpg" alt="img">
           </div>
         </div>
       </a>
@@ -334,9 +334,9 @@ under the License.
       </div>
     </div>
     <div class="footerfoot">
-      <img src="/blog-images/dorisyezi.png" alt="doris" class="wow fadeInUp" />
-      <p class="wow fadeInUp">Copyright © 2022 The Apache Software Foundation. Licensed under the Apache License, Version 2.0. Apache <br/> Doris(Incubating), Apache Incubator, Apache, the Apache feather logo, the Apache Doris(Incubating) logo and the <br/>Apache Incubator project logo are trademarks of The Apache Software Foundation.</p>
-      <p class="wow fadeInUp">Apache Doris(incubating) is an effort undergoing incubation at The Apache Software Foundation (ASF), sponsored <br/>by the Apache Incubator. Incubation is required of all newly accepted projects until a further review indicates that<br/> the infrastructure, communications, and decision making process have stabilized in a manner consistent with other<br/> successful ASF projects. While incubation status is not necessarily a reflection of the completeness or stability of <br/>the code, it does indicate that the project has yet to be fully endorsed by the ASF.</p>
+     <img src="/images/asf_logo_apache.svg" alt="doris" class="wow fadeInUp asf-logo" />
+      <p class="wow fadeInUp">Copyright © 2022 The Apache Software Foundation. Licensed under the Apache License, Version 2.0.  <br/>Apache Doris, Apache,  the Apache feather logo, the Apache Doris logo are trademarks of The Apache Software Foundation.</p>
+      <p class="wow fadeInUp">Apache Doris is an effort undergoing incubation at The Apache Software Foundation (ASF), sponsored <br/>by the Apache Incubator. Incubation is required of all newly accepted projects until a further review indicates that<br/> the infrastructure, communications, and decision making process have stabilized in a manner consistent with other<br/> successful ASF projects. While incubation status is not necessarily a reflection of the completeness or stability of <br/>the code, it does indicate that the project has yet to be fully endorsed by the ASF.</p>
     </div>
   </div>
 </div>
