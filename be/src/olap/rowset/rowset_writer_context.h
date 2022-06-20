@@ -54,7 +54,7 @@ struct RowsetWriterContext {
         context.partition_id = new_tablet->partition_id();
         context.tablet_schema_hash = new_tablet->schema_hash();
         context.rowset_type = new_rowset_type;
-        context.path_desc = new_tablet->tablet_path_desc();
+        context.tablet_path = new_tablet->tablet_path();
         context.tablet_schema = &(new_tablet->tablet_schema());
         context.data_dir = new_tablet->data_dir();
         context.rowset_state = VISIBLE;

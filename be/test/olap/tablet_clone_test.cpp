@@ -195,7 +195,8 @@ TEST_F(TabletCloneTest, convert_rowset_ids_has_file_in_s3) {
     st = SnapshotManager::instance()->_create_snapshot_files(tablet, snapshot_req, &kSnapshotDir,
                                                              &allow_incremental_clone);
     ASSERT_EQ(Status::OK(), st);
-    st = SnapshotManager::instance()->convert_rowset_ids(kTestDir, kTabletId, KSchemaHash);
+    st = SnapshotManager::instance()->convert_rowset_ids(kTestDir, kTabletId, request.replica_id,
+                                                         KSchemaHash);
     ASSERT_NE(Status::OK(), st);
     delete delta_writer;
 }

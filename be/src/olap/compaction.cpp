@@ -136,7 +136,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     _oldest_write_timestamp = _input_rowsets.front()->oldest_write_timestamp();
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
-    auto use_vectorized_compaction = _should_use_vectorized_compaction();
+    auto use_vectorized_compaction = config::enable_vectorized_compaction;
     string merge_type = use_vectorized_compaction ? "v" : "";
 
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()

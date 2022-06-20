@@ -335,7 +335,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         if (status.ok()) {
             // change all rowset ids because they maybe its id same with local rowset
             auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
-                    local_data_path, _clone_req.tablet_id, _clone_req.replica_id, ,
+                    local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
                     _clone_req.schema_hash);
             if (olap_st != Status::OK()) {
                 LOG(WARNING) << "fail to convert rowset ids, path=" << local_data_path

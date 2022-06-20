@@ -42,7 +42,6 @@ public:
 
         config::storage_root_path = kTestDir;
         config::min_file_descriptor_number = 1000;
-        config::quick_cooldown = true;
 
         FileUtils::remove_all(kTestDir);
         FileUtils::create_dir(kTestDir);

@@ -273,7 +273,7 @@ private:
     Status _handle_quick_compaction(TabletSharedPtr);
 
     void _adjust_compaction_thread_num();
-    
+
     void _cooldown_tasks_producer_callback();
 
 private:
