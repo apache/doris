@@ -43,8 +43,10 @@ public:
 
     virtual void get_all_column_ids(std::set<ColumnId>& column_id_set) const = 0;
 
-    virtual void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
-                          uint16_t* selected_size) const {};
+    virtual uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                              uint16_t selected_size) const {
+        return selected_size;
+    }
     virtual void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
                               uint16_t selected_size, bool* flags) const {};
     virtual void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
@@ -66,8 +68,8 @@ public:
         column_id_set.insert(_predicate->column_id());
     };
 
-    void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
-                  uint16_t* selected_size) const override;
+    uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                      uint16_t selected_size) const override;
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
@@ -115,8 +117,8 @@ public:
     void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
     void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
 
-    void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
-                  uint16_t* selected_size) const override;
+    uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                      uint16_t selected_size) const override;
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
@@ -135,8 +137,8 @@ public:
     // 2.Evaluate OR SEMANTICS in flags use 1 result to get proper select flags
     void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
 
-    void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
-                  uint16_t* selected_size) const override;
+    uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                      uint16_t selected_size) const override;
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,

@@ -24,6 +24,9 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 
@@ -81,4 +84,35 @@ public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolder
         Preconditions.checkArgument(children.size() == 0);
         return new PlaceHolderPlan(logicalProperties);
     }
+
+    @Override
+    public List<StatsDeriveResult> getChildrenStats() {
+        throw new RuntimeException("Unsupported Method");
+    }
+
+    @Override
+    public StatsDeriveResult getStatsDeriveResult() {
+        throw new RuntimeException("Unsupported Method");
+    }
+
+    @Override
+    public StatisticalType getStatisticalType() {
+        throw new RuntimeException("Unsupported Method");
+    }
+
+    @Override
+    public void setStatsDeriveResult(StatsDeriveResult result) {
+        throw new RuntimeException("Unsupported Method");
+    }
+
+    @Override
+    public long getLimit() {
+        throw new RuntimeException("Unsupported Method");
+    }
+
+    @Override
+    public List<? extends ExprStats> getConjuncts() {
+        throw new RuntimeException("Unsupported Method");
+    }
+
 }
