@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.qe;
 
-import org.apache.doris.nereids.parser.SqlParser;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -51,8 +51,8 @@ public class Executor {
         System.out.println("==== input SQL: ====\n" + sql + "\n");
 
         // parse phase
-        SqlParser parser = new SqlParser();
-        LogicalPlan parsedPlan = parser.parse(sql);
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan parsedPlan = parser.parseSingle(sql);
         LOG.info("==== parsed plan: ====\n{}", parsedPlan.treeString());
         System.out.println("==== parsed plan: ====\n" + parsedPlan.treeString() + "\n");
     }

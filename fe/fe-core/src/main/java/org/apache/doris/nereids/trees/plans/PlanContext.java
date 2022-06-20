@@ -33,9 +33,9 @@ import java.util.List;
  * Context of physical plan.
  */
 public class PlanContext {
-    private List<PlanFragment> planFragmentList = Lists.newArrayList();
+    private final List<PlanFragment> planFragmentList = Lists.newArrayList();
 
-    private DescriptorTable descTable = new DescriptorTable();
+    private final DescriptorTable descTable = new DescriptorTable();
 
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();

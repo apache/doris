@@ -194,6 +194,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             childSortNode.setLimit(limit + offset);
         }
         childSortNode.setOffset(0);
+        context.addPlanFragment(mergeFragment);
         return mergeFragment;
     }
 
@@ -228,6 +229,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             rightFragment.setDestination(exchangeNode);
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             leftFragment.setPlanRoot(crossJoinNode);
+            context.addPlanFragment(leftFragment);
             return leftFragment;
         }
 
@@ -251,7 +253,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         hashJoinNode.setLimit(physicalHashJoin.getLimited());
         leftFragment.setDestination((ExchangeNode) rightFragment.getPlanRoot());
         rightFragment.setDestination((ExchangeNode) leftFragmentPlanRoot);
-        return new PlanFragment(context.nextFragmentId(), hashJoinNode, leftFragment.getDataPartition());
+        PlanFragment result = new PlanFragment(context.nextFragmentId(), hashJoinNode, leftFragment.getDataPartition());
+        context.addPlanFragment(result);
+        return result;
     }
 
     @Override

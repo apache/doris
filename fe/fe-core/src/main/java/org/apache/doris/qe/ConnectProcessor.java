@@ -45,6 +45,7 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.service.FrontendOptions;
@@ -201,7 +202,18 @@ public class ConnectProcessor {
         List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
         boolean alreadyAddedToAuditInfoList = false;
         try {
-            List<StatementBase> stmts = analyze(originStmt);
+            List<StatementBase> stmts = null;
+            if (ctx.getSessionVariable().isEnableNereids()) {
+                NereidsParser nereidsParser = new NereidsParser();
+                try {
+                    stmts = nereidsParser.parseSQL(originStmt);
+                } catch (Exception e) {
+                    LOG.warn("SQL : {}, parse failed by new parser", originStmt, e);
+                }
+            }
+            if (stmts == null) {
+                stmts = analyze(originStmt);
+            }
             for (int i = 0; i < stmts.size(); ++i) {
                 alreadyAddedToAuditInfoList = false;
                 ctx.getState().reset();
