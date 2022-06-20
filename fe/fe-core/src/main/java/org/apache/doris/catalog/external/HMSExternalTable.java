@@ -131,4 +131,11 @@ public class HMSExternalTable extends ExternalTable {
         }
         return null;
     }
+
+    /**
+     * get database name of hms table.
+     */
+    public String getDbName() {
+        return dbName;
+    }
 }

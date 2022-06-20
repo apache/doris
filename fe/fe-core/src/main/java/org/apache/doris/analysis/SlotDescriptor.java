@@ -329,10 +329,7 @@ public class SlotDescriptor {
     }
 
     public boolean isScanSlot() {
-        Table table = parent.getTable();
-        if ((table != null) && (table instanceof OlapTable)) {
-            return true;
-        }
-        return false;
+        Table table = (Table) parent.getTable();
+        return table instanceof OlapTable;
     }
 }
