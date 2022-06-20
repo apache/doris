@@ -90,4 +90,4 @@ MySQL > select AES_DECRYPT(FROM_BASE64('tsmK1HzbpnEdR2//WhO+MA=='),'F3229A0B371E
 
 ### keywords
 
-    AES_DECRYPT
+    AES_ENCRYPT, AES_DECRYPT
