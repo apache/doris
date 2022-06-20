@@ -208,7 +208,8 @@ private:
                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
     bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
-                           const Version& temp_delta_versions, TabletSharedPtr new_tablet,
+                           const Version& temp_delta_versions, int64_t oldest_write_timestamp,
+                           int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
                            SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
 
     bool _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,

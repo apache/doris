@@ -21,7 +21,6 @@
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "olap/fs/block_manager.h"
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/index_page.h"
@@ -37,10 +36,10 @@ namespace doris {
 namespace segment_v2 {
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                         const TypeInfo* type_info, fs::WritableBlock* wblock)
+                                         const TypeInfo* type_info, io::FileWriter* file_writer)
         : _options(options),
           _type_info(type_info),
-          _wblock(wblock),
+          _file_writer(file_writer),
           _mem_pool("IndexedColumnWriter"),
           _num_values(0),
           _num_data_pages(0),
@@ -112,9 +111,9 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
     footer.mutable_data_page_footer()->set_nullmap_size(0);
 
-    RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec.get(),
-                                                    _options.compression_min_space_saving, _wblock,
-                                                    {page_body.slice()}, footer, &_last_data_page));
+    RETURN_IF_ERROR(PageIO::compress_and_write_page(
+            _compress_codec.get(), _options.compression_min_space_saving, _file_writer,
+            {page_body.slice()}, footer, &_last_data_page));
     _num_data_pages++;
 
     if (_options.write_ordinal_index) {
@@ -161,7 +160,7 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
 
         PagePointer pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
-                _compress_codec.get(), _options.compression_min_space_saving, _wblock,
+                _compress_codec.get(), _options.compression_min_space_saving, _file_writer,
                 {page_body.slice()}, page_footer, &pp));
 
         meta->set_is_root_data_page(false);

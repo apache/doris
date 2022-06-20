@@ -21,13 +21,12 @@
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
+Rowset::Rowset(const TabletSchema* schema, const std::string& tablet_path,
                RowsetMetaSharedPtr rowset_meta)
         : _schema(schema),
-          _rowset_path_desc(rowset_path_desc),
+          _tablet_path(tablet_path),
           _rowset_meta(std::move(rowset_meta)),
-          _refs_by_reader(0),
-          _rowset_state_machine(RowsetStateMachine()) {
+          _refs_by_reader(0) {
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
         _is_cumulative = false;

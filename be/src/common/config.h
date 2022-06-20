@@ -103,6 +103,8 @@ CONF_Int32(make_snapshot_worker_count, "5");
 CONF_Int32(release_snapshot_worker_count, "5");
 // the interval time(seconds) for agent report tasks signatrue to FE
 CONF_mInt32(report_task_interval_seconds, "10");
+// the interval time(seconds) for refresh storage policy from FE
+CONF_mInt32(storage_refresh_storage_policy_task_interval_seconds, "5");
 // the interval time(seconds) for agent report disk state to FE
 CONF_mInt32(report_disk_state_interval_seconds, "60");
 // the interval time(seconds) for agent report olap table to FE
@@ -763,6 +765,14 @@ CONF_Int32(quick_compaction_max_rows, "1000");
 CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
+
+// cooldown task configs
+CONF_Int32(cooldown_thread_num, "5");
+CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_Int32(concurrency_per_dir, "2");
+CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
+
+CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 } // namespace config
 
