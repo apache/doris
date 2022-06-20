@@ -66,7 +66,7 @@ The version of clang-format installed by centos yum is too old and supports too 
 
 LDB toolchain:
 
-If you are using [LDB toolchain](http://doris.incubator.apache.org/install/source-install/compilation-with-ldb-toolchain.html),
+If you are using [LDB toolchain](../../docs/install/source-install/compilation-with-ldb-toolchain.md),
 the latest version (>= v0.11) of [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases) has already included clang-format with 13.0.1 version.
 
 ### clang-format plugin
