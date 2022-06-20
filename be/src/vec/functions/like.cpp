@@ -132,12 +132,12 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
                                        LikeSearchState* search_state) {
     // for constant_substring_fn, use long run length search for performance
     if (constant_substring_fn ==
-        *(function.target<doris::Status(*)(LikeSearchState* state, const StringValue&,
+        *(function.target<doris::Status (*)(LikeSearchState * state, const StringValue&,
                                             const StringValue&, unsigned char*)>())) {
         // treat continous multi string data as a long string data
-        const UInt8 * begin = values.data();
-        const UInt8 * end = begin + values.size();
-        const UInt8 * pos = begin;
+        const UInt8* begin = values.data();
+        const UInt8* end = begin + values.size();
+        const UInt8* pos = begin;
 
         /// Current index in the array of strings.
         size_t i = 0;
@@ -146,7 +146,7 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
         /// We will search for the next occurrence in all strings at once.
         while (pos < end) {
             // search return matched substring start offset
-            pos = (UInt8 *)search_state->substring_pattern.search((char *)pos, end - pos);
+            pos = (UInt8*)search_state->substring_pattern.search((char*)pos, end - pos);
             if (pos >= end) break;
 
             /// Determine which index it refers to.
