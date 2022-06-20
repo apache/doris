@@ -15,28 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.statistics;
 
-import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.nereids.trees.expressions.Literal;
 
-import java.util.List;
+public class SlotStatsDeriveResult {
 
-/**
- * Abstract class for all plan node.
- */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+    // number of distinct value
+    private long ndv;
+    private Literal max;
+    private Literal min;
 
-    PlanOperator getOperator();
+    public long getNdv() {
+        return ndv;
+    }
 
-    LogicalProperties getLogicalProperties();
+    public void setNdv(long ndv) {
+        this.ndv = ndv;
+    }
 
-    List<Slot> getOutput();
+    public Literal getMax() {
+        return max;
+    }
 
-    String treeString();
+    public void setMax(Literal max) {
+        this.max = max;
+    }
 
-    Plan withOutput(List<Slot> output);
+    public Literal getMin() {
+        return min;
+    }
+
+    public void setMin(Literal min) {
+        this.min = min;
+    }
 }
