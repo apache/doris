@@ -34,16 +34,16 @@ import java.util.Objects;
  */
 public class LogicalProject extends LogicalUnaryOperator {
 
-    private final List<? extends NamedExpression> projects;
+    private final List<NamedExpression> projects;
 
     /**
      * Constructor for LogicalProject.
      *
      * @param projects project list
      */
-    public LogicalProject(List<? extends NamedExpression> projects) {
+    public LogicalProject(List<NamedExpression> projects) {
         super(OperatorType.LOGICAL_PROJECT);
-        this.projects = Objects.requireNonNull(projects, "projects can not be null");
+        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
     /**
@@ -51,7 +51,7 @@ public class LogicalProject extends LogicalUnaryOperator {
      *
      * @return all project of this node.
      */
-    public List<? extends NamedExpression> getProjects() {
+    public List<NamedExpression> getProjects() {
         return projects;
     }
 

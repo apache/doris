@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -26,18 +28,17 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -48,34 +49,40 @@ import java.util.stream.Collectors;
 public class BindSlotReference implements AnalysisRuleFactory {
     @Override
     public List<Rule<Plan>> buildRules() {
-        Rule<Plan> bindProjectSlot = logicalProject().then(project -> {
-            List<Slot> output = project.child().getOutput();
-            List<NamedExpression> bound = project.operator.getProjects().stream()
-                    .map(expr -> (NamedExpression) bind(expr, output))
-                    .collect(Collectors.toList());
-            return new LogicalUnaryPlan(new LogicalProject(bound), project.child());
-        }).toRule(RuleType.BINDING_PROJECT_SLOT);
-
-        Rule<Plan> bindFilterSlot = logicalFilter().then(filter -> {
-            List<Slot> output = filter.child().getOutput();
-            Expression boundPredicates = bind(filter.operator.getPredicates(), output);
-            return new LogicalUnaryPlan(new LogicalFilter(boundPredicates), filter.child());
-        }).toRule(RuleType.BINDING_FILTER_SLOT);
-
-        Rule<Plan> bindJoinSlot = logicalJoin().then(join -> {
-            List<Slot> output = Lists.newArrayList();
-            output.addAll(join.left().getOutput());
-            output.addAll(join.right().getOutput());
-            Optional<Expression> cond = join.operator.getCondition().map(expr -> bind(expr, output));
-            LogicalJoin op = new LogicalJoin(join.operator.getJoinType(), cond);
-            return new LogicalBinaryPlan(op, join.left(), join.right());
-        }).toRule(RuleType.BINDING_JOIN_SLOT);
-
-        return new ImmutableList.Builder<Rule<Plan>>().add(bindProjectSlot, bindFilterSlot, bindJoinSlot).build();
+        return ImmutableList.of(
+            RuleType.BINDING_PROJECT_SLOT.build(
+                logicalProject().then(project -> {
+                    List<NamedExpression> boundSlots = bind(project.operator.getProjects(), project.children());
+                    return plan(new LogicalProject(boundSlots), project.child());
+                })
+            ),
+            RuleType.BINDING_FILTER_SLOT.build(
+                logicalFilter().then(filter -> {
+                    Expression boundPredicates = bind(filter.operator.getPredicates(), filter.children());
+                    return plan(new LogicalFilter(boundPredicates), filter.child());
+                })
+            ),
+            RuleType.BINDING_JOIN_SLOT.build(
+                logicalJoin().then(join -> {
+                    Optional<Expression> cond = join.operator.getCondition().map(expr -> bind(expr, join.children()));
+                    LogicalJoin op = new LogicalJoin(join.operator.getJoinType(), cond);
+                    return plan(op, join.left(), join.right());
+                })
+            )
+        );
     }
 
-    private Expression bind(Expression expr, List<Slot> boundSlots) {
-        return new SlotBinder(boundSlots).visit(expr, null);
+    private <E extends Expression> List<E> bind(List<E> exprList, List<Plan> inputs) {
+        return exprList.stream()
+            .map(expr -> bind(expr, inputs))
+            .collect(Collectors.toList());
+    }
+
+    private <E extends Expression> E bind(E expr, List<Plan> inputs) {
+        List<Slot> boundedSlots = inputs.stream()
+            .flatMap(input -> input.getOutput().stream())
+            .collect(Collectors.toList());
+        return (E) new SlotBinder(boundedSlots).visit(expr, null);
     }
 
     private class SlotBinder extends DefaultExpressionRewriter<Void> {
@@ -87,12 +94,12 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Expression visitUnboundAlias(UnboundAlias unboundAlias, Void context) {
-            // todo: impl
-            return super.visitUnboundAlias(unboundAlias, context);
+            Expression child = visit(unboundAlias.child(), context);
+            return new Alias(child, unboundAlias.getName());
         }
 
         @Override
-        public Expression visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
+        public Slot visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
             List<Slot> bounded = bindSlot(unboundSlot, boundSlots);
             switch (bounded.size()) {
                 case 0:
@@ -109,8 +116,28 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Expression visitUnboundStar(UnboundStar unboundStar, Void context) {
-            // todo: impl
-            return super.visitUnboundStar(unboundStar, context);
+            List<String> qualifier = unboundStar.getQualifier();
+            List<Slot> boundSlots = Lists.newArrayList();
+            switch (qualifier.size()) {
+                case 0: // select *
+                    boundSlots.addAll(boundSlots);
+                case 1: // select table.*
+                case 2: // select db.table.*
+                    this.boundSlots.stream()
+                        .forEach(slot ->
+                            boundSlots.add(visitUnboundSlot(new UnboundSlot(
+                                ImmutableList.<String>builder()
+                                    .addAll(qualifier)
+                                    .add(slot.getName())
+                                    .build()
+                            ), context))
+                        );
+                    break;
+                default:
+                    throw new AnalysisException("Not supported qualifier: "
+                        + StringUtils.join(qualifier, "."));
+            }
+            return null;
         }
 
         private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
@@ -133,11 +160,12 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
                                     && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
                             default:
-                                throw new AnalysisException(
-                                        "Not supported qualifier: " + StringUtils.join(qualifier, "."));
+                                throw new AnalysisException("Not supported qualifier: "
+                                    + StringUtils.join(qualifier, "."));
                         }
                     default:
-                        throw new AnalysisException("Not supported name: " + StringUtils.join(nameParts, "."));
+                        throw new AnalysisException("Not supported name: "
+                            + StringUtils.join(nameParts, "."));
                 }
             }).collect(Collectors.toList());
         }
