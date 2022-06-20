@@ -666,7 +666,7 @@ struct TExchangeNode {
   1: required list<Types.TTupleId> input_row_tuples
   // For a merging exchange, the sort information.
   2: optional TSortInfo sort_info
-  // This is tHe number of rows to skip before returning results
+  // This is the number of rows to skip before returning results
   3: optional i64 offset
 }
 
