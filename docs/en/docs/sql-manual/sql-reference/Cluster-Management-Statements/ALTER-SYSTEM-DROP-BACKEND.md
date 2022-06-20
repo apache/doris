@@ -56,7 +56,7 @@ illustrate:
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, BACKEND
+    ALTER, SYSTEM, DROP, BACKEND, ALTER SYSTEM
 
 ### Best Practice
 
