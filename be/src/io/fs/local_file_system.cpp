@@ -79,7 +79,7 @@ Status LocalFileSystem::delete_file(const Path& path) {
 }
 
 Status LocalFileSystem::create_directory(const Path& path) {
-    auto fs_path = absolute_path(_root_path) / path;
+    auto fs_path = absolute_path(path);
     if (std::filesystem::exists(fs_path)) {
         return Status::IOError(fmt::format("{} exists", fs_path.native()));
     }
