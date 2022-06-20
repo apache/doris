@@ -36,4 +36,4 @@ Doris 社区欢迎大家分享 Doris 相关的文章。这些文章一经合入�
 * Doris 功能原理解读
 * Doris 业务场景实践
 
-具体说明，请前往：https://github.com/apache/incubator-doris-website 参阅 [README](https://github.com/apache/incubator-doris-website)
+具体说明，请前往：https://github.com/apache/doris-website 参阅 [README](https://github.com/apache/doris-website)

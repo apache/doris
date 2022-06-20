@@ -201,7 +201,8 @@ public class BeLoadRebalancer extends Rebalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx,
+            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -283,8 +284,9 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
-                if (!Config.be_rebalancer_fuzzy_test && !clusterStat.isMoreBalanced(tabletCtx.getSrcBackendId(), beStat.getBeId(),
-                        tabletCtx.getTabletId(), tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
+                if (!Config.be_rebalancer_fuzzy_test && !clusterStat.isMoreBalanced(
+                        tabletCtx.getSrcBackendId(), beStat.getBeId(), tabletCtx.getTabletId(),
+                        tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
                     continue;
                 }
 

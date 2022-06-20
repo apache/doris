@@ -211,7 +211,7 @@ public:
     TabletInfo get_tablet_info() const;
 
     void pick_candidate_rowsets_to_cumulative_compaction(
-            int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets);
+            std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candidate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
     void calculate_cumulative_point();

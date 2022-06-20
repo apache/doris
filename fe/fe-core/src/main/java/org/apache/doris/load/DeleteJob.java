@@ -91,7 +91,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
             Short replicaNum = partitionReplicaNum.get(tDeleteInfo.getPartitionId());
             if (replicaNum == null) {
                 // should not happen
-                throw new MetaNotFoundException("Unknown partition " + tDeleteInfo.getPartitionId() + " when commit delete job");
+                throw new MetaNotFoundException("Unknown partition "
+                        + tDeleteInfo.getPartitionId() + " when commit delete job");
             }
             if (tDeleteInfo.getFinishedReplicas().size() == replicaNum) {
                 finishedTablets.add(tDeleteInfo.getTabletId());
@@ -116,7 +117,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
             }
         }
 
-        LOG.info("check delete job quorum, transaction id: {}, total tablets: {}, quorum tablets: {}, dropped tablets: {}",
+        LOG.info("check delete job quorum, transaction id: {}, total tablets: {},"
+                        + " quorum tablets: {}, dropped tablets: {}",
                 signature, totalTablets.size(), quorumTablets.size(), dropCounter);
 
         if (finishedTablets.containsAll(totalTablets)) {

@@ -86,7 +86,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Version 2 of RollupJob.
  * This is for replacing the old RollupJob
- * https://github.com/apache/incubator-doris/issues/1429
+ * https://github.com/apache/doris/issues/1429
  */
 public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RollupJobV2.class);
@@ -157,7 +157,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
-        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
+        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap
+                .computeIfAbsent(partitionId, k -> Maps.newHashMap());
         tabletIdMap.put(rollupTabletId, baseTabletId);
     }
 
@@ -181,7 +182,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
 
         LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId,
+                s -> new AlterCancelException("Database " + s + " does not exist"));
         if (!checkTableStable(db)) {
             return;
         }
@@ -291,7 +293,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr()
+                .getTransactionIDGenerator().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
         // write edit log
@@ -333,7 +336,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         LOG.info("previous transactions are all finished, begin to send rollup tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Databasee " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId,
+                s -> new AlterCancelException("Databasee " + s + " does not exist"));
 
         OlapTable tbl;
         try {
@@ -412,7 +416,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Databasee " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId,
+                s -> new AlterCancelException("Databasee " + s + " does not exist"));
 
         OlapTable tbl;
         try {
@@ -447,7 +452,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 }
 
                 long visiableVersion = partition.getVisibleVersion();
-                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
+                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(
+                        partitionId).getTotalReplicaNum();
 
 
                 MaterializedIndex rollupIndex = entry.getValue();
@@ -464,7 +470,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                         LOG.warn("rollup tablet {} has few healthy replicas: {}, rollup job: {}",
                                 rollupTablet.getId(), replicas, jobId);
-                        throw new AlterCancelException("rollup tablet " + rollupTablet.getId() + " has few healthy replicas");
+                        throw new AlterCancelException("rollup tablet " + rollupTablet.getId()
+                                + " has few healthy replicas");
                     }
                 } // end for tablets
             } // end for partitions
@@ -544,7 +551,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
     protected boolean isPreviousLoadFinished() throws AnalysisException {
-        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
+        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 
     /**
@@ -745,7 +753,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return;
         }
         // parse the define stmt to schema
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt), SqlModeHelper.MODE_DEFAULT));
+        SqlParser parser = new SqlParser(new SqlScanner(
+                new StringReader(origStmt.originStmt), SqlModeHelper.MODE_DEFAULT));
         ConnectContext connectContext = new ConnectContext();
         Database db;
         try {
@@ -755,7 +764,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
         String clusterName = db.getClusterName();
         // It's almost impossible that db's cluster name is null, just in case
-        // because before user want to create database, he must first enter a cluster which means that cluster is set to current ConnectContext
+        // because before user want to create database, he must first enter a cluster
+        // which means that cluster is set to current ConnectContext
         // then when createDBStmt is executed, cluster name is set to Database
         if (clusterName == null || clusterName.length() == 0) {
             clusterName = SystemInfoService.DEFAULT_CLUSTER;

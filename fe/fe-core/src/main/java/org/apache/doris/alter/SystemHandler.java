@@ -117,7 +117,8 @@ public class SystemHandler extends AlterHandler {
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
             final String destClusterName = addBackendClause.getDestCluster();
 
-            if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree()) && Config.disable_cluster_feature) {
+            if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree())
+                    && Config.disable_cluster_feature) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ADD BACKEND TO CLUSTER");
             }
 

@@ -144,7 +144,7 @@ DUPLICATE KEY(`N_NATIONKEY`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`N_NATIONKEY`) BUCKETS 1
 PROPERTIES (
-    "replication_num" = "3"
+    "replication_num" = "1"
 );
 
 drop table if exists region;
@@ -157,7 +157,7 @@ DUPLICATE KEY(`r_regionkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
 PROPERTIES (
-    "replication_num" = "3"
+    "replication_num" = "1"
 );
 
 drop view if exists revenue0;

@@ -162,9 +162,13 @@ MemTracker::MemTracker(int64_t byte_limit, const std::string& label,
 void MemTracker::init() {
     DCHECK_GE(_limit, -1);
     MemTracker* tracker = this;
-    while (tracker != nullptr && tracker->_virtual == false) {
+    while (tracker != nullptr) {
         _all_trackers.push_back(tracker);
         if (tracker->has_limit()) _limit_trackers.push_back(tracker);
+        // This means that it terminates when recursively consume/release from the current tracker up to the virtual tracker.
+        if (tracker->_virtual == true) {
+            break;
+        }
         tracker = tracker->_parent.get();
     }
     DCHECK_GT(_all_trackers.size(), 0);

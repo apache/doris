@@ -99,7 +99,8 @@ public class RowBatchBuilder {
         }
     }
 
-    public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
+    public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(
+            String sql, long partitionKey, long lastVersion, long lastestTime) {
         if (updateRequest == null) {
             updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
                     .setSqlKey(CacheProxy.getMd5(sql))

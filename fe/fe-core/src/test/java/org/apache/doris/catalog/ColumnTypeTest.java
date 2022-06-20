@@ -33,6 +33,7 @@ import java.io.FileOutputStream;
 
 public class ColumnTypeTest {
     private FakeCatalog fakeCatalog;
+
     @Before
     public void setUp() {
         fakeCatalog = new FakeCatalog();

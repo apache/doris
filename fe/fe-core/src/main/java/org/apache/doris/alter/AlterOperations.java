@@ -59,8 +59,10 @@ public class AlterOperations {
     }
 
     public boolean hasPartitionOp() {
-        return currentOps.contains(AlterOpType.ADD_PARTITION) || currentOps.contains(AlterOpType.DROP_PARTITION)
-                || currentOps.contains(AlterOpType.REPLACE_PARTITION) || currentOps.contains(AlterOpType.MODIFY_PARTITION);
+        return currentOps.contains(AlterOpType.ADD_PARTITION)
+                || currentOps.contains(AlterOpType.DROP_PARTITION)
+                || currentOps.contains(AlterOpType.REPLACE_PARTITION)
+                || currentOps.contains(AlterOpType.MODIFY_PARTITION);
     }
 
     // MODIFY_TABLE_PROPERTY is also processed by SchemaChangeHandler
@@ -103,6 +105,7 @@ public class AlterOperations {
 
         currentOps.add(opType);
     }
+
     public boolean hasEnableFeatureOP() {
         return currentOps.contains(AlterOpType.ENABLE_FEATURE);
     }

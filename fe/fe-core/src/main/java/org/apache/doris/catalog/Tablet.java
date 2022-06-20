@@ -53,7 +53,8 @@ import java.util.stream.LongStream;
  */
 public class Tablet extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
-    // if current version count of replica is more than QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
+    // if current version count of replica is mor than
+    // QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
     // then the replica would not be considered as queryable.
     private static final int QUERYABLE_TIMES_OF_MIN_VERSION_COUNT = 3;
 
@@ -472,7 +473,8 @@ public class Tablet extends MetaObject implements Writable {
             // condition explain:
             // 1. alive < replicationNum: replica is missing or bad
             // 2. replicas.size() >= aliveBackendsNum: the existing replicas occupies all available backends
-            // 3. aliveBackendsNum >= replicationNum: make sure after deleting, there will be at least one backend for new replica.
+            // 3. aliveBackendsNum >= replicationNum: make sure after deleting,
+            //    there will be at least one backend for new replica.
             // 4. replicationNum > 1: if replication num is set to 1, do not delete any replica, for safety reason
             return Pair.create(TabletStatus.FORCE_REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         } else if (alive < (replicationNum / 2) + 1) {
@@ -507,7 +509,8 @@ public class Tablet extends MetaObject implements Writable {
                     && availableBeIds.size() >= replicationNum
                     && replicationNum > 1) { // No BE can be choose to create a new replica
                 return Pair.create(TabletStatus.FORCE_REDUNDANT,
-                        stable < (replicationNum / 2) + 1 ? TabletSchedCtx.Priority.NORMAL : TabletSchedCtx.Priority.LOW);
+                        stable < (replicationNum / 2) + 1
+                                ? TabletSchedCtx.Priority.NORMAL : TabletSchedCtx.Priority.LOW);
             }
             if (stable < (replicationNum / 2) + 1) {
                 return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.NORMAL);
@@ -576,7 +579,8 @@ public class Tablet extends MetaObject implements Writable {
      * No need to check if backend is available. We consider all backends in 'backendsSet' are available,
      * If not, unavailable backends will be relocated by CalocateTableBalancer first.
      */
-    public TabletStatus getColocateHealthStatus(long visibleVersion, ReplicaAllocation replicaAlloc, Set<Long> backendsSet) {
+    public TabletStatus getColocateHealthStatus(long visibleVersion,
+            ReplicaAllocation replicaAlloc, Set<Long> backendsSet) {
         // Here we don't need to care about tag. Because the replicas of the colocate table has been confirmed
         // in ColocateTableCheckerAndBalancer.
         Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
@@ -592,7 +596,8 @@ public class Tablet extends MetaObject implements Writable {
         for (Replica replica : replicas) {
             if (!backendsSet.contains(replica.getBackendId())) {
                 // We don't care about replicas that are not in backendsSet.
-                // eg:  replicaBackendIds=(1,2,3,4); backendsSet=(1,2,3), then replica 4 should be skipped here and then goto ```COLOCATE_REDUNDANT``` in step 3
+                // eg:  replicaBackendIds=(1,2,3,4); backendsSet=(1,2,3),
+                //      then replica 4 should be skipped here and then goto ```COLOCATE_REDUNDANT``` in step 3
                 continue;
             }
 
@@ -603,7 +608,8 @@ public class Tablet extends MetaObject implements Writable {
                     return TabletStatus.COLOCATE_REDUNDANT;
                 } else {
                     // maybe in replica's DECOMMISSION state
-                    // Here we return VERSION_INCOMPLETE, and the tablet scheduler will finally set it's state to NORMAL.
+                    // Here we return VERSION_INCOMPLETE,
+                    // and the tablet scheduler will finally set it's state to NORMAL.
                     return TabletStatus.VERSION_INCOMPLETE;
                 }
             }

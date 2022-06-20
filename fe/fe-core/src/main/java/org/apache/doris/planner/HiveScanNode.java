@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
@@ -34,7 +33,7 @@ import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;

@@ -102,10 +102,10 @@ public class RuntimeFilterGeneratorTest {
         BinaryPredicate eqJoinConjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, lhsExpr, rhsExpr);
         testJoinExprs.add(eqJoinConjunct);
 
-        hashJoinNode = new HashJoinNode(new PlanNodeId(2), lhsScanNode, rhsScanNode, tableRef, testJoinExprs
-                , new ArrayList<>());
-        testPlanFragment = new PlanFragment(new PlanFragmentId(0), hashJoinNode
-                , new DataPartition(TPartitionType.UNPARTITIONED));
+        hashJoinNode = new HashJoinNode(new PlanNodeId(2), lhsScanNode, rhsScanNode, tableRef, testJoinExprs,
+                new ArrayList<>());
+        testPlanFragment = new PlanFragment(new PlanFragmentId(0), hashJoinNode,
+                new DataPartition(TPartitionType.UNPARTITIONED));
         hashJoinNode.setFragment(testPlanFragment);
         lhsScanNode.setFragment(testPlanFragment);
         rhsScanNode.setFragment(testPlanFragment);
@@ -245,10 +245,10 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 1);
@@ -263,10 +263,10 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 1);
@@ -301,10 +301,10 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 1);

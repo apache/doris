@@ -44,8 +44,10 @@ public class ReplacePartitionClause extends AlterTableClause {
     // Otherwise, the replaced partition's name will be the temp partitions name.
     // This parameter is valid only when the number of partitions is the same as the number of temp partitions.
     // For example:
-    // 1. REPLACE PARTITION (p1, p2, p3) WITH TEMPORARY PARTITION(tp1, tp2) PROPERTIES("use_temp_partition_name" = "false");
-    //      "use_temp_partition_name" will take no effect after replacing, and the partition names will be "tp1" and "tp2".
+    // 1. REPLACE PARTITION (p1, p2, p3) WITH TEMPORARY PARTITION(tp1, tp2)
+    //    PROPERTIES("use_temp_partition_name" = "false");
+    //      "use_temp_partition_name" will take no effect after replacing,
+    //      and the partition names will be "tp1" and "tp2".
     //
     // 2. REPLACE PARTITION (p1, p2) WITH TEMPORARY PARTITION(tp1, tp2) PROPERTIES("use_temp_partition_name" = "false");
     //      alter replacing, the partition names will be "p1" and "p2".
@@ -90,7 +92,8 @@ public class ReplacePartitionClause extends AlterTableClause {
             throw new AnalysisException("Only support replace partitions with temp partitions");
         }
 
-        this.isStrictRange = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
+        this.isStrictRange = PropertyAnalyzer.analyzeBooleanProp(
+                properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
         this.useTempPartitionName = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
 

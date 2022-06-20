@@ -43,7 +43,8 @@ SHOW VARIABLES LIKE '%time_zone%';
 
 ### Settings
 
-Some variables can be set at global-level or session-only. For global-level, the set value will be used in subsequent new session connections. For session-only, the variable only works for the current session.
+Note that before version 1.1, after the setting takes effect globally, the setting value will be inherited in subsequent new session connections, but the value in the current session will remain unchanged.
+After version 1.1 (inclusive), after the setting takes effect globally, the setting value will be used in subsequent new session connections, and the value in the current session will also change.
 
 For session-only, set by the `SET var_name=xxx;` statement. Such as:
 
@@ -60,7 +61,6 @@ SET GLOBAL exec_mem_limit = 137438953472
 ```
 
 > Note 1: Only ADMIN users can set variable at global-level.
-> Note 2: Global-level variables do not affect variable values in the current session, only variables in new sessions.
 
 Variables that support both session-level and global-level setting include:
 

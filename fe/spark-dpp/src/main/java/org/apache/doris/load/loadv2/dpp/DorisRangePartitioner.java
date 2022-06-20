@@ -29,6 +29,7 @@ public class DorisRangePartitioner extends Partitioner {
     private EtlJobConfig.EtlPartitionInfo partitionInfo;
     private List<PartitionRangeKey> partitionRangeKeys;
     List<Integer> partitionKeyIndexes;
+
     public DorisRangePartitioner(EtlJobConfig.EtlPartitionInfo partitionInfo,
                                  List<Integer> partitionKeyIndexes,
                                  List<PartitionRangeKey> partitionRangeKeys) {

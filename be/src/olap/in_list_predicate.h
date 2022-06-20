@@ -295,8 +295,7 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                std::vector<vectorized::UInt8> selected;
-                nested_col_ptr->find_codes(_values, selected);
+                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
 
                 for (uint16_t i = 0; i < *size; i++) {
                     uint16_t idx = sel[i];
@@ -310,11 +309,11 @@ private:
                     }
 
                     if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
-                        if (selected[data_array[idx]]) {
+                        if (_value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     } else {
-                        if (!selected[data_array[idx]]) {
+                        if (!_value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     }
@@ -338,7 +337,7 @@ private:
                     }
                 }
 
-                if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
+                if constexpr (!is_opposite) {
                     if (_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
                                   _values.end())) {
                         sel[new_size++] = idx;
@@ -356,6 +355,7 @@ private:
     }
 
     phmap::flat_hash_set<T> _values;
+    mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
 };
 
 template <class T>

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.operators.plans.physical;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Objects;
 import java.util.Optional;

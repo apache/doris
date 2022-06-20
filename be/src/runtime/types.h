@@ -216,4 +216,6 @@ private:
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
 
+TTypeDesc create_type_desc(PrimitiveType type);
+
 } // namespace doris

@@ -78,7 +78,7 @@ import java.util.stream.Collectors;
  *   fix that
  */
 public class PlanFragment extends TreeNode<PlanFragment> {
-    private final static Logger LOG = LogManager.getLogger(PlanFragment.class);
+    private static final Logger LOG = LogManager.getLogger(PlanFragment.class);
 
     // id for this plan fragment
     private PlanFragmentId fragmentId;

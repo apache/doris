@@ -147,8 +147,12 @@ public class StoragePolicy extends Policy {
             props = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.storageResource).toString();
         }
         SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String cooldownDatetimeStr = "";
+        if (this.cooldownDatetime != null) {
+            cooldownDatetimeStr = df.format(this.cooldownDatetime);
+        }
         return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
-                                  df.format(this.cooldownDatetime), this.cooldownTtl, props);
+            cooldownDatetimeStr, this.cooldownTtl, props);
     }
 
     @Override
@@ -166,7 +170,9 @@ public class StoragePolicy extends Policy {
             return false;
         }
         StoragePolicy storagePolicy = (StoragePolicy) checkedPolicyCondition;
-        return checkMatched(storagePolicy.getType(), storagePolicy.getPolicyName());
+        return (storagePolicy.getStorageResource() == null
+                        || storagePolicy.getStorageResource().equals(this.storageResource))
+                && checkMatched(storagePolicy.getType(), storagePolicy.getPolicyName());
     }
 
     @Override

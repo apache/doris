@@ -64,9 +64,9 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -246,10 +246,12 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void analyzeUda() throws AnalysisException {
-        AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
+        AggregateFunction.AggregateFunctionBuilder builder
+                = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
-        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
-                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).location(URI.create(userFile));
+        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType())
+                .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType())
+                .location(URI.create(userFile));
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF)) {
             throw new AnalysisException("No 'init_fn' in properties");

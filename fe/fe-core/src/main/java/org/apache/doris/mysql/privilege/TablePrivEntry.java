@@ -50,18 +50,19 @@ public class TablePrivEntry extends DbPrivEntry {
     public static TablePrivEntry create(String host, String db, String user, String tbl, boolean isDomain,
             PrivBitSet privs) throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
-        PatternMatcher dbPattern = PatternMatcher.createMysqlPattern(db.equals(ANY_DB) ? "%" : db,
-                                                                     CaseSensibility.DATABASE.getCaseSensibility());
-        PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
+        PatternMatcher dbPattern = PatternMatcher.createFlatPattern(
+                db, CaseSensibility.DATABASE.getCaseSensibility(), db.equals(ANY_DB));
+        PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
 
-        PatternMatcher tblPattern = PatternMatcher.createMysqlPattern(tbl.equals(ANY_TBL) ? "%" : tbl,
-                                                                      CaseSensibility.TABLE.getCaseSensibility());
+        PatternMatcher tblPattern = PatternMatcher.createFlatPattern(
+                tbl, CaseSensibility.TABLE.getCaseSensibility(), tbl.equals(ANY_TBL));
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
             throw new AnalysisException("Table privilege can not contains global or resource privileges: " + privs);
         }
 
-        return new TablePrivEntry(hostPattern, host, dbPattern, db, userPattern, user, tblPattern, tbl, isDomain, privs);
+        return new TablePrivEntry(hostPattern, host, dbPattern, db,
+                userPattern, user, tblPattern, tbl, isDomain, privs);
     }
 
     public PatternMatcher getTblPattern() {

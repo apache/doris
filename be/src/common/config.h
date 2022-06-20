@@ -285,17 +285,14 @@ CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
 CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
-// cumulative compaction skips recently published deltas in order to prevent
-// compacting a version that might be queried (in case the query planning phase took some time).
-// the following config set the window size
-CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 
 // if compaction of a tablet failed, this tablet should not be chosen to
 // compaction until this interval passes.
 CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 
 // This config can be set to limit thread number in compaction thread pool.
-CONF_mInt32(max_compaction_threads, "10");
+CONF_mInt32(max_base_compaction_threads, "4");
+CONF_mInt32(max_cumu_compaction_threads, "10");
 
 // This config can be set to limit thread number in convert rowset thread pool.
 CONF_mInt32(convert_rowset_thread_num, "0");
@@ -638,7 +635,14 @@ CONF_Bool(track_new_delete, "true");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
-CONF_Bool(memory_verbose_track, "true");
+//
+// At present, there is a performance problem in the frequent switch thread mem tracker.
+// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
+// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
+// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
+// TODO: 1. Reduce unnecessary thread mem tracker switches,
+//       2. Consider using raw pointers for mem tracker in thread local
+CONF_Bool(memory_verbose_track, "false");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:

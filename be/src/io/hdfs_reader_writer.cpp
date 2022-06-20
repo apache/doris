@@ -28,7 +28,14 @@ Status HdfsReaderWriter::create_reader(const THdfsParams& hdfs_params, const std
     return Status::OK();
 }
 
-Status HdfsReaderWriter::create_writer(std::map<std::string, std::string>& properties,
+Status HdfsReaderWriter::create_reader(const std::map<std::string, std::string>& hdfs_params,
+                                       const std::string& path, int64_t start_offset,
+                                       FileReader** reader) {
+    *reader = new HdfsFileReader(hdfs_params, path, start_offset);
+    return Status::OK();
+}
+
+Status HdfsReaderWriter::create_writer(const std::map<std::string, std::string>& properties,
                                        const std::string& path,
                                        std::unique_ptr<FileWriter>& writer) {
     writer.reset(new HDFSWriter(properties, path));

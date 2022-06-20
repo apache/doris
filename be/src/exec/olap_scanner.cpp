@@ -395,7 +395,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                     auto pool = batch->tuple_data_pool();
                     CollectionValue::deep_copy_collection(
                             slot, item_type,
-                            [pool](int size) -> MemFootprint {
+                            [pool](int64_t size) -> MemFootprint {
                                 int64_t offset = pool->total_allocated_bytes();
                                 uint8_t* data = pool->allocate(size);
                                 return {offset, data};

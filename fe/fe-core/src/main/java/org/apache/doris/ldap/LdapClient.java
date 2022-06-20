@@ -43,7 +43,7 @@ import java.util.List;
 public class LdapClient {
     private static final Logger LOG = LogManager.getLogger(LdapClient.class);
 
-    private volatile static ClientInfo clientInfo;
+    private static volatile ClientInfo clientInfo;
 
     @Data
     private static class ClientInfo {
@@ -172,9 +172,8 @@ public class LdapClient {
     }
 
     private static String getUserDn(String userName) {
-        List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query().
-                base(LdapConfig.ldap_user_basedn)
-                .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
+        List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
+                .base(LdapConfig.ldap_user_basedn).filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
         if (userDns == null || userDns.isEmpty()) {
             return null;
         }

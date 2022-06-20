@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 /**
- * Define different auth type for external table such as hive/iceberg,
+ * Define different auth type for external table such as hive/iceberg
  * so that BE could call secured under fileStorageSystem (enable kerberos)
  */
 public enum AuthType {

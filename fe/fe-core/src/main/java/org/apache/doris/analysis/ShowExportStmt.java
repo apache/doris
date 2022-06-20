@@ -164,7 +164,8 @@ public class ShowExportStmt extends ShowStmt {
                     valid = true;
                 }
 
-            } else if (whereExpr instanceof LikePredicate && ((LikePredicate) whereExpr).getOp() == LikePredicate.Operator.LIKE) {
+            } else if (whereExpr instanceof LikePredicate
+                    && ((LikePredicate) whereExpr).getOp() == LikePredicate.Operator.LIKE) {
                 if ("label".equals(leftKey) && whereExpr.getChild(1) instanceof StringLiteral) {
                     label = whereExpr.getChild(1).getStringValue();
                     isLabelUseLike = true;

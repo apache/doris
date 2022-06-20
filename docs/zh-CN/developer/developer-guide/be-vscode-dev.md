@@ -33,7 +33,7 @@ under the License.
 
 1. 下载 doris 源代码
 
-   下载地址为：[apache/incubator-doris: Apache Doris (Incubating) (github.com)](https://github.com/apache/incubator-doris)
+   下载地址为：[apache/doris: Apache Doris (github.com)](https://github.com/apache/doris)
 
 2. 安装 GCC 8.3.1+，Oracle JDK 1.8+，Python 2.7+，确认 gcc, java, python 命令指向正确版本, 设置  JAVA_HOME 环境变量
 
@@ -60,20 +60,20 @@ sudo apt install -y openssl-devel
 1. 下载源码
 
 ```
-git clone https://github.com/apache/incubator-doris.git 
+git clone https://github.com/apache/doris.git 
 ```
 
 2. 编译第三方依赖包
 
 ```
- cd /home/workspace/incubator-doris/thirdparty
+ cd /home/workspace/doris/thirdparty
  ./build-thirdparty.sh
 ```
 
 3. 编译doris产品代码
 
 ```
-cd /home/workspace/incubator-doris
+cd /home/workspace/doris
 ./build.sh
 ```
 
@@ -90,21 +90,21 @@ cd /home/workspace/incubator-doris
 ./build.sh  --be --fe  --clean#删除并同时编译be fe
 ```
 
-如果不出意外，应该会编译成功，最终的部署文件将产出到  /home/workspace/incubator-doris/output/ 目录下。如果还遇到其他问题，可以参照 doris 的安装文档 http://doris.apache.org。
+如果不出意外，应该会编译成功，最终的部署文件将产出到  /home/workspace/doris/output/ 目录下。如果还遇到其他问题，可以参照 doris 的安装文档 http://doris.apache.org。
 
 ## 部署调试
 
 1. 给be编译结果文件授权
 
 ```
-chmod  /home/workspace/incubator-doris/output/be/lib/palo_be
+chmod  /home/workspace/doris/output/be/lib/palo_be
 ```
 
-注意： /home/workspace/incubator-doris/output/be/lib/palo_be为be的执行文件。
+注意： /home/workspace/doris/output/be/lib/palo_be为be的执行文件。
 
 2. 创建数据存放目录
 
-通过查看/home/workspace/incubator-doris/output/be/conf/be.conf
+通过查看/home/workspace/doris/output/be/conf/be.conf
 
 ```
 # INFO, WARNING, ERROR, FATAL
@@ -135,7 +135,7 @@ storage_root_path = /soft/be/storage
 mkdir -p /soft/be/storage
 ```
 
-3. 打开 vscode，并打开 be 源码所在目录，在本案例中打开目录为 **/home/workspace/incubator-doris/**
+3. 打开 vscode，并打开 be 源码所在目录，在本案例中打开目录为 **/home/workspace/doris/**
 
 4. 安装 vscode ms c++ 调试插件
 
@@ -151,14 +151,14 @@ mkdir -p /soft/be/storage
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/palo_be",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "/home/workspace/incubator-doris/",
-            "environment": [{"name":"PALO_HOME","value":"/home/workspace/incubator-doris/output/be/"},
-                            {"name":"UDF_RUNTIME_DIR","value":"/home/workspace/incubator-doris/output/be/lib/udf-runtime"},
-                            {"name":"LOG_DIR","value":"/home/workspace/incubator-doris/output/be/log"},
-                            {"name":"PID_DIR","value":"/home/workspace/incubator-doris/output/be/bin"}
+            "cwd": "/home/workspace/doris/",
+            "environment": [{"name":"PALO_HOME","value":"/home/workspace/doris/output/be/"},
+                            {"name":"UDF_RUNTIME_DIR","value":"/home/workspace/doris/output/be/lib/udf-runtime"},
+                            {"name":"LOG_DIR","value":"/home/workspace/doris/output/be/log"},
+                            {"name":"PID_DIR","value":"/home/workspace/doris/output/be/bin"}
                            ],
             "externalConsole": true,
             "MIMode": "gdb",
@@ -186,7 +186,7 @@ mkdir -p /soft/be/storage
           "name": "(gdb) Launch",
           "type": "cppdbg",
           "request": "attach",
-          "program": "/home/workspace/incubator-doris/output/lib/palo_be",
+          "program": "/home/workspace/doris/output/lib/palo_be",
           "processId":,
           "MIMode": "gdb",
           "internalConsoleOptions":"openOnSessionStart",
@@ -224,7 +224,7 @@ ps -ef | grep palo*
             "name": "(gdb) Attach",
             "type": "cppdbg",
             "request": "attach",
-            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/palo_be",
             "processId": 17016,
             "MIMode": "gdb",
             "setupCommands": [
@@ -239,26 +239,26 @@ ps -ef | grep palo*
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/palo_be",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "/home/workspace/incubator-doris/output/be",
+            "cwd": "/home/workspace/doris/output/be",
             "environment": [
                 {
                     "name": "DORIS_HOME",
-                    "value": "/home/workspace/incubator-doris/output/be"
+                    "value": "/home/workspace/doris/output/be"
                 },
                 {
                     "name": "UDF_RUNTIME_DIR",
-                    "value": "/home/workspace/incubator-doris/output/be/lib/udf-runtime"
+                    "value": "/home/workspace/doris/output/be/lib/udf-runtime"
                 },
                 {
                     "name": "LOG_DIR",
-                    "value": "/home/workspace/incubator-doris/output/be/log"
+                    "value": "/home/workspace/doris/output/be/log"
                 },
                 {
                     "name": "PID_DIR",
-                    "value": "/home/workspace/incubator-doris/output/be/bin"
+                    "value": "/home/workspace/doris/output/be/bin"
                 }
             ],
             "externalConsole": false,

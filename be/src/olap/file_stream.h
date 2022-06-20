@@ -33,24 +33,25 @@
 
 namespace doris {
 
-// 定义输入数据流接口
+// Define the input data stream interface.
 class ReadOnlyFileStream {
 public:
-    // 构造方法, 使用一组ByteBuffer创建一个InStream
-    // 输入的ByteBuffer在流中的位置可以不连续,例如通过Index确定某些数据不需要
-    // 读取后,则不读入这部分的数据. 但InStream封装了ByteBuffer不连续这一事实,
-    // 从上层使用者来看,依旧是在访问一段连续的流.上层使用者应该保证不读取StorageByteBuffer
-    // 之间没有数据的空洞位置.
+    // Construct method, use a group of ByteBuffer to create an InStream The position of the input
+    // ByteBuffer in the stream can be discontinuous, for example, certain data is not required to be
+    // determined by Index. After reading, this part of the data is not read. However, InStream
+    // encapsulates the fact that the ByteBuffer is discontinuous. From the perspective of the
+    // upper-layer user, it is still accessing a continuous stream. The upper-layer user should
+    // ensure that the StorageByteBuffer is not read. Void locations with no data in between.
     //
-    // 当使用mmap的时候,这里会退化为只有一个ByteBuffer, 是否使用mmap取决于在性能
-    // 调优阶段的测试结果
+    // When mmap is used, it will degenerate to only one ByteBuffer, whether to use mmap depends on
+    // the test results in the performance tuning phase.
     //
     // Input:
-    //     inputs - 一组ByteBuffer保存具体的流中的数据
-    //     offsets - input中每个ByteBuffer的数据在流中的偏移位置
-    //     length - 流的总字节长度
-    //     Decompressor - 如果流被压缩过,则提供一个解压缩函数,否则为NULL
-    //     compress_buffer_size - 如果使用压缩,给出压缩的块大小
+    //     inputs - A set of ByteBuffer holds the data in a specific stream.
+    //     offsets - The offset position of the data of each ByteBuffer in the input stream in the stream.
+    //     length - The total byte length of the stream.
+    //     Decompressor - Provides a decompression function if the stream is compressed, otherwise it is 'NULL'.
+    //     compress_buffer_size - If compression is used, give the compressed block size.
     ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer** shared_buffer,
                        Decompressor decompressor, uint32_t compress_buffer_size,
                        OlapReaderStatistics* stats);
@@ -74,25 +75,26 @@ public:
 
     void reset(uint64_t offset, uint64_t length) { _file_cursor.reset(offset, length); }
 
-    // 从数据流中读取一个字节,内部指针后移
-    // 如果数据流结束, 返回Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF)
+    // Read a byte from the data stream, move the internal pointer backward
+    // If the stream ends, it returns `Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF)`.
     Status read(char* byte);
 
-    // 从数据流读入一段数据
+    // Read a piece of data from a data stream.
     // Input:
-    //     buffer - 存储读入的数据
-    //     buf_size - 输入时给出buffer的大小,返回时给出实际读取的字节数
-    // 如果数据流结束, 返回Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF)
+    //     buffer - Store read data.
+    //     buf_size - The size of the buffer is given when inputting,
+    //                and the number of bytes actually read is given when returning.
+    // If the stream ends, it returns `Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF)`.
     Status read(char* buffer, uint64_t* buf_size);
 
     Status read_all(char* buffer, uint64_t* buf_size);
-    // 设置读取的位置
+    // set read position.
     Status seek(PositionProvider* position);
 
-    // 跳过指定size的流
+    // Skip streams of specified size.
     Status skip(uint64_t skip_length);
 
-    // 返回流的總長度
+    // Returns the total length of the stream.
     uint64_t stream_length() { return _file_cursor.length(); }
 
     bool eof() {
@@ -103,7 +105,7 @@ public:
         }
     }
 
-    // 返回当前块剩余可读字节数
+    // Returns the remaining readable bytes of the current block.
     uint64_t available();
 
     size_t get_buffer_size() { return _compress_buffer_size; }

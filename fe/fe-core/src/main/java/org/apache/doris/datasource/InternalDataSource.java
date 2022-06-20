@@ -326,6 +326,21 @@ public class InternalDataSource implements DataSourceIf {
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
+    @Override
+    public Map<String, String> getProperties() {
+        return Maps.newHashMap();
+    }
+
+    @Override
+    public void modifyDatasourceName(String name) {
+        LOG.warn("Ignore the modify datasource name in build-in datasource.");
+    }
+
+    @Override
+    public void modifyDatasourceProps(Map<String, String> props) {
+        LOG.warn("Ignore the modify datasource props in build-in datasource.");
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {
@@ -563,7 +578,8 @@ public class InternalDataSource implements DataSourceIf {
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
                                     throw new DdlException("The table [" + olapTable.getState() + "]'s state is "
                                             + olapTable.getState() + ", cannot be dropped."
-                                            + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                            + " please cancel the operation on olap table firstly."
+                                            + " If you want to forcibly drop(cannot be recovered),"
                                             + " please use \"DROP table FORCE\".");
                                 }
                             }
@@ -894,7 +910,8 @@ public class InternalDataSource implements DataSourceIf {
                     if ((olapTable.getState() != OlapTableState.NORMAL)) {
                         throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
                                 + ", cannot be dropped."
-                                + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                + " please cancel the operation on olap table firstly."
+                                + " If you want to forcibly drop(cannot be recovered),"
                                 + " please use \"DROP table FORCE\".");
                     }
                 }
@@ -1811,8 +1828,8 @@ public class InternalDataSource implements DataSourceIf {
         olapTable.setIsInMemory(isInMemory);
 
         // set remote storage
-        String resourceName = PropertyAnalyzer.analyzeRemoteStorageResource(properties);
-        olapTable.setRemoteStorageResource(resourceName);
+        String remoteStoragePolicy = PropertyAnalyzer.analyzeRemoteStoragePolicy(properties);
+        olapTable.setRemoteStoragePolicy(remoteStoragePolicy);
 
         TTabletType tabletType;
         try {
@@ -1821,10 +1838,10 @@ public class InternalDataSource implements DataSourceIf {
             throw new DdlException(e.getMessage());
         }
 
-
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
-            // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
+            // if this is a partitioned table, there properties are already analyzed
+            // in RangePartitionDesc analyze phase.
 
             // use table name as this single partition name
             long partitionId = partitionNameToId.get(tableName);

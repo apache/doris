@@ -360,9 +360,11 @@ public class ScalarType extends Type {
                 break;
             case DECIMALV2:
                 if (Strings.isNullOrEmpty(precisionStr)) {
-                    stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
+                    stringBuilder.append("decimal").append("(").append(precision)
+                            .append(", ").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
-                    stringBuilder.append("decimal").append("(`").append(precisionStr).append("`, `").append(scaleStr).append("`)");
+                    stringBuilder.append("decimal").append("(`").append(precisionStr)
+                            .append("`, `").append(scaleStr).append("`)");
                 } else {
                     stringBuilder.append("decimal").append("(`").append(precisionStr).append("`)");
                 }

@@ -187,8 +187,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
-    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY =
-            "trim_tailing_spaces_for_external_table_query";
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
+            = "trim_tailing_spaces_for_external_table_query";
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 

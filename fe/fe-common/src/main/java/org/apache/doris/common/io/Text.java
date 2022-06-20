@@ -606,7 +606,7 @@ public class Text implements Writable {
         return ch;
     }
 
-    static final int offsetsFromUTF8[] = { 0x00000000, 0x00003080, 0x000E2080,
+    static final int[] offsetsFromUTF8 = { 0x00000000, 0x00003080, 0x000E2080,
             0x03C82080, 0xFA082080, 0x82082080 };
 
     /**
