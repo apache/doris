@@ -221,6 +221,8 @@ booleanValue
     : TRUE | FALSE
     ;
 
+//TODO: In the future, instead of specifying the function name,
+//      the function information is obtained by parsing the catalog. This method is more scalable.
 aggFunction
     : AVG '(' DISTINCT? expression ')'
     | SUM '(' DISTINCT? expression ')'

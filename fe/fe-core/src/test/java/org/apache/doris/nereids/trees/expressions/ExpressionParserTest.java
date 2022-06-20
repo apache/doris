@@ -110,13 +110,28 @@ public class ExpressionParserTest {
 
     @Test
     public void testGroupByClause() throws Exception {
+
         String groupBy = "select a from test group by a";
         assertSql(groupBy);
+
+        String groupByWithFun1 = "select sum(a), b from test1 group by b";
+        assertSql(groupByWithFun1);
+
+
+        String groupByWithFun2 = "select sum(a), b, c+1 from test1 group by b, c";
+        assertSql(groupByWithFun2);
+
+        String groupBySum = "select k1+k2 from test group by k1+k2";
+        assertSql(groupBySum);
     }
 
     @Test
     public void testSortClause() throws Exception {
+
         String sort = "select a from test order by c, d";
         assertSql(sort);
+
+        String sort1 = "select a from test order by 1";
+        assertSql(sort1);
     }
 }

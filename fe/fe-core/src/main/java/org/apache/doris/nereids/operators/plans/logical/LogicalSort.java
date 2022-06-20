@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -32,7 +30,11 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
-    Logical Sort plan operator.
+ * Logical Sort plan operator.
+ *
+ * eg: select * from table order by a, b desc;
+ * sortItems: list of column information after order by. eg:[a, asc],[b, desc].
+ * SortItems: Contains order expression information and sorting method. Default is ascending.
  */
 public class LogicalSort extends LogicalUnaryOperator {
 
@@ -53,15 +55,7 @@ public class LogicalSort extends LogicalUnaryOperator {
 
     @Override
     public List<Slot> computeOutput(Plan input) {
-        return sortItems.stream()
-                .map(namedExpr -> {
-                    try {
-                        return namedExpr.getSort().toSlot();
-                    } catch (UnboundException e) {
-                        throw new IllegalStateException(e);
-                    }
-                })
-                .collect(ImmutableList.toImmutableList());
+        return input.getOutput();
     }
 
     /**
@@ -84,15 +78,23 @@ public class LogicalSort extends LogicalUnaryOperator {
      * SortItem. Show sort expressions and their order types.
      */
     public static class SortItems {
-        private final NamedExpression sort;
-        private final boolean orderDirection;
+        /**
+         * enum of OrderDirection.
+         */
+        public enum OrderDirection {
+            ASC,
+            DESC
+        }
 
-        public SortItems(NamedExpression sort, boolean orderDirection) {
+        private final Expression sort;
+        private final OrderDirection orderDirection;
+
+        public SortItems(Expression sort, OrderDirection orderDirection) {
             this.sort = sort;
             this.orderDirection = orderDirection;
         }
 
-        public NamedExpression getSort() {
+        public Expression getSort() {
             return sort;
         }
 
@@ -101,12 +103,12 @@ public class LogicalSort extends LogicalUnaryOperator {
          *
          * @return boolean.
          */
-        public boolean getOrderDirection() {
+        public OrderDirection getOrderDirection() {
             return orderDirection;
         }
 
         public String toString() {
-            return sort.sql() + " OrderDirection: " + (orderDirection == true ? "True" : "False");
+            return "Expression: " + sort.sql() + " OrderDirection: " + orderDirection.toString();
         }
     }
 }

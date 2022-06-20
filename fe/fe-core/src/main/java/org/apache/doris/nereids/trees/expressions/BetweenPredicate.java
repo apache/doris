@@ -27,7 +27,6 @@ import org.apache.doris.nereids.types.DataType;
  */
 public class BetweenPredicate extends Expression {
 
-    private boolean isNotBetween;
     private Expression compareExpr;
     private Expression lowerBound;
     private Expression upperBound;
@@ -37,13 +36,11 @@ public class BetweenPredicate extends Expression {
      * @param compareExpr    compare of expression
      * @param lowerBound     left child of between predicate
      * @param upperBound     right child of between predicate
-     * @param isNotBetween   is it not between
      */
 
     public BetweenPredicate(Expression compareExpr, Expression lowerBound,
-            Expression upperBound, boolean isNotBetween) {
+            Expression upperBound) {
         super(NodeType.BETWEEN, compareExpr, lowerBound, upperBound);
-        this.isNotBetween = isNotBetween;
         this.compareExpr = compareExpr;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
@@ -56,9 +53,8 @@ public class BetweenPredicate extends Expression {
 
     @Override
     public String sql() {
-        String notStr = (isNotBetween) ? "NOT " : "";
-        return compareExpr.sql() + ' '
-                + notStr + "BETWEEN "
+        return compareExpr.sql()
+                + " BETWEEN "
                 + lowerBound.sql() + " AND " + upperBound.sql();
     }
 
@@ -78,7 +74,4 @@ public class BetweenPredicate extends Expression {
         return upperBound;
     }
 
-    public boolean isNotBetween() {
-        return isNotBetween;
-    }
 }

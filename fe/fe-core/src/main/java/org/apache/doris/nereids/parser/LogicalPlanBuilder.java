@@ -67,13 +67,14 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.operators.plans.logical.LogicalSort;
 import org.apache.doris.nereids.operators.plans.logical.LogicalSort.SortItems;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalSort.SortItems.OrderDirection;
 import org.apache.doris.nereids.trees.analysis.FunctionParams;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
-import org.apache.doris.nereids.trees.expressions.Arithmetic.Operator;
 import org.apache.doris.nereids.trees.expressions.BetweenPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.FunctionCall;
@@ -82,9 +83,13 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Mod;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -155,14 +160,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
             LogicalPlan queryOrganization = withQueryOrganization(ctx.queryOrganization(), query);
-            return queryOrganization == null ? query : queryOrganization;
+            return queryOrganization;
         };
         return ParserUtils.withOrigin(ctx, f);
     }
 
     private LogicalPlan withQueryOrganization(QueryOrganizationContext ctx, LogicalPlan children) {
         List<SortItems> sortItems = visitQueryOrganization(ctx);
-        return sortItems == null ? null : new LogicalUnaryPlan(new LogicalSort(sortItems), children);
+        return sortItems == null ? children : new LogicalUnaryPlan(new LogicalSort(sortItems), children);
     }
 
     @Override
@@ -191,8 +196,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Expression> expressions = Lists.newArrayList();
         if (ctx != null) {
             for (NamedExpressionContext namedExpressionContext : ctx.namedExpression()) {
-                Expression namedExpression = typedVisit(namedExpressionContext);
-                expressions.add(namedExpression);
+                Expression expression = typedVisit(namedExpressionContext);
+                expressions.add(expression);
             }
         }
         return expressions;
@@ -252,7 +257,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         LogicalPlan withAgg;
         if (aggClause != null) {
-            withAgg = withAggClause(aggClause.groupByItem(), withProject);
+            withAgg = withAggClause(namedExpressions, aggClause.groupByItem(), withFilter);
         } else {
             withAgg = withProject;
         }
@@ -317,19 +322,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return last;
     }
 
-    private LogicalPlan withAggClause(GroupByItemContext ctx, LogicalPlan aggClause) {
-        List<Expression> expressions = new ArrayList<>();
+    private LogicalPlan withAggClause(List<NamedExpression> aggExpressions,
+            GroupByItemContext ctx, LogicalPlan aggClause) {
+        List<Expression> tmpExpressions = new ArrayList<>();
         for (ExpressionContext expressionCtx : ctx.expression()) {
-            expressions.add(typedVisit(expressionCtx));
+            tmpExpressions.add(typedVisit(expressionCtx));
         }
-        List<NamedExpression> namedExpressions = expressions.stream().map(expression -> {
-            if (expression instanceof NamedExpression) {
-                return (NamedExpression) expression;
-            } else {
-                return new UnboundAlias(expression);
-            }
-        }).collect(Collectors.toList());
-        return new LogicalUnaryPlan(new LogicalAggregation(namedExpressions), aggClause);
+        return new LogicalUnaryPlan(new LogicalAggregation(tmpExpressions, aggExpressions), aggClause);
     }
 
     /**
@@ -339,21 +338,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @return SortItems
      */
     public SortItems genSortItems(SortItemContext ctx) {
-        boolean orderDirection = true;
+        OrderDirection orderDirection;
         if (ctx.DESC() != null) {
-            orderDirection = false;
+            orderDirection = OrderDirection.DESC;
         } else {
-            orderDirection = true;
+            orderDirection = OrderDirection.ASC;
         }
         Expression expression = typedVisit(ctx.expression());
-        NamedExpression namedExpression;
-        if (expression instanceof NamedExpression) {
-            namedExpression =  (NamedExpression) expression;
-        } else {
-            namedExpression =  new UnboundAlias(expression);
-        }
-
-        return new SortItems(namedExpression, orderDirection);
+        return new SortItems(expression, orderDirection);
     }
 
     /**
@@ -510,15 +502,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression left = expression(ctx.left);
         Expression right = expression(ctx.right);
 
-        return new CompoundPredicate(genNodeType(ctx.operator), left, right);
-    }
-
-    private static NodeType genNodeType(Token token) {
-        switch (token.getType()) {
+        switch (ctx.operator.getType()) {
             case DorisParser.AND:
-                return NodeType.AND;
+                return new And(left, right);
             case DorisParser.OR:
-                return NodeType.OR;
+                return new Or(left, right);
             default:
                 return null;
         }
@@ -565,13 +553,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @return Expression
      */
     public Expression withBetween(PredicateContext ctx, Expression e) {
-        boolean isNotBetween = ctx.NOT() != null;
-        return new BetweenPredicate(
+        boolean isNotBetween = ctx.NOT() != null ? true : false;
+        BetweenPredicate betweenPredicate = new BetweenPredicate(
                 e,
                 expression(ctx.lower),
-                expression(ctx.upper),
-                isNotBetween
+                expression(ctx.upper)
         );
+        return isNotBetween ? new Not(betweenPredicate) : betweenPredicate;
     }
 
     @Override
@@ -581,6 +569,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             case DorisParser.PLUS:
                 return e;
             case DorisParser.MINUS:
+                //TODO: Add single operator subtraction
             default:
                 return null;
         }
@@ -591,21 +580,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression left = expression(ctx.left);
         Expression right = expression(ctx.right);
 
-        return new Arithmetic(genArithmeticOperator(ctx.operator), left, right);
+        return genArithmetic(ctx.operator, left, right);
     }
 
-    private static Arithmetic.Operator genArithmeticOperator(Token token) {
+    private Arithmetic  genArithmetic(Token token, Expression left, Expression right) {
         switch (token.getType()) {
             case DorisParser.ASTERISK:
-                return Operator.MULTIPLY;
+                return new Multiply(left, right);
             case DorisParser.SLASH:
-                return Operator.DIVIDE;
+                return new Divide(left, right);
             case DorisParser.PERCENT:
-                return Operator.MOD;
+                return new Mod(left, right);
             case DorisParser.PLUS:
-                return Operator.ADD;
+                return new Add(left, right);
             case DorisParser.MINUS:
-                return Operator.SUBTRACT;
+                return new Subtract(left, right);
             default:
                 return null;
         }
@@ -613,6 +602,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitAggFunctions(AggFunctionsContext ctx) {
+        // TODO:In the future, instead of specifying the function name,
+        //      the function information is obtained by parsing the catalog. This method is more scalable.
         String functionName = "";
         if (ctx.aggFunction().SUM() != null) {
             functionName = "sum";

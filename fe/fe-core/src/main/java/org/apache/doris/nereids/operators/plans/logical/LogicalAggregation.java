@@ -28,42 +28,59 @@ import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Logical Aggregation plan operator.
+ *
+ *eg:select a, sum(b), c from table group by a, c;
+ * groupByExpressions: Column field after group by. eg: a, c;
+ * outputExpressions: Column field after select. eg: a, sum(b), c;
+ *
+ * Each agg node only contains the select statement field of the same layer,
+ * and other agg nodes in the subquery contain.
  */
 public class LogicalAggregation extends LogicalUnaryOperator {
 
-    private final List<? extends NamedExpression> aggregation;
+    private final List<Expression> groupByExpressions;
+    private final List<? extends NamedExpression> outputExpressions;
 
     /**
      * Desc: Constructor for LogicalAggregation.
-     *
-     * @param aggregation agg expression.
      */
-    public LogicalAggregation(List<? extends NamedExpression> aggregation) {
+    public LogicalAggregation(List<Expression> groupByExpressions,
+            List<? extends NamedExpression> outputExpressions) {
         super(OperatorType.LOGICAL_AGGREGATION);
-        this.aggregation = Objects.requireNonNull(aggregation, "aggregation can not be null");
+        this.groupByExpressions = groupByExpressions;
+        this.outputExpressions = outputExpressions;
     }
 
     /**
-     * Get Aggregation list.
+     * Get GroupByAggregation list.
      *
-     * @return all aggregation of this node.
+     * @return all group by of this node.
      */
-    public List<? extends NamedExpression> getAggregation() {
-        return aggregation;
+    public List<Expression> getGroupByExpressions() {
+        return groupByExpressions;
+    }
+
+    /**
+     * Get outputExpressions list.
+     *
+     * @return all agg expressions.
+     */
+    public List<? extends NamedExpression> getoutputExpressions() {
+        return outputExpressions;
     }
 
     @Override
     public String toString() {
-        return "Aggregation (" + StringUtils.join(aggregation, ", ") + ")";
+        return "Aggregation (" + "outputExpressions: " + StringUtils.join(outputExpressions, ", ")
+                + ", groupByExpressions: " + StringUtils.join(groupByExpressions, ", ") + ")";
     }
 
     @Override
     public List<Slot> computeOutput(Plan input) {
-        return aggregation.stream()
+        return outputExpressions.stream()
                 .map(namedExpr -> {
                     try {
                         return namedExpr.toSlot();
@@ -76,6 +93,6 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(aggregation).build();
+        return new ImmutableList.Builder<Expression>().addAll(groupByExpressions).addAll(outputExpressions).build();
     }
 }

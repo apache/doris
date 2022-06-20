@@ -31,6 +31,7 @@ import java.util.Objects;
 
 /**
  * All data type literal expression in Nereids.
+ * TODO: Increase the implementation of sub expression. such as Integer.
  */
 public class Literal extends Expression implements LeafExpression {
     private final DataType dataType;

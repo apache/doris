@@ -24,8 +24,7 @@ import org.apache.doris.thrift.TExprOpcode;
 /**
  * All arithmetic operator.
  */
-public class Arithmetic<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class Arithmetic extends Expression {
 
     enum OperatorPosition {
         BINARY_INFIX,
@@ -37,25 +36,24 @@ public class Arithmetic<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ext
      * All counts as expressions.
      */
     @SuppressWarnings("checkstyle:RegexpSingleline")
-    public enum Operator {
+    public enum ArithmeticOperator {
         MULTIPLY("*", "multiply", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.MULTIPLY),
         DIVIDE("/", "divide", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.DIVIDE),
         MOD("%", "mod", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.MOD),
-        INT_DIVIDE("DIV", "int_divide", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.INT_DIVIDE),
         ADD("+", "add", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.ADD),
         SUBTRACT("-", "subtract", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.SUBTRACT),
+        //TODO: The following functions will be added later.
         BITAND("&", "bitand", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.BITAND),
         BITOR("|", "bitor", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.BITOR),
         BITXOR("^", "bitxor", Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.BITXOR),
-        BITNOT("~", "bitnot", Arithmetic.OperatorPosition.UNARY_PREFIX, TExprOpcode.BITNOT),
-        FACTORIAL("!", "factorial", Arithmetic.OperatorPosition.UNARY_POSTFIX, TExprOpcode.FACTORIAL);
+        BITNOT("~", "bitnot", Arithmetic.OperatorPosition.UNARY_PREFIX, TExprOpcode.BITNOT);
 
         private final String description;
         private final String name;
         private final Arithmetic.OperatorPosition pos;
         private final TExprOpcode opcode;
 
-        Operator(String description, String name, Arithmetic.OperatorPosition pos, TExprOpcode opcode) {
+        ArithmeticOperator(String description, String name, Arithmetic.OperatorPosition pos, TExprOpcode opcode) {
             this.description = description;
             this.name = name;
             this.pos = pos;
@@ -89,14 +87,18 @@ public class Arithmetic<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ext
         }
     }
 
-    private final Operator op;
+    private final ArithmeticOperator op;
 
-    public Arithmetic(Operator op, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(genNodeType(op), left, right);
+    public Arithmetic(ArithmeticOperator op, Expression... children) {
+        super(genNodeType(op), children);
         this.op = op;
     }
 
-    private static NodeType genNodeType(Operator op) {
+    public ArithmeticOperator getArithOperator() {
+        return op;
+    }
+
+    private static NodeType genNodeType(ArithmeticOperator op) {
         switch (op) {
             case MULTIPLY:
                 return NodeType.MULTIPLY;
@@ -104,8 +106,6 @@ public class Arithmetic<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ext
                 return NodeType.DIVIDE;
             case MOD:
                 return NodeType.MOD;
-            case INT_DIVIDE:
-                return NodeType.INT_DIVIDE;
             case ADD:
                 return NodeType.ADD;
             case SUBTRACT:
@@ -118,8 +118,6 @@ public class Arithmetic<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ext
                 return NodeType.BITXOR;
             case BITNOT:
                 return NodeType.NOT;
-            case FACTORIAL:
-                return NodeType.FACTORIAL;
             default:
                 return null;
         }
@@ -131,7 +129,6 @@ public class Arithmetic<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ext
 
     @Override
     public String sql() {
-        String desc = op.toString();
-        return left().sql() + ' ' + desc + ' ' + right().sql();
+        return null;
     }
 }
