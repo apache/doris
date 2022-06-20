@@ -873,14 +873,14 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t new_size = 0;
     size_t num_zeros = simd::count_zero_num(reinterpret_cast<int8_t*>(ret_flags), original_size);
-    if (0 == num_zeros){
-        for(uint16_t i=0; i<original_size; i++){
+    if (0 == num_zeros) {
+        for (uint16_t i = 0; i < original_size; i++) {
             sel_rowid_idx[i] = i;
         }
         new_size = original_size;
-    }else if (num_zeros == original_size){
+    } else if (num_zeros == original_size) {
         //no row pass, let new_size = 0
-    }else{
+    } else {
         uint32_t sel_pos = 0;
         const uint32_t sel_end = sel_pos + selected_size;
         static constexpr size_t SIMD_BYTES = 32;
@@ -888,13 +888,13 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
         while (sel_pos < sel_end_simd) {
             auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
-            if (0 == mask){
+            if (0 == mask) {
                 //pass
-            }else if (0xffffffff == mask){
-                for(uint32_t i=0; i<SIMD_BYTES; i++){
+            } else if (0xffffffff == mask) {
+                for (uint32_t i = 0; i < SIMD_BYTES; i++) {
                     sel_rowid_idx[new_size++] = sel_pos + i;
                 }
-            }else{
+            } else {
                 while (mask) {
                     const size_t bit_pos = __builtin_ctzll(mask);
                     sel_rowid_idx[new_size++] = sel_pos + bit_pos;
