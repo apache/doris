@@ -159,7 +159,6 @@ public class PropertyAnalyzer {
         }
 
         boolean hasCooldown = cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS;
-        boolean hasRemoteCooldown = remoteCooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS;
         boolean hasRemoteStoragePolicy = StringUtils.isNotEmpty(remoteStoragePolicy);
 
         long currentTimeMs = System.currentTimeMillis();
@@ -187,7 +186,7 @@ public class PropertyAnalyzer {
                 if (storagePolicy.getCooldownDatetime().getTime() <= currentTimeMs) {
                     throw new AnalysisException("Remote storage cool down time should later than now");
                 }
-                if (hasCooldown && (storagePolicy.getCooldownDatetime().getTime() <= cooldownTimeStamp)) {
+                if (hasCooldown && storagePolicy.getCooldownDatetime().getTime() <= cooldownTimeStamp) {
                     throw new AnalysisException("`remote_storage_cooldown_time`"
                             + " should later than `storage_cooldown_time`.");
                 }
