@@ -674,6 +674,16 @@ struct TWaitingTxnStatusResult {
     2: optional i32 txn_status_id
 }
 
+struct TGetTabletReplicasRequest {
+    1: required Types.TTabletId tablet_id
+}
+
+struct TGetTabletReplicasResult {
+    1: optional Status.TStatus status
+    2: optional list<Types.TBackend> backends
+    3: optional string token
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -709,4 +719,5 @@ service FrontendService {
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
     AgentService.TGetStoragePolicyResult refreshStoragePolicy()
+    TGetTabletReplicasResult getTabletReplicas(1: TGetTabletReplicasRequest request)
 }

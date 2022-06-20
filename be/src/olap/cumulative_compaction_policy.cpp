@@ -145,6 +145,10 @@ void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         // if tablet under alter process, do not update cumulative point
         return;
     }
+    if (output_rowset == nullptr) {
+        // if current compaction is skipped, output_rowset would be null
+        return;
+    }
     // if rowsets have delete version, move to the last directly
     if (last_delete_version.first != -1) {
         tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);

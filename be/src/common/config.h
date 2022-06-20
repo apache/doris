@@ -250,6 +250,15 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 // be policy
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
+// whether disable single replica compaction
+CONF_mBool(enable_single_replica_compaction, "false");
+// min size to do single replica compaction
+CONF_mInt32(single_replica_compaction_min_size_mbytes, "10");
+// min interval to wait for single replica cumu compacion check peer
+CONF_mInt32(single_replica_cumu_compaction_check_peer_interval_ms, "1000");
+// min interval to wait for single replica base compaction check peer
+CONF_mInt32(single_replica_base_compaction_check_peer_interval_ms, "10000");
+
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change, material-view or rollup task will fail if this config open.

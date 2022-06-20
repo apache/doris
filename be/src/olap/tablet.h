@@ -27,6 +27,7 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_policy.h"
@@ -166,6 +167,7 @@ public:
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+    std::mutex& get_single_replica_compaction_lock() { return _single_replica_compaction_lock; }
 
     std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
@@ -320,6 +322,26 @@ public:
 
     bool check_all_rowset_segment();
 
+    // single replica compaction
+    bool check_compaction_status(CompactionType compaction_type,
+                                 const PCheckCompactionStatusRequest* request,
+                                 PCheckCompactionStatusResponse* response);
+    bool get_proper_version_to_compact(const std::vector<Version>& peer_versions,
+                                       Version* result_version);
+    bool should_fetch_from_peer(const Version& peer_version);
+    void set_last_single_replica_base_compaction_wait_millis(int64_t mills) {
+        _last_single_replica_base_compaction_wait_millis = mills;
+    }
+    void set_last_single_replica_cumu_compaction_wait_millis(int64_t mills) {
+        _last_single_replica_cumu_compaction_wait_millis = mills;
+    }
+    int64_t last_single_replica_base_compaction_wait_millis() {
+        return _last_single_replica_base_compaction_wait_millis;
+    }
+    int64_t last_single_replica_cumu_compaction_wait_millis() {
+        return _last_single_replica_cumu_compaction_wait_millis;
+    }
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -360,6 +382,7 @@ private:
     std::mutex _ingest_lock;
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
+    std::mutex _single_replica_compaction_lock;
     std::mutex _schema_change_lock;
     std::shared_mutex _migration_lock;
 
@@ -387,6 +410,12 @@ private:
     // timestamp of last base compaction success
     std::atomic<int64_t> _last_base_compaction_success_millis;
     std::atomic<int64_t> _last_quick_compaction_success_time_millis;
+
+    // timestamp of last single replica base compaction wait start time
+    int64_t _last_single_replica_base_compaction_wait_millis;
+    // timestamp of last single replica base compaction wait start time
+    int64_t _last_single_replica_cumu_compaction_wait_millis;
+
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
@@ -403,6 +432,7 @@ private:
     // the timestamp of the last record.
     time_t _last_record_scan_count_timestamp;
 
+    std::mutex _compaction_reset_lock;
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction

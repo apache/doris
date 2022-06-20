@@ -398,7 +398,26 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
             }
-            if (request.__isset.missing_version) {
+            bool is_compaction_clone =
+                    (request.__isset.is_compaction_clone && request.is_compaction_clone == true);
+            if (is_compaction_clone) {
+                LOG(INFO) << "handle compaction clone make snapshot, tablet_id: "
+                          << ref_tablet->tablet_id();
+                Version version(request.compaction_clone_start_version,
+                                request.compaction_clone_end_version);
+                const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version, false);
+                if (rowset != nullptr) {
+                    consistent_rowsets.push_back(rowset);
+                } else {
+                    LOG(WARNING) << "failed to find version when do compaction snapshot. "
+                                 << " tablet=" << request.tablet_id
+                                 << " schema_hash=" << request.schema_hash
+                                 << " version=" << version;
+                    res = Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+                    break;
+                }
+            }
+            if (!is_compaction_clone && request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
                     // find rowset in both rs_meta and stale_rs_meta
@@ -424,7 +443,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             }
 
             int64_t version = -1;
-            if (!res.ok() || !request.__isset.missing_version) {
+            if (!is_compaction_clone && (!res.ok() || !request.__isset.missing_version)) {
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
                 consistent_rowsets.clear(); // reset vector

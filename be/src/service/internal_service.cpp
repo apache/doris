@@ -992,4 +992,15 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     Status::OK().to_protobuf(response->mutable_status());
 }
 
+void PInternalServiceImpl::check_compaction_status(google::protobuf::RpcController* cntl_base,
+                                                   const PCheckCompactionStatusRequest* request,
+                                                   PCheckCompactionStatusResponse* response,
+                                                   google::protobuf::Closure* done) {
+    SCOPED_SWITCH_BTHREAD_TLS();
+    brpc::ClosureGuard closure_guard(done);
+    VLOG_DEBUG << "receive check compaction status request: " << request->DebugString();
+    ExecEnv::GetInstance()->storage_engine()->check_compaction_status(request, response);
+    response->mutable_status()->set_status_code(0);
+}
+
 } // namespace doris

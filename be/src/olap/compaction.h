@@ -19,6 +19,7 @@
 
 #include <vector>
 
+#include "gen_cpp/internal_service.pb.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -54,6 +55,8 @@ public:
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
 
+    bool is_compaction_doing();
+
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -74,6 +77,26 @@ protected:
                                             std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
 
+private:
+    // single replica compaction
+    Status _handle_single_replica_compaction();
+    Status _check_replica_compaction_status(const TBackend& addr,
+                                            const PCheckCompactionStatusRequest& request,
+                                            PCheckCompactionStatusResponse* response);
+    Status _get_replicas_and_token_rpc(std::vector<TBackend>* replica_addrs, std::string* token);
+    Status _fetch_compaction_result(const TBackend& dst_addr, const std::string& token,
+                                    const Version& expect_version);
+    Status _make_snapshot(const std::string& ip, int port, TTableId tablet_id,
+                          TSchemaHash schema_hash, int timeout_s, const Version& version,
+                          std::string* snapshot_path);
+    Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
+                           const std::string& local_path);
+    Status _finish_clone(const string& clone_dir, const Version& version);
+    Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
+    void adjust_input_rowset(const Version& expect_version);
+    bool ready_to_check_peer_status();
+    void clean_input_rowset_info();
+
 protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
@@ -84,6 +107,7 @@ protected:
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     int64_t _input_rowsets_size;
     int64_t _input_row_num;
+    int64_t _input_segments_num;
 
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
@@ -96,6 +120,10 @@ protected:
     int64_t _oldest_write_timestamp;
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
+
+    bool _single_compaction_succ;
+
+    bool _doing;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

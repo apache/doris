@@ -365,6 +365,75 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
     return Status::OK();
 }
 
+// find longest consecutive versions which start and
+// end version both in peer_versions and local_versions
+// for example:
+// peer_versions 2-2 3-3 4-4 4-5 6-100 xxx
+// local_versions 1-1 2-5 6-101 xxx
+// then we should return 2-5
+bool Tablet::get_proper_version_to_compact(const std::vector<Version>& peer_versions,
+                                           Version* result_version) {
+    bool find = false;
+    std::vector<Version> local_versions;
+    {
+        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        for (const auto& it : _rs_version_map) {
+            local_versions.emplace_back(it.first);
+        }
+    }
+    std::sort(local_versions.begin(), local_versions.end(),
+              [](const Version& left, const Version& right) {
+                  // simple because 2 versions are certainly not overlapping
+                  return left.first < right.first;
+              });
+    int index_peer = 0;
+    int index_local = 0;
+    int score = -1;
+    // find first equal version
+    while (index_local < local_versions.size()) {
+        if (local_versions[index_local].second < peer_versions[index_peer].first) {
+            ++index_local;
+            continue;
+        }
+        break;
+    }
+    // if start version not match, return false directly
+    if (local_versions[index_local].first != peer_versions[index_peer].first) {
+        return false;
+    }
+    if (local_versions[index_local].contains(peer_versions[index_peer])) {
+        int cur_score = 1;
+        ++index_peer;
+        while (index_peer < peer_versions.size()) {
+            if (local_versions[index_local].contains(peer_versions[index_peer])) {
+                ++cur_score;
+                ++index_peer;
+                continue;
+            }
+            break;
+        }
+        // second version match
+        if (peer_versions[index_peer - 1].second == local_versions[index_local].second) {
+            find = true;
+            if (cur_score > score) {
+                score = cur_score;
+                *result_version = local_versions[index_local];
+            }
+        }
+    }
+
+    // single rowset should check overlap
+    if (score == 1) {
+        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        auto rowset = get_rowset_by_version(*result_version);
+        if (rowset != nullptr && !rowset->is_segments_overlapping()) {
+            return true;
+        }
+        return false;
+    }
+    return find;
+}
+
 // snapshot manager may call this api to check if version exists, so that
 // the version maybe not exist
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version,
@@ -1157,6 +1226,58 @@ void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* 
     }
 }
 
+bool Tablet::should_fetch_from_peer(const Version& peer_version) {
+    std::shared_lock rdlock(_meta_lock);
+    auto iter = _rs_version_map.find(peer_version);
+    if (iter == _rs_version_map.end()) {
+        // rowset not exist, should compact
+        return true;
+    }
+    if (iter->second->is_segments_overlapping()) {
+        return true;
+    }
+    return false;
+}
+
+bool Tablet::check_compaction_status(CompactionType compaction_type,
+                                     const PCheckCompactionStatusRequest* request,
+                                     PCheckCompactionStatusResponse* response) {
+    std::vector<RowsetSharedPtr> compaction_rowsets;
+    {
+        std::unique_lock<std::mutex> lock(_compaction_reset_lock);
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _cumulative_compaction) {
+            if (!_cumulative_compaction->is_compaction_doing()) {
+                return false;
+            }
+            compaction_rowsets = _cumulative_compaction->get_input_rowsets();
+        } else if (compaction_type == CompactionType::BASE_COMPACTION && _base_compaction) {
+            if (!_base_compaction->is_compaction_doing()) {
+                return false;
+            }
+            compaction_rowsets = _base_compaction->get_input_rowsets();
+        }
+    }
+    // check if version overlapped
+    if (compaction_rowsets.empty()) {
+        return false;
+    }
+    int size = request->versions_size();
+    if (compaction_rowsets.front()->start_version() > request->versions(size - 1) ||
+        compaction_rowsets.back()->end_version() < request->versions(0)) {
+        // none overlapping
+        VLOG_DEBUG << "compaction none overlapping";
+        return false;
+    }
+    response->set_compaction_start_version(compaction_rowsets.front()->start_version());
+    response->set_compaction_end_version(compaction_rowsets.back()->end_version());
+    response->set_compaction_status(PCompactionStatus::COMPACTION_OK);
+    LOG(INFO) << "compaction doing, tablet=" << tablet_id() << " request_version=["
+              << request->versions(size - 1) << ", " << request->versions(0) << "]"
+              << " local_version=[" << compaction_rowsets.front()->start_version() << ","
+              << compaction_rowsets.back()->end_version() << "]";
+    return true;
+}
+
 // For http compaction action
 void Tablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
@@ -1586,6 +1707,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
 }
 
 void Tablet::reset_compaction(CompactionType compaction_type) {
+    std::unique_lock<std::mutex> lock(_compaction_reset_lock);
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         _cumulative_compaction.reset();
     } else {

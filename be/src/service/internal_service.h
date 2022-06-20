@@ -157,6 +157,11 @@ public:
                                            PTabletWriteSlaveDoneResult* response,
                                            google::protobuf::Closure* done) override;
 
+    void check_compaction_status(google::protobuf::RpcController* controller,
+                                 const PCheckCompactionStatusRequest* request,
+                                 PCheckCompactionStatusResponse* response,
+                                 google::protobuf::Closure* done) override;
+
 private:
     Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,
                                bool compact);

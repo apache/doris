@@ -312,7 +312,7 @@ public class Replica implements Writable {
             // And then publish version daemon try to finish txn, and use visible version(5)
             // to update replica. Finally, it find the newer version(5) is lower than replica version(6) in fe.
             if (LOG.isDebugEnabled()) {
-                LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
+                LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {}, "
                         + "not to continue to update replica", id, backendId, newVersion, this.version);
             }
             return;
@@ -336,7 +336,7 @@ public class Replica implements Writable {
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
             LOG.debug("current version {} is larger than last failed version {}, "
-                        + "maybe a fatal error or be report version, print a stack here ",
+                    + "maybe a fatal error or be report version, print a stack here ",
                     this.version, lastFailedVersion, new Exception());
         }
 
@@ -398,8 +398,7 @@ public class Replica implements Writable {
         }
 
         if (this.version < expectedVersion) {
-            LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                      expectedVersion, this);
+            LOG.debug("replica version does not catch up with version: {}. replica: {}", expectedVersion, this);
             return false;
         }
         return true;
@@ -419,6 +418,10 @@ public class Replica implements Writable {
 
     public boolean tooSlow() {
         return state == ReplicaState.COMPACTION_TOO_SLOW;
+    }
+
+    public boolean isNormal() {
+        return state == ReplicaState.NORMAL;
     }
 
     public long getVersionCount() {
@@ -502,13 +505,13 @@ public class Replica implements Writable {
 
         Replica replica = (Replica) obj;
         return (id == replica.id)
-                && (backendId == replica.backendId)
-                && (version == replica.version)
-                && (dataSize == replica.dataSize)
-                && (rowCount == replica.rowCount)
-                && (state.equals(replica.state))
-                && (lastFailedVersion == replica.lastFailedVersion)
-                && (lastSuccessVersion == replica.lastSuccessVersion);
+            && (backendId == replica.backendId)
+            && (version == replica.version)
+            && (dataSize == replica.dataSize)
+            && (rowCount == replica.rowCount)
+            && (state.equals(replica.state))
+            && (lastFailedVersion == replica.lastFailedVersion)
+            && (lastSuccessVersion == replica.lastSuccessVersion);
     }
 
     private static class VersionComparator<T extends Replica> implements Comparator<T> {
@@ -537,7 +540,7 @@ public class Replica implements Writable {
 
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
-                && getState() != ReplicaState.DECOMMISSION
-                && !isBad();
+            && getState() != ReplicaState.DECOMMISSION
+            && !isBad();
     }
 }

@@ -145,6 +145,7 @@ public:
     int64_t end_version() const { return rowset_meta()->version().second; }
     size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
     size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
+    bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     bool empty() const { return rowset_meta()->empty(); }
     bool zero_num_rows() const { return rowset_meta()->num_rows() == 0; }
     size_t num_rows() const { return rowset_meta()->num_rows(); }

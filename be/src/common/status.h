@@ -209,6 +209,7 @@ namespace doris {
     M(OLAP_ERR_CUMULATIVE_ERROR_DELETE_ACTION, -2005, "", true)          \
     M(OLAP_ERR_CUMULATIVE_MISS_VERSION, -2006, "", true)                 \
     M(OLAP_ERR_CUMULATIVE_CLONE_OCCURRED, -2007, "", true)               \
+    M(OLAP_ERR_COMPACTION_WAIT_PEER_FINISH, -2008, "", true)             \
     M(OLAP_ERR_META_INVALID_ARGUMENT, -3000, "", true)                   \
     M(OLAP_ERR_META_OPEN_DB, -3001, "", true)                            \
     M(OLAP_ERR_META_KEY_NOT_FOUND, -3002, "", true)                      \

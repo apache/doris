@@ -269,6 +269,9 @@ struct TSnapshotRequest {
     // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
+    10: optional bool is_compaction_clone = false
+    11: optional Types.TVersion compaction_clone_start_version
+    12: optional Types.TVersion compaction_clone_end_version
 }
 
 struct TReleaseSnapshotRequest {

@@ -32,6 +32,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
+#include "util/scoped_cleanup.h"
 #include "util/time.h"
 
 using std::string;
@@ -424,16 +425,15 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                             ? _cumu_compaction_thread_pool
                             : _base_compaction_thread_pool;
-            VLOG_CRITICAL << "compaction thread pool. type: "
-                          << (compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "CUMU"
-                                                                                       : "BASE")
-                          << ", num_threads: " << thread_pool->num_threads()
-                          << ", num_threads_pending_start: "
-                          << thread_pool->num_threads_pending_start()
-                          << ", num_active_threads: " << thread_pool->num_active_threads()
-                          << ", max_threads: " << thread_pool->max_threads()
-                          << ", min_threads: " << thread_pool->min_threads()
-                          << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
+            LOG(INFO) << "compaction thread pool. type: "
+                      << (compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "CUMU"
+                                                                                   : "BASE")
+                      << ", num_threads: " << thread_pool->num_threads()
+                      << ", num_threads_pending_start: " << thread_pool->num_threads_pending_start()
+                      << ", num_active_threads: " << thread_pool->num_active_threads()
+                      << ", max_threads: " << thread_pool->max_threads()
+                      << ", min_threads: " << thread_pool->min_threads()
+                      << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
             std::vector<TabletSharedPtr> tablets_compaction =
                     _generate_compaction_tasks(compaction_type, data_dirs, check_score);
             if (tablets_compaction.size() == 0) {
@@ -562,6 +562,57 @@ void StorageEngine::_update_cumulative_compaction_policy() {
                         current_policy);
     }
 }
+void StorageEngine::check_compaction_status(const PCheckCompactionStatusRequest* request,
+                                            PCheckCompactionStatusResponse* response) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(request->tablet_id());
+    if (tablet == nullptr) {
+        response->set_compaction_status(PCompactionStatus::COMPACTION_NONE);
+        response->mutable_status()->set_status_code(0);
+        return;
+    }
+    bool find_proper = false;
+    std::vector<Version> peer_versions;
+    for (int i = 0; i < request->versions_size() / 2; ++i) {
+        peer_versions.emplace_back(Version(request->versions(i * 2), request->versions(i * 2 + 1)));
+    }
+    {
+        Version proper_version(-1, -1);
+        bool find = tablet->get_proper_version_to_compact(peer_versions, &proper_version);
+        if (find) {
+            find_proper = true;
+            response->set_expect_start_version(proper_version.first);
+            response->set_expect_end_version(proper_version.second);
+            response->set_compaction_status(PCompactionStatus::COMPACTION_OK);
+            VLOG_DEBUG << "compaction find proper version, tablet=" << request->tablet_id()
+                       << ", version:" << proper_version;
+        }
+    }
+    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+    // check compaction
+    bool doing = false;
+    CompactionType compaction_type = (request->compaction_name() == "cumulative compaction"
+                                              ? CompactionType::CUMULATIVE_COMPACTION
+                                              : CompactionType::BASE_COMPACTION);
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        doing = (_tablet_submitted_cumu_compaction[tablet->data_dir()].count(tablet->tablet_id()) ==
+                 1);
+
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+        doing = (_tablet_submitted_base_compaction[tablet->data_dir()].count(tablet->tablet_id()) ==
+                 1);
+    }
+    if (doing) {
+        bool ret = tablet->check_compaction_status(compaction_type, request, response);
+        if (ret) {
+            VLOG_DEBUG << "compaction doing and overlapping";
+            return;
+        }
+    }
+    if (!find_proper) {
+        response->set_compaction_status(PCompactionStatus::COMPACTION_NONE);
+        VLOG_DEBUG << "compaction can't find proper version, tablet_id=" << request->tablet_id();
+    }
+}
 
 bool StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
                                                            CompactionType compaction_type) {
@@ -664,6 +715,13 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
 }
 
 Status StorageEngine::_handle_quick_compaction(TabletSharedPtr tablet) {
+    bool already_exist =
+            _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
+    if (already_exist) {
+        return Status::AlreadyExist(strings::Substitute(
+                "compaction task has already been submitted, tablet_id=$0, compaction_type=$1.",
+                tablet->tablet_id(), CompactionType::CUMULATIVE_COMPACTION));
+    }
     CumulativeCompaction compact(tablet);
     compact.quick_rowsets_compact();
     return Status::OK();

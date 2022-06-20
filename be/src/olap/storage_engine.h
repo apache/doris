@@ -166,6 +166,8 @@ public:
 
     void stop();
 
+    void check_compaction_status(const PCheckCompactionStatusRequest* request,
+                                 PCheckCompactionStatusResponse* response);
     void create_cumulative_compaction(TabletSharedPtr best_tablet,
                                       std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
     void create_base_compaction(TabletSharedPtr best_tablet,

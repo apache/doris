@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -54,11 +55,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
+import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDescribeTableParams;
@@ -76,6 +79,8 @@ import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TGetStoragePolicyResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TGetTabletReplicasRequest;
+import org.apache.doris.thrift.TGetTabletReplicasResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
@@ -151,7 +156,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.DATABASE.getCaseSensibility());
+                    CaseSensibility.DATABASE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
@@ -199,7 +204,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                    CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
@@ -242,7 +247,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                    CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
@@ -451,8 +456,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (ctx == null) {
             return result;
         }
-        List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
-                null);
+        List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()),
+                                                    ctx.getSessionVariable(),
+                                                    null);
         for (List<String> row : rows) {
             map.put(row.get(0), row.get(1));
         }
@@ -511,7 +517,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (!authCodeUuid.equals(transactionState.getAuthCode())) {
             throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+                "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
     }
 
@@ -528,7 +534,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Preconditions.checkState(currentUser.size() == 1);
         if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
             throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+                "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
     }
 
@@ -1051,6 +1057,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         LOG.debug("refresh storage policy request: {}", result);
+        return result;
+    }
+
+    public TGetTabletReplicasResult getTabletReplicas(TGetTabletReplicasRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive get replicas request: {}, backend: {}", request, clientAddr);
+        TGetTabletReplicasResult result = new TGetTabletReplicasResult();
+        result.setStatus(new TStatus());
+        List<TBackend> backends = Lists.newArrayList();
+        List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
+                .getReplicasByTabletId(request.getTabletId());
+        for (Replica replica : replicas) {
+            if (!replica.isNormal()) {
+                LOG.info("replica {} not normal");
+                continue;
+            }
+            Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+            if (backend != null && !clientAddr.equals(backend.getHost())) {
+                TBackend tback = new TBackend();
+                tback.setHost(backend.getHost());
+                tback.setBePort(backend.getBePort());
+                tback.setHttpPort(backend.getHttpPort());
+                tback.setBrpcPort(backend.getBrpcPort());
+                backends.add(tback);
+            }
+        }
+        result.setBackends(backends);
+        result.setToken(Env.getCurrentEnv().getToken());
+        result.status.setStatusCode(TStatusCode.OK);
         return result;
     }
 }

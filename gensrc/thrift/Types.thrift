@@ -545,6 +545,7 @@ struct TBackend {
     1: required string host
     2: required TPort be_port
     3: required TPort http_port
+    4: optional TPort brpc_port
 }
 
 struct TResourceInfo {
