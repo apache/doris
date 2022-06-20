@@ -328,8 +328,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     @Override
-    public List<? extends PlanStats> getChildrenStats() {
-        return children;
+    public List<StatsDeriveResult> getChildrenStats() {
+        List<StatsDeriveResult> statsDeriveResultList = Lists.newArrayList();
+        for (PlanNode child : children) {
+            statsDeriveResultList.add(child.getStatsDeriveResult());
+        }
+        return statsDeriveResultList;
     }
 
     void initCompoundPredicate(Expr expr) {

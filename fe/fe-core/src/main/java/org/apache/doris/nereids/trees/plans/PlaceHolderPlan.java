@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -87,7 +86,7 @@ public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolder
     }
 
     @Override
-    public List<? extends PlanStats> getChildrenStats() {
+    public List<StatsDeriveResult> getChildrenStats() {
         throw new RuntimeException("Unsupported Method");
     }
 

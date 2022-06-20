@@ -23,7 +23,6 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -101,8 +100,8 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     }
 
     @Override
-    public List<? extends PlanStats> getChildrenStats() {
-        return children();
+    public List<StatsDeriveResult> getChildrenStats() {
+        return Collections.emptyList();
     }
 
     @Override

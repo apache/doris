@@ -48,12 +48,10 @@ public class BaseStatsDerive {
         limit = node.getLimit();
         conjuncts.addAll(node.getConjuncts());
 
-        for (PlanStats childNode : node.getChildrenStats()) {
-            StatsDeriveResult result = childNode.getStatsDeriveResult();
+        for (StatsDeriveResult result : node.getChildrenStats()) {
             if (result == null) {
                 throw new UserException(
-                        "childNode statsDeriveResult is null, childNodeType is " + childNode.getStatisticalType()
-                                + "parentNodeType is " + node.getStatisticalType());
+                        "childNode statsDeriveResult is null.");
             }
             childrenStatsResult.add(result);
         }

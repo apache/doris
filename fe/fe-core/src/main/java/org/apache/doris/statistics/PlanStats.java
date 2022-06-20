@@ -24,7 +24,7 @@ import java.util.List;
  */
 public interface PlanStats {
 
-    List<? extends PlanStats> getChildrenStats();
+    List<StatsDeriveResult> getChildrenStats();
 
     StatsDeriveResult getStatsDeriveResult();
 
