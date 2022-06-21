@@ -226,17 +226,24 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         return OLAP_ERR_ALREADY_CANCELLED;
     }
 
-    if (mem_consumption() == _mem_table->memory_usage()) {
-        // equal means there is no memtable in flush queue, just flush this memtable
-        VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                << ", load id: " << print_id(_req.load_id);
-        RETURN_NOT_OK(_flush_memtable_async());
-        _reset_mem_table();
-    } else {
-        DCHECK(mem_consumption() > _mem_table->memory_usage());
-        // this means there should be at least one memtable in flush queue.
-    }
+    //TODO: this change is only for 1.1.0-preview2. there are some bugs in memtracker, flush memtable directly.
+    VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
+            << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
+            << ", load id: " << print_id(_req.load_id);
+    RETURN_NOT_OK(_flush_memtable_async());
+    _reset_mem_table();
+
+    // if (mem_consumption() == _mem_table->memory_usage()) {
+    //     // equal means there is no memtable in flush queue, just flush this memtable
+    //     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
+    //             << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
+    //             << ", load id: " << print_id(_req.load_id);
+    //     RETURN_NOT_OK(_flush_memtable_async());
+    //     _reset_mem_table();
+    // } else {
+    //     DCHECK(mem_consumption() > _mem_table->memory_usage());
+    //     // this means there should be at least one memtable in flush queue.
+    // }
 
     if (need_wait) {
         // wait all memtables in flush queue to be flushed.
