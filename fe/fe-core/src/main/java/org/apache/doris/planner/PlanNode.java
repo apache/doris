@@ -318,6 +318,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         tblRefIds = ids;
     }
 
+    public ArrayList<TupleId> getOutputTblRefIds() {
+        return tblRefIds;
+    }
+
     public Set<TupleId> getNullableTupleIds() {
         Preconditions.checkState(nullableTupleIds != null);
         return nullableTupleIds;
