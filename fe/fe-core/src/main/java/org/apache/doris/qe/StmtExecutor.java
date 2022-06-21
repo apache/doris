@@ -743,9 +743,7 @@ public class StmtExecutor implements ProfileWriter {
         } else {
             planner = new Planner();
         }
-        if (parsedStmt instanceof LogicalPlanAdapter) {
-            planner = new PlannerAdapter(context);
-        } else if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             planner.plan(parsedStmt, analyzer, tQueryOptions);
         }
         // TODO(zc):
