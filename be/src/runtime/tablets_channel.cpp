@@ -234,11 +234,11 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     // Sort the DeltaWriters by mem consumption in descend order.
     std::vector<DeltaWriter*> writers;
     for (auto& it : _tablet_writers) {
-        it.second->save_mem_consumption_snapshot();
+        it.second->save_memtable_consumption_snapshot();
         writers.push_back(it.second);
     }
     std::sort(writers.begin(), writers.end(), [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
-        return lhs->get_mem_consumption_snapshot() > rhs->get_mem_consumption_snapshot();
+        return lhs->get_memtable_consumption_snapshot() > rhs->get_memtable_consumption_snapshot();
     });
 
     // Decide which writes should be flushed to reduce mem consumption.
