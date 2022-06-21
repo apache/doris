@@ -17,10 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.operators.plans.logical.GroupPlanOperator;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
@@ -28,40 +27,20 @@ import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
- * A virtual node that represents a fixed plan.
+ * A virtual node that represents a sequence plan in a Group.
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolderOperator> {
-    /** PlaceHolderOperator. */
-    public static class PlaceHolderOperator extends LogicalLeafOperator {
-        private final LogicalProperties logicalProperties;
+public class GroupPlan extends LogicalLeafPlan<GroupPlanOperator> {
+    private final Group group;
 
-        public PlaceHolderOperator(LogicalProperties logicalProperties) {
-            super(OperatorType.PLACE_HOLDER);
-            this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
-        }
-
-        @Override
-        public List<Slot> computeOutput() {
-            throw new IllegalStateException("PlaceholderOperator can not compute output");
-        }
-
-        @Override
-        public LogicalProperties computeLogicalProperties(Plan... inputs) {
-            throw new IllegalStateException("PlaceholderOperator can not compute logical properties");
-        }
-    }
-
-    public PlaceHolderPlan(LogicalProperties logicalProperties) {
-        super(new PlaceHolderOperator(logicalProperties), Optional.empty(), Optional.of(logicalProperties));
+    public GroupPlan(Group group) {
+        super(new GroupPlanOperator(), Optional.empty(), Optional.of(group.getLogicalProperties()));
+        this.group = group;
     }
 
     @Override
@@ -71,48 +50,55 @@ public class PlaceHolderPlan extends LogicalLeafPlan<PlaceHolderPlan.PlaceHolder
 
     @Override
     public NodeType getType() {
-        return NodeType.FIXED;
+        return NodeType.GROUP;
+    }
+
+    public Group getGroup() {
+        return group;
     }
 
     @Override
-    public PlaceHolderPlan withOutput(List<Slot> output) {
-        throw new RuntimeException();
+    public GroupPlan withOutput(List<Slot> output) {
+        throw new IllegalStateException("GroupPlan can not invoke withOutput()");
     }
 
     @Override
-    public PlaceHolderPlan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 0);
-        return new PlaceHolderPlan(logicalProperties);
+    public GroupPlan withChildren(List<Plan> children) {
+        throw new IllegalStateException("GroupPlan can not invoke withChildren()");
     }
 
     @Override
     public List<StatsDeriveResult> getChildrenStats() {
-        throw new RuntimeException("Unsupported Method");
+        throw new RuntimeException("GroupPlan can not invoke getChildrenStats()");
     }
 
     @Override
     public StatsDeriveResult getStatsDeriveResult() {
-        throw new RuntimeException("Unsupported Method");
+        throw new RuntimeException("GroupPlan can not invoke getStatsDeriveResult()");
     }
 
     @Override
     public StatisticalType getStatisticalType() {
-        throw new RuntimeException("Unsupported Method");
+        throw new RuntimeException("GroupPlan can not invoke getStatisticalType()");
     }
 
     @Override
     public void setStatsDeriveResult(StatsDeriveResult result) {
-        throw new RuntimeException("Unsupported Method");
+        throw new RuntimeException("GroupPlan can not invoke setStatsDeriveResult()");
     }
 
     @Override
     public long getLimit() {
-        throw new RuntimeException("Unsupported Method");
+        throw new RuntimeException("GroupPlan can not invoke getLimit()");
     }
 
     @Override
     public List<? extends ExprStats> getConjuncts() {
-        throw new RuntimeException("Unsupported Method");
+        throw new RuntimeException("GroupPlan can not invoke getConjuncts()");
     }
 
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        throw new RuntimeException("GroupPlan can not invoke withGroupExpression()");
+    }
 }

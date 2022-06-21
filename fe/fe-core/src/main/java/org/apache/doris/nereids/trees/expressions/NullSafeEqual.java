@@ -45,4 +45,9 @@ public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE 
     public String toString() {
         return "(" + left() + " <=> " + right() + ")";
     }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitNullSafeEqual(this, context);
+    }
 }

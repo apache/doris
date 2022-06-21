@@ -23,7 +23,7 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 
@@ -45,7 +45,7 @@ public abstract class LogicalBinaryOperator extends AbstractOperator
     @Override
     public final LogicalProperties computeLogicalProperties(Plan... inputs) {
         Preconditions.checkArgument(inputs.length == 2);
-        return new LogicalProperties(computeOutput(inputs[0], inputs[1]));
+        return new LogicalProperties(() -> computeOutput(inputs[0], inputs[1]));
     }
 
     public abstract List<Slot> computeOutput(Plan left, Plan right);
@@ -53,10 +53,8 @@ public abstract class LogicalBinaryOperator extends AbstractOperator
     @Override
     public LogicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        LogicalProperties leftChildProperties = groupExpression.child(0).getLogicalProperties();
-        LogicalProperties rightChildProperties = groupExpression.child(1).getLogicalProperties();
         return new LogicalBinaryPlan(this, Optional.of(groupExpression), Optional.of(logicalProperties),
-                new PlaceHolderPlan(leftChildProperties), new PlaceHolderPlan(rightChildProperties)
+                new GroupPlan(groupExpression.child(0)), new GroupPlan(groupExpression.child(1))
         );
     }
 }

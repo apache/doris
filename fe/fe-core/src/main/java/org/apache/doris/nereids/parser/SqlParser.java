@@ -42,9 +42,8 @@ public class SqlParser {
      *
      * @param sql sql string
      * @return logical plan
-     * @throws Exception throw exception when failed in parse stage
      */
-    public LogicalPlan parse(String sql) throws Exception {
+    public LogicalPlan parse(String sql) {
         return (LogicalPlan) parse(sql, DorisParser::singleStatement);
     }
 

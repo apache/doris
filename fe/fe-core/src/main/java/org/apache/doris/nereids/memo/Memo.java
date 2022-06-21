@@ -19,6 +19,7 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
@@ -27,6 +28,8 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Representation for memo in cascades optimizer.
@@ -54,19 +57,40 @@ public class Memo {
      * @param rewrite whether to rewrite the node to the target group
      * @return Reference of node in Memo
      */
-    public GroupExpression copyIn(Plan node, Group target, boolean rewrite) {
-        Preconditions.checkArgument(!rewrite || target != null);
-        List<Group> childrenGroups = Lists.newArrayList();
-        for (Plan child : node.children()) {
-            childrenGroups.add(copyIn(child, null, rewrite).getParent());
+    public GroupExpression copyIn(Plan node, @Nullable Group target, boolean rewrite) {
+        Optional<GroupExpression> groupExpr = node.getGroupExpression();
+        if (!rewrite && groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
+            return groupExpr.get();
         }
-        if (node.getGroupExpression().isPresent() && groupExpressions.containsKey(node.getGroupExpression().get())) {
-            return node.getGroupExpression().get();
+        List<Group> childrenGroups = Lists.newArrayList();
+        for (int i = 0; i < node.children().size(); i++) {
+            Plan child = node.children().get(i);
+            if (child instanceof GroupPlan) {
+                childrenGroups.add(((GroupPlan) child).getGroup());
+            } else if (child.getGroupExpression().isPresent()) {
+                childrenGroups.add(child.getGroupExpression().get().getParent());
+            } else {
+                childrenGroups.add(copyIn(child, null, rewrite).getParent());
+            }
         }
         GroupExpression newGroupExpression = new GroupExpression(node.getOperator());
         newGroupExpression.setChildren(childrenGroups);
         return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, node.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
+    }
+
+    public Plan copyOut() {
+        return groupToTreeNode(root);
+    }
+
+    private Plan groupToTreeNode(Group group) {
+        GroupExpression logicalExpression = group.getLogicalExpression();
+        List<Plan> childrenNode = Lists.newArrayList();
+        for (Group child : logicalExpression.children()) {
+            childrenNode.add(groupToTreeNode(child));
+        }
+        Plan result = logicalExpression.getOperator().toTreeNode(logicalExpression);
+        return result.withChildren(childrenNode);
     }
 
     /**
