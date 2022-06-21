@@ -65,6 +65,10 @@ public class NereidsParser {
         return (LogicalPlan) parse(sql, DorisParser::singleStatement);
     }
 
+    public List<LogicalPlan> parseMultiple(String sql) throws Exception {
+        return (List<LogicalPlan>) parse(sql, DorisParser::multiStatements);
+    }
+
     private Object parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         try {
             ParserRuleContext tree = toAst(sql, parseFunction);
@@ -96,10 +100,6 @@ public class NereidsParser {
             tree = parseFunction.apply(parser);
         }
         return tree;
-    }
-
-    public List<LogicalPlan> parseMultiple(String sql) throws Exception {
-        return (List<LogicalPlan>) parse(sql, DorisParser::multiStatements);
     }
 
     public Expression createExpression(String expression) {

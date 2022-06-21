@@ -480,7 +480,7 @@ public class SessionVariable implements Serializable, Writable {
      * would be coming soon.
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
-    private boolean enableNereids = true;
+    private boolean enableNereids = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
