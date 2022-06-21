@@ -86,7 +86,7 @@ public:
     void insert(const void* data) override {
         if (data == nullptr) return;
 
-        if (sizeof(T) >= 16) {
+        if constexpr (sizeof(T) >= 16) {
             // for largeint, it will core dump with no memcpy
             T value;
             memcpy(&value, data, sizeof(T));
