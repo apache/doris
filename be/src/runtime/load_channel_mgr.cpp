@@ -24,6 +24,8 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
+#include "olap/storage_engine.h"
+#include "olap/memtable_flush_executor.h"
 
 namespace doris {
 
@@ -178,6 +180,19 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
     if (!_mem_tracker->limit_exceeded()) {
+        return;
+    }
+
+    if (StorageEngine::instance()->memtable_flush_executor()->thread_pool_overloaded()) {
+        LOG(INFO) << "memtable_flush_executor thread_pool is overloaded, wait ...";
+        //if thread pool is already overloaded, wait at most 2sec for submitted tasks finish.
+        //we do not submit new tasks into thread pool to avoid small segment files
+        size_t wait_time = 0;
+        while (StorageEngine::instance()->memtable_flush_executor()->thread_pool_overloaded() &&
+               wait_time < 4) {
+            std::this_thread::sleep_for(std::chrono::microseconds(500));
+            ++wait_time;
+        }
         return;
     }
 
