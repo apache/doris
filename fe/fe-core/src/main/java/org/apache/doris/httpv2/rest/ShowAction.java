@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -170,16 +171,16 @@ public class ShowAction extends RestBaseController {
         long totalSize = 0;
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
-            Database db = Catalog.getCurrentCatalog().getDbNullable(fullDbName);
+            DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbNullable(fullDbName);
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
             }
             totalSize = getDataSizeOfDatabase(db);
             oneEntry.put(fullDbName, totalSize);
         } else {
-            for (long dbId : Catalog.getCurrentCatalog().getDbIds()) {
-                Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
-                if (db == null && db.isInfoSchemaDb()) {
+            for (long dbId : Catalog.getCurrentInternalCatalog().getDbIds()) {
+                DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+                if (db == null || !(db instanceof Database) || ((Database) db).isInfoSchemaDb()) {
                     continue;
                 }
                 totalSize += getDataSizeOfDatabase(db);
@@ -246,7 +247,7 @@ public class ShowAction extends RestBaseController {
         return feInfo;
     }
 
-    public long getDataSizeOfDatabase(Database db) {
+    public long getDataSizeOfDatabase(DatabaseIf db) {
         long totalSize = 0;
         db.readLock();
         try {
@@ -272,10 +273,10 @@ public class ShowAction extends RestBaseController {
 
     private Map<String, Long> getDataSize() {
         Map<String, Long> result = new HashMap<String, Long>();
-        List<String> dbNames = Catalog.getCurrentCatalog().getDbNames();
+        List<String> dbNames = Catalog.getCurrentInternalCatalog().getDbNames();
 
         for (String dbName : dbNames) {
-            Catalog.getCurrentCatalog().getDb(dbName).ifPresent(db -> {
+            Catalog.getCurrentInternalCatalog().getDb(dbName).ifPresent(db -> {
                 long totalSize = getDataSizeOfDatabase(db);
                 result.put(dbName, totalSize);
             });

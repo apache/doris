@@ -105,7 +105,7 @@ public class Alter {
         String tableName = stmt.getBaseIndexName();
         // check db
         String dbName = stmt.getDBName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         // check cluster capacity
         Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
         // check db quota
@@ -118,7 +118,7 @@ public class Alter {
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         // check db
         String dbName = stmt.getTableName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         String tableName = stmt.getTableName().getTbl();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
@@ -269,7 +269,7 @@ public class Alter {
     public void replayModifyComment(ModifyCommentOperationLog operation) throws MetaNotFoundException {
         long dbId = operation.getDbId();
         long tblId = operation.getTblId();
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table tbl = db.getTableOrMetaException(tblId);
         tbl.writeLock();
         try {
@@ -321,7 +321,7 @@ public class Alter {
     }
 
     public void replayProcessModifyEngine(ModifyTableEngineOperationLog log) {
-        Database db = Catalog.getCurrentCatalog().getDbNullable(log.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(log.getDbId());
         if (db == null) {
             return;
         }
@@ -377,7 +377,7 @@ public class Alter {
         String tableName = dbTableName.getTbl();
         final String clusterName = stmt.getClusterName();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Table table = db.getTableOrDdlException(tableName);
         List<AlterClause> alterClauses = Lists.newArrayList();
         // some operations will take long time to process, need to be done outside the table lock
@@ -472,7 +472,7 @@ public class Alter {
         long origTblId = log.getOrigTblId();
         long newTblId = log.getNewTblId();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         OlapTable origTable = (OlapTable) db.getTableOrMetaException(origTblId, TableType.OLAP);
         OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, TableType.OLAP);
         List<Table> tableList = Lists.newArrayList(origTable, newTbl);
@@ -530,7 +530,7 @@ public class Alter {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         String tableName = dbTableName.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
@@ -572,7 +572,7 @@ public class Alter {
         String inlineViewDef = alterViewInfo.getInlineViewDef();
         List<Column> newFullSchema = alterViewInfo.getNewFullSchema();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         View view = (View) db.getTableOrMetaException(tableId, TableType.VIEW);
 
         db.writeLock();
@@ -713,7 +713,7 @@ public class Alter {
     }
 
     public void replayModifyPartition(ModifyPartitionInfo info) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {

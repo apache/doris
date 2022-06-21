@@ -22,11 +22,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -655,14 +656,14 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
 
-        Database database = globalState.catalog.getDbOrAnalysisException(dbName);
-        Table table = database.getTableOrAnalysisException(tableName.getTbl());
+        DatabaseIf database = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(dbName);
+        TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream().filter(
-                    partition -> partition.getState() == PartitionState.RESTORE
-            ).collect(Collectors.toList()).isEmpty();
+            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream()
+                    .filter(partition -> partition.getState() == PartitionState.RESTORE).collect(Collectors.toList())
+                    .isEmpty();
 
             if (!isNotRestoring) {
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
@@ -693,8 +694,8 @@ public class Analyzer {
         }
     }
 
-    public Table getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        Database db = globalState.catalog.getDbOrAnalysisException(tblName.getDb());
+    public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
+        DatabaseIf db = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
@@ -760,7 +761,7 @@ public class Analyzer {
          * The inner subquery: select k1 from table c where a.k1=k1;
          * There is a associated column (a.k1) which belongs to the outer query appears in the inner subquery.
          * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
-         * The exception of this query like that: Unknown column 'k1' in 'a'
+         * The exception to this query like that: Unknown column 'k1' in 'a'
          */
         if (d == null && hasAncestors() && isSubquery) {
             // analyzer father for subquery

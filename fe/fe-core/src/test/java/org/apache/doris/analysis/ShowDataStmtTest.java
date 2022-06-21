@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -45,6 +47,8 @@ public class ShowDataStmtTest {
     @Mocked
     private Catalog catalog;
     @Mocked
+    private InternalDataSource ds;
+    @Mocked
     private ConnectContext ctx;
     @Mocked
     private TabletInvertedIndex invertedIndex;
@@ -54,9 +58,6 @@ public class ShowDataStmtTest {
     @Before
     public void setUp() throws UserException {
         auth = new PaloAuth();
-
-
-
         new Expectations() {
             {
                 Catalog.getCurrentInvertedIndex();
@@ -66,6 +67,7 @@ public class ShowDataStmtTest {
         };
 
         db = CatalogMocker.mockDb();
+        ds = Deencapsulation.newInstance(InternalDataSource.class);
 
         new Expectations() {
             {
@@ -93,7 +95,11 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = auth;
 
-                catalog.getDbOrAnalysisException(anyString);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbOrAnalysisException(anyString);
                 minTimes = 0;
                 result = db;
 
@@ -110,7 +116,6 @@ public class ShowDataStmtTest {
                 result = "192.168.1.1";
             }
         };
-
 
         new Expectations() {
             {

@@ -385,7 +385,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDBName());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
         OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
         checkMeta(olapTable, stmt.getRoutineLoadDesc());
         long tableId = olapTable.getId();
