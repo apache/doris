@@ -19,18 +19,19 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -38,9 +39,9 @@ import java.util.List;
 
 public class LogicalProjectionToPhysicalProjectionTest implements Plans {
     @Test
-    public void projectionImplTest() {
+    public void projectionImplTest(@Mocked Group group) {
         LogicalProject logicalProject = new LogicalProject(Lists.newArrayList());
-        Plan plan = plan(logicalProject, new PlaceHolderPlan(new LogicalProperties(Lists.newArrayList())));
+        Plan plan = plan(logicalProject, new GroupPlan(group));
 
         Rule<Plan> rule = new LogicalProjectionToPhysicalProjection().build();
 

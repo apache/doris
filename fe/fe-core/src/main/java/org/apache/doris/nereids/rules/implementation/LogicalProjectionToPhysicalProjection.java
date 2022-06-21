@@ -32,6 +32,6 @@ public class LogicalProjectionToPhysicalProjection extends OneImplementationRule
                 new PhysicalProject(projection.getOperator().getProjects()),
                 projection.getLogicalProperties(),
                 projection.child()
-        )).toRule(RuleType.Projection);
+        )).toRule(RuleType.LOGICAL_PROJECTION_TO_PHYSICAL_PROJECTION_RULE);
     }
 }

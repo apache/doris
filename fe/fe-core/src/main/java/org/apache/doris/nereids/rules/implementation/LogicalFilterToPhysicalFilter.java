@@ -32,6 +32,6 @@ public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory 
             new PhysicalFilter(filter.getOperator().getPredicates()),
             filter.getLogicalProperties(),
             filter.child()
-        )).toRule(RuleType.Filter);
+        )).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
     }
 }
