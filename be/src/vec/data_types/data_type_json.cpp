@@ -19,7 +19,7 @@
 
 #include "gen_cpp/data.pb.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_string.h"
+#include "vec/columns/column_json.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/io/io_helper.h"
@@ -32,9 +32,9 @@ namespace doris::vectorized {
 
 template <typename Reader>
 static inline void read(IColumn& column, Reader&& reader) {
-    ColumnJson& column_string = assert_cast<ColumnJson&>(column);
-    ColumnJson::Chars& data = column_string.get_chars();
-    ColumnJson::Offsets& offsets = column_string.get_offsets();
+    ColumnJson& column_json = assert_cast<ColumnJson&>(column);
+    ColumnJson::Chars& data = column_json.get_chars();
+    ColumnJson::Offsets& offsets = column_json.get_offsets();
     size_t old_chars_size = data.size();
     size_t old_offsets_size = offsets.size();
     try {
@@ -75,7 +75,7 @@ bool DataTypeJson::equals(const IDataType& rhs) const {
 int64_t DataTypeJson::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnJson&>(*ptr.get());
-    return sizeof(uint32_t) * (column.size() + 1) + sizeof(uint64_t) +
+    return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
            data_column.get_chars().size();
 }
 
@@ -84,11 +84,11 @@ char* DataTypeJson::serialize(const IColumn& column, char* buf) const {
     const auto& data_column = assert_cast<const ColumnJson&>(*ptr.get());
 
     // row num
-    *reinterpret_cast<uint32_t*>(buf) = column.size();
-    buf += sizeof(uint32_t);
+    *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
+    buf += sizeof(IColumn::Offset);
     // offsets
-    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(uint32_t));
-    buf += column.size() * sizeof(uint32_t);
+    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
+    buf += column.size() * sizeof(IColumn::Offset);
     // total length
     uint64_t value_len = data_column.get_chars().size();
     *reinterpret_cast<uint64_t*>(buf) = value_len;
@@ -101,17 +101,17 @@ char* DataTypeJson::serialize(const IColumn& column, char* buf) const {
 }
 
 const char* DataTypeJson::deserialize(const char* buf, IColumn* column) const {
-    ColumnJson* column_string = assert_cast<ColumnJson*>(column);
-    ColumnJson::Chars& data = column_string->get_chars();
-    ColumnJson::Offsets& offsets = column_string->get_offsets();
+    ColumnJson* column_json = assert_cast<ColumnJson*>(column);
+    ColumnJson::Chars& data = column_json->get_chars();
+    ColumnJson::Offsets& offsets = column_json->get_offsets();
 
     // row num
-    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
-    buf += sizeof(uint32_t);
+    uint32_t row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    buf += sizeof(IColumn::Offset);
     // offsets
     offsets.resize(row_num);
-    memcpy(offsets.data(), buf, sizeof(uint32_t) * row_num);
-    buf += sizeof(uint32_t) * row_num;
+    memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * row_num);
+    buf += sizeof(IColumn::Offset) * row_num;
     // total length
     uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
     buf += sizeof(uint64_t);

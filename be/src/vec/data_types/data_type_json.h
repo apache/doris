@@ -49,7 +49,7 @@ public:
     bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
     bool is_comparable() const override { return false; }
-    bool can_be_compared_with_collation() const override { return true; }
+    bool can_be_compared_with_collation() const override { return false; }
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }

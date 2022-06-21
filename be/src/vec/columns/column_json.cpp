@@ -28,7 +28,7 @@ MutableColumnPtr ColumnJson::clone_resized(size_t to_size) const {
         res->offsets.assign(offsets.begin(), offsets.begin() + to_size);
         res->chars.assign(chars.begin(), chars.begin() + offsets[to_size - 1]);
     } else {
-        /// Copy column and append empty strings for extra elements.
+        /// Copy column and append empty jsons for extra elements.
 
         Offset offset = 0;
         if (from_size > 0) {
@@ -37,7 +37,7 @@ MutableColumnPtr ColumnJson::clone_resized(size_t to_size) const {
             offset = offsets.back();
         }
 
-        /// Empty strings are just zero terminating bytes.
+        /// Empty jsons are just zero terminating bytes.
 
         res->chars.resize_fill(res->chars.size() + to_size - from_size);
 
@@ -156,13 +156,13 @@ ColumnPtr ColumnJson::permute(const Permutation& perm, size_t limit) const {
 
     for (size_t i = 0; i < limit; ++i) {
         size_t j = perm[i];
-        size_t string_offset = offsets[j - 1];
-        size_t string_size = offsets[j] - string_offset;
+        size_t json_offset = offsets[j - 1];
+        size_t json_size = offsets[j] - json_offset;
 
         memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                 &chars[string_offset], string_size);
+                                                 &chars[json_offset], json_size);
 
-        current_new_offset += string_size;
+        current_new_offset += json_size;
         res_offsets[i] = current_new_offset;
     }
 
@@ -170,30 +170,30 @@ ColumnPtr ColumnJson::permute(const Permutation& perm, size_t limit) const {
 }
 
 StringRef ColumnJson::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
-    size_t string_size = size_at(n);
+    IColumn::Offset json_size = size_at(n);
     size_t offset = offset_at(n);
 
     StringRef res;
-    res.size = sizeof(string_size) + string_size;
+    res.size = sizeof(json_size) + json_size;
     char* pos = arena.alloc_continue(res.size, begin);
-    memcpy(pos, &string_size, sizeof(string_size));
-    memcpy(pos + sizeof(string_size), &chars[offset], string_size);
+    memcpy(pos, &json_size, sizeof(json_size));
+    memcpy(pos + sizeof(json_size), &chars[offset], json_size);
     res.data = pos;
 
     return res;
 }
 
 const char* ColumnJson::deserialize_and_insert_from_arena(const char* pos) {
-    const size_t string_size = unaligned_load<size_t>(pos);
-    pos += sizeof(string_size);
+    const IColumn::Offset json_size = unaligned_load<size_t>(pos);
+    pos += sizeof(json_size);
 
     const size_t old_size = chars.size();
-    const size_t new_size = old_size + string_size;
+    const size_t new_size = old_size + json_size;
     chars.resize(new_size);
-    memcpy(chars.data() + old_size, pos, string_size);
+    memcpy(chars.data() + old_size, pos, json_size);
 
     offsets.push_back(new_size);
-    return pos + string_size;
+    return pos + json_size;
 }
 
 template <typename Type>
@@ -215,13 +215,13 @@ ColumnPtr ColumnJson::index_impl(const PaddedPODArray<Type>& indexes, size_t lim
 
     for (size_t i = 0; i < limit; ++i) {
         size_t j = indexes[i];
-        size_t string_offset = offsets[j - 1];
-        size_t string_size = offsets[j] - string_offset;
+        size_t json_offset = offsets[j - 1];
+        size_t json_size = offsets[j] - json_offset;
 
         memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                 &chars[string_offset], string_size);
+                                                 &chars[json_offset], json_size);
 
-        current_new_offset += string_size;
+        current_new_offset += json_size;
         res_offsets[i] = current_new_offset;
     }
 
@@ -278,24 +278,24 @@ ColumnPtr ColumnJson::replicate(const Offsets& replicate_offsets) const {
     res_offsets.reserve(replicate_offsets.back());
 
     Offset prev_replicate_offset = 0;
-    Offset prev_string_offset = 0;
+    Offset prev_json_offset = 0;
     Offset current_new_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         size_t size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
-        size_t string_size = offsets[i] - prev_string_offset;
+        size_t json_size = offsets[i] - prev_json_offset;
 
         for (size_t j = 0; j < size_to_replicate; ++j) {
-            current_new_offset += string_size;
+            current_new_offset += json_size;
             res_offsets.push_back(current_new_offset);
 
-            res_chars.resize(res_chars.size() + string_size);
-            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
-                                                     &chars[prev_string_offset], string_size);
+            res_chars.resize(res_chars.size() + json_size);
+            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - json_size],
+                                                     &chars[prev_json_offset], json_size);
         }
 
         prev_replicate_offset = replicate_offsets[i];
-        prev_string_offset = offsets[i];
+        prev_json_offset = offsets[i];
     }
 
     return res;
@@ -312,23 +312,23 @@ void ColumnJson::replicate(const uint32_t* counts, size_t target_size, IColumn& 
     res_chars.reserve(chars.size() / col_size * target_size);
     res_offsets.reserve(target_size);
 
-    Offset prev_string_offset = 0;
+    Offset prev_json_offset = 0;
     Offset current_new_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         size_t size_to_replicate = counts[i];
-        size_t string_size = offsets[i] - prev_string_offset;
+        size_t json_size = offsets[i] - prev_json_offset;
 
         for (size_t j = 0; j < size_to_replicate; ++j) {
-            current_new_offset += string_size;
+            current_new_offset += json_size;
             res_offsets.push_back(current_new_offset);
 
-            res_chars.resize(res_chars.size() + string_size);
-            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
-                                                     &chars[prev_string_offset], string_size);
+            res_chars.resize(res_chars.size() + json_size);
+            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - json_size],
+                                                     &chars[prev_json_offset], json_size);
         }
 
-        prev_string_offset = offsets[i];
+        prev_json_offset = offsets[i];
     }
 }
 

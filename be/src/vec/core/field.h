@@ -124,6 +124,8 @@ public:
     }
 
     JsonField& operator=(JsonField&& x) {
+        data = x.data;
+        size = x.size;
         x.data = nullptr;
         x.size = 0;
         return *this;
