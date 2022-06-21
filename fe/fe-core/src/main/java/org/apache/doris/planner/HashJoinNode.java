@@ -428,7 +428,7 @@ public class HashJoinNode extends PlanNode {
         }
         ExprSubstitutionMap srcTblRefToOutputTupleSmap = new ExprSubstitutionMap();
         if (copyLeft) {
-            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getTblRefIds())) {
+            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTblRefIds())) {
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
@@ -440,7 +440,7 @@ public class HashJoinNode extends PlanNode {
             }
         }
         if (copyRight) {
-            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(1).getTblRefIds())) {
+            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTblRefIds())) {
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
