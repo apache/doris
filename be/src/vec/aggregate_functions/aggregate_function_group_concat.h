@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -26,8 +28,9 @@
 
 namespace doris::vectorized {
 
-struct AggregateFunctionGroupConcatData {
-    std::string data;
+template <bool is_ordered>
+struct GroupConcatData {
+    std::vector<std::string> data;
     std::string separator;
     bool inited = false;
 
@@ -35,15 +38,11 @@ struct AggregateFunctionGroupConcatData {
         if (!inited) {
             inited = true;
             separator.assign(sep.data, sep.data + sep.size);
-        } else {
-            data += separator;
         }
-
-        data.resize(data.length() + ref.size);
-        memcpy(data.data() + data.length() - ref.size, ref.data, ref.size);
+        data.emplace_back(ref.data, ref.size);
     }
 
-    void merge(const AggregateFunctionGroupConcatData& rhs) {
+    void merge(const GroupConcatData& rhs) {
         if (!rhs.inited) {
             return;
         }
@@ -53,12 +52,28 @@ struct AggregateFunctionGroupConcatData {
             separator = rhs.separator;
             data = rhs.data;
         } else {
-            data += separator;
-            data += rhs.data;
+            data.assign(rhs.data.begin(), rhs.data.end());
         }
     }
 
-    std::string get() const { return data; }
+    std::string get() {
+        if constexpr (is_ordered) {
+            std::sort(data.begin(), data.end());
+        }
+
+        bool is_first = true;
+        std::string result;
+        for (const auto& str : data) {
+            if (is_first) {
+                is_first = false;
+            } else {
+                result += separator;
+            }
+            result += str;
+        }
+
+        return result;
+    }
 
     void write(BufferWritable& buf) const {
         write_binary(data, buf);
@@ -73,38 +88,37 @@ struct AggregateFunctionGroupConcatData {
     }
 
     void reset() {
-        data = "";
+        data.clear();
         separator = "";
         inited = false;
     }
 };
 
-struct AggregateFunctionGroupConcatImplStr {
-    static const std::string separator;
-    static void add(AggregateFunctionGroupConcatData& __restrict place, const IColumn** columns,
-                    size_t row_num) {
+const std::string DEFAULT_SEPARATOR = ", ";
+
+template <typename Data>
+struct GroupConcatImplStr {
+    static void add(Data& __restrict place, const IColumn** columns, size_t row_num) {
         place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num),
-                  StringRef(separator.data(), separator.length()));
+                  StringRef(DEFAULT_SEPARATOR.data(), DEFAULT_SEPARATOR.length()));
     }
 };
 
-struct AggregateFunctionGroupConcatImplStrStr {
-    static void add(AggregateFunctionGroupConcatData& __restrict place, const IColumn** columns,
-                    size_t row_num) {
+template <typename Data>
+struct GroupConcatImplStrStr {
+    static void add(Data& __restrict place, const IColumn** columns, size_t row_num) {
         place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num),
                   static_cast<const ColumnString&>(*columns[1]).get_data_at(row_num));
     }
 };
 
-template <typename Impl>
+template <typename Data, template <typename> typename Impl>
 class AggregateFunctionGroupConcat final
-        : public IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
-                                              AggregateFunctionGroupConcat<Impl>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionGroupConcat<Data, Impl>> {
 public:
     AggregateFunctionGroupConcat(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
-                                           AggregateFunctionGroupConcat<Impl>>(argument_types_,
-                                                                               {}) {}
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionGroupConcat<Data, Impl>>(
+                      argument_types_, {}) {}
 
     String get_name() const override { return "group_concat"; }
 
@@ -112,7 +126,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        Impl::add(this->data(place), columns, row_num);
+        Impl<Data>::add(this->data(place), columns, row_num);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
@@ -132,7 +146,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        std::string result = this->data(place).get();
+        std::string result = const_cast<Data*>((const Data*)place)->get();
         static_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
     }
 };

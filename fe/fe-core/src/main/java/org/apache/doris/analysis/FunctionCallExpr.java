@@ -476,10 +476,10 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
-        if (fnName.getFunction().equalsIgnoreCase("group_concat")) {
+        if (fnName.getFunction().equalsIgnoreCase("group_concat")
+                || fnName.getFunction().equalsIgnoreCase("group_concat_ordered")) {
             if (children.size() > 2 || children.isEmpty()) {
-                throw new AnalysisException(
-                        "group_concat requires one or two parameters: " + this.toSql());
+                throw new AnalysisException("group_concat requires one or two parameters: " + this.toSql());
             }
 
             Expr arg0 = getChild(0);

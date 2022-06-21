@@ -19,20 +19,17 @@
 
 namespace doris::vectorized {
 
-const std::string AggregateFunctionGroupConcatImplStr::separator = ", ";
-
+template <typename Data>
 AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& name,
                                                             const DataTypes& argument_types,
                                                             const Array& parameters,
                                                             const bool result_is_nullable) {
     if (argument_types.size() == 1) {
         return AggregateFunctionPtr(
-                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>(
-                        argument_types));
+                new AggregateFunctionGroupConcat<Data, GroupConcatImplStr>(argument_types));
     } else if (argument_types.size() == 2) {
         return AggregateFunctionPtr(
-                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>(
-                        argument_types));
+                new AggregateFunctionGroupConcat<Data, GroupConcatImplStrStr>(argument_types));
     }
 
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
@@ -41,6 +38,9 @@ AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& n
 }
 
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("group_concat", create_aggregate_function_group_concat);
+    factory.register_function("group_concat",
+                              create_aggregate_function_group_concat<GroupConcatData<false>>);
+    factory.register_function("group_concat_ordered",
+                              create_aggregate_function_group_concat<GroupConcatData<true>>);
 }
 } // namespace doris::vectorized
