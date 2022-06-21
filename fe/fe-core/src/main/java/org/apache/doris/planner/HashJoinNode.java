@@ -1036,6 +1036,24 @@ public class HashJoinNode extends PlanNode {
         }
     }
 
+    @Override
+    public ArrayList<TupleId> getOutputTupleIds() {
+        if (vOutputTupleDesc != null) {
+            return Lists.newArrayList(vOutputTupleDesc.getId());
+        }
+        switch (joinOp) {
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                return getChild(0).getOutputTupleIds();
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                return getChild(1).getOutputTupleIds();
+            default:
+                return tupleIds;
+        }
+    }
+
     private boolean isMaterailizedByChild(SlotDescriptor slotDesc, ExprSubstitutionMap smap) {
         if (slotDesc.isMaterialized()) {
             return true;
