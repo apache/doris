@@ -17,7 +17,7 @@
 
 suite("test_sql_block_rule", "sql_block_rule") {
     sql """
-                USE regression_test
+                USE ${context.config.defaultDb}
               """
 
     sql """
