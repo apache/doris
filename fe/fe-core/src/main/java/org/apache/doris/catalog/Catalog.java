@@ -2741,9 +2741,7 @@ public class Catalog {
             }
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
 
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+            addTableComment(table, sb);
 
             // partition
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -2872,9 +2870,9 @@ public class Catalog {
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+
+            addTableComment(table, sb);
+
             // properties
             sb.append("\nPROPERTIES (\n");
             if (mysqlTable.getOdbcCatalogResourceName() == null) {
@@ -2892,9 +2890,9 @@ public class Catalog {
             sb.append(")");
         } else if (table.getType() == TableType.ODBC) {
             OdbcTable odbcTable = (OdbcTable) table;
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+
+            addTableComment(table, sb);
+
             // properties
             sb.append("\nPROPERTIES (\n");
             if (odbcTable.getOdbcCatalogResourceName() == null) {
@@ -2913,9 +2911,9 @@ public class Catalog {
             sb.append(")");
         } else if (table.getType() == TableType.BROKER) {
             BrokerTable brokerTable = (BrokerTable) table;
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+
+            addTableComment(table, sb);
+
             // properties
             sb.append("\nPROPERTIES (\n");
             sb.append("\"broker_name\" = \"").append(brokerTable.getBrokerName()).append("\",\n");
@@ -2931,9 +2929,8 @@ public class Catalog {
             }
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             EsTable esTable = (EsTable) table;
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+
+            addTableComment(table, sb);
 
             // partition
             PartitionInfo partitionInfo = esTable.getPartitionInfo();
@@ -2965,9 +2962,9 @@ public class Catalog {
             sb.append(")");
         } else if (table.getType() == TableType.HIVE) {
             HiveTable hiveTable = (HiveTable) table;
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+
+            addTableComment(table, sb);
+
             // properties
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
@@ -2976,9 +2973,9 @@ public class Catalog {
             sb.append("\n)");
         } else if (table.getType() == TableType.ICEBERG) {
             IcebergTable icebergTable = (IcebergTable) table;
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+
+            addTableComment(table, sb);
+
             // properties
             sb.append("\nPROPERTIES (\n");
             sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
@@ -2987,9 +2984,9 @@ public class Catalog {
             sb.append("\n)");
         } else if (table.getType() == TableType.HUDI) {
             HudiTable hudiTable = (HudiTable) table;
-            if (!Strings.isNullOrEmpty(table.getComment())) {
-                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
-            }
+
+            addTableComment(table, sb);
+
             // properties
             sb.append("\nPROPERTIES (\n");
             sb.append(new PrintableMap<>(hudiTable.getTableProperties(), " = ", true, true, false).toString());
@@ -3058,6 +3055,12 @@ public class Catalog {
                 sb.append(");");
                 createRollupStmt.add(sb.toString());
             }
+        }
+    }
+
+    private static void addTableComment(Table table, StringBuilder sb) {
+        if (!Strings.isNullOrEmpty(table.getComment())) {
+            sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
         }
     }
 

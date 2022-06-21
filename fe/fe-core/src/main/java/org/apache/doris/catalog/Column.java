@@ -535,7 +535,7 @@ public class Column implements Writable {
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             sb.append("DEFAULT \"").append(defaultValue).append("\" ");
         }
-        sb.append("COMMENT \"").append(getComment(true)).append("\"");
+        sb.append("COMMENT '").append(getComment(true)).append("'");
 
         return sb.toString();
     }
