@@ -19,7 +19,6 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.exceptions.ParsingException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -36,6 +35,8 @@ import java.util.function.Function;
  * Sql parser, convert sql DSL to logical plan.
  */
 public class SqlParser {
+    private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
+    private static final PostProcessor POST_PROCESSOR = new PostProcessor();
 
     /**
      * parse sql DSL string.
@@ -47,36 +48,31 @@ public class SqlParser {
         return (LogicalPlan) parse(sql, DorisParser::singleStatement);
     }
 
-    private TreeNode parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
+    private TreeNode<?> parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
+        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
+        DorisParser parser = new DorisParser(tokenStream);
+
+        parser.addParseListener(POST_PROCESSOR);
+        parser.removeErrorListeners();
+        parser.addErrorListener(PARSE_ERROR_LISTENER);
+
+        ParserRuleContext tree;
         try {
-            DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
-            CommonTokenStream tokenStream = new CommonTokenStream(lexer);
-            DorisParser parser = new DorisParser(tokenStream);
+            // first, try parsing with potentially faster SLL mode
+            parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
+            tree = parseFunction.apply(parser);
+        } catch (ParseCancellationException ex) {
+            // if we fail, parse with LL mode
+            tokenStream.seek(0); // rewind input stream
+            parser.reset();
 
-            // parser.addParseListener(PostProcessor)
-            // parser.removeErrorListeners()
-            // parser.addErrorListener(ParseErrorListener)
-
-            ParserRuleContext tree;
-            try {
-                // first, try parsing with potentially faster SLL mode
-                parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-                tree = parseFunction.apply(parser);
-            } catch (ParseCancellationException ex) {
-                // if we fail, parse with LL mode
-                tokenStream.seek(0); // rewind input stream
-                parser.reset();
-
-                parser.getInterpreter().setPredictionMode(PredictionMode.LL);
-                tree = parseFunction.apply(parser);
-            }
-
-            LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-            return (TreeNode) logicalPlanBuilder.visit(tree);
-
-        } catch (StackOverflowError e) {
-            throw new ParsingException(e.getMessage());
+            parser.getInterpreter().setPredictionMode(PredictionMode.LL);
+            tree = parseFunction.apply(parser);
         }
+
+        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
+        return (TreeNode<?>) logicalPlanBuilder.visit(tree);
     }
 
     public Expression createExpression(String expression) {
