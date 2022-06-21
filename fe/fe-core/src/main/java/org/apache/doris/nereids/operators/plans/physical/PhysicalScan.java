@@ -27,7 +27,6 @@ import java.util.Objects;
  */
 public abstract class PhysicalScan extends PhysicalLeafOperator {
 
-
     protected final List<String> qualifier;
 
     /**

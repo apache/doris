@@ -39,14 +39,14 @@ under the License.
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
-        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
-        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
+        <connection>scm:git:https://git@github.com/apache/doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/doris.git</url>
         <tag>HEAD</tag>
     </scm>
     <issueManagement>
         <system>GitHub</system>
-        <url>https://github.com/apache/incubator-doris/issues</url>
+        <url>https://github.com/apache/doris/issues</url>
     </issueManagement>
     <mailingLists>
         <mailingList>

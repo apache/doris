@@ -136,14 +136,42 @@ public class PolicyMgr implements Writable {
         return userPolicySet.contains(user);
     }
 
-    private boolean existPolicy(Policy checkedPolicy) {
+    /**
+     * Check whether the policy exist.
+     *
+     * @param checkedPolicy policy condition to check
+     * @return exist or not
+     */
+    public boolean existPolicy(Policy checkedPolicy) {
         List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
         return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedPolicy));
     }
 
+    /**
+     * CCheck whether the policy exist for the DropPolicyLog.
+     *
+     * @param checkedDropPolicy policy log condition to check
+     * @return exist or not
+     */
     private boolean existPolicy(DropPolicyLog checkedDropPolicy) {
         List<Policy> policies = getPoliciesByType(checkedDropPolicy.getType());
         return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedDropPolicy));
+    }
+
+    /**
+     * Get policy by type and name.
+     *
+     * @param checkedPolicy condition to get policy
+     * @return Policy in typeToPolicyMap
+     */
+    public Policy getPolicy(Policy checkedPolicy) {
+        List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
+        for (Policy policy : policies) {
+            if (policy.matchPolicy(checkedPolicy)) {
+                return policy;
+            }
+        }
+        return null;
     }
 
     private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {

@@ -17,12 +17,18 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.trees.TreeNode;
+
 /**
  * Type of rules, each rule has its unique type.
  */
 public enum RuleType {
     // binding rules
-    BINDING_UNBOUND_RELATION_RULE(RuleTypeClass.REWRITE),
+    BINDING_RELATION(RuleTypeClass.REWRITE),
+    BINDING_PROJECT_SLOT(RuleTypeClass.REWRITE),
+    BINDING_FILTER_SLOT(RuleTypeClass.REWRITE),
+    BINDING_JOIN_SLOT(RuleTypeClass.REWRITE),
     BINDING_SENTINEL(RuleTypeClass.REWRITE),
 
     // rewrite rules
@@ -55,6 +61,11 @@ public enum RuleType {
 
     public RuleTypeClass getRuleTypeClass() {
         return ruleTypeClass;
+    }
+
+    public <INPUT_TYPE extends RULE_TYPE, OUTPUT_TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>>
+            Rule<RULE_TYPE> build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> patternMatcher) {
+        return patternMatcher.toRule(this);
     }
 
     enum RuleTypeClass {

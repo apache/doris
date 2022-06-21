@@ -32,7 +32,7 @@ under the License.
 
 1. Download the doris source code
 
-   URL：[apache/incubator-doris: Apache Doris (Incubating) (github.com)](https://github.com/apache/incubator-doris)
+   URL：[apache/doris: Apache Doris (github.com)](https://github.com/apache/doris)
 
 2. Install GCC 8.3.1+, Oracle JDK 1.8+, Python 2.7+, confirm that the gcc, java, python commands point to the correct version, and set the JAVA_HOME environment variable
 
@@ -58,20 +58,20 @@ The following steps are carried out in the /home/workspace directory
 1. dowload source
 
 ```
-git clone https://github.com/apache/incubator-doris.git 
+git clone https://github.com/apache/doris.git 
 ```
 
 2. Compile third-party dependency packages
 
 ```
- cd /home/workspace/incubator-doris/thirdparty
+ cd /home/workspace/doris/thirdparty
  ./build-thirdparty.sh
 ```
 
 3. Compile doris product code
 
 ```
-cd /home/workspace/incubator-doris
+cd /home/workspace/doris
 ./build.sh
 ```
 
@@ -87,21 +87,21 @@ Note: This compilation has the following instructions:
 ./build.sh  --be --fe  --clean#Delete and compile be fe at the same time
 ```
 
-If nothing happens, the compilation should be successful, and the final deployment file will be output to the /home/zhangfeng/incubator-doris/output/ directory. If you still encounter other problems, you can refer to the doris installation document http://doris.apache.org.
+If nothing happens, the compilation should be successful, and the final deployment file will be output to the /home/workspace/doris/output/ directory. If you still encounter other problems, you can refer to the doris installation document http://doris.apache.org.
 
 ## Deployment and debugging
 
 1. Authorize be compilation result files
 
 ```
-chmod  /home/workspace/incubator-doris/output/be/lib/palo_be
+chmod  /home/workspace/doris/output/be/lib/palo_be
 ```
 
-Note: /home/workspace/incubator-doris/output/be/lib/palo_be is the executable file of be.
+Note: /home/workspace/doris/output/be/lib/palo_be is the executable file of be.
 
 2. Create a data storage directory
 
-By viewing /home/workspace/incubator-doris/output/be/conf/be.conf
+By viewing /home/workspace/doris/output/be/conf/be.conf
 
 ```
 # INFO, WARNING, ERROR, FATAL
@@ -132,7 +132,7 @@ Need to create this folder, this is where the be data is stored
 mkdir -p /soft/be/storage
 ```
 
-3. Open vscode, and open the directory where the be source code is located. In this case, open the directory as **/home/workspace/incubator-doris/**，For details on how to vscode, refer to the online tutorial
+3. Open vscode, and open the directory where the be source code is located. In this case, open the directory as **/home/workspace/doris/**，For details on how to vscode, refer to the online tutorial
 
 4. Install the vscode ms c++ debugging plug-in, the plug-in identified by the red box in the figure below
 
@@ -148,14 +148,14 @@ mkdir -p /soft/be/storage
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/palo_be",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "/home/workspace/incubator-doris/",
-            "environment": [{"name":"PALO_HOME","value":"/home/workspace/incubator-doris/output/be/"},
-                            {"name":"UDF_RUNTIME_DIR","value":"/home/workspace/incubator-doris/output/be/lib/udf-runtime"},
-                            {"name":"LOG_DIR","value":"/home/workspace/incubator-doris/output/be/log"},
-                            {"name":"PID_DIR","value":"/home/workspace/incubator-doris/output/be/bin"}
+            "cwd": "/home/workspace/doris/",
+            "environment": [{"name":"PALO_HOME","value":"/home/workspace/doris/output/be/"},
+                            {"name":"UDF_RUNTIME_DIR","value":"/home/workspace/doris/output/be/lib/udf-runtime"},
+                            {"name":"LOG_DIR","value":"/home/workspace/doris/output/be/log"},
+                            {"name":"PID_DIR","value":"/home/workspace/doris/output/be/bin"}
                            ],
             "externalConsole": true,
             "MIMode": "gdb",
@@ -183,7 +183,7 @@ Among them, environment defines several environment variables DORIS_HOME UDF_RUN
           "name": "(gdb) Launch",
           "type": "cppdbg",
           "request": "attach",
-          "program": "/home/workspace/incubator-doris/output/lib/palo_be",
+          "program": "/home/workspace/doris/output/lib/palo_be",
           "processId":,
           "MIMode": "gdb",
           "internalConsoleOptions":"openOnSessionStart",
@@ -221,7 +221,7 @@ An example of a complete launch.json is as follows:
             "name": "(gdb) Attach",
             "type": "cppdbg",
             "request": "attach",
-            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/palo_be",
             "processId": 17016,
             "MIMode": "gdb",
             "setupCommands": [
@@ -236,26 +236,26 @@ An example of a complete launch.json is as follows:
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/palo_be",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "/home/workspace/incubator-doris/output/be",
+            "cwd": "/home/workspace/doris/output/be",
             "environment": [
                 {
                     "name": "DORIS_HOME",
-                    "value": "/home/workspace/incubator-doris/output/be"
+                    "value": "/home/workspace/doris/output/be"
                 },
                 {
                     "name": "UDF_RUNTIME_DIR",
-                    "value": "/home/workspace/incubator-doris/output/be/lib/udf-runtime"
+                    "value": "/home/workspace/doris/output/be/lib/udf-runtime"
                 },
                 {
                     "name": "LOG_DIR",
-                    "value": "/home/workspace/incubator-doris/output/be/log"
+                    "value": "/home/workspace/doris/output/be/log"
                 },
                 {
                     "name": "PID_DIR",
-                    "value": "/home/workspace/incubator-doris/output/be/bin"
+                    "value": "/home/workspace/doris/output/be/bin"
                 }
             ],
             "externalConsole": false,

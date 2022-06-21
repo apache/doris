@@ -68,6 +68,30 @@
       {
         "logo": "/images/home/logo-youdao.png",
         "alt": "有道"
+      },
+      {
+        "logo": "/images/home/logo-game-163.png",
+        "alt": "网易游戏"
+      },
+      {
+        "logo": "/images/home/logo-wuyiyuntong.png",
+        "alt": "物易云通"
+      },
+      {
+        "logo": "/images/home/logo-tongcheng.png",
+        "alt": "同程数科"
+      },
+      {
+        "logo": "/images/home/logo-footprint.png",
+        "alt": "Footprint Analytics"
+      },
+      {
+        "logo": "/images/home/logo-aispeech.png",
+        "alt": "AISpeech"
+      },
+      {
+        "logo": "/images/home/logo-zhihu.png",
+        "alt": "Zhihu"
       }
     ]
 }

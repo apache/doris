@@ -28,6 +28,7 @@ import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
@@ -101,7 +102,7 @@ public class HiveScanNode extends BrokerScanNode {
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                         List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded, NodeType.HIVE_SCAN_NODE);
+        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded, StatisticalType.HIVE_SCAN_NODE);
         this.hiveTable = (HiveTable) destTupleDesc.getTable();
     }
 

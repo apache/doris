@@ -17,21 +17,22 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
  * Base class of expression rewrite rule.
  */
-public abstract class AbstractExpressionRewriteRule extends ExpressionVisitor<Expression, ExpressionRewriteContext>
+public abstract class AbstractExpressionRewriteRule extends DefaultExpressionRewriter<ExpressionRewriteContext>
         implements ExpressionRewriteRule {
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return (Expression) expr.accept(this, ctx);
+        return expr.accept(this, ctx);
     }
 
     @Override
-    public Expression visitExpression(Expression expr, ExpressionRewriteContext ctx) {
+    public Expression visit(Expression expr, ExpressionRewriteContext ctx) {
         return expr;
     }
 }
