@@ -17,57 +17,40 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.Objects;
 
-/**
- * Logical relation plan operator.
- */
-public class LogicalRelation extends LogicalLeafOperator {
 
-    private final Table table;
-    private final List<String> qualifier;
-
-    /**
-     * Constructor for LogicalRelationPlan.
-     *
-     * @param table Doris table
-     * @param qualifier qualified relation name
-     */
-    public LogicalRelation(Table table, List<String> qualifier) {
-        super(OperatorType.LOGICAL_BOUND_RELATION);
-        this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
-    }
-
-    public Table getTable() {
-        return table;
-    }
-
-    public List<String> getQualifier() {
-        return qualifier;
+/** GroupPlanOperator. */
+public class GroupPlanOperator extends LogicalLeafOperator {
+    public GroupPlanOperator() {
+        super(OperatorType.GROUP_PLAN);
     }
 
     @Override
-    public String toString() {
-        return "Relation(" + StringUtils.join(qualifier, ".") + "." + table.getName() + ")";
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitGroupPlan((GroupPlan) plan, context);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return table.getBaseSchema()
-                .stream()
-                .map(col -> SlotReference.fromColumn(col, qualifier))
-                .collect(ImmutableList.toImmutableList());
+        throw new IllegalStateException("GroupPlanOperator can not compute output."
+            + " You should invoke GroupPlan.getOutput()");
+    }
+
+    @Override
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        throw new IllegalStateException("GroupPlanOperator can not compute logical properties."
+            + " You should invoke GroupPlan.getLogicalProperties()");
     }
 
     @Override

@@ -24,6 +24,8 @@ public enum NodeType {
     // plan
     LOGICAL,
     PHYSICAL,
+    // group plan
+    GROUP,
 
     // expressions
     EXPRESSION,
@@ -44,9 +46,6 @@ public enum NodeType {
     COMPOUND,
 
     // pattern
-    PATTERN,
-
-    // fixed
-    FIXED,
+    PATTERN
     ;
 }

@@ -128,4 +128,9 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     public List<? extends ExprStats> getConjuncts() {
         return Collections.emptyList();
     }
+
+    @Override
+    public String toString() {
+        return operator.toString();
+    }
 }
