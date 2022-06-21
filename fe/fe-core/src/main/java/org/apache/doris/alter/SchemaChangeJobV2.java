@@ -423,8 +423,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     .get(SchemaChangeHandler.SHADOW_NAME_PRFIX + column.getName());
                             if (newColumn.getType() != column.getType()) {
                                 try {
-                                    defineExprs.put(column.getName(),
-                                            new SlotRef(destSlotDesc).castTo(newColumn.getType()));
+                                    SlotRef slot = new SlotRef(destSlotDesc);
+                                    slot.setCol(column.getName());
+                                    defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
                                 } catch (AnalysisException e) {
                                     throw new AlterCancelException(e.getMessage());
                                 }
