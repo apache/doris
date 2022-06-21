@@ -17,43 +17,33 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/**
- * Three-segment-format: catalog.database.table. If the lower segment is specific,
- * the higher segment can't be a wildcard. The following examples are not allowed:
- * "ctl1.*.table1", "*.*.table2", "*.db1.*", ...
- */
+// only the following 3 formats are allowed
+// db.tbl
+// *.*
+// db.*
 public class TablePattern implements Writable {
-    @SerializedName(value = "ctl")
-    private String ctl;
-    @SerializedName(value = "db")
     private String db;
-    @SerializedName(value = "tbl")
     private String tbl;
     boolean isAnalyzed = false;
 
     public static TablePattern ALL;
 
     static {
-        ALL = new TablePattern("*", "*", "*");
+        ALL = new TablePattern("*", "*");
         try {
             ALL.analyze("");
         } catch (AnalysisException e) {
@@ -64,21 +54,9 @@ public class TablePattern implements Writable {
     private TablePattern() {
     }
 
-    public TablePattern(String ctl, String db, String tbl) {
-        this.ctl = Strings.isNullOrEmpty(ctl) ? "*" : ctl;
-        this.db = Strings.isNullOrEmpty(db) ? "*" : db;
-        this.tbl = Strings.isNullOrEmpty(tbl) ? "*" : tbl;
-    }
-
     public TablePattern(String db, String tbl) {
-        this.ctl = null;
         this.db = Strings.isNullOrEmpty(db) ? "*" : db;
         this.tbl = Strings.isNullOrEmpty(tbl) ? "*" : tbl;
-    }
-
-    public String getQualifiedCtl() {
-        Preconditions.checkState(isAnalyzed);
-        return ctl;
     }
 
     public String getQualifiedDb() {
@@ -92,37 +70,21 @@ public class TablePattern implements Writable {
 
     public PrivLevel getPrivLevel() {
         Preconditions.checkState(isAnalyzed);
-        if (ctl.equals("*")) {
+        if (db.equals("*")) {
             return PrivLevel.GLOBAL;
-        } else if (db.equals("*")) {
-            return PrivLevel.CATALOG;
-        } else if (tbl.equals("*")) {
-            return PrivLevel.DATABASE;
-        } else {
+        } else if (!tbl.equals("*")) {
             return PrivLevel.TABLE;
-        }
-    }
-
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (ctl == null) {
-            analyze(analyzer.getDefaultCatalog(), analyzer.getClusterName());
         } else {
-            analyze(analyzer.getClusterName());
+            return PrivLevel.DATABASE;
         }
     }
 
-    private void analyze(String catalogName, String clusterName) throws AnalysisException {
+    public void analyze(String clusterName) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
-        this.ctl = Strings.isNullOrEmpty(catalogName) ? InternalDataSource.INTERNAL_DS_NAME : catalogName;
-        if ((!tbl.equals("*") && (db.equals("*") || ctl.equals("*")))
-                || (!db.equals("*") && ctl.equals("*"))) {
+        if (db.equals("*") && !tbl.equals("*")) {
             throw new AnalysisException("Do not support format: " + toString());
-        }
-
-        if (!ctl.equals("*")) {
-            FeNameFormat.checkCatalogName(ctl);
         }
 
         if (!db.equals("*")) {
@@ -136,21 +98,9 @@ public class TablePattern implements Writable {
         isAnalyzed = true;
     }
 
-    public void analyze(String clusterName) throws AnalysisException {
-        analyze(ctl, clusterName);
-    }
-
     public static TablePattern read(DataInput in) throws IOException {
-        TablePattern tablePattern;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
-            tablePattern = GsonUtils.GSON.fromJson(Text.readString(in), TablePattern.class);
-        } else {
-            String ctl = InternalDataSource.INTERNAL_DS_NAME;
-            String db = Text.readString(in);
-            String tbl = Text.readString(in);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
-        tablePattern.isAnalyzed = true;
+        TablePattern tablePattern = new TablePattern();
+        tablePattern.readFields(in);
         return tablePattern;
     }
 
@@ -160,13 +110,12 @@ public class TablePattern implements Writable {
             return false;
         }
         TablePattern other = (TablePattern) obj;
-        return ctl.equals(other.getQualifiedCtl()) && db.equals(other.getQualifiedDb()) && tbl.equals(other.getTbl());
+        return db.equals(other.getQualifiedDb()) && tbl.equals(other.getTbl());
     }
 
     @Override
     public int hashCode() {
         int result = 17;
-        result = 31 * result + ctl.hashCode();
         result = 31 * result + db.hashCode();
         result = 31 * result + tbl.hashCode();
         return result;
@@ -174,13 +123,21 @@ public class TablePattern implements Writable {
 
     @Override
     public String toString() {
-        return String.format("%s.%s.%s", ctl, db, tbl);
+        StringBuilder sb = new StringBuilder();
+        sb.append(db).append(".").append(tbl);
+        return sb.toString();
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Preconditions.checkState(isAnalyzed);
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+        Text.writeString(out, db);
+        Text.writeString(out, tbl);
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        db = Text.readString(in);
+        tbl = Text.readString(in);
+        isAnalyzed = true;
     }
 }

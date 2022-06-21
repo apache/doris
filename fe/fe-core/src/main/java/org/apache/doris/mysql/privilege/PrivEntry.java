@@ -24,7 +24,6 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
-import com.google.common.base.Preconditions;
 import org.apache.commons.lang.NotImplementedException;
 
 import java.io.DataInput;
@@ -253,20 +252,5 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     @Override
     public int compareTo(PrivEntry o) {
         throw new NotImplementedException();
-    }
-
-    /**
-     * Help derived classes compare in the order of 'user', 'host', 'catalog', 'db', 'ctl'.
-     * Compare strings[i] with strings[i+1] successively, return if the comparison value is not 0 in current loop.
-     */
-    protected static int compareAssist(String... strings) {
-        Preconditions.checkState(strings.length % 2 == 0);
-        for (int i = 0; i < strings.length; i += 2) {
-            int res = strings[i].compareTo(strings[i + 1]);
-            if (res != 0) {
-                return res;
-            }
-        }
-        return 0;
     }
 }
