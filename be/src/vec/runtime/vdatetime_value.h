@@ -228,7 +228,7 @@ public:
         _neg = 0;
         _type = TIME_DATE;
 
-         _day = olap_date_val & 0x1f;
+        _day = olap_date_val & 0x1f;
         _month = (olap_date_val >> 5) & 0x0f;
         _year = olap_date_val >> 9;
         _hour = 0;

@@ -693,7 +693,7 @@ COMPARISON_PRED_COLUMN_EVALUATE_DECLARATION(GreaterEqualPredicate)
     template void CLASS<uint24_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
                                                 bool* flags) const;                            \
     template void CLASS<uint32_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
-                                                bool* flags) const;\
+                                                bool* flags) const;                            \
     template void CLASS<uint64_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
                                                 bool* flags) const;                            \
     template void CLASS<bool>::evaluate_vec(vectorized::IColumn& column, uint16_t size,        \
