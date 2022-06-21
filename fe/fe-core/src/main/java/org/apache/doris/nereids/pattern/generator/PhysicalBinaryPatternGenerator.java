@@ -33,7 +33,7 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<PhysicalBinaryPlan<" + opType.name + ", Plan, Plan>, Plan>";
+        return "<PhysicalBinaryPlan<" + opType.name + ", GroupPlan, GroupPlan>, Plan>";
     }
 
     @Override
@@ -45,7 +45,7 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
-        imports.add("org.apache.doris.nereids.operators.OperatorType");
+        imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan");
         enumFieldPatternInfos.stream()

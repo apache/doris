@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.operators;
 
-import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 
 import java.util.Objects;
 

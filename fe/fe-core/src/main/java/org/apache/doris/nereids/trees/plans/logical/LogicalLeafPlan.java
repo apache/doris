@@ -53,12 +53,16 @@ public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
     @Override
     public LogicalLeafPlan<OP_TYPE> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 0);
-        return new LogicalLeafPlan(operator, groupExpression, Optional.empty());
+        return new LogicalLeafPlan(operator, Optional.empty());
     }
 
     @Override
     public LogicalLeafPlan<OP_TYPE> withOutput(List<Slot> output) {
-        return new LogicalLeafPlan<>(operator, groupExpression,
-            Optional.of(logicalProperties.withOutput(output)));
+        return new LogicalLeafPlan<>(operator, Optional.of(logicalProperties.withOutput(output)));
+    }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalLeafPlan<>(operator, groupExpression, Optional.of(logicalProperties));
     }
 }

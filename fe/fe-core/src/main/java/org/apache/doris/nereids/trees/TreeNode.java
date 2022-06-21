@@ -45,4 +45,5 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     int arity();
 
     NODE_TYPE withChildren(List<NODE_TYPE> children);
+
 }

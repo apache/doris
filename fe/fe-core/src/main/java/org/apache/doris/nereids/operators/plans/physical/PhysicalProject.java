@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.PlanOperatorVisitor;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import org.apache.commons.lang3.StringUtils;
@@ -33,14 +34,14 @@ import java.util.Objects;
  */
 public class PhysicalProject extends PhysicalUnaryOperator {
 
-    private final List<? extends NamedExpression> projects;
+    private final List<NamedExpression> projects;
 
-    public PhysicalProject(List<? extends NamedExpression> projects) {
+    public PhysicalProject(List<NamedExpression> projects) {
         super(OperatorType.PHYSICAL_PROJECT);
         this.projects = Objects.requireNonNull(projects, "projects can not be null");
     }
 
-    public List<? extends NamedExpression> getProjects() {
+    public List<NamedExpression> getProjects() {
         return projects;
     }
 
@@ -52,5 +53,10 @@ public class PhysicalProject extends PhysicalUnaryOperator {
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
         return visitor.visitPhysicalProject(((PhysicalUnaryPlan<PhysicalProject, Plan>) plan), context);
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return (List) projects;
     }
 }

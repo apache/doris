@@ -28,13 +28,15 @@ package org.apache.doris.nereids.operators;
  *        but these operators cannot be used in rules
  */
 public enum OperatorType {
+    UNKNOWN,
+
     // logical plan
     LOGICAL_UNBOUND_RELATION,
     LOGICAL_BOUND_RELATION,
     LOGICAL_PROJECT,
     LOGICAL_FILTER,
     LOGICAL_JOIN,
-    PLACE_HOLDER,
+    GROUP_PLAN,
 
     // physical plan
     PHYSICAL_OLAP_SCAN,
@@ -44,13 +46,5 @@ public enum OperatorType {
     PHYSICAL_AGGREGATION,
     PHYSICAL_SORT,
     PHYSICAL_HASH_JOIN,
-    PHYSICAL_EXCHANGE,
-
-    // pattern
-    NORMAL_PATTERN,
-    ANY,
-    MULTI,
-    FIXED,
-    MULTI_FIXED,
-    ;
+    PHYSICAL_EXCHANGE;
 }
