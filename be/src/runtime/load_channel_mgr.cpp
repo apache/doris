@@ -179,47 +179,46 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
 void LoadChannelMgr::_handle_mem_exceed_limit() {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
-    if (!_mem_tracker->limit_exceeded()) {
-        return;
-    }
-
-    if (StorageEngine::instance()->memtable_flush_executor()->thread_pool_overloaded()) {
-        LOG(INFO) << "memtable_flush_executor thread_pool is overloaded, wait ...";
-        //if thread pool is already overloaded, wait at most 2sec for submitted tasks finish.
-        //we do not submit new tasks into thread pool to avoid small segment files
-        size_t wait_time = 0;
-        while (StorageEngine::instance()->memtable_flush_executor()->thread_pool_overloaded() &&
-               wait_time < 4) {
-            std::this_thread::sleep_for(std::chrono::microseconds(500));
-            ++wait_time;
-        }
-        return;
-    }
-
-    int64_t max_consume = 0;
-    std::shared_ptr<LoadChannel> channel;
-    for (auto& kv : _load_channels) {
-        if (kv.second->is_high_priority()) {
-            // do not select high priority channel to reduce memory
-            // to avoid blocking them.
+    while (_mem_tracker->limit_exceeded()) {
+        LOG(INFO) << "LoadChannelMgr consume " << _mem_tracker->consumption()/(1024*1024) <<"M bytes, exceeded limit" << _mem_tracker->limit();
+        if (StorageEngine::instance()->memtable_flush_executor()->thread_pool_overloaded()) {
+            LOG(INFO) << "memtable_flush_executor thread_pool is overloaded, wait ...";
+            //if thread pool is already overloaded, wait at most 2sec for submitted tasks finish.
+            //we do not submit new tasks into thread pool to avoid small segment files
+            size_t wait_time = 0;
+            while (StorageEngine::instance()->memtable_flush_executor()->thread_pool_overloaded() &&
+                wait_time < 4) {
+                std::this_thread::sleep_for(std::chrono::microseconds(500));
+                ++wait_time;
+            }
             continue;
         }
-        if (kv.second->mem_consumption() > max_consume) {
-            max_consume = kv.second->mem_consumption();
-            channel = kv.second;
+        LOG(INFO)<< "LoadChannelMgr try to reduce loadchannel mem usage";
+        int64_t max_consume = 0;
+        std::shared_ptr<LoadChannel> channel;
+        for (auto& kv : _load_channels) {
+            if (kv.second->is_high_priority()) {
+                // do not select high priority channel to reduce memory
+                // to avoid blocking them.
+                continue;
+            }
+            if (kv.second->mem_consumption() > max_consume) {
+                max_consume = kv.second->mem_consumption();
+                channel = kv.second;
+            }
         }
-    }
-    if (max_consume == 0) {
-        // should not happen, add log to observe
-        LOG(WARNING) << "failed to find suitable load channel when total load mem limit exceed";
-        return;
-    }
-    DCHECK(channel.get() != nullptr);
+        if (max_consume == 0) {
+            // should not happen, add log to observe
+            LOG(WARNING) << "failed to find suitable load channel when total load mem limit exceed";
+            return;
+        }
+        DCHECK(channel.get() != nullptr);
 
-    // force reduce mem limit of the selected channel
-    LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
-              << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    channel->handle_mem_exceed_limit(true);
+        // force reduce mem limit of the selected channel
+        LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
+                << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
+        channel->handle_mem_exceed_limit(true);
+    }
 }
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {

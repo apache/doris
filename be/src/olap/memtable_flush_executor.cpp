@@ -122,9 +122,8 @@ OLAPStatus MemTableFlushExecutor::create_flush_token(
 }
 
 bool MemTableFlushExecutor::thread_pool_overloaded() {
-    return _flush_pool->get_queue_size() > 0 &&
-           _flush_pool->num_active_threads() > _flush_pool->min_threads() &&
-           _high_prio_flush_pool->get_queue_size() > 0 &&
-           _high_prio_flush_pool->num_active_threads() > _high_prio_flush_pool->min_threads();
+    return (_flush_pool->get_queue_size() > 0 &&
+            _flush_pool->num_active_threads() > _flush_pool->min_threads()) ||
+           (_high_prio_flush_pool->num_active_threads() > _high_prio_flush_pool->min_threads());
 }
 } // namespace doris
