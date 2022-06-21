@@ -33,6 +33,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -319,6 +320,10 @@ public class AccessTestUtil {
         Analyzer analyzer = new Analyzer(fetchAdminCatalog(), new ConnectContext(null));
         new Expectations(analyzer) {
             {
+                analyzer.getDefaultCatalog();
+                minTimes = 0;
+                result = InternalDataSource.INTERNAL_DS_NAME;
+
                 analyzer.getDefaultDb();
                 minTimes = 0;
                 result = withCluster ? prefix + "testDb" : "testDb";
@@ -351,6 +356,10 @@ public class AccessTestUtil {
         Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
         new Expectations(analyzer) {
             {
+                analyzer.getDefaultCatalog();
+                minTimes = 0;
+                result = InternalDataSource.INTERNAL_DS_NAME;
+
                 analyzer.getDefaultDb();
                 minTimes = 0;
                 result = "testCluster:testDb";
@@ -371,6 +380,10 @@ public class AccessTestUtil {
         Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
         new Expectations(analyzer) {
             {
+                analyzer.getDefaultCatalog();
+                minTimes = 0;
+                result = InternalDataSource.INTERNAL_DS_NAME;
+
                 analyzer.getDefaultDb();
                 minTimes = 0;
                 result = "";
@@ -479,6 +492,10 @@ public class AccessTestUtil {
         Analyzer analyzer = new Analyzer(catalog, new ConnectContext(null));
         new Expectations(analyzer) {
             {
+                analyzer.getDefaultCatalog();
+                minTimes = 0;
+                result = InternalDataSource.INTERNAL_DS_NAME;
+
                 analyzer.getDefaultDb();
                 minTimes = 0;
                 result = "testDb";
