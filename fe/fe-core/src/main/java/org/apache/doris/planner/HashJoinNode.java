@@ -440,7 +440,8 @@ public class HashJoinNode extends PlanNode {
             }
         }
         if (copyRight) {
-            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTblRefIds())) {
+            for (TupleDescriptor rightTupleDesc :
+                    analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTblRefIds())) {
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
