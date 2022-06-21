@@ -190,10 +190,15 @@ struct ProcessHashTableProbe {
         if constexpr (!is_semi_anti_join || have_other_join_conjunct) {
             if (_build_blocks.size() == 1) {
                 for (int i = 0; i < column_length; i++) {
-                    auto& column = *_build_blocks[0].get_by_position(i).column;
                     if (output_slot_flags[i]) {
-                        mcol[i + column_offset]->insert_indices_from(column, _build_block_rows.data(),
-                                                                     _build_block_rows.data() + size);
+                        auto column = _build_blocks[0].get_by_position(i).column;
+                        if (mcol[i + column_offset]->is_nullable() xor column->is_nullable()) {
+                            DCHECK(mcol[i + column_offset]->is_nullable() &&
+                                   !column->is_nullable());
+                            column = make_nullable(column);
+                        }
+                        mcol[i + column_offset]->insert_indices_from(
+                                *column, _build_block_rows.data(), _build_block_rows.data() + size);
                     } else {
                         mcol[i + column_offset]->resize(size);
                     }
@@ -208,12 +213,29 @@ struct ProcessHashTableProbe {
                                     assert_cast<ColumnNullable *>(
                                             mcol[i + column_offset].get())->insert_join_null_data();
                                 } else {
-                                    auto &column = *_build_blocks[_build_block_offsets[j]].get_by_position(i).column;
-                                    mcol[i + column_offset]->insert_from(column, _build_block_rows[j]);
+                                    auto column = _build_blocks[_build_block_offsets[j]]
+                                                          .get_by_position(i)
+                                                          .column;
+                                    if (mcol[i + column_offset]->is_nullable() xor
+                                        column->is_nullable()) {
+                                        DCHECK(mcol[i + column_offset]->is_nullable() &&
+                                               !column->is_nullable());
+                                        column = make_nullable(column);
+                                    }
+                                    mcol[i + column_offset]->insert_from(*column,
+                                                                         _build_block_rows[j]);
                                 }
                             } else {
-                                auto &column = *_build_blocks[_build_block_offsets[j]].get_by_position(i).column;
-                                mcol[i + column_offset]->insert_from(column, _build_block_rows[j]);
+                                auto column = _build_blocks[_build_block_offsets[j]]
+                                                      .get_by_position(i)
+                                                      .column;
+                                if (mcol[i + column_offset]->is_nullable() xor
+                                    column->is_nullable()) {
+                                    DCHECK(mcol[i + column_offset]->is_nullable() &&
+                                           !column->is_nullable());
+                                    column = make_nullable(column);
+                                }
+                                mcol[i + column_offset]->insert_from(*column, _build_block_rows[j]);
                             }
                         }
                     } else {
@@ -228,7 +250,11 @@ struct ProcessHashTableProbe {
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size) {
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i]) {
-                auto& column = _probe_block.get_by_position(i).column;
+                auto column = _probe_block.get_by_position(i).column;
+                if (mcol[i]->is_nullable() xor column->is_nullable()) {
+                    DCHECK(mcol[i]->is_nullable() && !column->is_nullable());
+                    column = make_nullable(column);
+                }
                 column->replicate(&_items_counts[0], size, *mcol[i]);
             } else {
                 mcol[i]->resize(size);
