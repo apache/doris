@@ -35,7 +35,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -102,10 +101,6 @@ public class AuthTest {
                 analyzer.getClusterName();
                 minTimes = 0;
                 result = SystemInfoService.DEFAULT_CLUSTER;
-
-                analyzer.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalDataSource.INTERNAL_DS_NAME;
 
                 Catalog.getCurrentCatalog();
                 minTimes = 0;
@@ -1247,7 +1242,7 @@ public class AuthTest {
             }
         };
         Assert.assertFalse(auth.checkGlobalPriv(ctx, PrivPredicate.OPERATOR));
-        grantStmt = new GrantStmt(opUser, null, new TablePattern("*", "*", "*"), privileges);
+        grantStmt = new GrantStmt(opUser, null, new TablePattern("*", "*"), privileges);
         // first, use op_user itself to grant node_priv, which is not allowed
         try {
             new Expectations() {

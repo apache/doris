@@ -20,7 +20,6 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.MysqlPassword;
 
 import org.apache.logging.log4j.LogManager;
@@ -28,7 +27,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
 import java.util.List;
 
 /*
@@ -57,6 +55,27 @@ public class UserPrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
+    }
+
+    /*
+     * Check if user@host has specified privilege
+     */
+    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
+        for (PrivEntry entry : entries) {
+            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
+            // check host
+            if (!globalPrivEntry.isAnyHost() && !globalPrivEntry.getHostPattern().match(host)) {
+                continue;
+            }
+            // check user
+            if (!globalPrivEntry.isAnyUser() && !globalPrivEntry.getUserPattern().match(user)) {
+                continue;
+            }
+            if (globalPrivEntry.getPrivSet().satisfy(wanted)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // validate the connection by host, user and password.
@@ -176,34 +195,5 @@ public class UserPrivTable extends PrivTable {
         }
 
         super.write(out);
-    }
-
-    /**
-     * When replay UserPrivTable from journal whose FeMetaVersion < VERSION_111, the global-level privileges should
-     * degrade to internal-catalog-level privileges.
-     */
-    public CatalogPrivTable degradeToInternalCatalogPriv() throws IOException {
-        CatalogPrivTable catalogPrivTable = new CatalogPrivTable();
-        List<PrivEntry> degradedEntries = new LinkedList<>();
-        for (PrivEntry privEntry : entries) {
-            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
-            if (!globalPrivEntry.match(UserIdentity.ROOT, true)
-                    && !globalPrivEntry.match(UserIdentity.ADMIN, true)
-                    && !globalPrivEntry.privSet.isEmpty()) {
-                try {
-                    CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
-                            InternalDataSource.INTERNAL_DS_NAME, globalPrivEntry.isDomain, globalPrivEntry.privSet);
-                    entry.setSetByDomainResolver(false);
-                    catalogPrivTable.addEntry(entry, false, false);
-                    degradedEntries.add(globalPrivEntry);
-                } catch (Exception e) {
-                    throw new IOException(e.getMessage());
-                }
-            }
-        }
-        for (PrivEntry degraded : degradedEntries) {
-            dropEntry(degraded);
-        }
-        return catalogPrivTable;
     }
 }

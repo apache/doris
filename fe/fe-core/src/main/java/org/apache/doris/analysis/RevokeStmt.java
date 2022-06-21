@@ -97,7 +97,7 @@ public class RevokeStmt extends DdlStmt {
         }
 
         if (tblPattern != null) {
-            tblPattern.analyze(analyzer);
+            tblPattern.analyze(analyzer.getClusterName());
         } else {
             // TODO(wyb): spark-load
             if (!Config.enable_spark_load) {

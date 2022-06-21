@@ -28,7 +28,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class DbPrivEntry extends CatalogPrivEntry {
+public class DbPrivEntry extends PrivEntry {
     protected static final String ANY_DB = "*";
 
     protected PatternMatcher dbPattern;
@@ -38,12 +38,9 @@ public class DbPrivEntry extends CatalogPrivEntry {
     protected DbPrivEntry() {
     }
 
-    protected DbPrivEntry(PatternMatcher userPattern, String user,
-                          PatternMatcher hostPattern, String origHost,
-                          PatternMatcher ctlPattern, String origCtl,
-                          PatternMatcher dbPattern, String origDb,
-                          boolean isDomain, PrivBitSet privSet) {
-        super(userPattern, user, hostPattern, origHost, ctlPattern, origCtl, isDomain, privSet);
+    protected DbPrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher dbPattern, String origDb,
+            PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
+        super(hostPattern, origHost, userPattern, user, isDomain, privSet);
         this.dbPattern = dbPattern;
         this.origDb = origDb;
         if (origDb.equals(ANY_DB)) {
@@ -51,14 +48,9 @@ public class DbPrivEntry extends CatalogPrivEntry {
         }
     }
 
-    public static DbPrivEntry create(
-            String user, String host,
-            String ctl, String db,
-            boolean isDomain, PrivBitSet privs) throws AnalysisException {
+    public static DbPrivEntry create(String host, String db, String user, boolean isDomain, PrivBitSet privs)
+            throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
-
-        PatternMatcher ctlPattern = PatternMatcher.createFlatPattern(
-                ctl, CaseSensibility.CATALOG.getCaseSensibility(), ctl.equals(ANY_CTL));
 
         PatternMatcher dbPattern = createDbPatternMatcher(db);
 
@@ -68,7 +60,7 @@ public class DbPrivEntry extends CatalogPrivEntry {
             throw new AnalysisException("Db privilege can not contains global or resource privileges: " + privs);
         }
 
-        return new DbPrivEntry(userPattern, user, hostPattern, host, ctlPattern, ctl, dbPattern, db, isDomain, privs);
+        return new DbPrivEntry(hostPattern, host, dbPattern, db, userPattern, user, isDomain, privs);
     }
 
     private static PatternMatcher createDbPatternMatcher(String db) throws AnalysisException {
@@ -100,10 +92,17 @@ public class DbPrivEntry extends CatalogPrivEntry {
         }
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
-        return compareAssist(origUser, otherEntry.origUser,
-                             origHost, otherEntry.origHost,
-                             origCtl, otherEntry.origCtl,
-                             origDb, otherEntry.origDb);
+        int res = origHost.compareTo(otherEntry.origHost);
+        if (res != 0) {
+            return -res;
+        }
+
+        res = origDb.compareTo(otherEntry.origDb);
+        if (res != 0) {
+            return -res;
+        }
+
+        return -origUser.compareTo(otherEntry.origUser);
     }
 
     @Override
@@ -113,15 +112,20 @@ public class DbPrivEntry extends CatalogPrivEntry {
         }
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
-        return origUser.equals(otherEntry.origUser) && origHost.equals(otherEntry.origHost)
-                && origCtl.equals(otherEntry.origCtl) && origDb.equals(otherEntry.origDb)
-                && isDomain == otherEntry.isDomain;
+        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
+                && origDb.equals(otherEntry.origDb) && isDomain == otherEntry.isDomain) {
+            return true;
+        }
+        return false;
     }
 
     @Override
     public String toString() {
-        return String.format("database privilege. user: %s, host: %s, ctl: %s, db: %s, priv: %s, set by resolver: %b",
-                origUser, origHost, origCtl, origDb, privSet.toString(), isSetByDomainResolver);
+        StringBuilder sb = new StringBuilder();
+        sb.append("db priv. host: ").append(origHost).append(", db: ").append(origDb);
+        sb.append(", user: ").append(origUser);
+        sb.append(", priv: ").append(privSet).append(", set by resolver: ").append(isSetByDomainResolver);
+        return sb.toString();
     }
 
     @Override
