@@ -22,6 +22,7 @@ package org.apache.doris.common;
  **/
 public enum CaseSensibility {
     CLUSTER(true),
+    CATALOG(true),
     DATABASE(true),
     TABLE(true),
     ROLLUP(true),
