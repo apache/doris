@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -25,13 +25,13 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * Implementation rule that convert logical join to physical hash join.
  */
-public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
+public class LogicalProjectionToPhysicalProjection extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalJoin().then(join -> plan(
-            new PhysicalHashJoin(join.operator.getJoinType(), join.operator.getCondition().get()),
-            join.getLogicalProperties(),
-            join.left(), join.right()
-        )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+        return logicalProject().then(projection -> plan(
+                new PhysicalProject(projection.getOperator().getProjects()),
+                projection.getLogicalProperties(),
+                projection.child()
+        )).toRule(RuleType.LOGICAL_PROJECTION_TO_PHYSICAL_PROJECTION_RULE);
     }
 }
