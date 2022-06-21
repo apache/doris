@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 /**
  * Temp definition of FunctionCallExpression.
  */
-public class FunctionCallExpression extends Expression {
+public class FunctionCall extends Expression {
 
     private final FunctionName functionName;
 
@@ -39,7 +39,7 @@ public class FunctionCallExpression extends Expression {
     /**
      * Constructor of FunctionCallExpression.
      */
-    public FunctionCallExpression(FunctionName functionName,
+    public FunctionCall(FunctionName functionName,
                                   Function fn, Expression... children) {
         super(NodeType.EXPRESSION, children);
         this.functionName = functionName;
@@ -59,4 +59,8 @@ public class FunctionCallExpression extends Expression {
         return fn;
     }
 
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitFunctionCall(this, context);
+    }
 }

@@ -102,12 +102,14 @@ public class Group {
      * @param newExpression new logical group expression
      * @return old logical group expression
      */
-    public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
-                                                    LogicalProperties logicalProperties) {
+    public GroupExpression rewriteLogicalExpression(
+            GroupExpression newExpression, LogicalProperties logicalProperties) {
+        newExpression.setParent(this);
+        this.logicalProperties = logicalProperties;
+        GroupExpression oldExpression = getLogicalExpression();
         logicalExpressions.clear();
         logicalExpressions.add(newExpression);
-        this.logicalProperties = logicalProperties;
-        return getLogicalExpression();
+        return oldExpression;
     }
 
     public double getCostLowerBound() {
@@ -185,5 +187,10 @@ public class Group {
     @Override
     public int hashCode() {
         return Objects.hash(groupId);
+    }
+
+    @Override
+    public String toString() {
+        return "Group{" + getLogicalExpression().getOperator() + "}";
     }
 }

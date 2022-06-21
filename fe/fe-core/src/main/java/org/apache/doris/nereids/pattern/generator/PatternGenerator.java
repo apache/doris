@@ -286,7 +286,7 @@ public abstract class PatternGenerator {
             generatePatterns.add(pattern);
             return pattern;
         } else {
-            String childrenPattern = StringUtils.repeat("Pattern.FIXED", ", ", childrenNum);
+            String childrenPattern = StringUtils.repeat("Pattern.GROUP", ", ", childrenNum);
             if (childrenNum > 0) {
                 childrenPattern = ", " + childrenPattern;
             }

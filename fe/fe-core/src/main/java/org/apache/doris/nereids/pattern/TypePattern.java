@@ -30,19 +30,14 @@ public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE
         extends Pattern<TYPE, NODE_TYPE> {
     protected final Class<TYPE> type;
 
-    public TypePattern(Class<TYPE> clazz, Pattern... children) {
-        super(OperatorType.NORMAL_PATTERN, children);
+    public TypePattern(Class clazz, Pattern... children) {
+        super(OperatorType.UNKNOWN, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
     public TypePattern(Class<TYPE> clazz, List<Predicate<TYPE>> predicates, Pattern... children) {
-        super(OperatorType.NORMAL_PATTERN, predicates, children);
+        super(OperatorType.UNKNOWN, predicates, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
-    }
-
-    @Override
-    protected boolean doMatchRoot(TYPE root) {
-        return type.isInstance(root) && predicates.stream().allMatch(predicate -> predicate.test(root));
     }
 
     @Override

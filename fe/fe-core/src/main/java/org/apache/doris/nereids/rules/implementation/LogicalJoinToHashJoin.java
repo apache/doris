@@ -30,7 +30,7 @@ public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
     public Rule<Plan> build() {
         // fixme, just for example now
         return logicalJoin().then(join -> plan(
-            new PhysicalBroadcastHashJoin(join.operator.getJoinType(), join.operator.getOnClause()),
+            new PhysicalBroadcastHashJoin(join.operator.getJoinType(), join.operator.getCondition()),
             join.getLogicalProperties(),
             join.left(), join.right()
         )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);

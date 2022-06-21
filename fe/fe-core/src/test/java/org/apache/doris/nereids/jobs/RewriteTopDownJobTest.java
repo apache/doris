@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -58,12 +57,12 @@ public class RewriteTopDownJobTest implements Plans {
                     new Column("id", Type.INT),
                     new Column("name", Type.STRING)
                 )), Lists.newArrayList("test"))
-            )).toRule(RuleType.BINDING_UNBOUND_RELATION_RULE);
+            )).toRule(RuleType.BINDING_RELATION);
         }
     }
 
     @Test
-    public void testSimplestScene() throws AnalysisException {
+    public void testSimplestScene() {
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan leaf = plan(unboundRelation);
         LogicalProject project = new LogicalProject(ImmutableList.of(
