@@ -21,7 +21,6 @@ package org.apache.doris.nereids.properties;
  * Physical properties used in cascades.
  */
 public class PhysicalProperties {
-
     private DistributionSpec distributionDesc;
 
     public DistributionSpec getDistributionDesc() {

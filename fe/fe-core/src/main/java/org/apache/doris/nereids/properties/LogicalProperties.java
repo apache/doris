@@ -47,7 +47,7 @@ public class LogicalProperties {
         return outputSupplier.get();
     }
 
-    public LogicalProperties withOutput(List<Slot> output) {
+    public static LogicalProperties withOutput(List<Slot> output) {
         return new LogicalProperties(Suppliers.ofInstance(output));
     }
 }
