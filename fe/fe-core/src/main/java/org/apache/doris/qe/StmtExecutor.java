@@ -858,9 +858,8 @@ public class StmtExecutor implements ProfileWriter {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer,
-            MysqlChannel channel, SelectStmt selectStmt) throws Exception {
-        RowBatch batch = null;
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel, SelectStmt selectStmt)
+            throws Exception {
         InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
         CacheMode mode = cacheAnalyzer.getCacheMode();
         SelectStmt newSelectStmt = selectStmt;
@@ -885,44 +884,7 @@ public class StmtExecutor implements ProfileWriter {
                 planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
             }
         }
-
-        coord = new Coordinator(context, analyzer, planner);
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-        coord.exec();
-
-        while (true) {
-            batch = coord.getNext();
-            if (batch.getBatch() != null) {
-                cacheAnalyzer.copyRowBatch(batch);
-                if (!isSendFields) {
-                    sendFields(newSelectStmt.getColLabels(), exprToType(newSelectStmt.getResultExprs()));
-                    isSendFields = true;
-                }
-                for (ByteBuffer row : batch.getBatch().getRows()) {
-                    channel.sendOnePacket(row);
-                }
-                context.updateReturnRows(batch.getBatch().getRows().size());
-            }
-            if (batch.isEos()) {
-                break;
-            }
-        }
-
-        if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
-            isSendFields = sendCachedValues(channel, cacheResult.getValuesList(), newSelectStmt, isSendFields, false);
-        }
-
-        cacheAnalyzer.updateCache();
-
-        if (!isSendFields) {
-            sendFields(newSelectStmt.getColLabels(), exprToType(newSelectStmt.getResultExprs()));
-            isSendFields = true;
-        }
-
-        statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
-        context.getState().setEof();
-        return;
+        sendResult(false, isSendFields, newSelectStmt, channel, cacheAnalyzer, cacheResult);
     }
 
     private boolean handleSelectRequestInFe(SelectStmt parsedSelectStmt) throws IOException {
@@ -944,7 +906,7 @@ public class StmtExecutor implements ProfileWriter {
             }
         }
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-        sendResult(resultSet);
+        sendResultSet(resultSet);
         return true;
     }
 
@@ -978,7 +940,7 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-        RowBatch batch;
+
         MysqlChannel channel = context.getMysqlChannel();
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
 
@@ -988,8 +950,12 @@ public class StmtExecutor implements ProfileWriter {
             handleCacheStmt(cacheAnalyzer, channel, (SelectStmt) queryStmt);
             return;
         }
+        sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+    }
 
-        // send result
+
+    private void sendResult(boolean isOutfileQuery, boolean isSendFields, QueryStmt queryStmt, MysqlChannel channel,
+            CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
         //    number of rows selected. For example:
@@ -997,7 +963,7 @@ public class StmtExecutor implements ProfileWriter {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
-        boolean isSendFields = false;
+        RowBatch batch;
         coord = new Coordinator(context, analyzer, planner);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
@@ -1009,6 +975,9 @@ public class StmtExecutor implements ProfileWriter {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
             if (batch.getBatch() != null) {
+                if (cacheAnalyzer != null) {
+                    cacheAnalyzer.copyRowBatch(batch);
+                }
                 // For some language driver, getting error packet after fields packet
                 // will be recognized as a success result
                 // so We need to send fields after first batch arrived
@@ -1029,6 +998,14 @@ public class StmtExecutor implements ProfileWriter {
                 break;
             }
         }
+        if (cacheAnalyzer != null) {
+            if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
+                isSendFields = sendCachedValues(channel, cacheResult.getValuesList(), (SelectStmt) queryStmt,
+                        isSendFields, false);
+            }
+
+            cacheAnalyzer.updateCache();
+        }
         if (!isSendFields) {
             if (!isOutfileQuery) {
                 sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
@@ -1041,7 +1018,6 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setEof();
         plannerProfile.setQueryFetchResultFinishTime();
     }
-
 
     private TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request) throws Exception {
         TWaitingTxnStatusResult statusResult = null;
@@ -1495,7 +1471,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
 
-    public void sendResult(ResultSet resultSet) throws IOException {
+    public void sendResultSet(ResultSet resultSet) throws IOException {
         context.updateReturnRows(resultSet.getResultRows().size());
         // Send meta data.
         sendMetaData(resultSet.getMetaData());
@@ -1529,7 +1505,7 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-        sendResult(resultSet);
+        sendResultSet(resultSet);
     }
 
     private void handleUnlockTablesStmt() {
@@ -1595,7 +1571,7 @@ public class StmtExecutor implements ProfileWriter {
             // create table
             DdlExecutor.execute(context.getCatalog(), ctasStmt);
             context.getState().setOk();
-        }  catch (Exception e) {
+        } catch (Exception e) {
             // Maybe our bug
             LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
