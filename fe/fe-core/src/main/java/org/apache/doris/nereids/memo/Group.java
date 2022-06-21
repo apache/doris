@@ -41,6 +41,8 @@ public class Group {
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
     private LogicalProperties logicalProperties;
 
+    // Map of cost lower bounds
+    // Map required plan props to cost lower bound of corresponding plan
     private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans;
     private double costLowerBound = -1;
     private boolean isExplored = false;
