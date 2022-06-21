@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.scheduler;
+package org.apache.doris.nereids.exceptions;
 
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.jobs.Job;
+/** Nereids's AnalysisException. */
+public class AnalysisException extends RuntimeException {
 
-/**
- * Scheduler to schedule jobs in Nereids.
- */
-public interface JobScheduler {
-    void executeJob(Job job, PlannerContext context);
+    public AnalysisException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
 
-    void executeJobPool(PlannerContext plannerContext) throws AnalysisException;
+    public AnalysisException(String message) {
+        super(message);
+    }
+
+    // TODO: support ErrorCode
 }

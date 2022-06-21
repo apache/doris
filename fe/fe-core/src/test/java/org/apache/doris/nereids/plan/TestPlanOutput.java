@@ -26,6 +26,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalScan;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plans;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
@@ -97,6 +98,11 @@ public class TestPlanOutput implements Plans {
 
     @Test(expected = NullPointerException.class)
     public void testPhysicalPlanMustHaveLogicalProperties() {
-        plan(new PhysicalScan(OperatorType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl")) {}, null);
+        plan(new PhysicalScan(OperatorType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl")) {
+            @Override
+            public List<Expression> getExpressions() {
+                return ImmutableList.of();
+            }
+        }, null);
     }
 }

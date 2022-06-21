@@ -58,7 +58,7 @@ public class OptimizeGroupExpressionJob extends Job<Plan> {
             // TODO: adapt situation when pattern arity smaller than group expression arity
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (childPattern.arity() > 0 && !childPattern.isFixed()) {
+                if (childPattern.arity() > 0 && !childPattern.isGroup()) {
                     Group child = groupExpression.child(i);
                     pushTask(new ExploreGroupJob(child, context));
                 }
