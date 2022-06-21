@@ -44,7 +44,7 @@ public class DropCatalogStmtTest {
         Config.enable_multi_catalog = true;
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAuth(auth);
-        MockedAuth.mockedConnectContext(ctx, "root", "127.0.0.1");
+        MockedAuth.mockedConnectContext(ctx, "root", "%");
     }
 
     @Test

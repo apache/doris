@@ -4218,6 +4218,15 @@ public class Catalog {
         this.alter.getClusterHandler().cancel(stmt);
     }
 
+    // Switch catalog of this sesseion.
+    public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
+        if (dataSourceMgr.getCatalogNullable(catalogName) == null) {
+            throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(
+                    catalogName), ErrorCode.ERR_UNKNOWN_CATALOG);
+        }
+        ctx.changeDefaultCatalog(catalogName);
+    }
+
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
         if (!auth.checkDbPriv(ctx, qualifiedDb, PrivPredicate.SHOW)) {
