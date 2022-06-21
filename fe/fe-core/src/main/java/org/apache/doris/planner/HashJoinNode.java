@@ -430,6 +430,9 @@ public class HashJoinNode extends PlanNode {
         if (copyLeft) {
             for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTblRefIds())) {
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
+                    if (!isMaterailizedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
+                        continue;
+                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
                     if (leftNullable) {
@@ -443,6 +446,9 @@ public class HashJoinNode extends PlanNode {
             for (TupleDescriptor rightTupleDesc :
                     analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTblRefIds())) {
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
+                    if (!isMaterailizedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
+                        continue;
+                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
                     if (rightNullable) {
@@ -1028,5 +1034,23 @@ public class HashJoinNode extends PlanNode {
             default:
                 return getTblRefIds();
         }
+    }
+
+    private boolean isMaterailizedByChild(SlotDescriptor slotDesc, ExprSubstitutionMap smap) {
+        if (slotDesc.isMaterialized()) {
+            return true;
+        }
+        Expr child = smap.get(new SlotRef(slotDesc));
+        if (child == null) {
+            return false;
+        }
+        List<SlotRef> slotRefList = Lists.newArrayList();
+        child.collect(SlotRef.class, slotRefList);
+        for (SlotRef slotRef : slotRefList) {
+            if (slotRef.getDesc() != null && !slotRef.getDesc().isMaterialized()) {
+                return false;
+            }
+        }
+        return true;
     }
 }
