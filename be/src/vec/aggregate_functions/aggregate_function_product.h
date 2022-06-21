@@ -60,7 +60,7 @@ public:
     using ColVecResult =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<TResult>, ColumnVector<TResult>>;
 
-    std::string get_name() const { return "product"; }
+    std::string get_name() const override { return "product"; }
 
     AggregateFunctionProduct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>(
