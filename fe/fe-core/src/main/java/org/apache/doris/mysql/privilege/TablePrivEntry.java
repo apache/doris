@@ -36,10 +36,13 @@ public class TablePrivEntry extends DbPrivEntry {
     protected TablePrivEntry() {
     }
 
-    private TablePrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher dbPattern, String origDb,
-            PatternMatcher userPattern, String user, PatternMatcher tblPattern, String origTbl,
-            boolean isDomain, PrivBitSet privSet) {
-        super(hostPattern, origHost, dbPattern, origDb, userPattern, user, isDomain, privSet);
+    private TablePrivEntry(PatternMatcher userPattern, String user,
+                           PatternMatcher hostPattern, String origHost,
+                           PatternMatcher ctlPattern, String origCtl,
+                           PatternMatcher dbPattern, String origDb,
+                           PatternMatcher tblPattern, String origTbl,
+                           boolean isDomain, PrivBitSet privSet) {
+        super(userPattern, user, hostPattern, origHost, ctlPattern, origCtl, dbPattern, origDb, isDomain, privSet);
         this.tblPattern = tblPattern;
         this.origTbl = origTbl;
         if (origTbl.equals(ANY_TBL)) {
@@ -47,12 +50,15 @@ public class TablePrivEntry extends DbPrivEntry {
         }
     }
 
-    public static TablePrivEntry create(String host, String db, String user, String tbl, boolean isDomain,
-            PrivBitSet privs) throws AnalysisException {
+    public static TablePrivEntry create(String user, String host,
+            String ctl, String db, String tbl,
+            boolean isDomain, PrivBitSet privs) throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher dbPattern = PatternMatcher.createFlatPattern(
                 db, CaseSensibility.DATABASE.getCaseSensibility(), db.equals(ANY_DB));
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
+        PatternMatcher ctlPattern = PatternMatcher.createFlatPattern(
+                ctl, CaseSensibility.CATALOG.getCaseSensibility(), ctl.equals(ANY_CTL));
 
         PatternMatcher tblPattern = PatternMatcher.createFlatPattern(
                 tbl, CaseSensibility.TABLE.getCaseSensibility(), tbl.equals(ANY_TBL));
@@ -61,8 +67,8 @@ public class TablePrivEntry extends DbPrivEntry {
             throw new AnalysisException("Table privilege can not contains global or resource privileges: " + privs);
         }
 
-        return new TablePrivEntry(hostPattern, host, dbPattern, db,
-                userPattern, user, tblPattern, tbl, isDomain, privs);
+        return new TablePrivEntry(userPattern, user, hostPattern, host,
+                ctlPattern, ctl, dbPattern, db, tblPattern, tbl, isDomain, privs);
     }
 
     public PatternMatcher getTblPattern() {
@@ -84,22 +90,11 @@ public class TablePrivEntry extends DbPrivEntry {
         }
 
         TablePrivEntry otherEntry = (TablePrivEntry) other;
-        int res = origHost.compareTo(otherEntry.origHost);
-        if (res != 0) {
-            return -res;
-        }
-
-        res = origDb.compareTo(otherEntry.origDb);
-        if (res != 0) {
-            return -res;
-        }
-
-        res = origUser.compareTo(otherEntry.origUser);
-        if (res != 0) {
-            return -res;
-        }
-
-        return -origTbl.compareTo(otherEntry.origTbl);
+        return compareAssist(origUser, otherEntry.origUser,
+                             origHost, otherEntry.origHost,
+                             origCtl, otherEntry.origCtl,
+                             origDb, otherEntry.origDb,
+                             origTbl, otherEntry.origTbl);
     }
 
     @Override
@@ -109,21 +104,16 @@ public class TablePrivEntry extends DbPrivEntry {
         }
 
         TablePrivEntry otherEntry = (TablePrivEntry) other;
-        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && origDb.equals(otherEntry.origDb) && origTbl.equals(otherEntry.origTbl)
-                && isDomain == otherEntry.isDomain) {
-            return true;
-        }
-        return false;
+        return origUser.equals(otherEntry.origUser) && origHost.equals(otherEntry.origHost)
+                && origCtl.equals(otherEntry.origCtl) && origDb.equals(otherEntry.origDb)
+                && origTbl.equals(otherEntry.origTbl) && isDomain == otherEntry.isDomain;
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("db priv. host: ").append(origHost).append(", db: ").append(origDb);
-        sb.append(", user: ").append(origUser).append(", tbl: ").append(origTbl);
-        sb.append(", priv: ").append(privSet).append(", set by resolver: ").append(isSetByDomainResolver);
-        return sb.toString();
+        return String.format("table privilege. user: %s, host: %s, "
+                        + "ctl: %s, db: %s, tbl: %s, priv: %s, set by resolver: %b",
+                origUser, origHost, origCtl, origDb, origTbl, privSet.toString(), isSetByDomainResolver);
     }
 
     @Override
