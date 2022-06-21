@@ -65,7 +65,8 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override;
+    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                      uint16_t size) const override;
 
 private:
     template <bool is_nullable, typename file_type = void>
@@ -170,7 +171,7 @@ void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
 }
 
 template <PrimitiveType T>
-uint16_t BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
+uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
     using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;

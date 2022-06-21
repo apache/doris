@@ -66,6 +66,9 @@ void SingleColumnBlockPredicate::evaluate_vec(vectorized::MutableColumns& block,
                                               bool* flags) const {
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
+    if (PredicateTypeTraits::is_range(_predicate->type())) {
+        column->convert_dict_codes_if_necessary();
+    }
     _predicate->evaluate_vec(*column, size, flags);
 }
 
