@@ -211,6 +211,7 @@ public:
     ThreadContext* get();
 
     bool _init = false;
+
 private:
     DECLARE_STATIC_THREAD_LOCAL(ThreadContext, thread_local_ctx);
 };
