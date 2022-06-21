@@ -95,4 +95,21 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
 const std::string& VCastExpr::expr_name() const {
     return _expr_name;
 }
+
+std::string VCastExpr::debug_string() const {
+    std::stringstream out;
+    out << "CastExpr(CAST " << _cast_param_data_type->get_name() << " to "
+        << _target_data_type->get_name() << "){";
+    bool first = true;
+    for (VExpr* input_expr : children()) {
+        if (first) {
+            first = false;
+        } else {
+            out << ",";
+        }
+        out << input_expr->debug_string();
+    }
+    out << "}";
+    return out.str();
+}
 } // namespace doris::vectorized

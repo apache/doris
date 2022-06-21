@@ -39,6 +39,7 @@ import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TBrokerRangeDesc;
@@ -157,7 +158,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             PlanNodeId id,
             TupleDescriptor desc,
             String planNodeName) throws MetaNotFoundException {
-        super(id, desc, planNodeName, NodeType.BROKER_SCAN_NODE);
+        super(id, desc, planNodeName, StatisticalType.BROKER_SCAN_NODE);
 
         this.hmsTable = (HMSExternalTable) desc.getTable();
 

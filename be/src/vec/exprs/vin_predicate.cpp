@@ -103,4 +103,17 @@ const std::string& VInPredicate::expr_name() const {
     return _expr_name;
 }
 
+std::string VInPredicate::debug_string() const {
+    std::stringstream out;
+    out << "InPredicate(" << children()[0]->debug_string() << " " << _is_not_in << ",[";
+    int num_children = children().size();
+
+    for (int i = 1; i < num_children; ++i) {
+        out << (i == 1 ? "" : " ") << children()[i]->debug_string();
+    }
+
+    out << "])";
+    return out.str();
+}
+
 } // namespace doris::vectorized
