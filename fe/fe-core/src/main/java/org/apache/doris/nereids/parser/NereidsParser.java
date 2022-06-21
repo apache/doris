@@ -40,8 +40,6 @@ import java.util.function.Function;
  */
 public class NereidsParser {
 
-    private static final Function<DorisParser, ParserRuleContext> singleStatement = DorisParser::singleStatement;
-
     /**
      * In MySQL protocol, client could send multi-statement in.
      * a single packet.
@@ -71,9 +69,6 @@ public class NereidsParser {
         try {
             ParserRuleContext tree = toAst(sql, parseFunction);
             LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-            if (parseFunction.equals(singleStatement)) {
-                return logicalPlanBuilder.visit(tree);
-            }
             return logicalPlanBuilder.visit(tree);
         } catch (StackOverflowError e) {
             throw new ParsingException(e.getMessage());
