@@ -33,32 +33,25 @@ import java.util.stream.Collectors;
  * Physical sort plan operator.
  */
 public class PhysicalSort extends PhysicalUnaryOperator {
-
+    // Default offset is 0.
     private final int offset;
 
-    private final int limit;
-
     private final List<OrderKey> orderList;
-
+    // TODO(wj): Do we need it? If offset is 0 and limit != 0, we can think it's topN.
     private final boolean useTopN;
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean useTopN) {
-        super(OperatorType.PHYSICAL_SORT);
+    public PhysicalSort(List<OrderKey> orderList, long limit, int offset, boolean useTopN) {
+        super(OperatorType.PHYSICAL_SORT, limit);
         this.offset = offset;
-        this.limit = limit;
         this.orderList = orderList;
         this.useTopN = useTopN;
     }
 
     public int getOffset() {
         return offset;
-    }
-
-    public int getLimit() {
-        return limit;
     }
 
     public List<OrderKey> getOrderList() {
@@ -81,9 +74,6 @@ public class PhysicalSort extends PhysicalUnaryOperator {
     @Override
     public List<Expression> getExpressions() {
         return ImmutableList.<Expression>builder()
-            .addAll(orderList.stream()
-                .map(o -> o.getExpr())
-                .collect(Collectors.toList())
-            ).build();
+                .addAll(orderList.stream().map(o -> o.getExpr()).collect(Collectors.toList())).build();
     }
 }

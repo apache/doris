@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -31,21 +32,41 @@ import java.util.stream.Collectors;
 
 /**
  * Logical Sort plan operator.
- *
+ * <p>
  * eg: select * from table order by a, b desc;
  * sortItems: list of column information after order by. eg:[a, asc],[b, desc].
  * SortItems: Contains order expression information and sorting method. Default is ascending.
  */
 public class LogicalSort extends LogicalUnaryOperator {
 
-    private List<SortItems> sortItems;
+    // Default offset is 0.
+    private int offset = 0;
+
+    private final List<OrderKey> sortItems;
 
     /**
      * Constructor for SortItems.
      */
-    public LogicalSort(List<SortItems> sortItems) {
+    public LogicalSort(List<OrderKey> sortItems) {
         super(OperatorType.LOGICAL_SORT);
         this.sortItems = Objects.requireNonNull(sortItems, "sorItems can not be null");
+    }
+
+    @Override
+    public List<Slot> computeOutput(Plan input) {
+        return input.getOutput();
+    }
+
+    public List<OrderKey> getSortItems() {
+        return sortItems;
+    }
+
+    public int getOffset() {
+        return offset;
+    }
+
+    public void setOffset(int offset) {
+        this.offset = offset;
     }
 
     @Override
@@ -54,61 +75,8 @@ public class LogicalSort extends LogicalUnaryOperator {
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
-        return input.getOutput();
-    }
-
-    /**
-     * Get SortItems.
-     *
-     * @return List of SortItems.
-     */
-    public List<SortItems> getSortItems() {
-        return sortItems;
-    }
-
-    @Override
     public List<Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>().addAll(
-                sortItems.stream().map(expr -> expr.getSort()).collect(Collectors.toList()))
-                .build();
-    }
-
-    /**
-     * SortItem. Show sort expressions and their order types.
-     */
-    public static class SortItems {
-        /**
-         * enum of OrderDirection.
-         */
-        public enum OrderDirection {
-            ASC,
-            DESC
-        }
-
-        private final Expression sort;
-        private final OrderDirection orderDirection;
-
-        public SortItems(Expression sort, OrderDirection orderDirection) {
-            this.sort = sort;
-            this.orderDirection = orderDirection;
-        }
-
-        public Expression getSort() {
-            return sort;
-        }
-
-        /**
-         * Get OrderDirection.
-         *
-         * @return boolean.
-         */
-        public OrderDirection getOrderDirection() {
-            return orderDirection;
-        }
-
-        public String toString() {
-            return "Expression: " + sort.sql() + " OrderDirection: " + orderDirection.toString();
-        }
+                sortItems.stream().map(OrderKey::getExpr).collect(Collectors.toList())).build();
     }
 }

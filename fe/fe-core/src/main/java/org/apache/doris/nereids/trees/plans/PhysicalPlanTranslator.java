@@ -37,6 +37,7 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalSort;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionConverter;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
@@ -95,7 +96,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 .map(e -> ExpressionConverter.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
 
-        List<Expression> aggExpressionList = physicalAggregation.getAggExprList();
+        List<? extends NamedExpression> aggExpressionList = physicalAggregation.getAggExprList();
         // TODO: agg function could be other expr type either
         ArrayList<FunctionCallExpr> execAggExpressions = aggExpressionList.stream()
                 .map(e -> (FunctionCallExpr) ExpressionConverter.convert(e, context))
@@ -216,7 +217,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN) && eqExprList.isEmpty()) {
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
                     rightFragment.getPlanRoot(), null);
-            crossJoinNode.setLimit(physicalHashJoin.getLimited());
+            crossJoinNode.setLimit(physicalHashJoin.getLimit());
             List<Expr> conjuncts = Utils.extractConjuncts(predicateExpr).stream()
                     .map(e -> ExpressionConverter.convert(e, context))
                     .collect(Collectors.toCollection(ArrayList::new));
@@ -249,7 +250,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         hashJoinNode.setChild(0, leftFragmentPlanRoot);
         hashJoinNode.setChild(1, leftFragmentPlanRoot);
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
-        hashJoinNode.setLimit(physicalHashJoin.getLimited());
+        hashJoinNode.setLimit(physicalHashJoin.getLimit());
         leftFragment.setDestination((ExchangeNode) rightFragment.getPlanRoot());
         rightFragment.setDestination((ExchangeNode) leftFragmentPlanRoot);
         PlanFragment result = new PlanFragment(context.nextFragmentId(), hashJoinNode, leftFragment.getDataPartition());

@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
@@ -35,11 +35,9 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
 
-    private final List<Expression> aggExprList;
+    private final List<? extends NamedExpression> aggExprList;
 
     private final List<Expression> partitionExprList;
-
-    private final AggPhase aggPhase;
 
     private final boolean usingStream;
 
@@ -48,16 +46,15 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
      *
      * @param groupByExprList group by expr list.
      * @param aggExprList agg expr list.
-     * @param partitionExprList  partition expr list, used for analytic agg.
+     * @param partitionExprList partition expr list, used for analytic agg.
      * @param usingStream whether it's stream agg.
      */
-    public PhysicalAggregation(List<Expression> groupByExprList, List<Expression> aggExprList,
-            List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
+    public PhysicalAggregation(List<Expression> groupByExprList, List<? extends NamedExpression> aggExprList,
+            List<Expression> partitionExprList, boolean usingStream) {
         super(OperatorType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.aggExprList = aggExprList;
         this.partitionExprList = partitionExprList;
-        this.aggPhase = aggPhase;
         this.usingStream = usingStream;
     }
 
@@ -65,12 +62,8 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
         return groupByExprList;
     }
 
-    public List<Expression> getAggExprList() {
+    public List<? extends NamedExpression> getAggExprList() {
         return aggExprList;
-    }
-
-    public AggPhase getAggPhase() {
-        return aggPhase;
     }
 
     public boolean isUsingStream() {
@@ -88,10 +81,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>()
-                .addAll(groupByExprList)
-                .addAll(aggExprList)
-                .addAll(partitionExprList)
-                .build();
+        return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(aggExprList)
+                .addAll(partitionExprList).build();
     }
 }

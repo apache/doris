@@ -23,15 +23,15 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Implementation rule that convert logical join to physical hash join.
+ * Implementation rule that convert logical project to physical project.
  */
-public class LogicalProjectionToPhysicalProjection extends OneImplementationRuleFactory {
+public class LogicalProjectToPhysicalProject extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalProject().then(projection -> plan(
-                new PhysicalProject(projection.getOperator().getProjects()),
-                projection.getLogicalProperties(),
-                projection.child()
-        )).toRule(RuleType.LOGICAL_PROJECTION_TO_PHYSICAL_PROJECTION_RULE);
+        return logicalProject().then(project -> plan(
+                new PhysicalProject(project.getOperator().getProjects()),
+                project.getLogicalProperties(),
+                project.child()
+        )).toRule(RuleType.LOGICAL_PROJECT_TO_PHYSICAL_PROJECT_RULE);
     }
 }

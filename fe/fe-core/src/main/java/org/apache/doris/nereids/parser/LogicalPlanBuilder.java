@@ -68,8 +68,7 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.operators.plans.logical.LogicalSort;
-import org.apache.doris.nereids.operators.plans.logical.LogicalSort.SortItems;
-import org.apache.doris.nereids.operators.plans.logical.LogicalSort.SortItems.OrderDirection;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.analysis.FunctionParams;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -121,9 +120,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create a logical plan using a where clause.
      */
-    private final BiFunction<WhereClauseContext, LogicalPlan, LogicalPlan> withWhereClause =
-            (WhereClauseContext ctx, LogicalPlan plan)
-                    -> new LogicalUnaryPlan(new LogicalFilter(expression((ctx.booleanExpression()))), plan);
+    private final BiFunction<WhereClauseContext, LogicalPlan, LogicalPlan> withWhereClause
+            = (WhereClauseContext ctx, LogicalPlan plan) -> new LogicalUnaryPlan(
+                    new LogicalFilter(expression((ctx.booleanExpression()))), plan);
 
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
@@ -180,7 +179,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withQueryOrganization(QueryOrganizationContext ctx, LogicalPlan children) {
-        List<SortItems> sortItems = visitQueryOrganization(ctx);
+        List<OrderKey> sortItems = visitQueryOrganization(ctx);
         return sortItems == null ? children : new LogicalUnaryPlan(new LogicalSort(sortItems), children);
     }
 
@@ -189,12 +188,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Supplier<LogicalPlan> f = () -> {
             // TODO: support on row relation
             LogicalPlan from = visitFromClause(ctx.fromClause());
-            return withSelectQuerySpecification(
-                    ctx,
-                    ctx.selectClause(),
-                    ctx.whereClause(),
-                    from,
-                    ctx.aggClause());
+            return withSelectQuerySpecification(ctx, ctx.selectClause(), ctx.whereClause(), from, ctx.aggClause());
         };
         return ParserUtils.withOrigin(ctx, f);
     }
@@ -224,30 +218,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      *
      * <p>Note that query hints are ignored (both by the parser and the builder).
      */
-    private LogicalPlan withSelectQuerySpecification(
-            ParserRuleContext ctx,
-            SelectClauseContext selectClause,
-            WhereClauseContext whereClause,
-            LogicalPlan relation,
-            AggClauseContext aggClause) {
+    private LogicalPlan withSelectQuerySpecification(ParserRuleContext ctx, SelectClauseContext selectClause,
+            WhereClauseContext whereClause, LogicalPlan relation, AggClauseContext aggClause) {
         Supplier<LogicalPlan> f = () -> {
             //        Filter(expression(ctx.booleanExpression), plan);
-            LogicalPlan plan = visitCommonSelectQueryClausePlan(
-                    relation,
-                    visitNamedExpressionSeq(selectClause.namedExpressionSeq()),
-                    whereClause,
-                    aggClause);
+            LogicalPlan plan = visitCommonSelectQueryClausePlan(relation,
+                    visitNamedExpressionSeq(selectClause.namedExpressionSeq()), whereClause, aggClause);
             // TODO: process hint
             return plan;
         };
         return ParserUtils.withOrigin(ctx, f);
     }
 
-    private LogicalPlan visitCommonSelectQueryClausePlan(
-            LogicalPlan relation,
-            List<Expression> expressions,
-            WhereClauseContext whereClause,
-            AggClauseContext aggClause) {
+    private LogicalPlan visitCommonSelectQueryClausePlan(LogicalPlan relation, List<Expression> expressions,
+            WhereClauseContext whereClause, AggClauseContext aggClause) {
         // TODO: add lateral views
         // val withLateralView = lateralView.asScala.foldLeft(relation)(withGenerate)
 
@@ -287,8 +271,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (left == null) {
                 left = right;
             } else {
-                left = new LogicalBinaryPlan(
-                        new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), left, right);
+                left = new LogicalBinaryPlan(new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), left, right);
             }
             left = withJoinRelations(left, relation);
         }
@@ -328,16 +311,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = expression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalBinaryPlan(
-                    new LogicalJoin(joinType, Optional.ofNullable(condition)),
-                    last, plan(join.relationPrimary())
-            );
+            last = new LogicalBinaryPlan(new LogicalJoin(joinType, Optional.ofNullable(condition)), last,
+                    plan(join.relationPrimary()));
         }
         return last;
     }
 
-    private LogicalPlan withAggClause(List<NamedExpression> aggExpressions,
-            GroupByItemContext ctx, LogicalPlan aggClause) {
+    private LogicalPlan withAggClause(List<NamedExpression> aggExpressions, GroupByItemContext ctx,
+            LogicalPlan aggClause) {
         List<Expression> tmpExpressions = new ArrayList<>();
         for (ExpressionContext expressionCtx : ctx.expression()) {
             tmpExpressions.add(typedVisit(expressionCtx));
@@ -351,15 +332,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @param ctx SortItemContext
      * @return SortItems
      */
-    public SortItems genSortItems(SortItemContext ctx) {
-        OrderDirection orderDirection;
-        if (ctx.DESC() != null) {
-            orderDirection = OrderDirection.DESC;
-        } else {
-            orderDirection = OrderDirection.ASC;
-        }
+    public OrderKey genSortItems(SortItemContext ctx) {
+        boolean isAsc = ctx.DESC() == null;
+        // TODO(wj): isNullFirst
+        boolean isNullFirst = true;
         Expression expression = typedVisit(ctx.expression());
-        return new SortItems(expression, orderDirection);
+        return new OrderKey(expression, isAsc, isNullFirst);
     }
 
     /**
@@ -368,8 +346,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @param ctx QueryOrganizationContext
      * @return List of SortItems
      */
-    public List<SortItems> visitQueryOrganization(QueryOrganizationContext ctx) {
-        List<SortItems> sortItems = new ArrayList<>();
+    public List<OrderKey> visitQueryOrganization(QueryOrganizationContext ctx) {
+        List<OrderKey> sortItems = new ArrayList<>();
         if (ctx.sortClause().ORDER() != null) {
             for (SortItemContext sortItemContext : ctx.sortClause().sortItem()) {
                 sortItems.add(genSortItems(sortItemContext));
@@ -438,8 +416,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             final QualifiedNameContext qualifiedNameContext = ctx.qualifiedName();
             List<String> target;
             if (qualifiedNameContext != null) {
-                target = qualifiedNameContext.identifier().stream()
-                        .map(RuleContext::getText).collect(Collectors.toList());
+                target = qualifiedNameContext.identifier().stream().map(RuleContext::getText)
+                        .collect(Collectors.toList());
             } else {
                 target = Lists.newArrayList();
             }
@@ -530,7 +508,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * Create a predicated expression. A predicated expression is a normal expression with a
      * predicate attached to it, for example:
      * {{{
-     *    a + 1 IS NULL
+     * a + 1 IS NULL
      * }}}
      */
     @Override
@@ -568,11 +546,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     public Expression withBetween(PredicateContext ctx, Expression e) {
         boolean isNotBetween = ctx.NOT() != null ? true : false;
-        BetweenPredicate betweenPredicate = new BetweenPredicate(
-                e,
-                expression(ctx.lower),
-                expression(ctx.upper)
-        );
+        BetweenPredicate betweenPredicate = new BetweenPredicate(e, expression(ctx.lower), expression(ctx.upper));
         return isNotBetween ? new Not(betweenPredicate) : betweenPredicate;
     }
 
@@ -597,7 +571,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return genArithmetic(ctx.operator, left, right);
     }
 
-    private Arithmetic  genArithmetic(Token token, Expression left, Expression right) {
+    private Arithmetic genArithmetic(Token token, Expression left, Expression right) {
         switch (token.getType()) {
             case DorisParser.ASTERISK:
                 return new Multiply(left, right);
@@ -626,8 +600,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new FunctionCall(functionName,
-                new FunctionParams(ctx.aggFunction().DISTINCT() != null,
-                        expression(ctx.aggFunction().expression())));
+                new FunctionParams(ctx.aggFunction().DISTINCT() != null, expression(ctx.aggFunction().expression())));
     }
 
     @Override

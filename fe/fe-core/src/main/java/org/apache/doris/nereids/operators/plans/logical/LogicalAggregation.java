@@ -31,68 +31,64 @@ import java.util.List;
 
 /**
  * Logical Aggregation plan operator.
- *
- *eg:select a, sum(b), c from table group by a, c;
+ * <p>
+ * eg:select a, sum(b), c from table group by a, c;
  * groupByExpressions: Column field after group by. eg: a, c;
  * outputExpressions: Column field after select. eg: a, sum(b), c;
- *
+ * <p>
  * Each agg node only contains the select statement field of the same layer,
  * and other agg nodes in the subquery contain.
  */
 public class LogicalAggregation extends LogicalUnaryOperator {
 
-    private final List<Expression> groupByExpressions;
-    private final List<? extends NamedExpression> outputExpressions;
+    private final List<Expression> groupByExprList;
+    private final List<? extends NamedExpression> aggExprList;
+    private List<Expression> partitionExprList;
 
     /**
      * Desc: Constructor for LogicalAggregation.
      */
-    public LogicalAggregation(List<Expression> groupByExpressions,
-            List<? extends NamedExpression> outputExpressions) {
+    public LogicalAggregation(List<Expression> groupByExprList, List<? extends NamedExpression> aggExprList) {
         super(OperatorType.LOGICAL_AGGREGATION);
-        this.groupByExpressions = groupByExpressions;
-        this.outputExpressions = outputExpressions;
+        this.groupByExprList = groupByExprList;
+        this.aggExprList = aggExprList;
     }
 
-    /**
-     * Get GroupByAggregation list.
-     *
-     * @return all group by of this node.
-     */
-    public List<Expression> getGroupByExpressions() {
-        return groupByExpressions;
+    public List<Expression> getPartitionExprList() {
+        return partitionExprList;
     }
 
-    /**
-     * Get outputExpressions list.
-     *
-     * @return all agg expressions.
-     */
-    public List<? extends NamedExpression> getoutputExpressions() {
-        return outputExpressions;
+    public void setPartitionExprList(List<Expression> partitionExprList) {
+        this.partitionExprList = partitionExprList;
+    }
+
+    public List<Expression> getGroupByExprList() {
+        return groupByExprList;
+    }
+
+    public List<? extends NamedExpression> getAggExprList() {
+        return aggExprList;
     }
 
     @Override
     public String toString() {
-        return "Aggregation (" + "outputExpressions: " + StringUtils.join(outputExpressions, ", ")
-                + ", groupByExpressions: " + StringUtils.join(groupByExpressions, ", ") + ")";
+        return "Aggregation (" + "outputExpressions: " + StringUtils.join(aggExprList, ", ") + ", groupByExpressions: "
+                + StringUtils.join(groupByExprList, ", ") + ")";
     }
 
     @Override
     public List<Slot> computeOutput(Plan input) {
-        return outputExpressions.stream()
-                .map(namedExpr -> {
-                    try {
-                        return namedExpr.toSlot();
-                    } catch (UnboundException e) {
-                        throw new IllegalStateException(e);
-                    }
-                })
-                .collect(ImmutableList.toImmutableList());
+        return aggExprList.stream().map(namedExpr -> {
+            try {
+                return namedExpr.toSlot();
+            } catch (UnboundException e) {
+                throw new IllegalStateException(e);
+            }
+        }).collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(groupByExpressions).addAll(outputExpressions).build();
+        return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(aggExprList).build();
     }
 }

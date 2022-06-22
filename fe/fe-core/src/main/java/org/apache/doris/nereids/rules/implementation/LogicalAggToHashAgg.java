@@ -17,21 +17,25 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Implementation rule that convert logical filter to physical filter.
+ * Implementation rule that convert logical aggregation to physical hash aggregation.
  */
-public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
+public class LogicalAggToHashAgg extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalFilter().then(filter -> plan(
-            new PhysicalFilter(filter.getOperator().getPredicates()),
-            filter.getLogicalProperties(),
-            filter.child()
-        )).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
+        return logicalAggregation().then(agg -> plan(
+            new PhysicalAggregation(
+                agg.getOperator().getGroupByExprList(),
+                agg.getOperator().getAggExprList(),
+                agg.getOperator().getPartitionExprList(),
+                false),
+            agg.getLogicalProperties(),
+            agg.child()
+        )).toRule(RuleType.LOGICAL_AGG_TO_HASH_AGG_RULE);
     }
 }

@@ -17,21 +17,20 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalSort;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Implementation rule that convert logical filter to physical filter.
+ * Implementation rule that convert logical sort to physical sort.
  */
-public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
+public class LogicalSortToPhysicalSort extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalFilter().then(filter -> plan(
-            new PhysicalFilter(filter.getOperator().getPredicates()),
-            filter.getLogicalProperties(),
-            filter.child()
-        )).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
+        return logicalSort().then(sort -> plan(
+                        new PhysicalSort(sort.getOperator().getSortItems(), sort.getOperator().getLimit(),
+                                sort.getOperator().getOffset(), false), sort.getLogicalProperties(), sort.child()))
+                .toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_SORT_RULE);
     }
 }
