@@ -390,7 +390,7 @@ public class ConnectProcessor {
             if (resultSet == null) {
                 packet = executor.getOutputPacket();
             } else {
-                executor.sendResult(resultSet);
+                executor.sendResultSet(resultSet);
                 packet = getResultPacket();
                 if (packet == null) {
                     LOG.debug("packet == null");
