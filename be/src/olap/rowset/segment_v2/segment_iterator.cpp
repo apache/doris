@@ -131,6 +131,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (!opts.column_predicates.empty()) {
         _col_predicates = opts.column_predicates;
     }
+    // Read options will not change, so that just reserve here
+    _block_rowids.reserve(_opts.block_row_max);
     return Status::OK();
 }
 
@@ -508,15 +510,11 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init());
-        if (_lazy_materialization_read) {
-            _block_rowids.reserve(block->capacity());
-        }
         _inited = true;
     }
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = block->capacity();
-    _block_rowids.resize(nrows_read_limit);
     const auto& read_columns =
             _lazy_materialization_read ? _predicate_columns : block->schema()->column_ids();
 
