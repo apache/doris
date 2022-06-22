@@ -48,8 +48,16 @@ public class Memo {
         return root;
     }
 
+    public List<Group> getGroups() {
+        return groups;
+    }
+
+    public Map<GroupExpression, GroupExpression> getGroupExpressions() {
+        return groupExpressions;
+    }
+
     /**
-     * Add node to Memo.
+     * Add plan to Memo.
      * TODO: add ut later
      *
      * @param node {@link Plan} or {@link Expression} to be added
@@ -105,7 +113,7 @@ public class Memo {
      * @return existing groupExpression in memo or newly generated groupExpression
      */
     private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
-                                                           boolean rewrite, LogicalProperties logicalProperties) {
+            boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getParent().getGroupId())) {
@@ -144,7 +152,7 @@ public class Memo {
             return;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression groupExpression : groupExpressions.values()) {
+        groupExpressions.values().forEach(groupExpression -> {
             if (groupExpression.children().contains(source)) {
                 if (groupExpression.getParent().equals(destination)) {
                     // cycle, we should not merge
@@ -152,7 +160,7 @@ public class Memo {
                 }
                 needReplaceChild.add(groupExpression);
             }
-        }
+        });
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
