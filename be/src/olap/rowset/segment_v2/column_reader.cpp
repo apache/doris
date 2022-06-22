@@ -660,7 +660,8 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                 } else {
                     *has_null = true;
                     // todo(wb) add a DCHECK here to check whether type is column nullable
-                    reinterpret_cast<vectorized::ColumnNullable&>(*dst).insert_null_elements(this_run);
+                    reinterpret_cast<vectorized::ColumnNullable&>(*dst).insert_null_elements(
+                            this_run);
                 }
 
                 nrows_to_read -= this_run;
