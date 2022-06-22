@@ -18,16 +18,20 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 
 import com.clearspring.analytics.util.Lists;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Context of physical plan.
@@ -36,6 +40,11 @@ public class PlanContext {
     private List<PlanFragment> planFragmentList = Lists.newArrayList();
 
     private DescriptorTable descTable = new DescriptorTable();
+
+    /**
+     * Map expressions of new optimizer to the stale expr.
+     */
+    private Map<Expression, Expr> expressionToExecExpr = new HashMap<>();
 
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
@@ -68,6 +77,14 @@ public class PlanContext {
 
     public void addPlanFragment(PlanFragment planFragment) {
         this.planFragmentList.add(planFragment);
+    }
+
+    public void addExprMapping(Expression expression, Expr expr) {
+        expressionToExecExpr.put(expression, expr);
+    }
+
+    public Expr findExpr(Expression expression) {
+        return expressionToExecExpr.get(expression);
     }
 
 }
