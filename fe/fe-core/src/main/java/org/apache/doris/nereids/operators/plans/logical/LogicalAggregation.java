@@ -43,7 +43,7 @@ import java.util.List;
 public class LogicalAggregation extends LogicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
-    private final List<? extends NamedExpression> aggExprList;
+    private final List<NamedExpression> aggExprList;
     private List<Expression> partitionExprList;
 
     private AggPhase aggPhase;
@@ -51,7 +51,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
     /**
      * Desc: Constructor for LogicalAggregation.
      */
-    public LogicalAggregation(List<Expression> groupByExprList, List<? extends NamedExpression> aggExprList) {
+    public LogicalAggregation(List<Expression> groupByExprList, List<NamedExpression> aggExprList) {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.aggExprList = aggExprList;
@@ -69,7 +69,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
         return groupByExprList;
     }
 
-    public List<? extends NamedExpression> getAggExprList() {
+    public List<NamedExpression> getAggExprList() {
         return aggExprList;
     }
 

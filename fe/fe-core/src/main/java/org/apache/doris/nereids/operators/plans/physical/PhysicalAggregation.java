@@ -36,7 +36,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
 
-    private final List<? extends NamedExpression> aggExprList;
+    private final List<NamedExpression> aggExprList;
 
     private final List<Expression> partitionExprList;
 
@@ -52,7 +52,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
      * @param partitionExprList partition expr list, used for analytic agg.
      * @param usingStream whether it's stream agg.
      */
-    public PhysicalAggregation(List<Expression> groupByExprList, List<? extends NamedExpression> aggExprList,
+    public PhysicalAggregation(List<Expression> groupByExprList, List<NamedExpression> aggExprList,
             List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
         super(OperatorType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
@@ -70,7 +70,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
         return groupByExprList;
     }
 
-    public List<? extends NamedExpression> getAggExprList() {
+    public List<NamedExpression> getAggExprList() {
         return aggExprList;
     }
 
