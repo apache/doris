@@ -21,7 +21,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.thrift.TExprOpcode;
 
 /**
  * All arithmetic operator.
@@ -40,40 +39,37 @@ public class Arithmetic extends Expression {
     @SuppressWarnings("checkstyle:RegexpSingleline")
     public enum ArithmeticOperator {
         MULTIPLY("*", "multiply",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.MULTIPLY, Operator.MULTIPLY),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.MULTIPLY),
         DIVIDE("/", "divide",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.DIVIDE, Operator.DIVIDE),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.DIVIDE),
         MOD("%", "mod",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.MOD, Operator.MOD),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.MOD),
         ADD("+", "add",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.ADD, Operator.ADD),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.ADD),
         SUBTRACT("-", "subtract",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.SUBTRACT, Operator.SUBTRACT),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.SUBTRACT),
         //TODO: The following functions will be added later.
         BITAND("&", "bitand",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.BITAND, Operator.BITAND),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.BITAND),
         BITOR("|", "bitor",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.BITOR, Operator.BITOR),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.BITOR),
         BITXOR("^", "bitxor",
-                Arithmetic.OperatorPosition.BINARY_INFIX, TExprOpcode.BITXOR, Operator.BITXOR),
+                Arithmetic.OperatorPosition.BINARY_INFIX, Operator.BITXOR),
         BITNOT("~", "bitnot",
-                Arithmetic.OperatorPosition.UNARY_PREFIX, TExprOpcode.BITNOT, Operator.BITNOT);
+                Arithmetic.OperatorPosition.UNARY_PREFIX, Operator.BITNOT);
 
         private final String description;
         private final String name;
         private final Arithmetic.OperatorPosition pos;
-        private final TExprOpcode opcode;
         private final ArithmeticExpr.Operator staleOp;
 
         ArithmeticOperator(String description,
                 String name,
                 Arithmetic.OperatorPosition pos,
-                TExprOpcode opcode,
                 ArithmeticExpr.Operator staleOp) {
             this.description = description;
             this.name = name;
             this.pos = pos;
-            this.opcode = opcode;
             this.staleOp = staleOp;
         }
 
@@ -88,10 +84,6 @@ public class Arithmetic extends Expression {
 
         public Arithmetic.OperatorPosition getPos() {
             return pos;
-        }
-
-        public TExprOpcode getOpcode() {
-            return opcode;
         }
 
         public Operator getStaleOp() {
