@@ -31,7 +31,7 @@ public class FunctionCall extends Expression {
     private FunctionParams fnParams;
 
     private FunctionCall(FunctionName functionName, FunctionParams functionParams) {
-        super(NodeType.FUNCTIONCALL, functionParams.getExpression().toArray(new Expression[0]));
+        super(NodeType.FUNCTIONCALL, functionParams.getExpressionList().toArray(new Expression[0]));
         this.fnName = functionName;
         this.fnParams = functionParams;
     }

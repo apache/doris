@@ -62,7 +62,4 @@ public abstract class DataType {
 
     public abstract Type toCatalogDataType();
 
-    public String typeName() {
-        return "Unknown";
-    }
 }

@@ -132,10 +132,11 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorC
         throw new RuntimeException(String.format("Unsupported data type: %s", dataType.toString()));
     }
 
+    // TODO: Supports for `distinct`
     @Override
     public Expr visitFunctionCall(FunctionCall function, PlanTranslatorContext context) {
         List<Expr> paramList = new ArrayList<>();
-        for (Expression expr : function.getFnParams().getExpression()) {
+        for (Expression expr : function.getFnParams().getExpressionList()) {
             paramList.add(visit(expr, context));
         }
         return new FunctionCallExpr(function.getFnName().toString(), paramList);
@@ -179,7 +180,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorC
     public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
         return new ArithmeticExpr(arithmetic.getArithOperator().getStaleOp(),
                 visit(arithmetic.child(0), context),
-                visit(arithmetic.child(1), context));
+                arithmetic.children().size() > 1 ? visit(arithmetic.child(1), context) : null);
     }
 
 }
