@@ -15,52 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees;
+package org.apache.doris.nereids.trees.expressions;
 
 /**
- * Types for all TreeNode in Nereids, include Plan and Expression.
+ * Subtract Expression. BinaryExpression.
  */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
-    // group plan
-    GROUP,
+public class Subtract<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    public Subtract(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(ArithmeticOperator.SUBTRACT, left, right);
+    }
 
-    // expressions
-    EXPRESSION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
-    AND,
-    OR,
-    BETWEEN,
-    MULTIPLY,
-    DIVIDE,
-    MOD,
-    INT_DIVIDE,
-    ADD,
-    SUBTRACT,
-    BITAND,
-    BITOR,
-    BITXOR,
-    BITNOT,
-    FACTORIAL,
-    FUNCTIONCALL,
-
-    // pattern
-    PATTERN
-    ;
+    @Override
+    public String sql() {
+        return left().sql() + ' ' + getArithOperator().toString()
+                + ' ' + right().sql();
+    }
 }
