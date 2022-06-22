@@ -53,6 +53,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -161,6 +162,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             idx = 0;
         }
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
+        String storagePolicyName = dynamicPartitionProperty.getRemoteStoragePolicy();
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(
@@ -221,6 +223,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             if (hotPartitionNum > 0) {
                 // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num
                 setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
+            }
+
+            if (StringUtils.isNotEmpty(storagePolicyName)) {
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, storagePolicyName);
             }
 
             String partitionName = dynamicPartitionProperty.getPrefix()
