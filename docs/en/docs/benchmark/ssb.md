@@ -59,12 +59,12 @@ On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1
 
 | SSB table name | number of rows | remarks                          |
 | :------------- | :------------- | :------------------------------- |
-| lineorder      | 6000037902     | Commodity order list             |
-| customer       | 3000000        | Customer Information Sheet       |
-| part           | 1400000        | Parts Information Sheet          |
-| supplier       | 200000         | Supplier Information Sheet       |
-| date           | 2556           | Date table                       |
-| lineorder_flat | 6000037902     | Wide table after data flattening |
+| lineorder      | 600,037,902    | Commodity order list             |
+| customer       | 3,000,000      | Customer Information Sheet       |
+| part           | 1,400,000      | Parts Information Sheet          |
+| supplier       | 200,000        | Supplier Information Sheet       |
+| date           | 2,556          | Date table                       |
+| lineorder_flat | 600,037,902    | Wide table after data flattening |
 
 ## 4. Test Results
 
