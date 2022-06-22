@@ -33,6 +33,7 @@ public class LogicalAggToHashAgg extends OneImplementationRuleFactory {
                 agg.getOperator().getGroupByExprList(),
                 agg.getOperator().getAggExprList(),
                 agg.getOperator().getPartitionExprList(),
+                agg.getOperator().getAggPhase(),
                 false),
             agg.getLogicalProperties(),
             agg.child()

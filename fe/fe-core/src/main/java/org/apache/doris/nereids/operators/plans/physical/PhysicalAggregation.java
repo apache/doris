@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -39,6 +40,8 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     private final List<Expression> partitionExprList;
 
+    private final AggPhase aggPhase;
+
     private final boolean usingStream;
 
     /**
@@ -50,12 +53,17 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
      * @param usingStream whether it's stream agg.
      */
     public PhysicalAggregation(List<Expression> groupByExprList, List<? extends NamedExpression> aggExprList,
-            List<Expression> partitionExprList, boolean usingStream) {
+            List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
         super(OperatorType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.aggExprList = aggExprList;
+        this.aggPhase = aggPhase;
         this.partitionExprList = partitionExprList;
         this.usingStream = usingStream;
+    }
+
+    public AggPhase getAggPhase() {
+        return aggPhase;
     }
 
     public List<Expression> getGroupByExprList() {

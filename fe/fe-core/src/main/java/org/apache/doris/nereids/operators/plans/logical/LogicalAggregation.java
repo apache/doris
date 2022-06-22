@@ -19,6 +19,7 @@ package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -45,6 +46,8 @@ public class LogicalAggregation extends LogicalUnaryOperator {
     private final List<? extends NamedExpression> aggExprList;
     private List<Expression> partitionExprList;
 
+    private AggPhase aggPhase;
+
     /**
      * Desc: Constructor for LogicalAggregation.
      */
@@ -68,6 +71,10 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     public List<? extends NamedExpression> getAggExprList() {
         return aggExprList;
+    }
+
+    public AggPhase getAggPhase() {
+        return aggPhase;
     }
 
     @Override
