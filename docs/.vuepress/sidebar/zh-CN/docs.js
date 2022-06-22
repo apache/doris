@@ -613,7 +613,6 @@ module.exports = [
                   "ALTER-TABLE-PROPERTY",
                   "ALTER-TABLE-RENAME",
                   "ALTER-TABLE-REPLACE",
-                  "ALTER-TABLE-REPLACE-COLUMN",
                   "ALTER-TABLE-ROLLUP",
                   "ALTER-VIEW",
                   "CANCEL-ALTER-TABLE",
