@@ -185,7 +185,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     }
     _row_block->clear();
     select_size = _row_block->selected_size();
-    pred->evaluate(*pred_col, _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(*pred_col, _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 3);
     EXPECT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[0]], 4.1);
     EXPECT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[1]], 5.1);
@@ -201,7 +201,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     select_size = _row_block->selected_size();
     auto nullable_col =
             vectorized::ColumnNullable::create(std::move(pred_col), std::move(null_map));
-    pred->evaluate(*nullable_col, _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(*nullable_col, _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 1);
     auto nested_col = check_and_get_column<PredicateColumnType<vectorized::Float32>>(
             nullable_col->get_nested_column());
