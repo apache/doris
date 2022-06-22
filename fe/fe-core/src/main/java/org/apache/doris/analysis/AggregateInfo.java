@@ -71,43 +71,24 @@ import java.util.List;
  */
 public final class AggregateInfo extends AggregateInfoBase {
     private static final Logger LOG = LogManager.getLogger(AggregateInfo.class);
-
-    public enum AggPhase {
-        FIRST,
-        FIRST_MERGE,
-        SECOND,
-        SECOND_MERGE;
-
-        public boolean isMerge() {
-            return this == FIRST_MERGE || this == SECOND_MERGE;
-        }
-    }
-
-    // created by createMergeAggInfo()
-    private AggregateInfo mergeAggInfo;
-
-    // created by createDistinctAggInfo()
-    private AggregateInfo secondPhaseDistinctAggInfo;
-
-    private final AggPhase aggPhase;
-
     // Map from all grouping and aggregate exprs to a SlotRef referencing the corresp. slot
     // in the intermediate tuple. Identical to outputTupleSmap_ if no aggregateExpr has an
     // output type that is different from its intermediate type.
     protected ExprSubstitutionMap intermediateTupleSmap = new ExprSubstitutionMap();
-
     // Map from all grouping and aggregate exprs to a SlotRef referencing the corresp. slot
     // in the output tuple.
     protected ExprSubstitutionMap outputTupleSmap = new ExprSubstitutionMap();
-
     // Map from slots of outputTupleSmap_ to the corresponding slot in
     // intermediateTupleSmap_.
     protected ExprSubstitutionMap outputToIntermediateTupleSmap =
             new ExprSubstitutionMap();
-
+    private final AggPhase aggPhase;
+    // created by createMergeAggInfo()
+    private AggregateInfo mergeAggInfo;
+    // created by createDistinctAggInfo()
+    private AggregateInfo secondPhaseDistinctAggInfo;
     // if set, a subset of groupingExprs_; set and used during planning
     private List<Expr> partitionExprs;
-
     // indices into aggregateExprs for those that need to be materialized;
     // shared between this, mergeAggInfo and secondPhaseDistinctAggInfo
     private ArrayList<Integer> materializedAggregateSlots = Lists.newArrayList();
@@ -115,11 +96,9 @@ public final class AggregateInfo extends AggregateInfoBase {
     private boolean isDistinctAgg = false;
     // If true, the sql has MultiDistinct
     private boolean isMultiDistinct;
-
     // the multi distinct's begin pos  and end pos in groupby exprs
     private ArrayList<Integer> firstIdx = Lists.newArrayList();
     private ArrayList<Integer> lastIdx = Lists.newArrayList();
-
     // C'tor creates copies of groupingExprs and aggExprs.
     private AggregateInfo(ArrayList<Expr> groupingExprs,
                           ArrayList<FunctionCallExpr> aggExprs, AggPhase aggPhase)  {
@@ -154,14 +133,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
         partitionExprs =
                 (other.partitionExprs != null) ? Expr.cloneList(other.partitionExprs) : null;
-    }
-
-    public List<Expr> getPartitionExprs() {
-        return partitionExprs;
-    }
-
-    public void setPartitionExprs(List<Expr> exprs) {
-        partitionExprs = exprs;
     }
 
     /**
@@ -280,6 +251,14 @@ public final class AggregateInfo extends AggregateInfoBase {
             }
         }
         return hasMultiDistinct;
+    }
+
+    public List<Expr> getPartitionExprs() {
+        return partitionExprs;
+    }
+
+    public void setPartitionExprs(List<Expr> exprs) {
+        partitionExprs = exprs;
     }
 
     /**
@@ -824,20 +803,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
     }
 
-    /**
-     * Returns DataPartition derived from grouping exprs.
-     * Returns unpartitioned spec if no grouping.
-     * TODO: this won't work when we start supporting range partitions,
-     * because we could derive both hash and order-based partitions
-     */
-    public DataPartition getPartition() {
-        if (groupingExprs.isEmpty()) {
-            return DataPartition.UNPARTITIONED;
-        } else {
-            return new DataPartition(TPartitionType.HASH_PARTITIONED, groupingExprs);
-        }
-    }
-
     public String debugString() {
         StringBuilder out = new StringBuilder(super.debugString());
         out.append(MoreObjects.toStringHelper(this)
@@ -860,6 +825,20 @@ public final class AggregateInfo extends AggregateInfoBase {
         return "agg-tuple";
     }
 
+    /**
+     * Returns DataPartition derived from grouping exprs.
+     * Returns unpartitioned spec if no grouping.
+     * TODO: this won't work when we start supporting range partitions,
+     * because we could derive both hash and order-based partitions
+     */
+    public DataPartition getPartition() {
+        if (groupingExprs.isEmpty()) {
+            return DataPartition.UNPARTITIONED;
+        } else {
+            return new DataPartition(TPartitionType.HASH_PARTITIONED, groupingExprs);
+        }
+    }
+
     @Override
     public AggregateInfo clone() {
         return new AggregateInfo(this);
@@ -867,6 +846,17 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public List<Expr> getInputPartitionExprs() {
         return partitionExprs != null ? partitionExprs : groupingExprs;
+    }
+
+    public enum AggPhase {
+        FIRST,
+        FIRST_MERGE,
+        SECOND,
+        SECOND_MERGE;
+
+        public boolean isMerge() {
+            return this == FIRST_MERGE || this == SECOND_MERGE;
+        }
     }
 
 }

@@ -38,19 +38,19 @@ public class AddColumnsClause extends AlterTableClause {
     // set in analyze
     private List<Column> columns;
 
+    public AddColumnsClause(List<ColumnDef> columnDefs, String rollupName, Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.columnDefs = columnDefs;
+        this.rollupName = rollupName;
+        this.properties = properties;
+    }
+
     public List<Column> getColumns() {
         return columns;
     }
 
     public String getRollupName() {
         return rollupName;
-    }
-
-    public AddColumnsClause(List<ColumnDef> columnDefs, String rollupName, Map<String, String> properties) {
-        super(AlterOpType.SCHEMA_CHANGE);
-        this.columnDefs = columnDefs;
-        this.rollupName = rollupName;
-        this.properties = properties;
     }
 
     @Override
@@ -77,11 +77,6 @@ public class AddColumnsClause extends AlterTableClause {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        return this.properties;
-    }
-
-    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ADD COLUMN (");
@@ -98,6 +93,11 @@ public class AddColumnsClause extends AlterTableClause {
             sb.append(" IN `").append(rollupName).append("`");
         }
         return sb.toString();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return this.properties;
     }
 
     @Override
