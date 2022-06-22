@@ -482,7 +482,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             estimate_timeout = config::download_low_speed_time;
         }
 
-        std::string local_file_path = local_path + file_name;
+        std::string local_file_path = local_path + "/" + file_name;
 
         LOG(INFO) << "clone begin to download file from: " << remote_file_url
                   << " to: " << local_file_path << ". size(B): " << file_size
