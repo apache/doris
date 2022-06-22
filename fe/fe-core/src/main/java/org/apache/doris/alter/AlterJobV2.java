@@ -61,7 +61,7 @@ public abstract class AlterJobV2 implements Writable {
     public enum JobType {
         // Must not remove it or change the order, because catalog depend on it to traverse the image
         // and load meta data
-        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND
+        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND, MIGRATION
     }
 
     @SerializedName(value = "type")
@@ -207,7 +207,17 @@ public abstract class AlterJobV2 implements Writable {
             } else {
                 // table is stable, set is to ROLLUP and begin altering.
                 LOG.info("table {} is stable, start {} job {}", tableId, type, jobId);
-                tbl.setState(type == JobType.ROLLUP ? OlapTableState.ROLLUP : OlapTableState.SCHEMA_CHANGE);
+                switch (type) {
+                    case ROLLUP:
+                        tbl.setState(OlapTableState.ROLLUP);
+                        break;
+                    case MIGRATION:
+                        tbl.setState(OlapTableState.MIGRATION);
+                        break;
+                    case SCHEMA_CHANGE:
+                    default:
+                        tbl.setState(OlapTableState.SCHEMA_CHANGE);
+                }
                 errMsg = "";
                 return true;
             }

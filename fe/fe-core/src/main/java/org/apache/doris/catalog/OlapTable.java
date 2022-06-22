@@ -100,7 +100,8 @@ public class OlapTable extends Table {
          * change back to SCHEMA_CHANGE or ROLLUP after table is stable, and continue doing alter operation.
          * This state is a in-memory state and no need to persist.
          */
-        WAITING_STABLE
+        WAITING_STABLE,
+        MIGRATION
     }
 
     private volatile OlapTableState state;

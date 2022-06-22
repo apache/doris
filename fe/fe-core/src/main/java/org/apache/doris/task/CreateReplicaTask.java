@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageParam;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
@@ -57,6 +58,7 @@ public class CreateReplicaTask extends AgentTask {
     private TStorageType storageType;
     private TStorageMedium storageMedium;
     private TCompressionType compressionType;
+    private TStorageParam storageParam = null;
 
     private List<Column> columns;
 
@@ -156,6 +158,10 @@ public class CreateReplicaTask extends AgentTask {
         this.isInMemory = isInMemory;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
+    }
+
+    public void setStorageParam(TStorageParam storageParam) {
+        this.storageParam = storageParam;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -277,6 +283,9 @@ public class CreateReplicaTask extends AgentTask {
 
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
+        if (storageParam != null) {
+            createTabletReq.setStorageParam(storageParam);
+        }
         return createTabletReq;
     }
 }
