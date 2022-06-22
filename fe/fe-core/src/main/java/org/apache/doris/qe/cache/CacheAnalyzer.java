@@ -208,6 +208,12 @@ public class CacheAnalyzer {
                 LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
+            if (enablePartitionCache() && ((OlapScanNode) node).getSelectedPartitionNum() > 1
+                    && selectStmt.hasGroupByClause()) {
+                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
+                        DebugUtil.printId(queryId));
+                return CacheMode.None;
+            }
             CacheTable cTable = getSelectedPartitionLastUpdateTime((OlapScanNode) node);
             tblTimeList.add(cTable);
         }
