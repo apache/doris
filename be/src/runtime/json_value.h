@@ -21,9 +21,9 @@
 #include "udf/udf.h"
 #include "util/cpu_info.h"
 #include "util/hash_util.hpp"
+#include "util/jsonb_error.h"
 #include "util/jsonb_parser.h"
 #include "util/jsonb_utils.h"
-#include "util/jsonb_error.h"
 #include "vec/common/string_ref.h"
 
 #ifdef __SSE4_2__

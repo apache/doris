@@ -139,7 +139,7 @@ public:
 
     const char* get_value() const { return data; }
     const uint32_t get_size() const { return size; }
- 
+
     bool operator<(const JsonField& r) const {
         LOG(FATAL) << "comparing between JsonField is not supported";
     }

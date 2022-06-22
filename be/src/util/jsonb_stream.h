@@ -33,10 +33,11 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <assert.h>
+#include <string.h>
+
 #include <cinttypes>
 #include <iostream>
-#include <string.h>
-#include <assert.h>
 
 namespace doris {
 
@@ -49,13 +50,13 @@ namespace doris {
  * JSONB's implementation of input buffer
  */
 class JsonbInBuffer : public std::streambuf {
- public:
-  JsonbInBuffer(const char* str, uint32_t len) {
-    // this is read buffer and the str will not be changed
-    // so we use const_cast (ugly!) to remove constness
-    char* pch(const_cast<char*>(str));
-    setg(pch, pch, pch + len);
-  }
+public:
+    JsonbInBuffer(const char* str, uint32_t len) {
+        // this is read buffer and the str will not be changed
+        // so we use const_cast (ugly!) to remove constness
+        char* pch(const_cast<char*>(str));
+        setg(pch, pch, pch + len);
+    }
 };
 
 /*
@@ -65,122 +66,113 @@ class JsonbInBuffer : public std::streambuf {
  * bytes. We will double the buffer if realloc is needed for writes.
  */
 class JsonbOutStream : public std::ostream {
- public:
-  explicit JsonbOutStream(uint32_t capacity = 1024)
-      : std::ostream(nullptr),
-        head_(nullptr),
-        size_(0),
-        capacity_(capacity),
-        alloc_(true) {
-    if (capacity_ == 0) {
-      capacity_ = 1024;
+public:
+    explicit JsonbOutStream(uint32_t capacity = 1024)
+            : std::ostream(nullptr), head_(nullptr), size_(0), capacity_(capacity), alloc_(true) {
+        if (capacity_ == 0) {
+            capacity_ = 1024;
+        }
+
+        head_ = (char*)malloc(capacity_);
     }
 
-    head_ = (char*)malloc(capacity_);
-  }
-
-  JsonbOutStream(char* buffer, uint32_t capacity)
-      : std::ostream(nullptr),
-        head_(buffer),
-        size_(0),
-        capacity_(capacity),
-        alloc_(false) {
-    assert(buffer && capacity_ > 0);
-  }
-
-  ~JsonbOutStream() {
-    if (alloc_) {
-      free(head_);
-    }
-  }
-
-  void put(char c) { write(&c, 1); }
-
-  void write(const char* c_str) { write(c_str, (uint32_t)strlen(c_str)); }
-
-  void write(const char* bytes, uint32_t len) {
-    if (len == 0)
-      return;
-
-    if (size_ + len > capacity_) {
-      realloc(len);
+    JsonbOutStream(char* buffer, uint32_t capacity)
+            : std::ostream(nullptr), head_(buffer), size_(0), capacity_(capacity), alloc_(false) {
+        assert(buffer && capacity_ > 0);
     }
 
-    memcpy(head_ + size_, bytes, len);
-    size_ += len;
-  }
-
-  // write the integer to string
-  void write(int i) {
-    // snprintf automatically adds a NULL, so we need one more char
-    if (size_ + MAX_INT_DIGITS + 1 > capacity_) {
-      realloc(MAX_INT_DIGITS + 1);
+    ~JsonbOutStream() {
+        if (alloc_) {
+            free(head_);
+        }
     }
 
-    int len = snprintf(head_ + size_, MAX_INT_DIGITS + 1, "%d", i);
-    assert(len > 0);
-    size_ += len;
-  }
+    void put(char c) { write(&c, 1); }
 
-  // write the 64bit integer to string
-  void write(int64_t l) {
-    // snprintf automatically adds a NULL, so we need one more char
-    if (size_ + MAX_INT64_DIGITS + 1 > capacity_) {
-      realloc(MAX_INT64_DIGITS + 1);
+    void write(const char* c_str) { write(c_str, (uint32_t)strlen(c_str)); }
+
+    void write(const char* bytes, uint32_t len) {
+        if (len == 0) return;
+
+        if (size_ + len > capacity_) {
+            realloc(len);
+        }
+
+        memcpy(head_ + size_, bytes, len);
+        size_ += len;
     }
 
-    int len = snprintf(head_ + size_, MAX_INT64_DIGITS + 1, "%" PRIi64, l);
-    assert(len > 0);
-    size_ += len;
-  }
+    // write the integer to string
+    void write(int i) {
+        // snprintf automatically adds a NULL, so we need one more char
+        if (size_ + MAX_INT_DIGITS + 1 > capacity_) {
+            realloc(MAX_INT_DIGITS + 1);
+        }
 
-  // write the double to string
-  void write(double d) {
-    // snprintf automatically adds a NULL, so we need one more char
-    if (size_ + MAX_DOUBLE_DIGITS + 1 > capacity_) {
-      realloc(MAX_DOUBLE_DIGITS + 1);
+        int len = snprintf(head_ + size_, MAX_INT_DIGITS + 1, "%d", i);
+        assert(len > 0);
+        size_ += len;
     }
 
-    int len = snprintf(head_ + size_, MAX_DOUBLE_DIGITS + 1, "%.15g", d);
-    assert(len > 0);
-    size_ += len;
-  }
+    // write the 64bit integer to string
+    void write(int64_t l) {
+        // snprintf automatically adds a NULL, so we need one more char
+        if (size_ + MAX_INT64_DIGITS + 1 > capacity_) {
+            realloc(MAX_INT64_DIGITS + 1);
+        }
 
-  pos_type tellp() const { return size_; }
-
-  void seekp(pos_type pos) { size_ = (uint32_t)pos; }
-
-  const char* getBuffer() const { return head_; }
-
-  pos_type getSize() const { return tellp(); }
-
- private:
-  void realloc(uint32_t len) {
-    assert(capacity_ > 0);
-
-    capacity_ *= 2;
-    while (capacity_ < size_ + len) {
-      capacity_ *= 2;
+        int len = snprintf(head_ + size_, MAX_INT64_DIGITS + 1, "%" PRIi64, l);
+        assert(len > 0);
+        size_ += len;
     }
 
-    if (alloc_) {
-      char* new_buf = (char*)::realloc(head_, capacity_);
-      assert(new_buf);
-      head_ = new_buf;
-    } else {
-      char* new_buf = (char*)::malloc(capacity_);
-      assert(new_buf);
-      memcpy(new_buf, head_, size_);
-      head_ = new_buf;
-      alloc_ = true;
-    }
-  }
+    // write the double to string
+    void write(double d) {
+        // snprintf automatically adds a NULL, so we need one more char
+        if (size_ + MAX_DOUBLE_DIGITS + 1 > capacity_) {
+            realloc(MAX_DOUBLE_DIGITS + 1);
+        }
 
- private:
-  char* head_;
-  uint32_t size_;
-  uint32_t capacity_;
-  bool alloc_;
+        int len = snprintf(head_ + size_, MAX_DOUBLE_DIGITS + 1, "%.15g", d);
+        assert(len > 0);
+        size_ += len;
+    }
+
+    pos_type tellp() const { return size_; }
+
+    void seekp(pos_type pos) { size_ = (uint32_t)pos; }
+
+    const char* getBuffer() const { return head_; }
+
+    pos_type getSize() const { return tellp(); }
+
+private:
+    void realloc(uint32_t len) {
+        assert(capacity_ > 0);
+
+        capacity_ *= 2;
+        while (capacity_ < size_ + len) {
+            capacity_ *= 2;
+        }
+
+        if (alloc_) {
+            char* new_buf = (char*)::realloc(head_, capacity_);
+            assert(new_buf);
+            head_ = new_buf;
+        } else {
+            char* new_buf = (char*)::malloc(capacity_);
+            assert(new_buf);
+            memcpy(new_buf, head_, size_);
+            head_ = new_buf;
+            alloc_ = true;
+        }
+    }
+
+private:
+    char* head_;
+    uint32_t size_;
+    uint32_t capacity_;
+    bool alloc_;
 };
 
 } // namespace doris

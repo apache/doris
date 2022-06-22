@@ -333,9 +333,9 @@ Status RowBlockV2::_copy_data_to_column(int cid,
                 auto slice = reinterpret_cast<const Slice*>(column_block(cid).cell_ptr(row_idx));
                 if (LIKELY(slice->size <= limit)) {
                     json_string->insert_data(slice->data, slice->size);
-                } else { 
-                    return Status::NotSupported(fmt::format(
-                            "Not support json len over than {} in vec engine.", limit));
+                } else {
+                    return Status::NotSupported(
+                            fmt::format("Not support json len over than {} in vec engine.", limit));
                 }
             } else {
                 json_string->insert_default();

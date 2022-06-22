@@ -98,7 +98,7 @@ public:
 
     void insert(const Field& x) override {
         const JsonField& s = doris::vectorized::get<const JsonField&>(x);
-        
+
         const size_t old_size = chars.size();
         const size_t size_to_append = s.get_size() + 1;
         const size_t new_size = old_size + size_to_append;
@@ -166,8 +166,7 @@ public:
         offsets.resize_assume_reserved(offsets.size() - n);
     }
 
-    StringRef serialize_value_into_arena(size_t n, Arena& arena,
-                                         char const*& begin) const override;
+    StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
@@ -247,33 +246,21 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override {
-        return true;
-    }
+    bool can_be_inside_nullable() const override { return true; }
 
-    bool is_column_string() const override {
-        return true;
-    }
+    bool is_column_string() const override { return true; }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnJson);
     }
 
-    Chars& get_chars() {
-        return chars;
-    }
+    Chars& get_chars() { return chars; }
 
-    const Chars& get_chars() const {
-        return chars;
-    }
+    const Chars& get_chars() const { return chars; }
 
-    Offsets& get_offsets() {
-        return offsets;
-    }
+    Offsets& get_offsets() { return offsets; }
 
-    const Offsets& get_offsets() const {
-        return offsets;
-    }
+    const Offsets& get_offsets() const { return offsets; }
 
     void clear() override {
         chars.clear();

@@ -19,6 +19,6 @@
 
 namespace doris {
 
-#cmakedefine HAVE_SCHED_GETCPU @HAVE_SCHED_GETCPU@
+#cmakedefine HAVE_SCHED_GETCPU @HAVE_SCHED_GETCPU @
 
 }

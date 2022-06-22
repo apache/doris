@@ -298,26 +298,18 @@ public:
     static const uint8_t sMaxKeyLen = 64;
 
     // size of the key. 0 indicates it is stored as id
-    uint8_t klen() const {
-        return size_;
-    }
+    uint8_t klen() const { return size_; }
 
     // get the key string. Note the string may not be null terminated.
-    const char* getKeyStr() const {
-        return key_.str_;
-    }
+    const char* getKeyStr() const { return key_.str_; }
 
-    keyid_type getKeyId() const {
-        return key_.id_;
-    }
+    keyid_type getKeyId() const { return key_.id_; }
 
     unsigned int keyPackedBytes() const {
         return size_ ? (sizeof(size_) + size_) : (sizeof(size_) + sizeof(keyid_type));
     }
 
-    JsonbValue* value() const {
-        return (JsonbValue*)(((char*)this) + keyPackedBytes());
-    }
+    JsonbValue* value() const { return (JsonbValue*)(((char*)this) + keyPackedBytes()); }
 
     // size of the total packed bytes (key+value)
     unsigned int numPackedBytes() const;
