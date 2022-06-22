@@ -77,9 +77,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     }
 
     /**
-     * Translate in following steps:
-     *  1.
-     *
+     * Translate Agg.
      */
     @Override
     public PlanFragment visitPhysicalAggregation(
@@ -141,6 +139,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         OlapTable olapTable = physicalOlapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextNodeId(), tupleDescriptor, olapTable.getName());
+        context.addScanNode(olapScanNode);
         // Create PlanFragment
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);
         context.addPlanFragment(planFragment);

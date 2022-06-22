@@ -25,13 +25,18 @@ import org.apache.doris.nereids.trees.plans.PhysicalPlanTranslator;
 import org.apache.doris.nereids.trees.plans.PlanContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TQueryOptions;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
+ * TODO: Abstract a common interface for both nereids and stale.
+ *       optimizer may be better.
  * This class is used for the compatibility and code reuse in.
  * @see org.apache.doris.qe.StmtExecutor
  */
@@ -39,6 +44,7 @@ public class PlannerAdapter extends Planner {
 
     private final org.apache.doris.nereids.Planner planner;
     private final ConnectContext ctx;
+    private List<ScanNode> scanNodeList = null;
 
     public PlannerAdapter(ConnectContext ctx) {
         this.planner = new org.apache.doris.nereids.Planner();
@@ -56,5 +62,14 @@ public class PlannerAdapter extends Planner {
         PlanContext planContext = new PlanContext();
         physicalPlanTranslator.translatePlan(physicalPlan, planContext);
         fragments = new ArrayList<>(planContext.getPlanFragmentList());
+        PlanFragment root = fragments.get(fragments.size() - 1);
+        root.getPlanRoot().convertToVectoriezd();
+        root.setOutputExprs(queryStmt.getResultExprs());
+        scanNodeList = planContext.getScanNodeList();
+    }
+
+    @Override
+    public List<ScanNode> getScanNodes() {
+        return scanNodeList;
     }
 }
