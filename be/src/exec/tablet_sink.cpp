@@ -315,9 +315,18 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
     }
-
+    constexpr size_t BATCH_SIZE_FOR_SEND = 2 * 1024 * 1024; //2M
     auto row_no = _cur_batch->add_row();
-    if (row_no == RowBatch::INVALID_ROW_INDEX) {
+    if (row_no == RowBatch::INVALID_ROW_INDEX || _cur_batch->total_byte_size() > BATCH_SIZE_FOR_SEND) {
+        //if pending bytes is more than 1G, wait
+        if (_pending_batches_bytes>1073741824){
+            LOG(INFO)<<"NodeChannel pending more than 1G data, wait..";
+            while(_pending_batches_bytes < 1073741824){
+                std::this_thread::sleep_for(std::chrono::microseconds(500));
+            }
+            LOG(INFO)<<"NodeChannel current mem consumption: "<<_pending_batches_bytes;
+        }
+
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -325,6 +334,7 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
             //To simplify the add_row logic, postpone adding batch into req until the time of sending req
             _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
             _pending_batches_num++;
+            LOG(INFO)<<"NodeChannel add block: current mem consumption: "<<_pending_batches_bytes;
         }
 
         _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));

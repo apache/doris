@@ -180,6 +180,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
     while (_mem_tracker->limit_exceeded()) {
+        LOG(INFO)<<"LoadChannelMgr mem limit = " << _mem_tracker->limit()/(1024*1024*1024) << "G";
         LOG(INFO) << "LoadChannelMgr consume " << _mem_tracker->consumption()/(1024*1024) <<"M bytes, exceeded limit" << _mem_tracker->limit();
         if (StorageEngine::instance()->memtable_flush_executor()->thread_pool_overloaded()) {
             LOG(INFO) << "memtable_flush_executor thread_pool is overloaded, wait ...";
