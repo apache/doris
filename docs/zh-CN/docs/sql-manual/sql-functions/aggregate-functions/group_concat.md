@@ -29,9 +29,9 @@ under the License.
 #### Syntax
 
 `VARCHAR GROUP_CONCAT([DISTINCT] VARCHAR str[, VARCHAR sep])`
+`VARCHAR GROUP_CONCAT_ORDERED([DISTINCT] VARCHAR str[, VARCHAR sep])`
 
-
-该函数是类似于 sum() 的聚合函数，group_concat 将结果集中的多行结果连接成一个字符串。第二个参数 sep 为字符串之间的连接符号，该参数可以省略。该函数通常需要和 group by 语句一起使用。
+该函数是类似于 sum() 的聚合函数，group_concat 将结果集中的多行结果连接成一个字符串。第二个参数 sep 为字符串之间的连接符号，该参数可以省略。该函数通常需要和 group by 语句一起使用。不同于group_concat，group_concat_ordered会在连接字符串前将它们按字典序排序。
 
 ### example
 
@@ -40,8 +40,8 @@ mysql> select value from test;
 +-------+
 | value |
 +-------+
-| a     |
 | b     |
+| a     |
 | c     |
 | c     |
 +-------+
@@ -50,22 +50,29 @@ mysql> select GROUP_CONCAT(value) from test;
 +-----------------------+
 | GROUP_CONCAT(`value`) |
 +-----------------------+
-| a, b, c, c               |
+| b, a, c, c            |
 +-----------------------+
 
-mysql> select GROUP_CONCAT(DISTINCT value) from test;
+mysql> select GROUP_CONCAT_ORDERED(value) from test;
 +-----------------------+
 | GROUP_CONCAT(`value`) |
 +-----------------------+
-| a, b, c               |
+| a, b, c, c            |
 +-----------------------+
 
 mysql> select GROUP_CONCAT(value, " ") from test;
 +----------------------------+
 | GROUP_CONCAT(`value`, ' ') |
 +----------------------------+
-| a b c c                    |
+| b a c c                    |
 +----------------------------+
+
+mysql> select GROUP_CONCAT(DISTINCT value) from test;
++-----------------------+
+| GROUP_CONCAT(`value`) |
++-----------------------+
+| b, a, c               |
++-----------------------+
 
 mysql> select GROUP_CONCAT(value, NULL) from test;
 +----------------------------+

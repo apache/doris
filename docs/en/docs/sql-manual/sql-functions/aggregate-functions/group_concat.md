@@ -29,9 +29,9 @@ under the License.
 #### Syntax
 
 `VARCHAR GROUP_CONCAT([DISTINCT] VARCHAR str[, VARCHAR sep])`
+`VARCHAR GROUP_CONCAT_ORDERED([DISTINCT] VARCHAR str[, VARCHAR sep])`
 
-
-This function is an aggregation function similar to sum (), and group_concat links multiple rows of results in the result set to a string. The second parameter, sep, is a connection symbol between strings, which can be omitted. This function usually needs to be used with group by statements.
+This function is an aggregation function similar to sum (), and group_concat links multiple rows of results in the result set to a string. The second parameter, sep, is a connection symbol between strings, which can be omitted. This function usually needs to be used with group by statements. Unlike group_concat, group_concat_ordered sorts strings lexicographically before concatenating them.
 
 ### example
 
@@ -40,8 +40,8 @@ mysql> select value from test;
 +-------+
 | value |
 +-------+
-| a     |
 | b     |
+| a     |
 | c     |
 | c     |
 +-------+
@@ -50,21 +50,28 @@ mysql> select GROUP_CONCAT(value) from test;
 +-----------------------+
 | GROUP_CONCAT(`value`) |
 +-----------------------+
-| a, b, c, c              |
+| b, a, c, c            |
++-----------------------+
+
+mysql> select GROUP_CONCAT_ORDERED(value) from test;
++-----------------------+
+| GROUP_CONCAT(`value`) |
++-----------------------+
+| a, b, c, c            |
 +-----------------------+
 
 mysql> select GROUP_CONCAT(value, " ") from test;
 +----------------------------+
 | GROUP_CONCAT(`value`, ' ') |
 +----------------------------+
-| a b c c                     |
+| b a c c                    |
 +----------------------------+
 
 mysql> select GROUP_CONCAT(DISTINCT value) from test;
 +-----------------------+
 | GROUP_CONCAT(`value`) |
 +-----------------------+
-| a, b, c               |
+| b, a, c               |
 +-----------------------+
 
 mysql> select GROUP_CONCAT(value, NULL) from test;

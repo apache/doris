@@ -33,6 +33,7 @@ namespace doris::vectorized {
 // declare function
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
 
 TEST(AggTest, basic_test) {
     auto column_vector_int32 = ColumnVector<Int32>::create();
@@ -96,4 +97,62 @@ TEST(AggTest, topn_test) {
     EXPECT_EQ(result, expect_result);
     agg_function->destroy(place);
 }
+
+TEST(AggTest, group_concat_test) {
+    MutableColumns datas(1);
+    datas[0] = ColumnString::create();
+
+    int data_size = 10;
+
+    std::vector<std::string> strs;
+    std::string prefix = "test_string_";
+    std::string separator = ", ";
+
+    for (int i = 0; i < data_size; i++) {
+        strs.emplace_back(prefix + (char)('a' + data_size - i));
+        datas[0]->insert_data(strs.back().data(), strs.back().length());
+    }
+
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_group_concat(factory);
+    DataTypes data_types = {std::make_shared<DataTypeString>()};
+    Array array;
+
+    auto run_test = [&](std::vector<std::string> inputs, bool is_ordered) -> void {
+        auto agg_function = factory.get(
+                std::string("group_concat") + (is_ordered ? "_ordered" : ""), data_types, array);
+        std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        agg_function->create(place);
+
+        IColumn* columns[2] = {datas[0].get()};
+
+        for (int i = 0; i < data_size; i++) {
+            agg_function->add(place, const_cast<const IColumn**>(columns), i, nullptr);
+        }
+
+        if (is_ordered) {
+            std::sort(inputs.begin(), inputs.end());
+        }
+        std::string expect_result;
+        bool is_first = true;
+        for (auto s : inputs) {
+            if (is_first) {
+                is_first = false;
+            } else {
+                expect_result += separator;
+            }
+            expect_result += s;
+        }
+
+        std::string result = is_ordered ? reinterpret_cast<GroupConcatData<true>*>(place)->get()
+                                        : reinterpret_cast<GroupConcatData<false>*>(place)->get();
+        EXPECT_EQ(result, expect_result);
+        agg_function->destroy(place);
+    };
+
+    run_test(strs, false);
+    run_test(strs, true);
+}
+
 } // namespace doris::vectorized
