@@ -67,6 +67,7 @@ public:
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
     bool is_merge() const { return _is_merge; }
+    const std::vector<VExprContext*>& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
 private:
     const TFunction _fn;
