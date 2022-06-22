@@ -55,7 +55,7 @@ illustrate:
 
 ### Keywords
 
-    ALTER, SYSTEM, ADD, OBSERVER
+    ALTER, SYSTEM, ADD, OBSERVER, ALTER SYSTEM
 
 ### Best Practice
 

@@ -104,7 +104,7 @@ FROM example_db.my_table (12801,12802);
 
 ### Keywords
 
-    CANCEL, ALTER, TABLE
+    CANCEL, ALTER, TABLE, CANCEL ALTER
 
 ### Best Practice
 

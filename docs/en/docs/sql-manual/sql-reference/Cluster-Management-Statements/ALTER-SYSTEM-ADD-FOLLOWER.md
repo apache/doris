@@ -55,7 +55,7 @@ illustrate:
 
 ### Keywords
 
-    ALTER, SYSTEM, ADD, FOLLOWER
+    ALTER, SYSTEM, ADD, FOLLOWER, ALTER SYSTEM
 
 ### Best Practice
 

@@ -123,7 +123,7 @@ DROP ROLLUP example_rollup_index2;
 ### Keywords
 
 ```text
-ALTER, TABLE, ROLLUP
+ALTER, TABLE, ROLLUP, ALTER TABLE
 ```
 
 ### Best Practice

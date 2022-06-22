@@ -498,7 +498,7 @@ FROM data_source [data_source_properties]
 
 ### Keywords
 
-    CREATE, ROUTINE, LOAD
+    CREATE, ROUTINE, LOAD, CREATE LOAD
 
 ### Best Practice
 

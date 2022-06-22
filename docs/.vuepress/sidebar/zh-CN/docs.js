@@ -608,6 +608,7 @@ module.exports = [
                   "ALTER-DATABASE",
                   "ALTER-RESOURCE",
                   "ALTER-SQL-BLOCK-RULE",
+                  "ALTER-TABLE-BITMAP",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",
                   "ALTER-TABLE-PROPERTY",

@@ -67,7 +67,7 @@ grammar:
 
 ### Keywords
 
-    ALTER, SYSTEM, ADD, BACKEND
+    ALTER, SYSTEM, ADD, BACKEND, ALTER SYSTEM
 
 ### Best Practice
 

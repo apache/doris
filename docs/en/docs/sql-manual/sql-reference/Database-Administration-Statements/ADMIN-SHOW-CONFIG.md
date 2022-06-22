@@ -71,7 +71,7 @@ The columns in the results have the following meanings:
 
 ### Keywords
 
-    ADMIN, SHOW, CONFIG
+    ADMIN, SHOW, CONFIG, ADMIN SHOW
 
 ### Best Practice
 

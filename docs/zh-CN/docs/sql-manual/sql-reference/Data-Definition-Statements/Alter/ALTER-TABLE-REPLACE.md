@@ -50,7 +50,7 @@ MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
 ### Keywords
 
 ```text
-ALTER, TABLE, REPLACE
+ALTER, TABLE, REPLACE, ALTER TABLE
 ```
 
 ### Best Practice

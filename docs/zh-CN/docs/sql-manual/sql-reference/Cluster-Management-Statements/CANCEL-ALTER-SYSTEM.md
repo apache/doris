@@ -50,7 +50,7 @@ CANCEL DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
 
 ### Keywords
 
-    CANCEL, DECOMMISSION
+    CANCEL, DECOMMISSION, CANCEL ALTER
 
 ### Best Practice
 

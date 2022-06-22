@@ -55,7 +55,7 @@ ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port"
 
 ### Keywords
 
-    ALTER, SYSTEM, ADD, FOLLOWER
+    ALTER, SYSTEM, ADD, FOLLOWER, ALTER SYSTEM
 
 ### Best Practice
 
