@@ -209,7 +209,7 @@ ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "
 ### Keywords
 
 ```text
-ALTER, TABLE, PROPERTY
+ALTER, TABLE, PROPERTY, ALTER TABLE
 ```
 
 ### Best Practice

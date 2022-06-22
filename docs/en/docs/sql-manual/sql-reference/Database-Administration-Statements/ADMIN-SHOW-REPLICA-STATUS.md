@@ -77,7 +77,7 @@ illustrate
 
 ### Keywords
 
-    ADMIN, SHOW, REPLICA, STATUS
+    ADMIN, SHOW, REPLICA, STATUS, ADMIN SHOW
 
 ### Best Practice
 

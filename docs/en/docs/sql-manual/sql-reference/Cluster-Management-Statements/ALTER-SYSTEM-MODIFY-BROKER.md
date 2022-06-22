@@ -32,7 +32,7 @@ under the License.
 
 ### Keywords
 
-    ALTER, SYSTEM, MODIFY, BROKER
+    ALTER, SYSTEM, MODIFY, BROKER, ALTER SYSTEM
 
 ### Best Practice
 

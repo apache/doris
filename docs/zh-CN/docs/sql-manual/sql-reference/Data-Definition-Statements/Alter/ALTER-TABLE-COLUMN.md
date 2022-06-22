@@ -217,7 +217,7 @@ ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 ### Keywords
 
 ```text
-ALTER, TABLE, COLUMN
+ALTER, TABLE, COLUMN, ALTER TABLE
 ```
 
 ### Best Practice
