@@ -36,7 +36,7 @@ import java.util.Map;
 /**
  * Context of physical plan.
  */
-public class PlanContext {
+public class PlanTranslatorContext {
     private List<PlanFragment> planFragmentList = Lists.newArrayList();
 
     private DescriptorTable descTable = new DescriptorTable();
@@ -79,7 +79,7 @@ public class PlanContext {
         this.planFragmentList.add(planFragment);
     }
 
-    public void addExprMapping(Expression expression, Expr expr) {
+    public void addSlotRefMapping(Expression expression, Expr expr) {
         expressionToExecExpr.put(expression, expr);
     }
 

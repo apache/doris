@@ -29,7 +29,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.plans.PlanContext;
+import org.apache.doris.nereids.trees.plans.PlanTranslatorContext;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -44,61 +44,61 @@ import java.util.List;
  * Used to convert expression of new optimizer to stale expr.
  */
 @SuppressWarnings("rawtypes")
-public class ExpressionConverter extends ExpressionVisitor<Expr, PlanContext> {
+public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorContext> {
 
     public static ExpressionConverter converter = new ExpressionConverter();
 
-    public static Expr convert(Expression expression, PlanContext planContext) {
+    public static Expr convert(Expression expression, PlanTranslatorContext planContext) {
         return converter.visit(expression, planContext);
     }
 
     @Override
-    public Expr visit(Expression expr, PlanContext context) {
+    public Expr visit(Expression expr, PlanTranslatorContext context) {
         return expr.accept(this, context);
     }
 
     @Override
-    public Expr visitSlotReference(SlotReference slotReference, PlanContext context) {
+    public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
         return context.findExpr(slotReference);
     }
 
     @Override
-    public Expr visitEqualTo(EqualTo equalTo, PlanContext context) {
+    public Expr visitEqualTo(EqualTo equalTo, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.EQ,
                 visit(equalTo.child(0), context),
                 visit(equalTo.child(1), context));
     }
 
     @Override
-    public Expr visitGreaterThan(GreaterThan greaterThan, PlanContext context) {
+    public Expr visitGreaterThan(GreaterThan greaterThan, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.GT,
                 visit(greaterThan.child(0), context),
                 visit(greaterThan.child(1), context));
     }
 
     @Override
-    public Expr visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, PlanContext context) {
+    public Expr visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.GE,
                 visit(greaterThanEqual.child(0), context),
                 visit(greaterThanEqual.child(1), context));
     }
 
     @Override
-    public Expr visitLessThan(LessThan lessThan, PlanContext context) {
+    public Expr visitLessThan(LessThan lessThan, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.LT,
                 visit(lessThan.child(0), context),
                 visit(lessThan.child(1), context));
     }
 
     @Override
-    public Expr visitLessThanEqual(LessThanEqual lessThanEqual, PlanContext context) {
+    public Expr visitLessThanEqual(LessThanEqual lessThanEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.LE,
                 visit(lessThanEqual.child(0), context),
                 visit(lessThanEqual.child(1), context));
     }
 
     @Override
-    public Expr visitNot(Not not, PlanContext context) {
+    public Expr visitNot(Not not, PlanTranslatorContext context) {
         return new org.apache.doris.analysis.CompoundPredicate(
                 org.apache.doris.analysis.CompoundPredicate.Operator.NOT,
                 visit(not.child(0), context),
@@ -106,7 +106,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanContext> {
     }
 
     @Override
-    public Expr visitNullSafeEqual(NullSafeEqual nullSafeEqual, PlanContext context) {
+    public Expr visitNullSafeEqual(NullSafeEqual nullSafeEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.EQ_FOR_NULL,
                 visit(nullSafeEqual.child(0), context),
                 visit(nullSafeEqual.child(1), context));
@@ -116,7 +116,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanContext> {
      * Convert to stale literal.
      */
     @Override
-    public Expr visitLiteral(Literal literal, PlanContext context) {
+    public Expr visitLiteral(Literal literal, PlanTranslatorContext context) {
         DataType dataType = literal.getDataType();
         if (dataType instanceof BooleanType) {
             return new BoolLiteral((Boolean) literal.getValue());
@@ -133,7 +133,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanContext> {
     }
 
     @Override
-    public Expr visitFunctionCall(FunctionCall function, PlanContext context) {
+    public Expr visitFunctionCall(FunctionCall function, PlanTranslatorContext context) {
         List<Expr> paramList = new ArrayList<>();
         for (Expression expr : function.getFnParams().getExpression()) {
             paramList.add(visit(expr, context));
@@ -142,7 +142,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanContext> {
     }
 
     @Override
-    public Expr visitBetweenPredicate(BetweenPredicate betweenPredicate, PlanContext context) {
+    public Expr visitBetweenPredicate(BetweenPredicate betweenPredicate, PlanTranslatorContext context) {
         return new org.apache.doris.analysis.BetweenPredicate(
                 visit(betweenPredicate.getCompareExpr(), context),
                 visit(betweenPredicate.getLowerBound(), context),
@@ -154,7 +154,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanContext> {
     }
 
     @Override
-    public Expr visitCompoundPredicate(CompoundPredicate compoundPredicate, PlanContext context) {
+    public Expr visitCompoundPredicate(CompoundPredicate compoundPredicate, PlanTranslatorContext context) {
         NodeType nodeType = compoundPredicate.getType();
         org.apache.doris.analysis.CompoundPredicate.Operator staleOp = null;
         switch (nodeType) {
@@ -176,7 +176,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanContext> {
     }
 
     @Override
-    public Expr visitArithmetic(Arithmetic arithmetic, PlanContext context) {
+    public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
         return new ArithmeticExpr(arithmetic.getArithOperator().getStaleOp(),
                 visit(arithmetic.child(0), context),
                 visit(arithmetic.child(1), context));
