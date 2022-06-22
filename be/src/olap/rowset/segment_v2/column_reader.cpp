@@ -1036,16 +1036,9 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_JSON: {
-<<<<<<< HEAD
         data_ptr = ((Slice*)mem_value)->data;
         data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);
-=======
-        data_ptr = ((Slice*)_mem_value)->data;
-        data_len = ((Slice*)_mem_value)->size;
-        insert_column_data();
-        break;
->>>>>>> 4fa923ac9 (add JSON writer and reader, ignore zone-map for JSON column)
     }
     default: {
         data_ptr = (char*)mem_value;

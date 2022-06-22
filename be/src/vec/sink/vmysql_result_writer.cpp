@@ -264,12 +264,6 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             }
 
-            if constexpr (type == TYPE_JSON) {
-                JsonValue json_val(data[i]);
-                auto json_str = json_val.to_string();
-                buf_ret = _buffer.push_string(json_str.c_str(), json_str.size());
-            }
-
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     }

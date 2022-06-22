@@ -29,8 +29,6 @@
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 
-class Collator;
-
 namespace doris::vectorized {
 class ColumnJson final : public COWHelper<IColumn, ColumnJson> {
 public:
@@ -219,16 +217,8 @@ public:
                                              rhs.size_at(m) - 1);
     }
 
-    /// Variant of compare_at for string comparison with respect of collation.
-    int compare_at_with_collation(size_t n, size_t m, const IColumn& rhs_,
-                                  const Collator& collator) const;
-
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override;
-
-    /// Sorting with respect of collation.
-    void get_permutation_with_collation(const Collator& collator, bool reverse, size_t limit,
-                                        Permutation& res) const;
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
