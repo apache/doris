@@ -34,7 +34,7 @@ suite("sql_action", "query") {
 	    ) 
            """
     sql "INSERT INTO ${tableName_01} values(1,'beijing'), (2,'xian'), (3,'xian')"
-    qt_select1 "select approx_count_distinct(id) from regression_test.${tableName_01} group by group_type"
+    qt_select1 "select approx_count_distinct(id) from ${context.config.defaultDb}.${tableName_01} group by group_type"
     sql "DROP TABLE IF EXISTS ${tableName_01}"
     
     
@@ -53,8 +53,8 @@ suite("sql_action", "query") {
         ) 
         """
     sql "INSERT INTO ${tableName_02} values(1,100,'beijing'), (2,70,'xian'), (3,90,'xian') ,(4,100,'beijing') ,(5,140,'xian') ,(6,100,'beijing')"
-    qt_select2 "select group_type,AVG(level) from regression_test.${tableName_02} group by group_type order by group_type"
-    qt_select3 "select group_type,AVG(distinct level) from regression_test.${tableName_02} group by group_type order by group_type"
+    qt_select2 "select group_type,AVG(level) from ${context.config.defaultDb}.${tableName_02} group by group_type order by group_type"
+    qt_select3 "select group_type,AVG(distinct level) from ${context.config.defaultDb}.${tableName_02} group by group_type order by group_type"
     sql "DROP TABLE IF EXISTS ${tableName_02}"
 
 
@@ -126,9 +126,9 @@ suite("sql_action", "query") {
         ) 
         """
     sql "INSERT INTO ${tableName_05} values(1,'beijing'), (2,'xian'), (2,'xian') ,(4,'beijing') ,(5,'xian') ,(6,'beijing')"
-    qt_select6 "select group_type,count(*) from regression_test.${tableName_05} group by group_type order by group_type"
-    qt_select7 "select group_type,count(id) from regression_test.${tableName_05} group by group_type order by group_type"
-    qt_select8 "select group_type,count(distinct id) from regression_test.${tableName_05} group by group_type order by group_type"
+    qt_select6 "select group_type,count(*) from ${context.config.defaultDb}.${tableName_05} group by group_type order by group_type"
+    qt_select7 "select group_type,count(id) from ${context.config.defaultDb}.${tableName_05} group by group_type order by group_type"
+    qt_select8 "select group_type,count(distinct id) from ${context.config.defaultDb}.${tableName_05} group by group_type order by group_type"
     sql "DROP TABLE IF EXISTS ${tableName_05}"
 
     
@@ -188,7 +188,7 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_08} select id,hll_hash(group_type) from ${tableName_07}"
     
-    qt_select15 "select id,HLL_UNION_AGG(group_type) from regression_test.${tableName_08} group by id order by id"
+    qt_select15 "select id,HLL_UNION_AGG(group_type) from ${context.config.defaultDb}.${tableName_08} group by id order by id"
     
     sql "DROP TABLE IF EXISTS ${tableName_07}"
     sql "DROP TABLE IF EXISTS ${tableName_08}"
@@ -210,8 +210,8 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_09} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
     
-    qt_select16 "select id,MAX(level) from regression_test.${tableName_09} group by id order by id"
-    qt_select17 "select MAX(level) from regression_test.${tableName_09}"
+    qt_select16 "select id,MAX(level) from ${context.config.defaultDb}.${tableName_09} group by id order by id"
+    qt_select17 "select MAX(level) from ${context.config.defaultDb}.${tableName_09}"
     
     sql "DROP TABLE IF EXISTS ${tableName_09}"
     
@@ -231,8 +231,8 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_11} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
-    qt_select18 "select id,MIN(level) from regression_test.${tableName_11} group by id order by id"
-    qt_select19 "select MIN(level) from regression_test.${tableName_11}"
+    qt_select18 "select id,MIN(level) from ${context.config.defaultDb}.${tableName_11} group by id order by id"
+    qt_select19 "select MIN(level) from ${context.config.defaultDb}.${tableName_11}"
 
     sql "DROP TABLE IF EXISTS ${tableName_11}"
 
@@ -253,9 +253,9 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_13} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
-    qt_select20 "select id,percentile(level,0.5) from regression_test.${tableName_13} group by id order by id"
-    qt_select21 "select id,percentile(level,0.55) from regression_test.${tableName_13} group by id order by id"
-    qt_select22 "select id,percentile(level,0.805) from regression_test.${tableName_13} group by id order by id"
+    qt_select20 "select id,percentile(level,0.5) from ${context.config.defaultDb}.${tableName_13} group by id order by id"
+    qt_select21 "select id,percentile(level,0.55) from ${context.config.defaultDb}.${tableName_13} group by id order by id"
+    qt_select22 "select id,percentile(level,0.805) from ${context.config.defaultDb}.${tableName_13} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_13}"
 
@@ -277,12 +277,12 @@ suite("sql_action", "query") {
 
     sql "INSERT INTO ${tableName_14} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
-    qt_select23 "select id,PERCENTILE_APPROX(level,0.5) from regression_test.${tableName_14} group by id order by id"
-    qt_select24 "select id,PERCENTILE_APPROX(level,0.55) from regression_test.${tableName_14} group by id order by id"
-    qt_select25 "select id,PERCENTILE_APPROX(level,0.805) from regression_test.${tableName_14} group by id order by id"
-    qt_select26 "select id,PERCENTILE_APPROX(level,0.5,2048) from regression_test.${tableName_14} group by id order by id"
-    qt_select27 "select id,PERCENTILE_APPROX(level,0.55,2048) from regression_test.${tableName_14} group by id order by id"
-    qt_select28 "select id,PERCENTILE_APPROX(level,0.805,2048) from regression_test.${tableName_14} group by id order by id"
+    qt_select23 "select id,PERCENTILE_APPROX(level,0.5) from ${context.config.defaultDb}.${tableName_14} group by id order by id"
+    qt_select24 "select id,PERCENTILE_APPROX(level,0.55) from ${context.config.defaultDb}.${tableName_14} group by id order by id"
+    qt_select25 "select id,PERCENTILE_APPROX(level,0.805) from ${context.config.defaultDb}.${tableName_14} group by id order by id"
+    qt_select26 "select id,PERCENTILE_APPROX(level,0.5,2048) from ${context.config.defaultDb}.${tableName_14} group by id order by id"
+    qt_select27 "select id,PERCENTILE_APPROX(level,0.55,2048) from ${context.config.defaultDb}.${tableName_14} group by id order by id"
+    qt_select28 "select id,PERCENTILE_APPROX(level,0.805,2048) from ${context.config.defaultDb}.${tableName_14} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_14}"
     
@@ -304,8 +304,8 @@ suite("sql_action", "query") {
 
     sql "INSERT INTO ${tableName_15} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
-    qt_select29 "select id,stddev(level) from regression_test.${tableName_15} group by id order by id"
-    qt_select30 "select id,stddev_pop(level) from regression_test.${tableName_15} group by id order by id"
+    qt_select29 "select id,stddev(level) from ${context.config.defaultDb}.${tableName_15} group by id order by id"
+    qt_select30 "select id,stddev_pop(level) from ${context.config.defaultDb}.${tableName_15} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_15}"
 
@@ -326,7 +326,7 @@ suite("sql_action", "query") {
         """
 
     sql "INSERT INTO ${tableName_16} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
-    qt_select31 "select id,stddev_samp(level) from regression_test.${tableName_16} group by id order by id"
+    qt_select31 "select id,stddev_samp(level) from ${context.config.defaultDb}.${tableName_16} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_16}"
    
@@ -347,8 +347,8 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_17} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
-    qt_select32 "select id,sum(level) from regression_test.${tableName_17} group by id order by id"
-    qt_select33 "select sum(level) from regression_test.${tableName_17}"
+    qt_select32 "select id,sum(level) from ${context.config.defaultDb}.${tableName_17} group by id order by id"
+    qt_select33 "select sum(level) from ${context.config.defaultDb}.${tableName_17}"
 
     sql "DROP TABLE IF EXISTS ${tableName_17}"
     
@@ -369,9 +369,9 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_18} values(1,10), (2,18), (2,441) ,(1,10) ,(3,29) ,(3,101),(1,11), (2,18), (2,41) ,(1,13) ,(3,4) ,(3,12)"
 
-    qt_select34 "select id,topn(level,2) from regression_test.${tableName_18} group by id order by id"       
-    qt_select35 "select id,topn(level,2,100) from regression_test.${tableName_18} group by id order by id"        
-    qt_select36 "select topn(level,2,100) from regression_test.${tableName_18}"
+    qt_select34 "select id,topn(level,2) from ${context.config.defaultDb}.${tableName_18} group by id order by id"
+    qt_select35 "select id,topn(level,2,100) from ${context.config.defaultDb}.${tableName_18} group by id order by id"
+    qt_select36 "select topn(level,2,100) from ${context.config.defaultDb}.${tableName_18}"
 
     sql "DROP TABLE IF EXISTS ${tableName_18}"
     
@@ -392,8 +392,8 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_19} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
-    qt_select37 = sql "select id,var_samp(level) from regression_test.${tableName_19} group by id order by id"
-    qt_select38 = sql "select id,variance_samp(level) from regression_test.${tableName_19} group by id order by id"
+    qt_select37 = sql "select id,var_samp(level) from ${context.config.defaultDb}.${tableName_19} group by id order by id"
+    qt_select38 = sql "select id,variance_samp(level) from ${context.config.defaultDb}.${tableName_19} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_19}"
     
@@ -414,9 +414,9 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_20} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
-    qt_select39 "select id,VARIANCE(level) from regression_test.${tableName_20} group by id order by id"
-    qt_select40 "select id,VAR_POP(level) from regression_test.${tableName_20} group by id order by id"
-    qt_select41 "select id,VARIANCE_POP(level) from regression_test.${tableName_20} group by id order by id"
+    qt_select39 "select id,VARIANCE(level) from ${context.config.defaultDb}.${tableName_20} group by id order by id"
+    qt_select40 "select id,VAR_POP(level) from ${context.config.defaultDb}.${tableName_20} group by id order by id"
+    qt_select41 "select id,VARIANCE_POP(level) from ${context.config.defaultDb}.${tableName_20} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_20}"
     
@@ -437,7 +437,7 @@ suite("sql_action", "query") {
 	"""
     sql "INSERT INTO ${tableName_10} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
-    qt_select42 "select MAX_BY(id,level) from regression_test.${tableName_10}"
+    qt_select42 "select MAX_BY(id,level) from ${context.config.defaultDb}.${tableName_10}"
     
     sql "DROP TABLE IF EXISTS ${tableName_10}"
     
@@ -457,7 +457,7 @@ suite("sql_action", "query") {
         """
     sql "INSERT INTO ${tableName_12} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
-    qt_select43 "select MIN_BY(id,level) from regression_test.${tableName_12}"
+    qt_select43 "select MIN_BY(id,level) from ${context.config.defaultDb}.${tableName_12}"
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
 }
