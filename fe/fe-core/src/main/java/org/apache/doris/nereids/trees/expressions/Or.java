@@ -15,23 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.NodeType;
 
 /**
- * Implementation rule that convert logical join to physical hash join.
+ * Or predicate expression.
  */
-public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
-    @Override
-    public Rule<Plan> build() {
-        return logicalJoin().then(join -> plan(
-            new PhysicalHashJoin(join.operator.getJoinType(), join.operator.getCondition().get()),
-            join.getLogicalProperties(),
-            join.left(), join.right()
-        )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+public class Or<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends CompoundPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    /**
+     * Desc: Constructor for CompoundPredicate.
+     *
+     * @param left  left child of comparison predicate
+     * @param right right child of comparison predicate
+     */
+    public Or(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.OR, left, right);
     }
 }

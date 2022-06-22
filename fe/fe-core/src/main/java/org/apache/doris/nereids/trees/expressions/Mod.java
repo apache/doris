@@ -15,23 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
-
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+package org.apache.doris.nereids.trees.expressions;
 
 /**
- * Implementation rule that convert logical join to physical hash join.
+ * Mod Expression.
  */
-public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
+public class Mod<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    public Mod(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(ArithmeticOperator.MOD, left, right);
+    }
+
     @Override
-    public Rule<Plan> build() {
-        return logicalJoin().then(join -> plan(
-            new PhysicalHashJoin(join.operator.getJoinType(), join.operator.getCondition().get()),
-            join.getLogicalProperties(),
-            join.left(), join.right()
-        )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+    public String sql() {
+        return left().sql() + ' ' + getArithOperator().toString()
+                + ' ' + right().sql();
     }
 }

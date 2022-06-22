@@ -1937,7 +1937,6 @@ public class FunctionSet<T> {
             }
         }
 
-
         // Sum
         String []sumNames = {"sum", "sum_distinct"};
         for (String name : sumNames) {

@@ -153,8 +153,8 @@ public:
         vectorized::Block vec_block = tablet_schema.create_block(return_columns);                \
         _row_block->convert_to_vec_block(&vec_block);                                            \
         ColumnPtr vec_col = vec_block.get_columns()[0];                                          \
-        pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),                        \
-                       _row_block->selection_vector(), &select_size);                            \
+        select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),          \
+                                     _row_block->selection_vector(), select_size);               \
         EXPECT_EQ(select_size, 0);                                                               \
                                                                                                  \
         /* for has nulls */                                                                      \
@@ -195,8 +195,8 @@ public:
         vec_block = tablet_schema.create_block(return_columns);                                  \
         _row_block->convert_to_vec_block(&vec_block);                                            \
         vec_col = vec_block.get_columns()[0];                                                    \
-        pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),                        \
-                       _row_block->selection_vector(), &select_size);                            \
+        select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),          \
+                                     _row_block->selection_vector(), select_size);               \
         EXPECT_EQ(select_size, 5);                                                               \
         pred.reset();                                                                            \
     }
@@ -247,8 +247,8 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     vectorized::Block vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
@@ -289,8 +289,8 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 5);
 }
 
@@ -335,8 +335,8 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     vectorized::Block vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
@@ -377,8 +377,8 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 5);
 }
 
@@ -426,8 +426,8 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     vectorized::Block vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
@@ -470,8 +470,8 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 4);
 }
 
@@ -531,8 +531,8 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     vectorized::Block vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
@@ -585,8 +585,8 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 4);
 }
 
@@ -640,8 +640,8 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     vectorized::Block vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
@@ -684,8 +684,8 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 2);
 }
 
@@ -739,8 +739,8 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     vectorized::Block vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
@@ -783,8 +783,8 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     vec_block = tablet_schema.create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
-    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
-                   _row_block->selection_vector(), &select_size);
+    select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                                 _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 2);
 }
 
