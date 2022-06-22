@@ -200,4 +200,48 @@ public class ExternalTable implements TableIf {
     public Column getColumn(String name) {
         throw new NotImplementedException();
     }
+
+    @Override
+    public String getMysqlType() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public String getEngine() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public String getComment() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public long getCreateTime() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public long getUpdateTime() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public long getRowCount() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public long getDataLength() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public long getAvgRowLength() {
+        throw new NotImplementedException();
+    }
+
+    public long getLastCheckTime() {
+        throw new NotImplementedException();
+    }
 }

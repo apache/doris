@@ -22,9 +22,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -38,6 +41,7 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
@@ -150,6 +154,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetDbsResult result = new TGetDbsResult();
 
         List<String> dbs = Lists.newArrayList();
+        List<String> catalogs = Lists.newArrayList();
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
             try {
@@ -161,28 +166,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Catalog catalog = Catalog.getCurrentCatalog();
-        List<String> dbNames = catalog.getDbNames();
-        LOG.debug("get db names: {}", dbNames);
+        List<DataSourceIf> dataSourceIfs = catalog.getDataSourceMgr().listCatalogs();
+        for (DataSourceIf ds : dataSourceIfs) {
+            List<String> dbNames = ds.getDbNames();
+            LOG.debug("get db names: {}, in data source: {}", dbNames, ds.getName());
 
-        UserIdentity currentUser = null;
-        if (params.isSetCurrentUserIdent()) {
-            currentUser = UserIdentity.fromThrift(params.current_user_ident);
-        } else {
-            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
-        }
-        for (String fullName : dbNames) {
-            if (!catalog.getAuth().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
-                continue;
+            UserIdentity currentUser = null;
+            if (params.isSetCurrentUserIdent()) {
+                currentUser = UserIdentity.fromThrift(params.current_user_ident);
+            } else {
+                currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
+            for (String fullName : dbNames) {
+                if (!catalog.getAuth().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
+                    continue;
+                }
 
-            final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (matcher != null && !matcher.match(db)) {
-                continue;
+                final String db = ClusterNamespace.getNameFromFullName(fullName);
+                if (matcher != null && !matcher.match(db)) {
+                    continue;
+                }
+
+                catalogs.add(ds.getName());
+                dbs.add(fullName);
             }
-
-            dbs.add(fullName);
         }
+
         result.setDbs(dbs);
+        result.setCatalogs(catalogs);
         return result;
     }
 
@@ -243,7 +254,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
         }
-
         // database privs should be checked in analysis phrase
 
         UserIdentity currentUser;
@@ -252,51 +262,60 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        Database db = Catalog.getCurrentCatalog().getDbNullable(params.db);
-        if (db != null) {
-            List<Table> tables = null;
-            if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                tables = db.getTables();
-            } else {
-                switch (params.getType()) {
-                    case "VIEW":
-                        tables = db.getViews();
-                        break;
-                    default:
-                        tables = db.getTables();
+        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(params.catalog);
+        if (ds != null) {
+            DatabaseIf db = ds.getDbNullable(params.db);
+            if (db != null) {
+                List<TableIf> tables = null;
+                if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
+                    tables = db.getTables();
+                } else {
+                    switch (params.getType()) {
+                        case "VIEW":
+                            tables = db.getViews();
+                            break;
+                        default:
+                            tables = db.getTables();
+                    }
                 }
-            }
-            for (Table table : tables) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                        table.getName(), PrivPredicate.SHOW)) {
-                    continue;
-                }
-                table.readLock();
-                try {
+                for (TableIf table : tables) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
                             table.getName(), PrivPredicate.SHOW)) {
                         continue;
                     }
+                    table.readLock();
+                    try {
+                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
+                                table.getName(), PrivPredicate.SHOW)) {
+                            continue;
+                        }
 
-                    if (matcher != null && !matcher.match(table.getName())) {
-                        continue;
+                        if (matcher != null && !matcher.match(table.getName())) {
+                            continue;
+                        }
+                        long lastCheckTime = 0;
+                        if (table instanceof Table) {
+                            lastCheckTime = ((Table) table).getLastCheckTime();
+                        } else {
+                            lastCheckTime = ((ExternalTable) table).getLastCheckTime();
+                        }
+                        TTableStatus status = new TTableStatus();
+                        status.setName(table.getName());
+                        status.setType(table.getMysqlType());
+                        status.setEngine(table.getEngine());
+                        status.setComment(table.getComment());
+                        status.setCreateTime(table.getCreateTime());
+                        status.setLastCheckTime(lastCheckTime);
+                        status.setUpdateTime(table.getUpdateTime() / 1000);
+                        status.setCheckTime(lastCheckTime);
+                        status.setCollation("utf-8");
+                        status.setRows(table.getRowCount());
+                        status.setDataLength(table.getDataLength());
+                        status.setAvgRowLength(table.getAvgRowLength());
+                        tablesResult.add(status);
+                    } finally {
+                        table.readUnlock();
                     }
-                    TTableStatus status = new TTableStatus();
-                    status.setName(table.getName());
-                    status.setType(table.getMysqlType());
-                    status.setEngine(table.getEngine());
-                    status.setComment(table.getComment());
-                    status.setCreateTime(table.getCreateTime());
-                    status.setLastCheckTime(table.getLastCheckTime());
-                    status.setUpdateTime(table.getUpdateTime() / 1000);
-                    status.setCheckTime(table.getLastCheckTime());
-                    status.setCollation("utf-8");
-                    status.setRows(table.getRowCount());
-                    status.setDataLength(table.getDataLength());
-                    status.setAvgRowLength(table.getAvgRowLength());
-                    tablesResult.add(status);
-                } finally {
-                    table.readUnlock();
                 }
             }
         }
