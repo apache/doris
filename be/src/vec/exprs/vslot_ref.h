@@ -39,6 +39,8 @@ public:
     virtual std::string debug_string() const override;
     virtual bool is_constant() const override { return false; }
 
+    const int column_id() const { return _column_id; }
+
 private:
     FunctionPtr _function;
     int _slot_id;
