@@ -81,6 +81,19 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(function, context);
     }
 
+    public R visitBetweenPredicate(BetweenPredicate betweenPredicate, C context) {
+        return visit(betweenPredicate, context);
+    }
+
+    public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
+        return visit(compoundPredicate, context);
+    }
+
+    public R visitArithmetic(Arithmetic arithmetic, C context) {
+        return visit(arithmetic, context);
+    }
+
+
     /* ********************************************************************************************
      * Unbound expressions
      * ********************************************************************************************/

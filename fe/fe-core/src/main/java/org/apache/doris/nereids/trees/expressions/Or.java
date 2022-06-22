@@ -15,52 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees;
+package org.apache.doris.nereids.trees.expressions;
+
+import org.apache.doris.nereids.trees.NodeType;
 
 /**
- * Types for all TreeNode in Nereids, include Plan and Expression.
+ * Or predicate expression.
  */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
-    // group plan
-    GROUP,
-
-    // expressions
-    EXPRESSION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
-    AND,
-    OR,
-    BETWEEN,
-    MULTIPLY,
-    DIVIDE,
-    MOD,
-    INT_DIVIDE,
-    ADD,
-    SUBTRACT,
-    BITAND,
-    BITOR,
-    BITXOR,
-    BITNOT,
-    FACTORIAL,
-    FUNCTIONCALL,
-
-    // pattern
-    PATTERN
-    ;
+public class Or<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends CompoundPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    /**
+     * Desc: Constructor for CompoundPredicate.
+     *
+     * @param left  left child of comparison predicate
+     * @param right right child of comparison predicate
+     */
+    public Or(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.OR, left, right);
+    }
 }

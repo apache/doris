@@ -36,6 +36,8 @@ public enum OperatorType {
     LOGICAL_PROJECT,
     LOGICAL_FILTER,
     LOGICAL_JOIN,
+    LOGICAL_AGGREGATION,
+    LOGICAL_SORT,
     GROUP_PLAN,
 
     // physical plan
