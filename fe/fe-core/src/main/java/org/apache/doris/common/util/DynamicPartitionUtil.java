@@ -37,7 +37,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 
