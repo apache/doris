@@ -34,11 +34,11 @@ public class PersistMetaModules {
     // The write and read of meta modules should be in same order.
     public static final List<MetaPersistMethod> MODULES_IN_ORDER;
 
-    public static final ImmutableList<String> MODULE_NAMES = ImmutableList.copyOf(
-            new String[] {"masterInfo", "frontends", "backends", "db", "loadJob", "alterJob", "recycleBin",
-                    "globalVariable", "cluster", "broker", "resources", "exportJob", "syncJob", "backupHandler",
-                    "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
-                    "plugins", "deleteHandler", "sqlBlockRule", "policy", "datasource"});
+    public static final ImmutableList<String> MODULE_NAMES = ImmutableList.of(
+            "masterInfo", "frontends", "backends", "datasource", "db", "loadJob", "alterJob", "recycleBin",
+            "globalVariable", "cluster", "broker", "resources", "exportJob", "syncJob", "backupHandler",
+            "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
+            "plugins", "deleteHandler", "sqlBlockRule", "policy");
 
     static {
         MODULES_MAP = Maps.newHashMap();
