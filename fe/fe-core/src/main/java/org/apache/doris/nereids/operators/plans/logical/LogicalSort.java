@@ -42,14 +42,14 @@ public class LogicalSort extends LogicalUnaryOperator {
     // Default offset is 0.
     private int offset = 0;
 
-    private final List<OrderKey> sortItems;
+    private final List<OrderKey> orderKeys;
 
     /**
      * Constructor for SortItems.
      */
-    public LogicalSort(List<OrderKey> sortItems) {
+    public LogicalSort(List<OrderKey> orderKeys) {
         super(OperatorType.LOGICAL_SORT);
-        this.sortItems = Objects.requireNonNull(sortItems, "sorItems can not be null");
+        this.orderKeys = Objects.requireNonNull(orderKeys, "sorItems can not be null");
     }
 
     @Override
@@ -57,8 +57,8 @@ public class LogicalSort extends LogicalUnaryOperator {
         return input.getOutput();
     }
 
-    public List<OrderKey> getSortItems() {
-        return sortItems;
+    public List<OrderKey> getOrderKeys() {
+        return orderKeys;
     }
 
     public int getOffset() {
@@ -71,12 +71,12 @@ public class LogicalSort extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Sort (" + StringUtils.join(sortItems, ", ") + ")";
+        return "Sort (" + StringUtils.join(orderKeys, ", ") + ")";
     }
 
     @Override
     public List<Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>().addAll(
-                sortItems.stream().map(OrderKey::getExpr).collect(Collectors.toList())).build();
+                orderKeys.stream().map(OrderKey::getExpr).collect(Collectors.toList())).build();
     }
 }

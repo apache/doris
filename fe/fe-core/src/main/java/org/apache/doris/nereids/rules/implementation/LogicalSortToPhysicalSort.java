@@ -29,7 +29,7 @@ public class LogicalSortToPhysicalSort extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return logicalSort().then(sort -> plan(
-                        new PhysicalSort(sort.getOperator().getSortItems(), sort.getOperator().getLimit(),
+                        new PhysicalSort(sort.getOperator().getOrderKeys(), sort.getOperator().getLimit(),
                                 sort.getOperator().getOffset(), false), sort.getLogicalProperties(), sort.child()))
                 .toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_SORT_RULE);
     }
