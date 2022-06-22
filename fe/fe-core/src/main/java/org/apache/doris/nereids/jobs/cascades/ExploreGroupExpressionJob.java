@@ -26,6 +26,8 @@ import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.Lists;
+
 import java.util.Comparator;
 import java.util.List;
 
@@ -48,11 +50,12 @@ public class ExploreGroupExpressionJob extends Job<Plan> {
 
     @Override
     public void execute() {
-        List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
+        // TODO: enable exploration job after we test it
+        // List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
+        List<Rule<Plan>> explorationRules = Lists.newArrayList();
         List<Rule<Plan>> validRules = getValidRules(groupExpression, explorationRules);
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
-        // TODO: adapt situation when pattern arity smaller than group expression arity
         for (Rule<Plan> rule : validRules) {
             pushTask(new ApplyRuleJob(groupExpression, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
