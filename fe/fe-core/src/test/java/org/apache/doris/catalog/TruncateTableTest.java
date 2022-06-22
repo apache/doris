@@ -91,7 +91,8 @@ public class TruncateTableTest {
         long p20211008Id = tbl.getPartition("p20211008").getId();
         // truncate p20211008(real name is P20211008)
         String truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION p20211008; \n";
-        TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        TruncateTableStmt truncateTableStmt
+                = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         Assert.assertNotEquals(p20211008Id, tbl.getPartition("p20211008").getId());
         // 2. truncate P20211007
@@ -107,11 +108,14 @@ public class TruncateTableTest {
 
     @Test
     public void testTruncateTable() throws Exception {
-        String stmtStr = "ALTER TABLE test.tbl ADD PARTITION p20210902 VALUES [('2021-09-02'), ('2021-09-03')) DISTRIBUTED BY HASH(`k1`) BUCKETS 3;";
+        String stmtStr = "ALTER TABLE test.tbl ADD PARTITION p20210902 VALUES [('2021-09-02'), ('2021-09-03'))"
+                + " DISTRIBUTED BY HASH(`k1`) BUCKETS 3;";
         alterTable(stmtStr);
-        stmtStr = "ALTER TABLE test.tbl ADD PARTITION p20210903 VALUES [('2021-09-03'), ('2021-09-04')) DISTRIBUTED BY HASH(`k1`) BUCKETS 4;";
+        stmtStr = "ALTER TABLE test.tbl ADD PARTITION p20210903 VALUES [('2021-09-03'), ('2021-09-04'))"
+                + " DISTRIBUTED BY HASH(`k1`) BUCKETS 4;";
         alterTable(stmtStr);
-        stmtStr = "ALTER TABLE test.tbl ADD PARTITION p20210904 VALUES [('2021-09-04'), ('2021-09-05')) DISTRIBUTED BY HASH(`k1`) BUCKETS 5;";
+        stmtStr = "ALTER TABLE test.tbl ADD PARTITION p20210904 VALUES [('2021-09-04'), ('2021-09-05'))"
+                + " DISTRIBUTED BY HASH(`k1`) BUCKETS 5;";
         alterTable(stmtStr);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);
@@ -119,7 +123,8 @@ public class TruncateTableTest {
         checkShowTabletResultNum("test.tbl", "p20210904", 5);
 
         String truncateStr = "truncate table test.tbl;";
-        TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        TruncateTableStmt truncateTableStmt
+                = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);

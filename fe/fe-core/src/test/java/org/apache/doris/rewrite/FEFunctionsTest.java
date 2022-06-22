@@ -245,6 +245,7 @@ public class FEFunctionsTest {
         expectedResult = new IntLiteral(1970, Type.INT);
         Assert.assertEquals(expectedResult, actualResult);
     }
+
     @Test
     public void monthTest() throws AnalysisException {
         IntLiteral actualResult = FEFunctions.month(new DateLiteral("2018-08-08", Type.DATE));

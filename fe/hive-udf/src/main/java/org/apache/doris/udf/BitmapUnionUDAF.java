@@ -37,7 +37,8 @@ import java.io.IOException;
  * bitmap_union.
  *
  */
-@Description(name = "bitmap_union", value = "_FUNC_(expr) - Calculate the grouped bitmap union , Returns an doris bitmap representation of a column.")
+@Description(name = "bitmap_union", value = "_FUNC_(expr) - Calculate the grouped bitmap"
+        + " union , Returns an doris bitmap representation of a column.")
 public class BitmapUnionUDAF extends AbstractGenericUDAFResolver {
 
     @Override

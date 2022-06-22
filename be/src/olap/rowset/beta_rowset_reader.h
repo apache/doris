@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
+#pragma once
 
 #include "olap/iterators.h"
 #include "olap/row_block.h"
@@ -48,12 +47,15 @@ public:
 
     // Return the total number of filtered rows, will be used for validation of schema change
     int64_t filtered_rows() override {
-        return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
+        return _stats->rows_del_filtered + _stats->rows_conditions_filtered +
+               _stats->rows_vec_del_cond_filtered + _stats->rows_vec_cond_filtered;
     }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
 private:
+    bool _should_push_down_value_predicates() const;
+
     std::unique_ptr<Schema> _schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
@@ -73,5 +75,3 @@ private:
 };
 
 } // namespace doris
-
-#endif //DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H

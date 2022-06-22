@@ -125,7 +125,7 @@ public class PartitionInfo implements Writable {
     }
 
     public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,
-                                              long partitionId, boolean isTemp) throws DdlException {
+                                                      long partitionId, boolean isTemp) throws DdlException {
         Preconditions.checkArgument(desc.isAnalyzed());
         PartitionItem partitionItem = createAndCheckPartitionItem(desc, isTemp);
         setItemInternal(partitionId, isTemp, partitionItem);
@@ -197,7 +197,8 @@ public class PartitionInfo implements Writable {
     public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
     }
 
-    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1,
+            List<PartitionItem> list2) throws DdlException {
     }
 
     public DataProperty getDataProperty(long partitionId) {
@@ -282,8 +283,8 @@ public class PartitionInfo implements Writable {
         }
     }
 
-    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId, ReplicaAllocation restoreReplicaAlloc,
-                                           boolean isSinglePartitioned) {
+    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId,
+            ReplicaAllocation restoreReplicaAlloc, boolean isSinglePartitioned) {
         idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
         idToReplicaAllocation.remove(oldPartitionId);
         idToReplicaAllocation.put(newPartitionId, restoreReplicaAlloc);

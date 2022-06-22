@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/hdfs_file_reader.h"
+#include "io/hdfs_file_reader.h"
 
 #include <gtest/gtest.h>
 
-#include "exec/hdfs_reader_writer.h"
+#include "io/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -27,12 +27,18 @@ class HdfsFileReaderTest : public testing::Test {};
 
 TEST_F(HdfsFileReaderTest, test_connect_fail) {
     THdfsParams hdfsParams;
-    hdfsParams.fs_name = "hdfs://127.0.0.1:8888"; // An invalid address
+    hdfsParams.__set_fs_name("hdfs://127.0.0.9:8888"); // An invalid address
+    hdfsParams.__set_hdfs_kerberos_principal("somebody@TEST.COM");
+    hdfsParams.__set_hdfs_kerberos_keytab("/etc/keytab/doris.keytab");
+    std::vector<THdfsConf> confs;
+    THdfsConf item;
+    item.key = "dfs.ha.namenodes.service1";
+    item.value = "n1,n2";
+    confs.push_back(item);
+    hdfsParams.__set_hdfs_conf(confs);
     HdfsFileReader hdfs_file_reader(hdfsParams, "/user/foo/test.data", 0);
     Status status = hdfs_file_reader.open();
-    hdfs_file_reader.close();
-    std::string msg = status.get_error_msg();
-    EXPECT_TRUE(msg.find("Connection refused") >= 0);
+    EXPECT_EQ(TStatusCode::INTERNAL_ERROR, status.code());
     hdfs_file_reader.close();
 }
 

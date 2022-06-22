@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -82,11 +83,14 @@ public class Column implements Writable {
     @SerializedName(value = "children")
     private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
-    // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
+    // Currently, analyzed define expr is only used when creating materialized views,
+    // so the define expr in RollupJob must be analyzed.
     // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
     private Expr defineExpr; // use to define column in materialize view
     @SerializedName(value = "visible")
     private boolean visible;
+    @SerializedName(value = "defaultValueExprDef")
+    private DefaultValueExprDef defaultValueExprDef; // used for default value
 
     public Column() {
         this.name = "";
@@ -95,6 +99,7 @@ public class Column implements Writable {
         this.isKey = false;
         this.stats = new ColumnStats();
         this.visible = true;
+        this.defineExpr = null;
         this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
     }
 
@@ -117,10 +122,11 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
+        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null);
     }
+
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-                  String defaultValue, String comment, boolean visible) {
+                  String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -136,6 +142,7 @@ public class Column implements Writable {
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
+        this.defaultValueExprDef = defaultValueExprDef;
         this.comment = comment;
         this.stats = new ColumnStats();
         this.visible = visible;
@@ -151,6 +158,7 @@ public class Column implements Writable {
         this.isKey = column.isKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
+        this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
         this.stats = column.getStats();
         this.visible = column.visible;
@@ -160,10 +168,7 @@ public class Column implements Writable {
     public void createChildrenColumn(Type type, Column column) {
         if (type.isArrayType()) {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
-            // TODO We always set the item type in array nullable.
-            //  We may provide an alternative to configure this property of
-            //  the item type in array in future.
-            c.setIsAllowNull(true);
+            c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
         }
     }
@@ -297,10 +302,14 @@ public class Column implements Writable {
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
         }
+        if (defaultValueExprDef != null) {
+            return defaultValueExprDef.getExpr();
+        }
         Expr result = defaultValueLiteral.castTo(getType());
         result.checkValueValid();
         return result;
     }
+
 
     public void setStats(ColumnStats stats) {
         this.stats = stats;
@@ -361,7 +370,8 @@ public class Column implements Writable {
         // And CreateReplicaTask does not need `defineExpr` field.
         // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in `AlterReplicaTask`.
         // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
-        // If we need to use `defineExpr` and call defineExpr.treeToThrift(), make sure it is analyzed, or NPE will thrown.
+        // If we need to use `defineExpr` and call defineExpr.treeToThrift(),
+        // make sure it is analyzed, or NPE will thrown.
         return tColumn;
     }
 
@@ -495,6 +505,10 @@ public class Column implements Writable {
 
     public void setDefineExpr(Expr expr) {
         defineExpr = expr;
+    }
+
+    public DefaultValueExprDef getDefaultValueExprDef() {
+        return defaultValueExprDef;
     }
 
     public SlotRef getRefColumn() {
@@ -642,7 +656,6 @@ public class Column implements Writable {
     }
 
     public static Column read(DataInput in) throws IOException {
-
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Column.class);
     }

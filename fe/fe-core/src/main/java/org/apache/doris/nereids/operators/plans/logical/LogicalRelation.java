@@ -19,6 +19,7 @@ package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
@@ -31,7 +32,7 @@ import java.util.Objects;
 /**
  * Logical relation plan operator.
  */
-public class LogicalRelation extends LogicalLeafOperator<LogicalRelation> {
+public class LogicalRelation extends LogicalLeafOperator {
 
     private final Table table;
     private final List<String> qualifier;
@@ -62,10 +63,15 @@ public class LogicalRelation extends LogicalLeafOperator<LogicalRelation> {
     }
 
     @Override
-    public List<Slot> doComputeOutput() {
+    public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
                 .map(col -> SlotReference.fromColumn(col, qualifier))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of();
     }
 }

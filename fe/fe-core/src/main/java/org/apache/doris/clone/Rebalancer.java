@@ -42,8 +42,9 @@ import java.util.Map;
  * 3. getToDeleteReplicaId: if the rebalance strategy wants to delete the specified replica,
  * override this func to let TabletScheduler know in handling redundant replica.
  * NOTICE:
- * 1. Adding the selected tablets by TabletScheduler may not succeed at all. And the move may be failed in some other places.
- * So the thing you need to know is, Rebalancer cannot know when the move is failed.
+ * 1. Adding the selected tablets by TabletScheduler may not succeed at all.
+ *  And the move may be failed in some other places. So the thing you need to know is,
+ *  Rebalancer cannot know when the move is failed.
  * 2. If you want to make sure the move is succeed, you can assume that it's succeed when getToDeleteReplicaId called.
  */
 public abstract class Rebalancer {

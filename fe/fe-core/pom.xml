@@ -373,11 +373,6 @@ under the License.
             <groupId>javax.validation</groupId>
             <artifactId>validation-api</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/io.fabric8/zjsonpatch -->
-        <dependency>
-            <groupId>io.fabric8</groupId>
-            <artifactId>zjsonpatch</artifactId>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -648,6 +643,12 @@ under the License.
             <version>${antlr4.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>3.10.1</version>
+        </dependency>
+
     </dependencies>
     <build>
         <finalName>palo-fe</finalName>
@@ -788,6 +789,65 @@ under the License.
                                 <argument>${doris.home}/gensrc/script</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- annotation processor -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <executions>
+                    <!-- first: compile annotation and annotation processor -->
+                    <execution>
+                        <id>compile-describable-processor</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <proc>none</proc>
+                            <includes>
+                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribable.java</include>
+                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessor.java</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+
+                    <!-- second: generate patterns -->
+                    <execution>
+                        <id>generate-patterns</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <proc>only</proc>
+                            <compilerArgs>
+                                <arg>-AoperatorPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
+                            </compilerArgs>
+                            <includes>
+                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessPoint.java</include>
+                            </includes>
+                            <annotationProcessors>
+                                <annotationProcessor>org.apache.doris.nereids.pattern.generator.PatternDescribableProcessor</annotationProcessor>
+                            </annotationProcessors>
+                        </configuration>
+                    </execution>
+
+                    <!-- third: default compile -->
+                    <execution>
+                        <id>default-compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>org/apache/doris/nereids/pattern/generator/**</exclude>
+                            </excludes>
                         </configuration>
                     </execution>
                 </executions>

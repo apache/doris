@@ -18,6 +18,7 @@
 #include "vec/sink/vtablet_sink.h"
 
 #include "runtime/thread_context.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/doris_metrics.h"
 #include "util/proto_util.h"
@@ -35,6 +36,10 @@ VNodeChannel::VNodeChannel(OlapTableSink* parent, IndexChannel* index_channel, i
 }
 
 VNodeChannel::~VNodeChannel() {
+    if (_add_block_closure != nullptr) {
+        delete _add_block_closure;
+        _add_block_closure = nullptr;
+    }
     _cur_add_block_request.release_id();
 }
 
@@ -232,7 +237,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         Status st = block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes,
-                                    &_column_values_buffer);
+                                    _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             _add_block_closure->clear_in_flight();
@@ -273,13 +278,31 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
     }
 
-    if (request.has_block()) {
-        request_block_transfer_attachment<PTabletWriterAddBlockRequest,
-                                          ReusableClosure<PTabletWriterAddBlockResult>>(
-                &request, _column_values_buffer, _add_block_closure);
+    if (_parent->_transfer_large_data_by_brpc && request.has_block() &&
+        request.block().has_column_values() && request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
+        Status st = request_embed_attachment_contain_block<
+                PTabletWriterAddBlockRequest, ReusableClosure<PTabletWriterAddBlockResult>>(
+                &request, _add_block_closure);
+        if (!st.ok()) {
+            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            _add_block_closure->clear_in_flight();
+            return;
+        }
+        std::string brpc_url = fmt::format("http://{}:{}", _node_info.host, _node_info.brpc_port);
+        std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
+                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
+                                                                                          "http");
+        _add_block_closure->cntl.http_request().uri() =
+                brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
+        _add_block_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
+        _add_block_closure->cntl.http_request().set_content_type("application/json");
+        _brpc_http_stub->tablet_writer_add_block_by_http(
+                &_add_block_closure->cntl, NULL, &_add_block_closure->result, _add_block_closure);
+    } else {
+        _add_block_closure->cntl.http_request().Clear();
+        _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
+                                       &_add_block_closure->result, _add_block_closure);
     }
-    _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request, &_add_block_closure->result,
-                                   _add_block_closure);
 
     _next_packet_seq++;
 }

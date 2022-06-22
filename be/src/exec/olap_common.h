@@ -25,13 +25,8 @@
 #include <string>
 #include <variant>
 
-#include "common/logging.h"
 #include "exec/olap_utils.h"
-#include "exec/scan_node.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "olap/tuple.h"
-#include "runtime/descriptors.h"
-#include "runtime/string_value.hpp"
 #include "runtime/type_limit.h"
 
 namespace doris {

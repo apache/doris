@@ -156,7 +156,8 @@ public class Config extends ConfigBase {
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
     /**
-     * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
+     * the transaction will be cleaned after transaction_clean_interval_second seconds
+     * if the transaction is visible or aborted
      * we should make this interval as short as possible and each clean cycle as soon as possible
      */
     @ConfField
@@ -729,7 +730,8 @@ public class Config extends ConfigBase {
     public static int max_running_txn_num_per_db = 100;
 
     /**
-     * This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size,
+     * This configuration is just for compatible with old version,
+     * this config has been replaced by async_loading_load_task_pool_size,
      * it will be removed in the future.
      */
     @ConfField(mutable = false, masterOnly = true)
@@ -1046,15 +1048,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_local_replica_selection_fallback = false;
 
-
-    /**
-     * The timeout of executing async remote fragment.
-     * In normal case, the async remote fragment will be executed in a short time. If system are under high load
-     * condition，try to set this timeout longer.
-     */
-    @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
-
     /**
      * The number of query retries.
      * A query may retry if we encounter RPC exception and no result has been sent to user.
@@ -1080,7 +1073,8 @@ public class Config extends ConfigBase {
     public static boolean disable_load_job = false;
 
     /*
-     * One master daemon thread will update database used data quota for db txn manager every db_used_data_quota_update_interval_secs
+     * One master daemon thread will update database used data quota for db txn manager
+     * every db_used_data_quota_update_interval_secs
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int db_used_data_quota_update_interval_secs = 300;
@@ -1303,11 +1297,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
-    /*
-     * If set to true, Doris will support complex type
-     */
-    @ConfField
-    public static boolean enable_complex_type_support = false;
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
      * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
@@ -1500,7 +1489,8 @@ public class Config extends ConfigBase {
     public static int default_max_query_instances = -1;
 
     /*
-     * One master daemon thread will update global partition in memory info every partition_in_memory_update_interval_secs
+     * One master daemon thread will update global partition in memory
+     * info every partition_in_memory_update_interval_secs
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_in_memory_update_interval_secs = 300;
@@ -1552,7 +1542,8 @@ public class Config extends ConfigBase {
      * is to wait until the loading task finished before dropping them.
      * But the default strategy may takes very long time to handle these redundant replicas.
      * So we can set this config to true to not wait any loading task.
-     * Set this config to true may cause loading task failed, but will speed up the process of tablet balance and repair.
+     * Set this config to true may cause loading task failed, but will
+     * speed up the process of tablet balance and repair.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_force_drop_redundant_replica = false;
@@ -1565,7 +1556,8 @@ public class Config extends ConfigBase {
 
     /*
      * The relocation of a colocation group may involve a large number of tablets moving within the cluster.
-     * Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
+     * Therefore, we should use a more conservative strategy to avoid relocation
+     * of colocation groups as much as possible.
      * Reloaction usually occurs after a BE node goes offline or goes down.
      * This parameter is used to delay the determination of BE node unavailability.
      * The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group
@@ -1591,8 +1583,8 @@ public class Config extends ConfigBase {
     public static int min_version_count_indicate_replica_compaction_too_slow = 300;
 
     /**
-     * The valid ratio threshold of the difference between the version count of the slowest replica and the fastest replica.
-     * If repair_slow_replica is set to true, it is used to determine whether to repair the slowest replica
+     * The valid ratio threshold of the difference between the version count of the slowest replicaand the fastest
+     * replica. If repair_slow_replica is set to true, it is used to determine whether to repair the slowest replica
      */
     @ConfField(mutable = true, masterOnly = true)
     public static double valid_version_count_delta_ratio_between_replicas = 0.5;
@@ -1655,4 +1647,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
+    /**
+     * Temp config for multi catalog feature.
+     * Should be removed when this feature is ready.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_multi_catalog = false; // 1 min
+
+    /**
+     * If set to TRUE, FE will:
+     * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
+     * 2. ignore whether the cluster can be more balanced during tablet scheduling;
+     *
+     * It's used to test the reliability in single replica case when tablet scheduling are frequent.
+     * Default is false.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean be_rebalancer_fuzzy_test = false;
 }

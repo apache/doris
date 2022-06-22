@@ -20,7 +20,8 @@ package org.apache.doris.nereids.pattern;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.TreeNode;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
@@ -30,33 +31,30 @@ import java.util.function.Predicate;
  * Define a descriptor to wrap a pattern tree to define a pattern shape.
  * It can support pattern generic type to MatchedAction.
  */
-public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode> {
-    public final Pattern<INPUT_TYPE> pattern;
+public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> {
+    public final Pattern<INPUT_TYPE, RULE_TYPE> pattern;
     public final RulePromise defaultPromise;
-    public final List<Predicate<INPUT_TYPE>> predicates = new ArrayList<>();
 
-    public PatternDescriptor(Pattern<INPUT_TYPE> pattern, RulePromise defaultPromise) {
+    public PatternDescriptor(Pattern<INPUT_TYPE, RULE_TYPE> pattern, RulePromise defaultPromise) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
         this.defaultPromise = Objects.requireNonNull(defaultPromise, "defaultPromise can not be null");
     }
 
     public PatternDescriptor<INPUT_TYPE, RULE_TYPE> when(Predicate<INPUT_TYPE> predicate) {
-        predicates.add(predicate);
-        return this;
+        List<Predicate<INPUT_TYPE>> predicates = ImmutableList.<Predicate<INPUT_TYPE>>builder()
+                .addAll(pattern.getPredicates())
+                .add(predicate)
+                .build();
+        return new PatternDescriptor<>(pattern.withPredicates(predicates), defaultPromise);
     }
 
     public <OUTPUT_TYPE extends RULE_TYPE> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> then(
             Function<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
-        return new PatternMatcher<>(patternWithPredicates(), defaultPromise, ctx -> matchedAction.apply(ctx.root));
+        return new PatternMatcher<>(pattern, defaultPromise, ctx -> matchedAction.apply(ctx.root));
     }
 
     public <OUTPUT_TYPE extends RULE_TYPE> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> thenApply(
-            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
-        return new PatternMatcher<>(patternWithPredicates(), defaultPromise, matchedAction);
-    }
-
-    public Pattern<INPUT_TYPE> patternWithPredicates() {
-        Pattern[] children = pattern.children().toArray(new Pattern[0]);
-        return new Pattern<>(pattern.getOperatorType(), predicates, children);
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> matchedAction) {
+        return new PatternMatcher<>(pattern, defaultPromise, matchedAction);
     }
 }

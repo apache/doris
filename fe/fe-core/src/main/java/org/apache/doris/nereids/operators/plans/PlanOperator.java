@@ -18,9 +18,14 @@
 package org.apache.doris.nereids.operators.plans;
 
 import org.apache.doris.nereids.operators.Operator;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.List;
 
 /**
  * interface for all concrete plan operator.
  */
-public interface PlanOperator<TYPE extends PlanOperator<TYPE>> extends Operator<TYPE> {
+public interface PlanOperator extends Operator {
+
+    List<Expression> getExpressions();
 }

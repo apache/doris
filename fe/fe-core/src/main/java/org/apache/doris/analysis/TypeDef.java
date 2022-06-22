@@ -28,7 +28,6 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 
 import com.google.common.base.Preconditions;
 
@@ -86,9 +85,6 @@ public class TypeDef implements ParseNode {
         }
 
         if (type.isComplexType()) {
-            if (!Config.enable_complex_type_support) {
-                throw new AnalysisException("Unsupported data type: " + type.toSql());
-            }
             if (type.isArrayType()) {
                 Type itemType = ((ArrayType) type).getItemType();
                 if (itemType instanceof ScalarType) {

@@ -77,15 +77,19 @@ public class ArithmeticExpr extends Expr {
         public String toString() {
             return description;
         }
+
         public String getName() {
             return name;
         }
+
         public OperatorPosition getPos() {
             return pos;
         }
+
         public TExprOpcode getOpcode() {
             return opcode;
         }
+
         public boolean isUnary() {
             return pos == OperatorPosition.UNARY_PREFIX
                     || pos == OperatorPosition.UNARY_POSTFIX;

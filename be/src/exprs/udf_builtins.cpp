@@ -23,8 +23,6 @@
 #include <ctype.h>
 #include <math.h>
 
-#include "common/logging.h"
-
 namespace doris {
 using doris_udf::FunctionContext;
 using doris_udf::BooleanVal;

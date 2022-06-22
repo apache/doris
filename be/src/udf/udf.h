@@ -100,7 +100,7 @@ public:
         /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
         int len;
 
-        // only vaild if type == TYPE_ARRAY
+        // only valid if type == TYPE_ARRAY
         std::vector<TypeDesc> children;
     };
 
@@ -199,7 +199,7 @@ public:
     doris::FunctionContextImpl* impl() { return _impl; }
 
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
-    /// be used to store a pointer that can then be retreived via GetFunctionState(). If
+    /// be used to store a pointer that can then be retrieved via GetFunctionState(). If
     /// GetFunctionState() is called when no pointer is set, it will return
     /// nullptr. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
     /// to clean up any function state if necessary.
@@ -282,7 +282,7 @@ private:
 // should only read the input arguments and return the result, using only the
 // FunctionContext as an external object.
 //
-// Memory Managment: the UDF can assume that memory from input arguments will have
+// Memory Management: the UDF can assume that memory from input arguments will have
 // the same lifetime as results for the UDF. In other words, the UDF can return
 // memory from input arguments without making copies. For example, a function like
 // substring will not need to allocate and copy the smaller string. For cases where
@@ -626,7 +626,7 @@ struct StringVal : public AnyVal {
     // string memory.
     StringVal(FunctionContext* context, int64_t len);
 
-    // Creates a StringVal, which memory is avaliable when this funciont context is used next time
+    // Creates a StringVal, which memory is available when this function context is used next time
     static StringVal create_temp_string_val(FunctionContext* ctx, int64_t len);
 
     bool resize(FunctionContext* context, int64_t len);
@@ -742,7 +742,7 @@ struct HllVal : public StringVal {
 
 struct CollectionVal : public AnyVal {
     void* data;
-    uint32_t length;
+    uint64_t length;
     // item has no null value if has_null is false.
     // item ```may``` has null value if has_null is true.
     bool has_null;
@@ -751,7 +751,7 @@ struct CollectionVal : public AnyVal {
 
     CollectionVal() = default;
 
-    CollectionVal(void* data, uint32_t length, bool has_null, bool* null_signs)
+    CollectionVal(void* data, uint64_t length, bool has_null, bool* null_signs)
             : data(data), length(length), has_null(has_null), null_signs(null_signs) {};
 
     static CollectionVal null() {

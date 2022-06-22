@@ -977,25 +977,19 @@ Status HashJoinNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
 
-    if (_runtime_filter_descs.empty()) {
-        std::promise<Status> thread_status;
-        std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
-                .detach();
+    std::promise<Status> thread_status;
+    std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
+            .detach();
 
-        // Open the probe-side child so that it may perform any initialisation in parallel.
-        // Don't exit even if we see an error, we still need to wait for the build thread
-        // to finish.
-        // ISSUE-1247, check open_status after buildThread execute.
-        // If this return first, build thread will use 'thread_status'
-        // which is already destructor and then coredump.
-        Status open_status = child(0)->open(state);
-        RETURN_IF_ERROR(thread_status.get_future().get());
-        return open_status;
-    } else {
-        RETURN_IF_ERROR(_hash_table_build(state));
-        RETURN_IF_ERROR(child(0)->open(state));
-        return Status::OK();
-    }
+    // Open the probe-side child so that it may perform any initialisation in parallel.
+    // Don't exit even if we see an error, we still need to wait for the build thread
+    // to finish.
+    // ISSUE-1247, check open_status after buildThread execute.
+    // If this return first, build thread will use 'thread_status'
+    // which is already destructor and then coredump.
+    Status open_status = child(0)->open(state);
+    RETURN_IF_ERROR(thread_status.get_future().get());
+    return open_status;
 }
 
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {

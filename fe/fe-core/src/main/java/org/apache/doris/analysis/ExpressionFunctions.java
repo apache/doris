@@ -75,7 +75,8 @@ public enum ExpressionFunctions {
             // 2. Not in NonNullResultWithNullParamFunctions
             // 3. Has null parameter
             if ((fn.getNullableMode() == Function.NullableMode.DEPEND_ON_ARGUMENT
-                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(fn.getFunctionName().getFunction()))
+                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(
+                            fn.getFunctionName().getFunction()))
                     && !fn.isUdf()) {
                 for (Expr e : constExpr.getChildren()) {
                     if (e instanceof NullLiteral) {
@@ -92,12 +93,8 @@ public enum ExpressionFunctions {
                 return constExpr;
             }
 
-            List<ScalarType> argTypes = new ArrayList<>();
-            for (Type type : fn.getArgs()) {
-                argTypes.add((ScalarType) type);
-            }
             FEFunctionSignature signature = new FEFunctionSignature(fn.functionName(),
-                    argTypes.toArray(new ScalarType[argTypes.size()]), fn.getReturnType());
+                    fn.getArgs(), fn.getReturnType());
             FEFunctionInvoker invoker = getFunction(signature);
             if (invoker != null) {
                 try {
@@ -123,8 +120,8 @@ public enum ExpressionFunctions {
                 continue;
             }
 
-            ScalarType[] argTypes1 = invoker.getSignature().getArgTypes();
-            ScalarType[] argTypes2 = signature.getArgTypes();
+            Type[] argTypes1 = invoker.getSignature().getArgTypes();
+            Type[] argTypes2 = signature.getArgTypes();
 
             if (!Arrays.equals(argTypes1, argTypes2)) {
                 continue;
@@ -160,12 +157,12 @@ public enum ExpressionFunctions {
         if (annotation != null) {
             String name = annotation.name();
             Type returnType = Type.fromPrimitiveType(PrimitiveType.valueOf(annotation.returnType()));
-            List<ScalarType> argTypes = new ArrayList<>();
+            List<Type> argTypes = new ArrayList<>();
             for (String type : annotation.argTypes()) {
                 argTypes.add(ScalarType.createType(type));
             }
             FEFunctionSignature signature = new FEFunctionSignature(name,
-                    argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
+                    argTypes.toArray(new Type[argTypes.size()]), returnType);
             mapBuilder.put(name, new FEFunctionInvoker(method, signature));
         }
     }
@@ -205,7 +202,8 @@ public enum ExpressionFunctions {
                 if (argType.isArray()) {
                     Preconditions.checkArgument(method.getParameterTypes().length == typeIndex + 1);
                     final List<Expr> variableLengthExprs = Lists.newArrayList();
-                    for (int variableLengthArgIndex = typeIndex; variableLengthArgIndex < args.size(); variableLengthArgIndex++) {
+                    for (int variableLengthArgIndex = typeIndex;
+                            variableLengthArgIndex < args.size(); variableLengthArgIndex++) {
                         variableLengthExprs.add(args.get(variableLengthArgIndex));
                     }
                     LiteralExpr[] variableLengthArgs = createVariableLengthArgs(variableLengthExprs, typeIndex);
@@ -227,7 +225,7 @@ public enum ExpressionFunctions {
                 throw new AnalysisException("Function's args doesn't match.");
             }
 
-            final ScalarType argType = signature.getArgTypes()[typeIndex];
+            final Type argType = signature.getArgTypes()[typeIndex];
             LiteralExpr[] exprs;
             if (argType.isStringType()) {
                 exprs = new StringLiteral[args.size()];
@@ -257,16 +255,16 @@ public enum ExpressionFunctions {
 
     public static class FEFunctionSignature {
         private final String name;
-        private final ScalarType[] argTypes;
+        private final Type[] argTypes;
         private final Type returnType;
 
-        public FEFunctionSignature(String name, ScalarType[] argTypes, Type returnType) {
+        public FEFunctionSignature(String name, Type[] argTypes, Type returnType) {
             this.name = name;
             this.argTypes = argTypes;
             this.returnType = returnType;
         }
 
-        public ScalarType[] getArgTypes() {
+        public Type[] getArgTypes() {
             return argTypes;
         }
 

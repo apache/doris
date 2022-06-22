@@ -40,12 +40,12 @@ import java.util.List;
 public class SparkRepositoryTest {
     private SparkRepository repository;
 
-    private final static String DPP_LOCAL_MD5SUM = "b3cd0ae3a4121e2426532484442e90ec";
-    private final static String SPARK_LOCAL_MD5SUM = "6d2b052ffbdf7082c019bd202432739c";
-    private final static String DPP_VERSION = Config.spark_dpp_version;
-    private final static String SPARK_LOAD_WORK_DIR = "hdfs://127.0.0.1/99999/user/doris/etl";
-    private final static String DPP_NAME = SparkRepository.SPARK_DPP + ".jar";
-    private final static String SPARK_NAME = SparkRepository.SPARK_2X + ".zip";
+    private static final String DPP_LOCAL_MD5SUM = "b3cd0ae3a4121e2426532484442e90ec";
+    private static final String SPARK_LOCAL_MD5SUM = "6d2b052ffbdf7082c019bd202432739c";
+    private static final String DPP_VERSION = Config.spark_dpp_version;
+    private static final String SPARK_LOAD_WORK_DIR = "hdfs://127.0.0.1/99999/user/doris/etl";
+    private static final String DPP_NAME = SparkRepository.SPARK_DPP + ".jar";
+    private static final String SPARK_NAME = SparkRepository.SPARK_2X + ".zip";
 
     private String remoteRepoPath;
     private String remoteArchivePath;

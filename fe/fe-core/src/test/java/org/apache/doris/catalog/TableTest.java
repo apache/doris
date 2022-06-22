@@ -92,13 +92,17 @@ public class TableTest {
     public void lockTestWithException() {
         table.markDropped();
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "errCode = 2, detailMessage = unknown table, tableName=test", () -> table.writeLockOrDdlException());
+                "errCode = 2, detailMessage = unknown table, tableName=test",
+                () -> table.writeLockOrDdlException());
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "errCode = 7, detailMessage = unknown table, tableName=test", () -> table.writeLockOrMetaException());
+                "errCode = 7, detailMessage = unknown table, tableName=test",
+                () -> table.writeLockOrMetaException());
         ExceptionChecker.expectThrowsWithMsg(AlterCancelException.class,
-                "errCode = 2, detailMessage = unknown table, tableName=test", () -> table.writeLockOrAlterCancelException());
+                "errCode = 2, detailMessage = unknown table, tableName=test",
+                () -> table.writeLockOrAlterCancelException());
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "errCode = 7, detailMessage = unknown table, tableName=test", () -> table.tryWriteLockOrMetaException(1000, TimeUnit.MILLISECONDS));
+                "errCode = 7, detailMessage = unknown table, tableName=test",
+                () -> table.tryWriteLockOrMetaException(1000, TimeUnit.MILLISECONDS));
         table.unmarkDropped();
     }
 
@@ -136,7 +140,7 @@ public class TableTest {
         List<Column> column = Lists.newArrayList();
         column.add(column2);
 
-        table1.setIndexMeta(new Long(2), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table1.setIndexMeta(2L, "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
         Deencapsulation.setField(table1, "baseIndexId", 1000);
         table1.write(dos);
         dos.flush();

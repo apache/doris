@@ -33,7 +33,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -66,8 +66,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("PartitionId").add("PartitionName")
             .add("VisibleVersion").add("VisibleVersionTime")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
-            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
-            .add("RemoteStorageResource").add("RemoteStorageCooldownTime")
+            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .build();
 
@@ -91,7 +90,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         }
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
-            if (subExpr.getChild(1) instanceof StringLiteral && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
+            if (subExpr.getChild(1) instanceof StringLiteral
+                    && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
                 return ((StringLiteral) subExpr.getChild(1)).getValue().equals(element);
             }
             long leftVal;
@@ -135,7 +135,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         return str.matches(expr);
     }
 
-    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs, LimitElement limitElement) throws AnalysisException {
+    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs,
+            LimitElement limitElement) throws AnalysisException {
         List<List<Comparable>> partitionInfos = getPartitionInfos();
         List<List<Comparable>> filterPartitionInfos;
         //where
@@ -216,7 +217,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
-                Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
+                Collection<Partition> partitions = isTempPartition
+                        ? olapTable.getTempPartitions() : olapTable.getPartitions();
                 partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             }
 
@@ -270,8 +272,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());
                 partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
-                partitionInfo.add(dataProperty.getRemoteStorageResourceName());
-                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getRemoteCooldownTimeMs()));
+                partitionInfo.add(dataProperty.getRemoteStoragePolicy());
 
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 

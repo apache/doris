@@ -20,6 +20,8 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAssertNumRowsNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -42,7 +44,7 @@ public class AssertNumRowsNode extends PlanNode {
     private AssertNumRowsElement.Assertion assertion;
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {
-        super(id, "ASSERT NUMBER OF ROWS");
+        super(id, "ASSERT NUMBER OF ROWS", StatisticalType.ASSERT_NUM_ROWS_NODE);
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();
@@ -57,7 +59,8 @@ public class AssertNumRowsNode extends PlanNode {
         super.init(analyzer);
         super.computeStats(analyzer);
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            cardinality = 1;
+            StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+            cardinality = statsDeriveResult.getRowCount();
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats AssertNumRows: cardinality={}", cardinality);

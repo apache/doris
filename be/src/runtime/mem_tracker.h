@@ -401,8 +401,7 @@ public:
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     /// If 'state' is non-nullptr, logs the error to 'state'.
     Status mem_limit_exceeded(RuntimeState* state, const std::string& details = std::string(),
-                              int64_t failed_allocation = -1,
-                              Status failed_alloc = Status::OK()) WARN_UNUSED_RESULT;
+                              int64_t failed_allocation = -1, Status failed_alloc = Status::OK());
 
     // Usually, a negative values means that the statistics are not accurate,
     // 1. The released memory is not consumed.
@@ -417,9 +416,17 @@ public:
 
     // If an ancestor of this tracker is a Task MemTracker, return that tracker. Otherwise return nullptr.
     MemTracker* parent_task_mem_tracker() {
-        MemTracker* tracker = this;
+        if (this->_level == MemTrackerLevel::TASK) {
+            return this;
+        } else {
+            return parent_task_mem_tracker_no_own().get();
+        }
+    }
+
+    std::shared_ptr<MemTracker> parent_task_mem_tracker_no_own() {
+        std::shared_ptr<MemTracker> tracker = this->_parent;
         while (tracker != nullptr && tracker->_level != MemTrackerLevel::TASK) {
-            tracker = tracker->_parent.get();
+            tracker = tracker->_parent;
         }
         return tracker;
     }

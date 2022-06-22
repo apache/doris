@@ -205,6 +205,7 @@ public class GroupByClauseTest {
         groupingExprs.remove(0);
         Assert.assertEquals(groupByClause.getGroupingExprs(), groupingExprs);
     }
+
     @Test
     public void testReset() {
         ArrayList<Expr> groupingExprs = new ArrayList<>();

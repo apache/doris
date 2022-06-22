@@ -43,9 +43,12 @@ import java.util.List;
 public abstract class AlterJobV2 implements Writable {
     private static final Logger LOG = LogManager.getLogger(AlterJobV2.class);
 
+
     public enum JobState {
         PENDING, // Job is created
+        // CHECKSTYLE OFF
         WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns, waiting for previous txns to be finished
+        // CHECKSTYLE ON
         RUNNING, // alter tasks are sent to BE, and waiting for them finished.
         FINISHED, // job is done
         CANCELLED; // job is cancelled(failed or be cancelled by user)
@@ -175,7 +178,7 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    public synchronized final boolean cancel(String errMsg) {
+    public final synchronized boolean cancel(String errMsg) {
         return cancelImpl(errMsg);
     }
 
@@ -186,7 +189,7 @@ public abstract class AlterJobV2 implements Writable {
     protected boolean checkTableStable(Database db) throws AlterCancelException {
         OlapTable tbl;
         try {
-            tbl = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }

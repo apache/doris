@@ -37,6 +37,8 @@ public:
 
     [[nodiscard]] const std::string& expr_name() const override;
 
+    virtual std::string debug_string() const override;
+
 private:
     std::string _expr_name;
     std::vector<TupleId> _tuple_ids;

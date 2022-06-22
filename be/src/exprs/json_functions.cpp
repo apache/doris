@@ -33,12 +33,8 @@
 
 #include "common/logging.h"
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
 #include "gutil/strings/stringpiece.h"
-#include "olap/olap_define.h"
 #include "rapidjson/error/en.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/string_util.h"
 

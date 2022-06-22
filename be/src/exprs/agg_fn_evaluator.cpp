@@ -33,15 +33,12 @@
 
 #include <sstream>
 
-#include "common/logging.h"
-#include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/user_function_cache.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
 
 namespace doris {
 using doris_udf::FunctionContext;
@@ -486,7 +483,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
             total_len += string_len;
         }
 
-        total_len += get_real_byte_size(input_expr_ctxs()[i]->root()->type().type);
+        total_len += get_byte_size(input_expr_ctxs()[i]->root()->type().type);
     }
 
     int32_t vec_size = vec_string_len.size();

@@ -29,7 +29,7 @@ import com.google.common.base.Strings;
 // show query profile "/";   # list all saving query ids
 // show query profile "/e0f7390f5363419e-b416a2a79996083e"  # show graph of fragments of the query
 // show query profile "/e0f7390f5363419e-b416a2a79996083e/0" # show instance list of the specified fragment
-// show query profile "/e0f7390f5363419e-b416a2a79996083e/0/e0f7390f5363419e-b416a2a799960906" # show graph of the instance
+// show query profile "/e0f7390f5363419e-b416a2a79996083e/0/e0f7390f5363419e-b416a2a799960906" # show instance's graph
 public class ShowQueryProfileStmt extends ShowStmt {
     // This should be same as ProfileManager.PROFILE_HEADERS
     public static final ShowResultSetMetaData META_DATA_QUERY_IDS =

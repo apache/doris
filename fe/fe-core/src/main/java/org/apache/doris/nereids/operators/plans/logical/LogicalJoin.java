@@ -33,12 +33,10 @@ import java.util.Optional;
 /**
  * Logical join plan operator.
  */
-public class LogicalJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends Plan>
-        extends LogicalBinaryOperator<LogicalJoin<LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
-            LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
+public class LogicalJoin extends LogicalBinaryOperator {
 
     private final JoinType joinType;
-    private final Optional<Expression> onClause;
+    private final Optional<Expression> condition;
 
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
@@ -56,16 +54,16 @@ public class LogicalJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends 
      * Constructor for LogicalJoinPlan.
      *
      * @param joinType logical type for join
-     * @param onClause on clause for join node
+     * @param condition on clause for join node
      */
-    public LogicalJoin(JoinType joinType, Optional<Expression> onClause) {
+    public LogicalJoin(JoinType joinType, Optional<Expression> condition) {
         super(OperatorType.LOGICAL_JOIN);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.onClause = Objects.requireNonNull(onClause, "onClause can not be null");
+        this.condition = Objects.requireNonNull(condition, "condition can not be null");
     }
 
-    public Optional<Expression> getOnClause() {
-        return onClause;
+    public Optional<Expression> getCondition() {
+        return condition;
     }
 
     public JoinType getJoinType() {
@@ -73,7 +71,7 @@ public class LogicalJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends 
     }
 
     @Override
-    public List<Slot> doComputeOutput(LEFT_INPUT_TYPE leftInput, RIGHT_INPUT_TYPE rightInput) {
+    public List<Slot> computeOutput(Plan leftInput, Plan rightInput) {
         switch (joinType) {
             case LEFT_SEMI_JOIN:
                 return ImmutableList.copyOf(leftInput.getOutput());
@@ -90,10 +88,13 @@ public class LogicalJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("Join (").append(joinType);
-        if (onClause != null) {
-            sb.append(", ").append(onClause);
-        }
+        condition.ifPresent(expression -> sb.append(", ").append(expression));
         return sb.append(")").toString();
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
 
     public JoinReorderContext getJoinReorderContext() {

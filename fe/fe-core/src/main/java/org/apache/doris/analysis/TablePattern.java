@@ -41,6 +41,7 @@ public class TablePattern implements Writable {
     boolean isAnalyzed = false;
 
     public static TablePattern ALL;
+
     static {
         ALL = new TablePattern("*", "*");
         try {

@@ -16,13 +16,25 @@
 // under the License.
 
 #pragma once
-#include "olap/tablet_schema.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/block.h"
 
-namespace doris::vectorized {
+#include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+
+namespace doris {
+
+class TabletSchema;
+class TabletColumn;
+class MemTracker;
+class Status;
+
+namespace vectorized {
+
+class Block;
+class ColumnArray;
+class DataTypeArray;
 
 class IOlapColumnDataAccessor {
 public:
@@ -50,6 +62,7 @@ private:
     class OlapColumnDataConvertorBase : public IOlapColumnDataAccessor {
     public:
         OlapColumnDataConvertorBase() = default;
+        ~OlapColumnDataConvertorBase() override = default;
         OlapColumnDataConvertorBase(const OlapColumnDataConvertorBase&) = delete;
         OlapColumnDataConvertorBase& operator=(const OlapColumnDataConvertorBase&) = delete;
         OlapColumnDataConvertorBase(OlapColumnDataConvertorBase&&) = delete;
@@ -120,6 +133,11 @@ private:
                 column->offsets[i] = (i + 1) * (padding_length + 1);
 
                 auto str = input->get_data_at(i);
+
+                DCHECK(str.size <= padding_length)
+                        << "char type data length over limit, padding_length=" << padding_length
+                        << ", real=" << str.size;
+
                 if (str.size) {
                     memcpy(padded_column->chars.data() + i * (padding_length + 1), str.data,
                            str.size);
@@ -236,6 +254,8 @@ private:
         Status convert_to_olap() override;
 
     private:
+        Status convert_to_olap(const UInt8* null_map, const ColumnArray* column_array,
+                               const DataTypeArray* data_type_array);
         OlapColumnDataConvertorBaseUPtr _item_convertor;
     };
 
@@ -243,4 +263,5 @@ private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;
 };
 
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris

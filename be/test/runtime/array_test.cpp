@@ -45,16 +45,20 @@
 #include "testutil/desc_tbl_builder.h"
 #include "util/file_utils.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
 template <typename... Ts>
 ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types) {
     ColumnPB column;
-    column.set_type(type);
+    auto prefix = "NOT_NULL_";
+    column.set_is_nullable(type.compare(0, strlen(prefix), prefix) != 0);
+    column.set_type(column.is_nullable() ? type : type.substr(strlen(prefix)));
     column.set_aggregation("NONE");
-    column.set_is_nullable(true);
     if (type == "ARRAY") {
         column.set_length(OLAP_ARRAY_MAX_BYTES);
     }
@@ -288,10 +292,12 @@ private:
             auto col = block.column_block(0);
             int index = 0;
             size_t rows_read = 1024;
+            size_t num_rows = 0;
             do {
                 ColumnBlockView dst(&col);
                 st = iter->next_batch(&rows_read, &dst);
                 EXPECT_TRUE(st.ok());
+                num_rows += rows_read;
                 for (int i = 0; i < rows_read; ++i) {
                     validate(field, arrays[index++],
                              reinterpret_cast<const CollectionValue*>(col.cell_ptr(i)));
@@ -300,8 +306,43 @@ private:
             } while (rows_read >= 1024);
             auto type_info = get_type_info(column_pb);
             auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-            block.set_selected_size(rows_read);
+            block.set_selected_size(num_rows);
             test_convert_to_vec_block(block, tuple_desc, field, arrays);
+        }
+        {
+            auto type_info = get_type_info(column_pb);
+            auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+
+            auto reader = create_column_reader(path, meta, arrays.size());
+            EXPECT_NE(reader, nullptr);
+            auto rblock = create_readable_block(path);
+            EXPECT_NE(rblock, nullptr);
+            OlapReaderStatistics stats;
+            std::unique_ptr<segment_v2::ColumnIterator> iter(
+                    new_iterator(rblock.get(), &stats, reader.get()));
+            EXPECT_NE(iter, nullptr);
+            auto st = iter->seek_to_first();
+            EXPECT_TRUE(st.ok()) << st.to_string();
+
+            auto data_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+            auto column_ptr = data_type->create_column();
+            size_t rows_read = 1024;
+            column_ptr->reserve(rows_read);
+            do {
+                bool has_null = false;
+                st = iter->next_batch(&rows_read, column_ptr, &has_null);
+                EXPECT_TRUE(st.ok());
+                vectorized::Block vblock;
+                vblock.insert({const_cast<const vectorized::IColumn&>(*column_ptr).get_ptr(),
+                               data_type, ""});
+                for (int i = 0; i < arrays.size(); ++i) {
+                    auto tuple = vblock.deep_copy_tuple(*tuple_desc, _mem_pool.get(), i, 0, false);
+                    auto actual =
+                            tuple->get_collection_slot(tuple_desc->slots().front()->tuple_offset());
+                    validate(field, arrays[i], actual);
+                }
+            } while (rows_read >= 1024);
         }
     }
 
@@ -326,7 +367,7 @@ private:
             meta->set_encoding(item_encoding);
         }
         meta->set_compression(segment_v2::LZ4F);
-        meta->set_is_nullable(true);
+        meta->set_is_nullable(column.is_nullable());
         for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
             init_column_meta<array_encoding, item_encoding>(meta->add_children_columns(), column_id,
                                                             column.get_sub_column(i));
@@ -465,6 +506,36 @@ TEST_F(ArrayTest, TestBoolean) {
     test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, literal_arrays);
 }
 
+TEST_F(ArrayTest, TestNotNullBoolean) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", "NOT_NULL_BOOLEAN");
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[true, false, false]",
+    };
+    test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, literal_arrays);
+
+    // depth 2
+    column_pb = create_column_pb("ARRAY", "ARRAY", "NOT_NULL_BOOLEAN");
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[false, true, false]]",
+            "[[false, true, false], [true, false, true]]",
+    };
+    test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, literal_arrays);
+
+    // depth 3
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "NOT_NULL_BOOLEAN");
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[[]]]",
+            "[[[]], [[false], [true, false]], [[false, true, false]]]",
+    };
+    test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb, literal_arrays);
+}
+
 void test_integer(const std::string& type, ArrayTest& test_suite) {
     // depth 1
     auto column_pb = create_column_pb("ARRAY", type);
@@ -512,6 +583,44 @@ TEST_F(ArrayTest, TestInteger) {
     test_integer("LARGEINT", *this);
 }
 
+void test_not_null_integer(const std::string& type, ArrayTest& test_suite) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[1, 2, 3]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 2
+    column_pb = create_column_pb("ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[1, 2, 3]]",
+            "[[1, 2, 3], [4, 5, 6]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 3
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]", "[[]]", "[[[]]]", "[[[1, 2, 3]]]", "[[[]], [[1], [2, 3]], [[4, 5, 6]]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+}
+
+TEST_F(ArrayTest, TestNotNullInteger) {
+    test_not_null_integer("NOT_NULL_TINYINT", *this);
+    test_not_null_integer("NOT_NULL_SMALLINT", *this);
+    test_not_null_integer("NOT_NULL_INT", *this);
+    test_not_null_integer("NOT_NULL_BIGINT", *this);
+    test_not_null_integer("NOT_NULL_LARGEINT", *this);
+}
+
 void test_float(const std::string& type, ArrayTest& test_suite) {
     // depth 1
     auto column_pb = create_column_pb("ARRAY", type);
@@ -555,6 +664,40 @@ TEST_F(ArrayTest, TestFloat) {
     test_float("DOUBLE", *this);
 }
 
+void test_not_null_float(const std::string& type, ArrayTest& test_suite) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[1.5, 2.5, 3.5]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+    // depth 2
+    column_pb = create_column_pb("ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[1.5, 2.5, 3.5]]",
+            "[[1.5, 2.5, 3.5], [4.5, 5.5, 6.5]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 3
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]", "[[]]", "[[[]]]", "[[[1.5]]]", "[[[]], [[1.5], [2.5, 3.5]], [[4.5, 5.5, 6.5]]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+}
+
+TEST_F(ArrayTest, TestNotNullFloat) {
+    test_not_null_float("NOT_NULL_FLOAT", *this);
+    test_not_null_float("NOT_NULL_DOUBLE", *this);
+}
+
 void test_string(const std::string& type, ArrayTest& test_suite) {
     // depth 1
     auto column_pb = create_column_pb("ARRAY", type);
@@ -588,6 +731,35 @@ TEST_F(ArrayTest, TestString) {
     test_string("CHAR", *this);
     test_string("VARCHAR", *this);
     test_string("STRING", *this);
+}
+
+void test_not_null_string(const std::string& type, ArrayTest& test_suite) {
+    // depth 1
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays = {
+            "[]",
+            "[\"a\", \"b\", \"c\"]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(column_pb,
+                                                                             literal_arrays);
+
+    // more depths
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    literal_arrays = {
+            "[]",
+            "[[]]",
+            "[[[]]]",
+            "[[[\"a\", \"b\", \"c\"]]]",
+            "[[[\"a\", \"c\"], [\"d\", \"e\", \"f\"]], [[\"g\"]]]",
+    };
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::DICT_ENCODING>(column_pb,
+                                                                             literal_arrays);
+}
+
+TEST_F(ArrayTest, TestNotNullString) {
+    test_not_null_string("NOT_NULL_CHAR", *this);
+    test_not_null_string("NOT_NULL_VARCHAR", *this);
+    test_not_null_string("NOT_NULL_STRING", *this);
 }
 
 void test_datetime(const std::string& type, ArrayTest& test_suite) {
@@ -681,9 +853,83 @@ TEST_F(ArrayTest, TestDateTime) {
     test_datetime("DATETIME", *this);
 }
 
+void test_not_null_datetime(const std::string& type, ArrayTest& test_suite) {
+    auto column_pb = create_column_pb("ARRAY", type);
+    std::vector<std::string> literal_arrays;
+    if (type == "DATE") {
+        literal_arrays = {
+                "[]",
+                "[\"2022-04-01\", \"2022-04-02\", \"2022-04-03\"]",
+        };
+    } else {
+        literal_arrays = {
+                "[]",
+                "[\"2022-04-01 19:30:40\", \"2022-04-02 19:30:40 \", \"2022-04-03 19:30:40\"]",
+        };
+    }
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+    // depth 2
+    column_pb = create_column_pb("ARRAY", "ARRAY", type);
+    if (type == "DATE") {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[\"2022-04-01\", \"2022-04-02\", \"2022-04-03\"], [\"2022-04-04\", "
+                "\"2022-04-05\", "
+                "\"2022-04-06\"]]",
+        };
+    } else {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[\"2022-04-01 19:30:40\", \"2022-04-02 19:30:40\", \"2022-04-03 19:30:40\"], "
+                "[\"2022-04-04 19:30:40\", "
+                "\"2022-04-05\", "
+                "\"2022-04-06\"]]",
+        };
+    }
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+
+    // depth 3
+    column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", type);
+    if (type == "DATE") {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[[]]]",
+                "[[[\"2022-04-01\"]]]",
+                "[[[]], [[\"2022-04-01\"], [\"2022-04-02\", \"2022-04-03\"]], "
+                "[[\"2022-04-04\", "
+                "\"2022-04-05\", \"2022-04-06\"]]]",
+        };
+    } else {
+        literal_arrays = {
+                "[]",
+                "[[]]",
+                "[[[]]]",
+                "[[[\"2022-04-01 19:30:40\"]]]",
+                "[[[]], [[\"2022-04-01 19:30:40\"], [\"2022-04-02 19:30:40\", \"2022-04-03 "
+                "19:30:40\"]], "
+                "[[\"2022-04-04 19:30:40\", "
+                "\"2022-04-05 19:30:40\", \"2022-04-06 19:30:40\"]]]",
+        };
+    }
+    test_suite.test<segment_v2::DEFAULT_ENCODING, segment_v2::BIT_SHUFFLE>(column_pb,
+                                                                           literal_arrays);
+}
+
+TEST_F(ArrayTest, TestNotNullDateTime) {
+    test_not_null_datetime("NOT_NULL_DATE", *this);
+    test_not_null_datetime("NOT_NULL_DATETIME", *this);
+}
+
 TEST_F(ArrayTest, TestDecimal) {
     test_integer("DECIMAL", *this);
+    test_not_null_integer("NOT_NULL_DECIMAL", *this);
     test_float("DECIMAL", *this);
+    test_not_null_float("NOT_NULL_DECIMAL", *this);
 }
 
 } // namespace doris

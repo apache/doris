@@ -130,6 +130,7 @@ public class InferFiltersRuleTest {
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertFalse(planString.contains("`tb1`.`k1` = 1"));
     }
+
     @Test
     public void testOn2TablesLeftAntiJoinEqLiteralAt1st() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();

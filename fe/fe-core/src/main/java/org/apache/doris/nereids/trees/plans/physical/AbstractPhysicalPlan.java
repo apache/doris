@@ -27,18 +27,15 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
-import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Abstract class for all concrete physical plan.
  */
-public abstract class AbstractPhysicalPlan<
-            PLAN_TYPE extends AbstractPhysicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends PhysicalOperator>
-        extends AbstractPlan<PLAN_TYPE, OP_TYPE>
-        implements PhysicalPlan<PLAN_TYPE, OP_TYPE> {
+public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
+        extends AbstractPlan<OP_TYPE>
+        implements PhysicalPlan {
 
-    protected final LogicalProperties logicalProperties;
     protected final PhysicalProperties physicalProperties;
 
     /**
@@ -46,8 +43,7 @@ public abstract class AbstractPhysicalPlan<
      */
     public AbstractPhysicalPlan(NodeType type, OP_TYPE operator,
             LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, children);
-        this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
+        super(type, operator, logicalProperties, children);
         // TODO: compute physical properties
         this.physicalProperties = new PhysicalProperties();
     }
@@ -61,10 +57,9 @@ public abstract class AbstractPhysicalPlan<
      * @param logicalProperties logical properties of this plan
      * @param children children of this plan
      */
-    public AbstractPhysicalPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression,
+    public AbstractPhysicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, children);
-        this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
+        super(type, operator, groupExpression, logicalProperties, children);
         // TODO: compute physical properties
         this.physicalProperties = new PhysicalProperties();
     }
@@ -82,4 +77,5 @@ public abstract class AbstractPhysicalPlan<
     public PhysicalProperties getPhysicalProperties() {
         return physicalProperties;
     }
+
 }

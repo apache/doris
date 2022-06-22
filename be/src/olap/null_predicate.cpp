@@ -125,19 +125,20 @@ Status NullPredicate::evaluate(const Schema& schema,
     return Status::OK();
 }
 
-void NullPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
+uint16_t NullPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
     uint16_t new_size = 0;
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         auto& null_map = nullable->get_null_map_data();
-        for (uint16_t i = 0; i < *size; ++i) {
+        for (uint16_t i = 0; i < size; ++i) {
             uint16_t idx = sel[i];
             sel[new_size] = idx;
             new_size += (null_map[idx] == _is_null);
         }
-        *size = new_size;
+        return new_size;
     } else {
-        if (_is_null) *size = 0;
+        if (_is_null) return 0;
     }
+    return size;
 }
 
 void NullPredicate::evaluate_or(IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {

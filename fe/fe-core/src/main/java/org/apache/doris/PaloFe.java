@@ -22,7 +22,6 @@ import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
-import org.apache.doris.common.MetaReader;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
@@ -31,6 +30,7 @@ import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
+import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
@@ -132,7 +132,8 @@ public class PaloFe {
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
             // 3. QeService for MySQL Server
-            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
+            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
+                    ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
 
             feServer.start();
@@ -324,7 +325,8 @@ public class PaloFe {
         } else if (cmdLineOpts.runImageTool()) {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
-                System.out.println("image does not exist: " + imageFile.getAbsolutePath() + " . Please put an absolute path instead");
+                System.out.println("image does not exist: " + imageFile.getAbsolutePath()
+                        + " . Please put an absolute path instead");
                 System.exit(-1);
             } else {
                 System.out.println("Start to load image: ");

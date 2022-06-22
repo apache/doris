@@ -117,6 +117,7 @@ public class EntryPosition {
             return true;
         }
     }
+
     @Override
     public String toString() {
         return "[" + journalName + ":" + position + "]";
@@ -163,7 +164,8 @@ public class EntryPosition {
 
     public static boolean checkPosition(CanalEntry.Header header, EntryPosition entryPosition) {
         boolean result = entryPosition.getExecuteTime().equals(header.getExecuteTime());
-        boolean isEmptyPosition = (Strings.isNullOrEmpty(entryPosition.getJournalName()) && entryPosition.getPosition() == null);
+        boolean isEmptyPosition = (Strings.isNullOrEmpty(entryPosition.getJournalName())
+                && entryPosition.getPosition() == null);
         if (!isEmptyPosition) {
             result &= entryPosition.getPosition().equals(header.getLogfileOffset());
             if (result) {

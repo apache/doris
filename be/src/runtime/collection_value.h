@@ -32,7 +32,7 @@ using doris_udf::FunctionContext;
 using doris_udf::AnyVal;
 
 using MemFootprint = std::pair<int64_t, uint8_t*>;
-using GenMemFootprintFunc = std::function<MemFootprint(int size)>;
+using GenMemFootprintFunc = std::function<MemFootprint(int64_t size)>;
 
 struct ArrayIteratorFunctionsBase;
 class ArrayIterator;
@@ -64,25 +64,25 @@ class CollectionValue {
 public:
     CollectionValue() = default;
 
-    explicit CollectionValue(uint32_t length)
+    explicit CollectionValue(uint64_t length)
             : _data(nullptr), _length(length), _has_null(false), _null_signs(nullptr) {}
 
-    CollectionValue(void* data, uint32_t length)
+    CollectionValue(void* data, uint64_t length)
             : _data(data), _length(length), _has_null(false), _null_signs(nullptr) {}
 
-    CollectionValue(void* data, uint32_t length, bool* null_signs)
+    CollectionValue(void* data, uint64_t length, bool* null_signs)
             : _data(data), _length(length), _has_null(true), _null_signs(null_signs) {}
 
-    CollectionValue(void* data, uint32_t length, bool has_null, bool* null_signs)
+    CollectionValue(void* data, uint64_t length, bool has_null, bool* null_signs)
             : _data(data), _length(length), _has_null(has_null), _null_signs(null_signs) {}
 
-    bool is_null_at(uint32_t index) const { return this->_has_null && this->_null_signs[index]; }
+    bool is_null_at(uint64_t index) const { return this->_has_null && this->_null_signs[index]; }
 
     void to_collection_val(CollectionVal* val) const;
 
-    uint32_t size() const { return _length; }
+    uint64_t size() const { return _length; }
 
-    uint32_t length() const { return _length; }
+    uint64_t length() const { return _length; }
 
     void shallow_copy(const CollectionValue* other);
 
@@ -96,13 +96,13 @@ public:
     /**
      * init collection, will alloc (children Type's size + 1) * (children Nums) memory  
      */
-    static Status init_collection(ObjectPool* pool, uint32_t size, PrimitiveType child_type,
+    static Status init_collection(ObjectPool* pool, uint64_t size, PrimitiveType child_type,
                                   CollectionValue* value);
 
-    static Status init_collection(MemPool* pool, uint32_t size, PrimitiveType child_type,
+    static Status init_collection(MemPool* pool, uint64_t size, PrimitiveType child_type,
                                   CollectionValue* value);
 
-    static Status init_collection(FunctionContext* context, uint32_t size, PrimitiveType child_type,
+    static Status init_collection(FunctionContext* context, uint64_t size, PrimitiveType child_type,
                                   CollectionValue* value);
 
     static CollectionValue from_collection_val(const CollectionVal& val);
@@ -123,7 +123,7 @@ public:
     const bool* null_signs() const { return _null_signs; }
     void* mutable_data() { return _data; }
     bool* mutable_null_signs() { return _null_signs; }
-    void set_length(uint32_t length) { _length = length; }
+    void set_length(uint64_t length) { _length = length; }
     void set_has_null(bool has_null) { _has_null = has_null; }
     void set_data(void* data) { _data = data; }
     void set_null_signs(bool* null_signs) { _null_signs = null_signs; }
@@ -131,13 +131,13 @@ public:
 private:
     using AllocateMemFunc = std::function<uint8_t*(size_t size)>;
     static Status init_collection(CollectionValue* value, const AllocateMemFunc& allocate,
-                                  uint32_t size, PrimitiveType child_type);
+                                  uint64_t size, PrimitiveType child_type);
     ArrayIterator internal_iterator(PrimitiveType child_type) const;
 
 private:
     // child column data
     void* _data;
-    uint32_t _length;
+    uint64_t _length;
     // item has no null value if has_null is false.
     // item ```may``` has null value if has_null is true.
     bool _has_null;
@@ -160,7 +160,7 @@ public:
         }
         return false;
     }
-    bool seek(uint32_t n) const {
+    bool seek(uint64_t n) const {
         if (n >= _collection_value->size()) {
             return false;
         }
@@ -248,7 +248,7 @@ private:
 
 private:
     CollectionValue* _collection_value;
-    mutable uint32_t _offset;
+    mutable uint64_t _offset;
     const int _type_size;
     const bool _is_type_fixed_width;
 

@@ -22,34 +22,23 @@ import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical operator that have no input.
  */
-public abstract class PhysicalLeafOperator<TYPE extends PhysicalLeafOperator<TYPE>>
-        extends AbstractOperator<TYPE>
-        implements PhysicalOperator<TYPE>, LeafPlanOperator<TYPE> {
+public abstract class PhysicalLeafOperator extends AbstractOperator
+        implements PhysicalOperator, LeafPlanOperator {
 
     public PhysicalLeafOperator(OperatorType type) {
         super(type);
     }
 
     @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
-        return doComputeOutput(logicalProperties);
-    }
-
-    public List<Slot> doComputeOutput(LogicalProperties logicalProperties) {
-        return logicalProperties.getOutput();
-    }
-
-    @Override
-    public PhysicalLeaf toTreeNode(GroupExpression groupExpression) {
-        return new PhysicalLeaf(this, groupExpression, groupExpression.getParent().getLogicalProperties());
+    public PhysicalLeafPlan toTreeNode(GroupExpression groupExpression) {
+        LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+        return new PhysicalLeafPlan(this, Optional.of(groupExpression), logicalProperties);
     }
 }

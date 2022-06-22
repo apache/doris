@@ -126,7 +126,7 @@ public class MockedBackendFactory {
 
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
-    public static abstract class BeThriftService implements BackendService.Iface {
+    public abstract static class BeThriftService implements BackendService.Iface {
         protected MockedBackend backend;
 
         public void setBackend(MockedBackend backend) {
@@ -336,7 +336,8 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public void execPlanFragment(InternalService.PExecPlanFragmentRequest request, StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+        public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,
+                StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment request");
             responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
@@ -344,7 +345,26 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request, StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
+        public void execPlanFragmentPrepare(InternalService.PExecPlanFragmentRequest request,
+                StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+            System.out.println("get exec_plan_fragment_prepare request");
+            responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void execPlanFragmentStart(InternalService.PExecPlanFragmentStartRequest request,
+                StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+            System.out.println("get exec_plan_fragment_start request");
+            responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request,
+                StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
             System.out.println("get cancel_plan_fragment request");
             responseObserver.onNext(InternalService.PCancelPlanFragmentResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());

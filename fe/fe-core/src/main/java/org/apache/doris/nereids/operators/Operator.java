@@ -19,12 +19,17 @@ package org.apache.doris.nereids.operators;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 
 /**
  * interface for all concrete operator.
  */
-public interface Operator<TYPE extends Operator<TYPE>> {
+public interface Operator {
     OperatorType getType();
 
-    <NODE_TYPE extends TreeNode> NODE_TYPE toTreeNode(GroupExpression groupExpression);
+    <NODE_TYPE extends TreeNode<NODE_TYPE>> NODE_TYPE toTreeNode(GroupExpression groupExpression);
+
+    <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context);
+
 }

@@ -111,7 +111,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     } else if constexpr (type == TYPE_ARRAY) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
-        for (int i = 0; i < row_size; ++i) {
+        for (ssize_t i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
@@ -128,7 +128,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             _buffer.open_dynamic_mode();
             buf_ret = _buffer.push_string("[", 1);
             bool begin = true;
-            for (int j = offsets[i - 1]; j < offsets[i]; ++j) {
+            for (auto j = offsets[i - 1]; j < offsets[i]; ++j) {
                 if (!begin) {
                     buf_ret = _buffer.push_string(", ", 2);
                 }
@@ -283,6 +283,12 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         char buf[64];
         char* pos = datetime.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
+    } else if (which.is_decimal128()) {
+        auto& column_data =
+                static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
+        DecimalV2Value decimal_val(column_data[row_idx]);
+        auto decimal_str = decimal_val.to_string();
+        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
     } else if (which.is_array()) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();

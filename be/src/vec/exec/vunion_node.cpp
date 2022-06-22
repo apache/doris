@@ -218,6 +218,7 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_CANCELLED(state);
     // RETURN_IF_ERROR(QueryMaintenance(state));
 
+    // TODO: Rethink the logic, which cause close the exec node twice.
     if (_to_close_child_idx != -1) {
         // The previous child needs to be closed if passthrough was enabled for it. In the non
         // passthrough case, the child was already closed in the previous call to get_next().

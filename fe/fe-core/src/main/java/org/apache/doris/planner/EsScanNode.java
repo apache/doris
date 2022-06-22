@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -71,7 +72,7 @@ public class EsScanNode extends ScanNode {
     boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, NodeType.ES_SCAN_NODE);
+        super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
         table = (EsTable) (desc.getTable());
         esTablePartitions = table.getEsTablePartitions();
     }
@@ -176,10 +177,12 @@ public class EsScanNode extends ScanNode {
 
     // only do partition(es index level) prune
     private List<TScanRangeLocations> getShardLocations() throws UserException {
-        // has to get partition info from es state not from table because the partition info is generated from es cluster state dynamically
+        // has to get partition info from es state not from table because the partition
+        // info is generated from es cluster state dynamically
         if (esTablePartitions == null) {
             if (table.getLastMetaDataSyncException() != null) {
-                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
+                throw new UserException("fetch es table [" + table.getName()
+                        + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
             }
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
@@ -214,7 +217,8 @@ public class EsScanNode extends ScanNode {
                 int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
-                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress() : item.getAddress());
+                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport())
+                            ? item.getHttpAddress() : item.getAddress());
                 }
 
                 Collections.shuffle(shardAllocations, random);

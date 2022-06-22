@@ -66,7 +66,7 @@ public:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_DELETE_NOEXIST_ERROR, if tablet not exist
     //        Status::OLAPInternalError(OLAP_ERR_NOT_INITED), if not inited
-    Status drop_tablet(TTabletId tablet_id, bool keep_files = false);
+    Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files = false);
 
     Status drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
@@ -140,6 +140,8 @@ public:
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
+    void find_tablet_have_alpha_rowset(std::vector<TabletSharedPtr>& tablets);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
@@ -155,9 +157,7 @@ private:
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
-    Status _drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files = false);
-
-    Status _drop_tablet_unlocked(TTabletId tablet_id, bool keep_files);
+    Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,

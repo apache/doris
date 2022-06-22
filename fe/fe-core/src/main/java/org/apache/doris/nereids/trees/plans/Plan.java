@@ -17,21 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.statistics.PlanStats;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all plan node.
  */
-public interface Plan<
-        PLAN_TYPE extends Plan<PLAN_TYPE, OP_TYPE>,
-        OP_TYPE extends PlanOperator> extends TreeNode<PLAN_TYPE> {
+public interface Plan extends TreeNode<Plan>, PlanStats {
 
-    OP_TYPE getOperator();
+    PlanOperator getOperator();
 
     LogicalProperties getLogicalProperties();
 
@@ -39,9 +40,7 @@ public interface Plan<
 
     String treeString();
 
-    @Override
-    List<Plan> children();
+    Plan withOutput(List<Slot> output);
 
-    @Override
-    Plan child(int index);
+    Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 }

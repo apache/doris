@@ -250,7 +250,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
                                                         _bit_shuffle_ptr->_cur_index));
     *n = max_fetch;
 
-    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
+    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
     dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
@@ -291,7 +291,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     }
 
     // use SIMD instruction to speed up call function `RoundUpToPowerOfTwo`
-    auto mem_size = 0;
+    size_t mem_size = 0;
     for (int i = 0; i < len; ++i) {
         mem_len[i] = BitUtil::RoundUpToPowerOf2Int32(mem_len[i], MemPool::DEFAULT_ALIGNMENT);
         mem_size += mem_len[i];

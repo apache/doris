@@ -59,16 +59,13 @@ inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
 #include <nmmintrin.h>
 #endif
 
-#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
-#include <arm_acle.h>
-#include <arm_neon.h>
+#if defined(__aarch64__)
+#include <sse2neon.h>
 #endif
 
 inline doris::vectorized::UInt64 int_hash_crc32(doris::vectorized::UInt64 x) {
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32))
     return _mm_crc32_u64(-1ULL, x);
-#elif defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
-    return __crc32cd(-1U, x);
 #else
     /// On other platforms we do not have CRC32. NOTE This can be confusing.
     return int_hash64(x);
@@ -143,7 +140,7 @@ DEFINE_HASH(doris::vectorized::Float64)
 template <>
 struct HashCRC32<doris::vectorized::UInt256> {
     size_t operator()(const doris::vectorized::UInt256& x) const {
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__aarch64__)
         doris::vectorized::UInt64 crc = -1ULL;
         crc = _mm_crc32_u64(crc, x.a);
         crc = _mm_crc32_u64(crc, x.b);

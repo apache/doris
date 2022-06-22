@@ -30,6 +30,7 @@ import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -61,7 +62,8 @@ public class InsertStreamTxnExecutor {
             InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
+        StreamLoadPlanner planner = new StreamLoadPlanner(
+                txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
                 .needLoadAvailable().needQueryAvailable().build();
@@ -85,8 +87,10 @@ public class InsertStreamTxnExecutor {
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            Future<InternalService.PExecPlanFragmentResult> future = BackendServiceProxy.getInstance().execPlanFragmentAsync(
-                    address, tRequest);
+            TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
+            paramsList.addToParamsList(tRequest);
+            Future<InternalService.PExecPlanFragmentResult> future =
+                    BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList, false);
             InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
@@ -107,7 +111,8 @@ public class InsertStreamTxnExecutor {
         Backend backend = txnEntry.getBackend();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            Future<InternalService.PCommitResult> future = BackendServiceProxy.getInstance().commit(address, fragmentInstanceId);
+            Future<InternalService.PCommitResult> future = BackendServiceProxy
+                    .getInstance().commit(address, fragmentInstanceId);
             InternalService.PCommitResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {

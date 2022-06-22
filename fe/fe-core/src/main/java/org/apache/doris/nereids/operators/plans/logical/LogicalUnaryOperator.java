@@ -23,35 +23,38 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all logical operator that have one input.
  */
-public abstract class LogicalUnaryOperator<
-            TYPE extends LogicalUnaryOperator<TYPE, INPUT_TYPE>,
-            INPUT_TYPE extends Plan>
-        extends AbstractOperator<TYPE>
-        implements LogicalOperator<TYPE>, UnaryPlanOperator<TYPE, INPUT_TYPE> {
+public abstract class LogicalUnaryOperator extends AbstractOperator
+        implements LogicalOperator, UnaryPlanOperator {
 
     public LogicalUnaryOperator(OperatorType type) {
         super(type);
     }
 
     @Override
-    public final List<Slot> computeOutput(Plan... inputs) {
-        return doComputeOutput((INPUT_TYPE) inputs[0]);
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 1);
+        return new LogicalProperties(() -> computeOutput(inputs[0]));
     }
 
-    public abstract List<Slot> doComputeOutput(INPUT_TYPE input);
+    public abstract List<Slot> computeOutput(Plan input);
 
     @Override
-    public LogicalUnary toTreeNode(GroupExpression groupExpression) {
+    public LogicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new LogicalUnary(this, groupExpression, logicalProperties, new PlaceHolderPlan());
+        return new LogicalUnaryPlan(this, Optional.of(groupExpression),
+            Optional.of(logicalProperties), new GroupPlan(groupExpression.child(0))
+        );
     }
 }

@@ -27,10 +27,13 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 
+import java.util.Objects;
+
 /**
  * All data type literal expression in Nereids.
+ * TODO: Increase the implementation of sub expression. such as Integer.
  */
-public class Literal extends Expression<Literal> implements LeafExpression<Literal> {
+public class Literal extends Expression implements LeafExpression {
     private final DataType dataType;
     private final Object value;
 
@@ -67,6 +70,9 @@ public class Literal extends Expression<Literal> implements LeafExpression<Liter
         }
     }
 
+    public Object getValue() {
+        return value;
+    }
 
     /**
      * Convert to legacy literal expression in Doris.
@@ -92,8 +98,35 @@ public class Literal extends Expression<Literal> implements LeafExpression<Liter
     }
 
     @Override
+    public boolean isConstant() {
+        return true;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitLiteral(this, context);
+    }
+
+    @Override
     public String sql() {
-        return null;
+        return value.toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Literal other = (Literal) o;
+        return Objects.equals(value, other.getValue());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(value);
     }
 
     @Override

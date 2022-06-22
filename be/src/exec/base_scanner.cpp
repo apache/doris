@@ -19,7 +19,6 @@
 
 #include <fmt/format.h>
 
-#include "common/logging.h"
 #include "common/utils.h"
 #include "exec/exec_node.h"
 #include "exprs/expr_context.h"
@@ -329,6 +328,7 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
         auto column_ptr = _src_block.get_by_position(result_column_id).column;
+        DCHECK(column_ptr != nullptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable

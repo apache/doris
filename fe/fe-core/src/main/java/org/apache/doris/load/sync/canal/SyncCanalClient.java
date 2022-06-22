@@ -59,7 +59,8 @@ public class SyncCanalClient {
                            int batchSize, boolean debug, String filter) {
         this.connector = connector;
         this.consumer = new CanalSyncDataConsumer(syncJob, connector, getLock, debug);
-        this.receiver = new CanalSyncDataReceiver(syncJob, connector, destination, filter, consumer, batchSize, getLock);
+        this.receiver = new CanalSyncDataReceiver(syncJob, connector, destination,
+                filter, consumer, batchSize, getLock);
         this.idToChannels = Maps.newHashMap();
     }
 

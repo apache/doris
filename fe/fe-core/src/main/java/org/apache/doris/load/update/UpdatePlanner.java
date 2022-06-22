@@ -113,11 +113,7 @@ public class UpdatePlanner extends Planner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(col.getType());
             slotDesc.setColumn(col);
-            if (col.isAllowNull()) {
-                slotDesc.setIsNullable(true);
-            } else {
-                slotDesc.setIsNullable(false);
-            }
+            slotDesc.setIsNullable(col.isAllowNull());
         }
         targetTupleDesc.computeStatAndMemLayout();
         return targetTupleDesc;

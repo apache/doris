@@ -31,6 +31,9 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -43,10 +46,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -72,8 +73,7 @@ public class ResourceMgr implements Writable {
     public void createResource(CreateResourceStmt stmt) throws DdlException {
         if (stmt.getResourceType() != ResourceType.SPARK
                 && stmt.getResourceType() != ResourceType.ODBC_CATALOG
-                && stmt.getResourceType() != ResourceType.S3
-                && stmt.getResourceType() != ResourceType.STORAGE_POLICY) {
+                && stmt.getResourceType() != ResourceType.S3) {
             throw new DdlException("Only support SPARK, ODBC_CATALOG and REMOTE_STORAGE resource.");
         }
         Resource resource = Resource.fromStmt(stmt);
@@ -100,36 +100,12 @@ public class ResourceMgr implements Writable {
             throw new DdlException("Resource(" + resourceName + ") does not exist");
         }
         // Check whether the resource is in use before deleting it, except spark resource
-        List<String> usedTables = new ArrayList<>();
-        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
-        for (Long dbId : dbIds) {
-            Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
-            database.ifPresent(db -> {
-                List<Table> tables = db.getTablesOnIdOrder();
-                for (Table table : tables) {
-                    if (table instanceof OdbcTable) {
-                        // odbc resource
-                        if (resourceName.equals(((OdbcTable) table).getOdbcCatalogResourceName())) {
-                            usedTables.add(db.getFullName() + "." + table.getName());
-                        }
-                    } else if (table instanceof OlapTable) {
-                        // remote resource, such as s3 resource
-                        PartitionInfo partitionInfo = ((OlapTable) table).getPartitionInfo();
-                        List<Long> partitionIds = ((OlapTable) table).getPartitionIds();
-                        for (Long partitionId : partitionIds) {
-                            DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
-                            if (resourceName.equals(dataProperty.getRemoteStorageResourceName())) {
-                                usedTables.add(db.getFullName() + "." + table.getName());
-                                break;
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        if (usedTables.size() > 0) {
-            LOG.warn("Can not drop resource, since it's used in tables {}", usedTables);
-            throw new DdlException("Can not drop resource, since it's used in tables " + usedTables);
+        StoragePolicy checkedStoragePolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, null);
+        checkedStoragePolicy.setStorageResource(resourceName);
+        if (Catalog.getCurrentCatalog().getPolicyMgr().existPolicy(checkedStoragePolicy)) {
+            Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedStoragePolicy);
+            LOG.warn("Can not drop resource, since it's used in policy {}", policy.getPolicyName());
+            throw new DdlException("Can not drop resource, since it's used in policy " + policy.getPolicyName());
         }
         nameToResource.remove(resourceName);
         // log drop

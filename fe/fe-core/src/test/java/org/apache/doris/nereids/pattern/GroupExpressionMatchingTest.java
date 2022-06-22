@@ -20,10 +20,14 @@ package org.apache.doris.nereids.pattern;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.JoinType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
+import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,10 +42,10 @@ public class GroupExpressionMatchingTest implements Plans {
 
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan plan = plan(unboundRelation);
-        Memo<Plan> memo = new Memo<>();
+        Memo memo = new Memo();
         memo.initialize(plan);
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
+        GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
@@ -60,15 +64,15 @@ public class GroupExpressionMatchingTest implements Plans {
         Plan leaf = plan(unboundRelation);
         LogicalProject project = new LogicalProject(Lists.newArrayList());
         Plan root = plan(project, leaf);
-        Memo<Plan> memo = new Memo();
+        Memo memo = new Memo();
         memo.initialize(root);
 
         UnboundRelation anotherUnboundRelation = new UnboundRelation(Lists.newArrayList("test2"));
         Plan anotherLeaf = plan(anotherUnboundRelation);
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
-                = new GroupExpressionMatching<>(pattern, memo.getRoot().getLogicalExpression());
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());
@@ -86,22 +90,22 @@ public class GroupExpressionMatchingTest implements Plans {
     }
 
     @Test
-    public void testDepth2WithFixed() {
-        Pattern pattern = new Pattern<>(OperatorType.LOGICAL_PROJECT, new Pattern<>(OperatorType.FIXED));
+    public void testDepth2WithGroup() {
+        Pattern pattern = new Pattern<>(OperatorType.LOGICAL_PROJECT, Pattern.GROUP);
 
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan leaf = plan(unboundRelation);
         LogicalProject project = new LogicalProject(Lists.newArrayList());
         Plan root = plan(project, leaf);
-        Memo<Plan> memo = new Memo();
+        Memo memo = new Memo();
         memo.initialize(root);
 
         UnboundRelation anotherUnboundRelation = new UnboundRelation(Lists.newArrayList("test2"));
         Plan anotherLeaf = plan(anotherUnboundRelation);
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
-                = new GroupExpressionMatching<>(pattern, memo.getRoot().getLogicalExpression());
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());
@@ -109,7 +113,94 @@ public class GroupExpressionMatchingTest implements Plans {
         actual = iterator.next();
         Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, actual.getOperator().getType());
         Assertions.assertEquals(1, actual.arity());
-        Assertions.assertEquals(OperatorType.LOGICAL_UNBOUND_RELATION, actual.child(0).getOperator().getType());
+        Assertions.assertEquals(OperatorType.GROUP_PLAN, actual.child(0).getOperator().getType());
         Assertions.assertFalse(iterator.hasNext());
+    }
+
+    @Test
+    public void testLeafAny() {
+        Pattern pattern = Pattern.ANY;
+
+        UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
+        Plan plan = plan(unboundRelation);
+        Memo memo = new Memo();
+        memo.initialize(plan);
+
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
+        Iterator<Plan> iterator = groupExpressionMatching.iterator();
+
+        Assertions.assertTrue(iterator.hasNext());
+        Plan actual = iterator.next();
+        Assertions.assertEquals(OperatorType.LOGICAL_UNBOUND_RELATION, actual.getOperator().getType());
+        Assertions.assertFalse(iterator.hasNext());
+    }
+
+    @Test
+    public void testAnyWithChild() {
+        Plan root = plan(
+                new LogicalProject(Lists.newArrayList()),
+                plan(new UnboundRelation(Lists.newArrayList("test")))
+        );
+        Memo memo = new Memo();
+        memo.initialize(root);
+
+        Plan anotherLeaf = plan(new UnboundRelation(ImmutableList.of("test2")));
+        memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
+
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(Pattern.ANY, memo.getRoot().getLogicalExpression());
+        Iterator<Plan> iterator = groupExpressionMatching.iterator();
+
+        Assertions.assertTrue(iterator.hasNext());
+        Plan actual = iterator.next();
+        Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, actual.getOperator().getType());
+        Assertions.assertEquals(1, actual.arity());
+        Assertions.assertEquals(OperatorType.GROUP_PLAN, actual.child(0).getOperator().getType());
+
+        Assertions.assertFalse(iterator.hasNext());
+    }
+
+    @Test
+    public void testInnerLogicalJoinMatch() {
+        Plan root = plan(new LogicalJoin(JoinType.INNER_JOIN),
+                plan(new UnboundRelation(ImmutableList.of("a"))),
+                plan(new UnboundRelation(ImmutableList.of("b")))
+        );
+
+        Memo memo = new Memo();
+        memo.initialize(root);
+
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
+        Iterator<Plan> iterator = groupExpressionMatching.iterator();
+
+        Assertions.assertTrue(iterator.hasNext());
+        Plan actual = iterator.next();
+        Assertions.assertEquals(OperatorType.LOGICAL_JOIN, actual.getOperator().getType());
+        Assertions.assertEquals(2, actual.arity());
+        Assertions.assertEquals(OperatorType.GROUP_PLAN, actual.child(0).getOperator().getType());
+        Assertions.assertEquals(OperatorType.GROUP_PLAN, actual.child(1).getOperator().getType());
+    }
+
+    @Test
+    public void testInnerLogicalJoinMismatch() {
+        Plan root = plan(new LogicalJoin(JoinType.LEFT_OUTER_JOIN),
+                plan(new UnboundRelation(ImmutableList.of("a"))),
+                plan(new UnboundRelation(ImmutableList.of("b")))
+        );
+
+        Memo memo = new Memo();
+        memo.initialize(root);
+
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
+        Iterator<Plan> iterator = groupExpressionMatching.iterator();
+
+        Assertions.assertFalse(iterator.hasNext());
+    }
+
+    private org.apache.doris.nereids.pattern.GeneratedPatterns patterns() {
+        return () -> RulePromise.REWRITE;
     }
 }

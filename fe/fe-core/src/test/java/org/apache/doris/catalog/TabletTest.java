@@ -159,7 +159,8 @@ public class TabletTest {
      * @param backendId2ReplicaIsBad beId -> if replica is a bad replica
      */
     @SafeVarargs
-    private final void testTabletColocateHealthStatus0(Tablet.TabletStatus exceptedTabletStatus, Pair<Long, Boolean>... backendId2ReplicaIsBad) {
+    private final void testTabletColocateHealthStatus0(Tablet.TabletStatus exceptedTabletStatus,
+            Pair<Long, Boolean>... backendId2ReplicaIsBad) {
         Tablet tablet = new Tablet(1);
         int replicaId = 1;
         for (Pair<Long, Boolean> pair : backendId2ReplicaIsBad) {
@@ -169,7 +170,8 @@ public class TabletTest {
                 versionAndSuccessVersion = 99L;
                 lastFailVersion = 100L;
             }
-            tablet.addReplica(new Replica(replicaId++, pair.first, versionAndSuccessVersion, 0, 200000L, 3000L, ReplicaState.NORMAL, lastFailVersion, versionAndSuccessVersion));
+            tablet.addReplica(new Replica(replicaId++, pair.first, versionAndSuccessVersion, 0, 200000L, 3000L,
+                    ReplicaState.NORMAL, lastFailVersion, versionAndSuccessVersion));
         }
         Assert.assertEquals(tablet.getColocateHealthStatus(100L, new ReplicaAllocation((short) 3),
                 Sets.newHashSet(1L, 2L, 3L)), exceptedTabletStatus);

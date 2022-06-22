@@ -130,13 +130,14 @@ public class DataDescription {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction
+            = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
 
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     private final Expr deleteCondition;
-    private Map<String, String> properties;
+    private final Map<String, String> properties;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -328,7 +329,7 @@ public class DataDescription {
         }
 
         if (args.get(0) != null) {
-            ColumnDef.validateDefaultValue(column.getOriginType(), args.get(0));
+            ColumnDef.validateDefaultValue(column.getOriginType(), args.get(0), column.getDefaultValueExprDef());
         }
     }
 
@@ -363,7 +364,7 @@ public class DataDescription {
         }
 
         if (replaceValue != null) {
-            ColumnDef.validateDefaultValue(column.getOriginType(), replaceValue);
+            ColumnDef.validateDefaultValue(column.getOriginType(), replaceValue, column.getDefaultValueExprDef());
         }
     }
 
@@ -572,7 +573,8 @@ public class DataDescription {
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
-        if ((fileFieldNames == null || fileFieldNames.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
+        if ((fileFieldNames == null || fileFieldNames.isEmpty())
+                && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
         }
 
@@ -719,7 +721,8 @@ public class DataDescription {
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
-            throw new AnalysisException("Table " + olapTable.getName() + " has sequence column, need to specify the sequence column");
+            throw new AnalysisException("Table " + olapTable.getName()
+                    + " has sequence column, need to specify the sequence column");
         }
         if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
             throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());

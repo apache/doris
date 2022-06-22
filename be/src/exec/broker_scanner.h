@@ -27,7 +27,6 @@
 #include "exec/base_scanner.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -107,7 +106,7 @@ protected:
     int _line_delimiter_length;
 
     // Reader
-    FileReader* _cur_file_reader;
+    std::shared_ptr<FileReader> _cur_file_reader;
     LineReader* _cur_line_reader;
     Decompressor* _cur_decompressor;
     bool _cur_line_reader_eof;
@@ -117,8 +116,6 @@ protected:
     // When we fetch range doesn't start from 0 will always skip the first line
     int _skip_lines;
 
-    // used to hold current StreamLoadPipe
-    std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
     std::vector<Slice> _split_values;
 };
 

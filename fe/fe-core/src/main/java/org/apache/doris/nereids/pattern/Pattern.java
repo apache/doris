@@ -28,29 +28,45 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
-
 
 /**
  * Pattern node used in pattern matching.
  */
-public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
-    public static final Pattern ANY = new Pattern(OperatorType.ANY);
-    public static final Pattern MULTI = new Pattern(OperatorType.MULTI);
-    public static final Pattern FIXED = new Pattern(OperatorType.FIXED);
-    public static final Pattern MULTI_FIXED = new Pattern(OperatorType.MULTI_FIXED);
+public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
+        extends AbstractTreeNode<Pattern<? extends NODE_TYPE, NODE_TYPE>> {
 
-    private final List<Predicate<T>> predicates;
-    private final OperatorType operatorType;
+    public static final Pattern ANY = new Pattern(PatternType.ANY);
+    public static final Pattern MULTI = new Pattern(PatternType.MULTI);
+    public static final Pattern GROUP = new Pattern(PatternType.GROUP);
+    public static final Pattern MULTI_GROUP = new Pattern(PatternType.MULTI_GROUP);
+
+    protected final List<Predicate<TYPE>> predicates;
+    protected final PatternType patternType;
+    protected final OperatorType operatorType;
+
+    public Pattern(OperatorType operatorType, Pattern... children) {
+        this(PatternType.NORMAL, operatorType, children);
+    }
+
+    public Pattern(OperatorType operatorType, List<Predicate<TYPE>> predicates, Pattern... children) {
+        this(PatternType.NORMAL, operatorType, predicates, children);
+    }
+
+    private Pattern(PatternType patternType, Pattern... children) {
+        this(patternType, OperatorType.UNKNOWN, children);
+    }
 
     /**
      * Constructor for Pattern.
      *
-     * @param operatorType operator type to matching
+     * @param patternType pattern type to matching
      * @param children sub pattern
      */
-    public Pattern(OperatorType operatorType, Pattern... children) {
+    private Pattern(PatternType patternType, OperatorType operatorType, Pattern... children) {
         super(NodeType.PATTERN, children);
+        this.patternType = patternType;
         this.operatorType = operatorType;
         this.predicates = ImmutableList.of();
     }
@@ -58,35 +74,68 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
     /**
      * Constructor for Pattern.
      *
+     * @param patternType pattern type to matching
      * @param operatorType operator type to matching
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
-    public Pattern(OperatorType operatorType, List<Predicate<T>> predicates, Pattern... children) {
+    private Pattern(PatternType patternType, OperatorType operatorType,
+                   List<Predicate<TYPE>> predicates, Pattern... children) {
         super(NodeType.PATTERN, children);
+        this.patternType = patternType;
         this.operatorType = operatorType;
         this.predicates = ImmutableList.copyOf(predicates);
+
+        for (int i = 0; i + 1 < children.length; ++i) {
+            if (children[i].isMulti()) {
+                throw new IllegalStateException("Pattern.MULTI must be last child of current pattern");
+            } else if (children[i].isMultiGroup()) {
+                throw new IllegalStateException("Pattern.MULTI_GROUP must be last child of current pattern");
+            }
+        }
     }
 
     /**
-     * get current type in Pattern.
+     * get current type in Operator.
      *
-     * @return node type in pattern
+     * @return operator type in pattern
      */
     public OperatorType getOperatorType() {
         return operatorType;
     }
 
-    public boolean isFixed() {
-        return operatorType == OperatorType.FIXED;
+    /**
+     * get current type in Pattern.
+     *
+     * @return pattern type
+     */
+    public PatternType getPatternType() {
+        return patternType;
+    }
+
+    /**
+     * get all predicates in Pattern.
+     *
+     * @return all predicates
+     */
+    public List<Predicate<TYPE>> getPredicates() {
+        return predicates;
+    }
+
+    public boolean isGroup() {
+        return patternType == PatternType.GROUP;
+    }
+
+    public boolean isMultiGroup() {
+        return patternType == PatternType.MULTI_GROUP;
     }
 
     public boolean isAny() {
-        return operatorType == OperatorType.ANY;
+        return patternType == PatternType.ANY;
     }
 
     public boolean isMulti() {
-        return operatorType == OperatorType.MULTI;
+        return patternType == PatternType.MULTI;
     }
 
     /**
@@ -99,69 +148,47 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
         if (operator == null) {
             return false;
         }
-        if (operatorType == OperatorType.MULTI || operatorType == OperatorType.ANY
-                || operatorType == OperatorType.MULTI_FIXED || operatorType == OperatorType.FIXED) {
-            return true;
+        switch (patternType) {
+            case ANY:
+            case MULTI:
+            case GROUP:
+            case MULTI_GROUP:
+                return true;
+            default:
+                return operatorType == operator.getType();
         }
-        return getOperatorType().equals(operator.getType());
     }
 
     /**
-     * Return ture if current Pattern match Plan in params.
-     *
-     * @param root wait to match
-     * @return ture if current Pattern match Plan in params
+     * match all predicates.
+     * @param root root plan
+     * @return true if all predicates matched
      */
-    public boolean matchRoot(T root) {
-        if (root == null) {
-            return false;
-        }
-
-        if (root.arity() > this.arity() && !children.contains(MULTI)) {
-            return false;
-        }
-
-        if (operatorType == OperatorType.MULTI || operatorType == OperatorType.ANY) {
-            return true;
-        }
-
-        return getOperatorType().equals(root.getOperator().getType())
-                && predicates.stream().allMatch(predicate -> predicate.test(root));
-    }
-
-    /**
-     * Return ture if children patterns match Plan in params.
-     *
-     * @param root wait to match
-     * @return ture if children Patterns match root's children in params
-     */
-    public boolean matchChildren(T root) {
-        for (int i = 0; i < arity(); i++) {
-            if (!child(i).match(root.child(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Return ture if children patterns match Plan in params.
-     *
-     * @param root wait to match
-     * @return ture if current pattern and children patterns match root in params
-     */
-    public boolean match(T root) {
-        return matchRoot(root) && matchChildren(root);
+    public boolean matchPredicates(TYPE root) {
+        return predicates.stream().allMatch(predicate -> predicate.test(root));
     }
 
     @Override
-    public Pattern<T> newChildren(List<TreeNode> children) {
-        throw new RuntimeException();
+    public Pattern<? extends NODE_TYPE, NODE_TYPE> withChildren(
+            List<Pattern<? extends NODE_TYPE, NODE_TYPE>> children) {
+        throw new IllegalStateException("Pattern can not invoke withChildren");
+    }
+
+    public Pattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
+        return new Pattern(patternType, operatorType, predicates, children.toArray(new Pattern[0]));
     }
 
     @Override
-    public GroupExpression getGroupExpression() {
-        throw new RuntimeException();
+    public Optional<GroupExpression> getGroupExpression() {
+        return Optional.empty();
+    }
+
+    public boolean hasMultiChild() {
+        return !children.isEmpty() && children.get(children.size() - 1).isMulti();
+    }
+
+    public boolean hasMultiGroupChild() {
+        return !children.isEmpty() && children.get(children.size() - 1).isMultiGroup();
     }
 
     @Override
@@ -172,22 +199,14 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Pattern pattern = (Pattern) o;
-        return operatorType == pattern.operatorType;
+        Pattern<?, ?> pattern = (Pattern<?, ?>) o;
+        return predicates.equals(pattern.predicates)
+                && patternType == pattern.patternType
+                && operatorType == pattern.operatorType;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(operatorType);
-    }
-
-    @Override
-    public List<Pattern> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Pattern child(int index) {
-        return (Pattern) children.get(index);
+        return Objects.hash(predicates, patternType, operatorType);
     }
 }

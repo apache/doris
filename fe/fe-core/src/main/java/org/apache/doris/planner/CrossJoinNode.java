@@ -19,8 +19,9 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TableRef;
-import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -33,15 +34,15 @@ import org.apache.logging.log4j.Logger;
  * Cross join between left child and right child.
  */
 public class CrossJoinNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(CrossJoinNode.class);
+    private static final Logger LOG = LogManager.getLogger(CrossJoinNode.class);
 
     // Default per-host memory requirement used if no valid stats are available.
     // TODO: Come up with a more useful heuristic (e.g., based on scanned partitions).
-    private final static long DEFAULT_PER_HOST_MEM = 2L * 1024L * 1024L * 1024L;
+    private static final long DEFAULT_PER_HOST_MEM = 2L * 1024L * 1024L * 1024L;
     private final TableRef innerRef;
 
     public CrossJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
-        super(id, "CROSS JOIN");
+        super(id, "CROSS JOIN", StatisticalType.CROSS_JOIN_NODE);
         this.innerRef = innerRef;
         tupleIds.addAll(outer.getTupleIds());
         tupleIds.addAll(inner.getTupleIds());
@@ -68,21 +69,13 @@ public class CrossJoinNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        if (getChild(0).cardinality == -1 || getChild(1).cardinality == -1) {
-            cardinality = -1;
-        } else {
-            cardinality = CheckedMath.checkedMultiply(getChild(0).cardinality, getChild(1).cardinality);
-            applyConjunctsSelectivity();
-            capCardinalityAtLimit();
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats CrossJoin: cardinality={}", Long.toString(cardinality));
-        }
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
     }
 
     @Override

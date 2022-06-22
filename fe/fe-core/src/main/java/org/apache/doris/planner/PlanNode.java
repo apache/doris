@@ -36,6 +36,8 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -71,8 +73,8 @@ import java.util.Set;
  * this node, ie, they only reference tuples materialized by this node or one of
  * its children (= are bound by tupleIds).
  */
-abstract public class PlanNode extends TreeNode<PlanNode> {
-    private final static Logger LOG = LogManager.getLogger(PlanNode.class);
+public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
+    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
 
@@ -137,10 +139,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     protected List<SlotId> outputSlotIds;
 
-    protected NodeType nodeType = NodeType.DEFAULT;
+    protected StatisticalType statisticalType = StatisticalType.DEFAULT;
     protected StatsDeriveResult statsDeriveResult;
 
-    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
+    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
+            StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
         // make a copy, just to be on the safe side
@@ -149,9 +152,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
+        this.statisticalType = statisticalType;
     }
 
-    protected PlanNode(PlanNodeId id, String planNodeName) {
+    protected PlanNode(PlanNodeId id, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
         this.tupleIds = Lists.newArrayList();
@@ -159,12 +163,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
+        this.statisticalType = statisticalType;
     }
 
     /**
      * Copy ctor. Also passes in new id.
      */
-    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName) {
+    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = node.limit;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
@@ -175,23 +180,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.compactData = node.compactData;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
-    }
-
-    public enum NodeType {
-        DEFAULT,
-        AGG_NODE,
-        BROKER_SCAN_NODE,
-        HASH_JOIN_NODE,
-        HIVE_SCAN_NODE,
-        MERGE_NODE,
-        ES_SCAN_NODE,
-        ICEBREG_SCAN_NODE,
-        LOAD_SCAN_NODE,
-        MYSQL_SCAN_NODE,
-        ODBC_SCAN_NODE,
-        OLAP_SCAN_NODE,
-        SCHEMA_SCAN_NODE,
+        this.statisticalType = statisticalType;
     }
 
     public String getPlanNodeName() {
@@ -202,8 +191,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return statsDeriveResult;
     }
 
-    public NodeType getNodeType() {
-        return nodeType;
+    public StatisticalType getStatisticalType() {
+        return statisticalType;
     }
 
     public void setStatsDeriveResult(StatsDeriveResult statsDeriveResult) {
@@ -338,6 +327,15 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return conjuncts;
     }
 
+    @Override
+    public List<StatsDeriveResult> getChildrenStats() {
+        List<StatsDeriveResult> statsDeriveResultList = Lists.newArrayList();
+        for (PlanNode child : children) {
+            statsDeriveResultList.add(child.getStatsDeriveResult());
+        }
+        return statsDeriveResultList;
+    }
+
     void initCompoundPredicate(Expr expr) {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
@@ -345,7 +343,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             List<Type> args = new ArrayList<>();
             args.add(Type.BOOLEAN);
             args.add(Type.BOOLEAN);
-            Function function = new Function(new FunctionName("", compoundPredicate.getOp().toString()), args, Type.BOOLEAN, false);
+            Function function = new Function(new FunctionName("", compoundPredicate.getOp().toString()),
+                    args, Type.BOOLEAN, false);
             function.setBinaryType(TFunctionBinaryType.BUILTIN);
             expr.setFn(function);
         }
@@ -360,7 +359,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
             for (int i = 0; i < targetConjuncts.size(); i += 2) {
-                Expr expr = i + 1 < targetConjuncts.size() ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
+                Expr expr = i + 1 < targetConjuncts.size()
+                        ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
                         targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
             }
@@ -579,7 +579,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * from finalize() (to facilitate inserting additional nodes during plan
      * partitioning w/o the need to call finalize() recursively on the whole tree again).
      */
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         avgRowSize = 0.0F;
         for (TupleId tid : tupleIds) {
             TupleDescriptor desc = analyzer.getTupleDesc(tid);
@@ -782,7 +782,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * The second issue is addressed by an exponential backoff when multiplying each
      * additional selectivity into the final result.
      */
-    static protected double computeCombinedSelectivity(List<Expr> conjuncts) {
+    protected static double computeCombinedSelectivity(List<Expr> conjuncts) {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {

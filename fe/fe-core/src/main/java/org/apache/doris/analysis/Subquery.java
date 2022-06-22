@@ -41,7 +41,7 @@ import java.util.List;
  * its own Analyzer context.
  */
 public class Subquery extends Expr {
-    private final static Logger LOG = LoggerFactory.getLogger(Subquery.class);
+    private static final Logger LOG = LoggerFactory.getLogger(Subquery.class);
 
     // The QueryStmt of the subquery.
     protected QueryStmt stmt;

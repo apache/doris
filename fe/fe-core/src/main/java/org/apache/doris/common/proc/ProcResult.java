@@ -23,5 +23,6 @@ import java.util.List;
 // TODO(zhaochun): merge proc result to show result
 public interface ProcResult {
     List<String> getColumnNames();
+
     List<List<String>> getRows();
 }

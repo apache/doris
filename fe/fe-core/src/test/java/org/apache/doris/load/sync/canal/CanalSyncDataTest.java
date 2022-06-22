@@ -31,6 +31,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TStorageMedium;
@@ -174,21 +175,26 @@ public class CanalSyncDataTest {
             @Mock
             void connect() throws CanalClientException {
             }
+
             @Mock
             void disconnect() throws CanalClientException {
             }
+
             @Mock
             Message getWithoutAck(int var1, Long var2, TimeUnit var3) throws CanalClientException {
                 offset += batchSize * 1; // Simply set one entry as one byte
                 return CanalTestUtil.fetchMessage(
                         ++nextId, false, batchSize, binlogFile, offset, "mysql_db", "mysql_tbl");
             }
+
             @Mock
             void rollback() throws CanalClientException {
             }
+
             @Mock
             void ack(long var1) throws CanalClientException {
             }
+
             @Mock
             void subscribe(String var1) throws CanalClientException {
             }
@@ -252,7 +258,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = 105L;
 
-                backendServiceProxy.execPlanFragmentAsync((TNetworkAddress) any, (TExecPlanFragmentParams) any);
+                backendServiceProxy.execPlanFragmentsAsync((TNetworkAddress) any, (TExecPlanFragmentParamsList) any,
+                        anyBoolean);
                 minTimes = 0;
                 result = execFuture;
 
@@ -260,7 +267,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
+                        (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 
@@ -323,7 +331,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = 105L;
 
-                backendServiceProxy.execPlanFragmentAsync((TNetworkAddress) any, (TExecPlanFragmentParams) any);
+                backendServiceProxy.execPlanFragmentsAsync((TNetworkAddress) any, (TExecPlanFragmentParamsList) any,
+                        anyBoolean);
                 minTimes = 0;
                 result = execFuture;
 
@@ -389,7 +398,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = 105L;
 
-                backendServiceProxy.execPlanFragmentAsync((TNetworkAddress) any, (TExecPlanFragmentParams) any);
+                backendServiceProxy.execPlanFragmentsAsync((TNetworkAddress) any, (TExecPlanFragmentParamsList) any,
+                        anyBoolean);
                 minTimes = 0;
                 result = execFuture;
 

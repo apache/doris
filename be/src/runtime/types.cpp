@@ -49,6 +49,9 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
         type = TYPE_ARRAY;
+        if (node.__isset.contains_null) {
+            contains_null = node.contains_null;
+        }
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         break;
@@ -165,6 +168,9 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
     case TTypeNodeType::ARRAY: {
         type = TYPE_ARRAY;
+        if (node.has_contains_null()) {
+            contains_null = node.contains_null();
+        }
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         break;
@@ -194,5 +200,19 @@ std::string TypeDescriptor::debug_string() const {
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type) {
     os << type.debug_string();
     return os;
+}
+
+TTypeDesc create_type_desc(PrimitiveType type) {
+    TTypeDesc type_desc;
+    std::vector<TTypeNode> node_type;
+    node_type.emplace_back();
+    TScalarType scalarType;
+    scalarType.__set_type(to_thrift(type));
+    scalarType.__set_len(-1);
+    scalarType.__set_precision(-1);
+    scalarType.__set_scale(-1);
+    node_type.back().__set_scalar_type(scalarType);
+    type_desc.__set_types(node_type);
+    return type_desc;
 }
 } // namespace doris

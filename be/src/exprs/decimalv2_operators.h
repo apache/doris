@@ -19,7 +19,6 @@
 
 #include <stdint.h>
 
-#include "runtime/decimalv2_value.h"
 #include "udf/udf.h"
 
 namespace doris {

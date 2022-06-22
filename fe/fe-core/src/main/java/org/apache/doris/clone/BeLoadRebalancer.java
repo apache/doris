@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -81,7 +82,7 @@ public class BeLoadRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
-            LOG.info("cluster is balance: {} with medium: {}. skip", clusterName, medium);
+            LOG.debug("cluster is balance: {} with medium: {}. skip", clusterName, medium);
             return alternativeTablets;
         }
 
@@ -185,9 +186,11 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         } // end for high backends
 
-        LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
-                clusterName, medium, alternativeTablets.size(),
-                alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        if (!alternativeTablets.isEmpty()) {
+            LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
+                    clusterName, medium, alternativeTablets.size(),
+                    alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        }
         return alternativeTablets;
     }
 
@@ -198,7 +201,8 @@ public class BeLoadRebalancer extends Rebalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx,
+            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -280,8 +284,9 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
-                if (!clusterStat.isMoreBalanced(tabletCtx.getSrcBackendId(), beStat.getBeId(),
-                        tabletCtx.getTabletId(), tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
+                if (!Config.be_rebalancer_fuzzy_test && !clusterStat.isMoreBalanced(
+                        tabletCtx.getSrcBackendId(), beStat.getBeId(), tabletCtx.getTabletId(),
+                        tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
                     continue;
                 }
 

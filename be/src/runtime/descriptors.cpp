@@ -319,7 +319,9 @@ std::string TupleDescriptor::debug_string() const {
 RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
                              const std::vector<bool>& nullable_tuples)
         : _tuple_idx_nullable_map(nullable_tuples) {
-    DCHECK(nullable_tuples.size() == row_tuples.size());
+    DCHECK(nullable_tuples.size() == row_tuples.size())
+            << "nullable_tuples size " << nullable_tuples.size() << " != row_tuples size "
+            << row_tuples.size();
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
     _num_null_slots = 0;
@@ -570,6 +572,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         }
 
         (*tbl)->_tuple_desc_map[tdesc.id] = desc;
+        (*tbl)->_row_tuples.emplace_back(tdesc.id);
     }
 
     for (size_t i = 0; i < thrift_tbl.slotDescriptors.size(); ++i) {
@@ -619,16 +622,6 @@ SlotDescriptor* DescriptorTbl::get_slot_descriptor(SlotId id) const {
         return nullptr;
     } else {
         return i->second;
-    }
-}
-
-// return all registered tuple descriptors
-void DescriptorTbl::get_tuple_descs(std::vector<TupleDescriptor*>* descs) const {
-    descs->clear();
-
-    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin(); i != _tuple_desc_map.end();
-         ++i) {
-        descs->push_back(i->second);
     }
 }
 

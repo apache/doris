@@ -20,7 +20,6 @@
 #include <s2/s2debug.h>
 #include <s2/s2earth.h>
 
-#include "common/logging.h"
 #include "geo/geo_types.h"
 
 namespace doris {

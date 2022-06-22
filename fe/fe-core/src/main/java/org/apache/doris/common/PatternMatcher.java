@@ -20,27 +20,70 @@ package org.apache.doris.common;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 // Wrap for Java pattern and matcher
 public class PatternMatcher {
+    public static final PatternMatcher MATCH_ANY = new PatternMatcher(Pattern.compile(".*"));
     private Pattern pattern;
+    // The name of 'user', 'database' and 'table' don't support complex matching in grant statement.
+    // Only using '%' to match any string. In other cases, it's string case-sensitive(or not) equivalent matching,
+    // so using the origin string to determine whether it matches.
+    private String originString;
+    private boolean caseSensitive;
 
     private static final Set<Character> FORBIDDEN_CHARS = Sets.newHashSet('<', '(', '[', '{', '^', '=',
                                                                           '$', '!', '|', ']', '}', ')',
                                                                           '?', '*', '+', '>', '@');
 
+    public PatternMatcher(Pattern pattern) {
+        this.pattern = pattern;
+    }
+
+    public PatternMatcher(String originString, boolean caseSensitive) {
+        this.originString = caseSensitive ? originString : originString.toLowerCase(Locale.ROOT);
+        this.caseSensitive = caseSensitive;
+    }
+
     public boolean match(String candidate) {
-        if (pattern == null || candidate == null) {
-            // No pattern, how can I explain this? Return false now.
-            // No candidate, return false.
+        if (candidate == null) {
             return false;
         }
-        if (pattern.matcher(candidate).matches()) {
-            return true;
+        if (pattern != null) {
+            return pattern.matcher(candidate).matches();
         }
-        return false;
+        if (caseSensitive) {
+            return candidate.equals(originString);
+        } else {
+            return candidate.toLowerCase(Locale.ROOT).equals(originString);
+        }
+    }
+
+    /**
+     * Use in grant statement to support case-sensitive(or not) equivalent matching.
+     *
+     * @param originString The string to match.
+     * @param caseSensitive Case sensitive.
+     */
+    public static PatternMatcher createFlatPattern(String originString, boolean caseSensitive) {
+        return createFlatPattern(originString, caseSensitive, false);
+    }
+
+    /**
+     * Use in grant statement to support case-sensitive(or not) equivalent matching, or arbitrary matching.
+     *
+     * @param originString The string to match. If matchAny = true, this parameter has no effect.
+     * @param caseSensitive Case sensitive.
+     * @param matchAny match any string.
+     */
+    public static PatternMatcher createFlatPattern(
+            String originString, boolean caseSensitive, boolean matchAny) {
+        if (matchAny) {
+            return MATCH_ANY;
+        }
+        return new PatternMatcher(originString, caseSensitive);
     }
 
     /*
@@ -149,7 +192,7 @@ public class PatternMatcher {
 
     public static PatternMatcher createMysqlPattern(String mysqlPattern, boolean caseSensitive)
             throws AnalysisException {
-        PatternMatcher matcher = new PatternMatcher();
+        PatternMatcher matcher;
 
         // Match nothing
         String newMysqlPattern = Strings.nullToEmpty(mysqlPattern);
@@ -157,9 +200,9 @@ public class PatternMatcher {
         String javaPattern = convertMysqlPattern(newMysqlPattern);
         try {
             if (caseSensitive) {
-                matcher.pattern = Pattern.compile(javaPattern);
+                matcher = new PatternMatcher(Pattern.compile(javaPattern));
             } else {
-                matcher.pattern = Pattern.compile(javaPattern, Pattern.CASE_INSENSITIVE);
+                matcher = new PatternMatcher(Pattern.compile(javaPattern, Pattern.CASE_INSENSITIVE));
             }
         } catch (Exception e) {
             throw new AnalysisException("Bad pattern in SQL: " + e.getMessage());

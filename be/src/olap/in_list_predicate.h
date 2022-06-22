@@ -21,11 +21,15 @@
 #include <stdint.h>
 
 #include <roaring/roaring.hh>
+#include <type_traits>
 
 #include "decimal12.h"
 #include "olap/column_predicate.h"
 #include "runtime/string_value.h"
+#include "runtime/vectorized_row_batch.h"
 #include "uint24.h"
+#include "vec/columns/column_dictionary.h"
+#include "vec/core/types.h"
 
 namespace std {
 // for string value
@@ -75,34 +79,289 @@ namespace doris {
 
 class VectorizedRowBatch;
 
-// todo(wb) support evaluate_and,evaluate_or
+template <class T, PredicateType PT>
+class InListPredicateBase : public ColumnPredicate {
+public:
+    InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>&& values,
+                        bool is_opposite = false)
+            : ColumnPredicate(column_id, is_opposite), _values(std::move(values)) {}
 
-#define IN_LIST_PRED_CLASS_DEFINE(CLASS, PT)                                                      \
-    template <class T>                                                                            \
-    class CLASS : public ColumnPredicate {                                                        \
-    public:                                                                                       \
-        CLASS(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool is_opposite = false);    \
-        PredicateType type() const override { return PredicateType::PT; }                         \
-        virtual void evaluate(VectorizedRowBatch* batch) const override;                          \
-        void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;          \
-        void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,                        \
-                         bool* flags) const override;                                             \
-        void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,                       \
-                          bool* flags) const override;                                            \
-        virtual Status evaluate(const Schema& schema,                                             \
-                                const std::vector<BitmapIndexIterator*>& iterators,               \
-                                uint32_t num_rows, roaring::Roaring* bitmap) const override;      \
-        void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
-        void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,              \
-                          bool* flags) const override {}                                          \
-        void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,               \
-                         bool* flags) const override {}                                           \
-                                                                                                  \
-    private:                                                                                      \
-        phmap::flat_hash_set<T> _values;                                                          \
+    PredicateType type() const override { return PT; }
+
+    void evaluate(VectorizedRowBatch* batch) const override {
+        uint16_t n = batch->size();
+        if (!n) {
+            return;
+        }
+
+        uint16_t* sel = batch->selected();
+        const T* col_vector = reinterpret_cast<const T*>(batch->column(_column_id)->col_data());
+        uint16_t new_size = 0;
+        if (batch->column(_column_id)->no_nulls()) {
+            if (batch->selected_in_use()) {
+                for (uint16_t j = 0; j != n; ++j) {
+                    uint16_t i = sel[j];
+                    sel[new_size] = i;
+                    new_size += _operator(_values.find(col_vector[i]), _values.end());
+                }
+                batch->set_size(new_size);
+            } else {
+                for (uint16_t i = 0; i != n; ++i) {
+                    sel[new_size] = i;
+                    new_size += _operator(_values.find(col_vector[i]), _values.end());
+                }
+                if (new_size < n) {
+                    batch->set_size(new_size);
+                    batch->set_selected_in_use(true);
+                }
+            }
+        } else {
+            bool* is_null = batch->column(_column_id)->is_null();
+            if (batch->selected_in_use()) {
+                for (uint16_t j = 0; j != n; ++j) {
+                    uint16_t i = sel[j];
+                    sel[new_size] = i;
+                    new_size +=
+                            (!is_null[i] && _operator(_values.find(col_vector[i]), _values.end()));
+                }
+                batch->set_size(new_size);
+            } else {
+                for (int i = 0; i != n; ++i) {
+                    sel[new_size] = i;
+                    new_size +=
+                            (!is_null[i] && _operator(_values.find(col_vector[i]), _values.end()));
+                }
+                if (new_size < n) {
+                    batch->set_size(new_size);
+                    batch->set_selected_in_use(true);
+                }
+            }
+        }
     };
 
-IN_LIST_PRED_CLASS_DEFINE(InListPredicate, IN_LIST)
-IN_LIST_PRED_CLASS_DEFINE(NotInListPredicate, NOT_IN_LIST)
+    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override {
+        if (block->is_nullable()) {
+            _base_evaluate<true>(block, sel, size);
+        } else {
+            _base_evaluate<false>(block, sel, size);
+        }
+    }
+
+    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
+        if (block->is_nullable()) {
+            _base_evaluate<true, false>(block, sel, size, flags);
+        } else {
+            _base_evaluate<false, false>(block, sel, size, flags);
+        }
+    }
+
+    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                      bool* flags) const override {
+        if (block->is_nullable()) {
+            _base_evaluate<true, true>(block, sel, size, flags);
+        } else {
+            _base_evaluate<false, true>(block, sel, size, flags);
+        }
+    }
+
+    Status evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,
+                    uint32_t num_rows, roaring::Roaring* result) const override {
+        BitmapIndexIterator* iterator = iterators[_column_id];
+        if (iterator == nullptr) {
+            return Status::OK();
+        }
+        if (iterator->has_null_bitmap()) {
+            roaring::Roaring null_bitmap;
+            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));
+            *result -= null_bitmap;
+        }
+        roaring::Roaring indices;
+        for (auto value : _values) {
+            bool exact_match;
+            Status s = iterator->seek_dictionary(&value, &exact_match);
+            rowid_t seeked_ordinal = iterator->current_ordinal();
+            if (!s.is_not_found()) {
+                if (!s.ok()) {
+                    return s;
+                }
+                if (exact_match) {
+                    roaring::Roaring index;
+                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &index));
+                    indices |= index;
+                }
+            }
+        }
+
+        if constexpr (PT == PredicateType::IN_LIST) {
+            *result &= indices;
+        } else {
+            *result -= indices;
+        }
+
+        return Status::OK();
+    }
+
+    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override {
+        if (column.is_nullable()) {
+            auto* nullable_col =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                        nullable_col->get_null_map_column())
+                                        .get_data();
+            auto& nested_col = nullable_col->get_nested_column();
+
+            if (_opposite) {
+                return _base_evaluate<true, true>(&nested_col, &null_bitmap, sel, size);
+            } else {
+                return _base_evaluate<true, false>(&nested_col, &null_bitmap, sel, size);
+            }
+        } else {
+            if (_opposite) {
+                return _base_evaluate<false, true>(&column, nullptr, sel, size);
+            } else {
+                return _base_evaluate<false, false>(&column, nullptr, sel, size);
+            }
+        }
+    }
+
+    // todo(wb) support evaluate_and,evaluate_or
+    void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+                      bool* flags) const override {
+        LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_and now.";
+    }
+    void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+                     bool* flags) const override {
+        LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_or now.";
+    }
+
+private:
+    template <typename LeftT, typename RightT>
+    bool _operator(const LeftT& lhs, const RightT& rhs) const {
+        if constexpr (PT == PredicateType::IN_LIST) {
+            return lhs != rhs;
+        }
+        return lhs == rhs;
+    }
+
+    template <bool is_nullable>
+    void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
+        uint16_t new_size = 0;
+        for (uint16_t i = 0; i < *size; ++i) {
+            uint16_t idx = sel[i];
+            sel[new_size] = idx;
+            const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+            if constexpr (is_nullable) {
+                new_size += _opposite ^ (!block->cell(idx).is_null() &&
+                                         _operator(_values.find(*cell_value), _values.end()));
+            } else {
+                new_size += _opposite ^ _operator(_values.find(*cell_value), _values.end());
+            }
+        }
+        *size = new_size;
+    }
+
+    template <bool is_nullable, bool is_and>
+    void _base_evaluate(const ColumnBlock* block, const uint16_t* sel, uint16_t size,
+                        bool* flags) const {
+        for (uint16_t i = 0; i < size; ++i) {
+            if (!flags[i]) {
+                continue;
+            }
+
+            uint16_t idx = sel[i];
+            const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+            auto result = true;
+            if constexpr (is_nullable) {
+                result &= !block->cell(idx).is_null();
+            }
+            result &= _operator(_values.find(*cell_value), _values.end());
+
+            if constexpr (is_and) {
+                flags[i] &= _opposite ^ result;
+            } else {
+                flags[i] |= _opposite ^ result;
+            }
+        }
+    }
+
+    template <bool is_nullable, bool is_opposite>
+    uint16_t _base_evaluate(const vectorized::IColumn* column,
+                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+                            uint16_t* sel, uint16_t size) const {
+        uint16_t new_size = 0;
+
+        if (column->is_column_dictionary()) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                auto* nested_col_ptr = vectorized::check_and_get_column<
+                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                auto& data_array = nested_col_ptr->get_data();
+                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if constexpr (is_opposite) {
+                                sel[new_size++] = idx;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
+                        if (_value_in_dict_flags[data_array[idx]]) {
+                            sel[new_size++] = idx;
+                        }
+                    } else {
+                        if (!_value_in_dict_flags[data_array[idx]]) {
+                            sel[new_size++] = idx;
+                        }
+                    }
+                }
+            } else {
+                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+            }
+        } else {
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
+            auto& data_array = nested_col_ptr->get_data();
+
+            for (uint16_t i = 0; i < size; i++) {
+                uint16_t idx = sel[i];
+                if constexpr (is_nullable) {
+                    if ((*null_map)[idx]) {
+                        if constexpr (is_opposite) {
+                            sel[new_size++] = idx;
+                        }
+                        continue;
+                    }
+                }
+
+                if constexpr (!is_opposite) {
+                    if (_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                  _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                } else {
+                    if (!_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                   _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                }
+            }
+        }
+
+        return new_size;
+    }
+
+    phmap::flat_hash_set<T> _values;
+    mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
+};
+
+template <class T>
+using InListPredicate = InListPredicateBase<T, PredicateType::IN_LIST>;
+
+template <class T>
+using NotInListPredicate = InListPredicateBase<T, PredicateType::NOT_IN_LIST>;
 
 } //namespace doris

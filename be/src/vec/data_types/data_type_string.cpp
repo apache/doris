@@ -66,6 +66,12 @@ void DataTypeString::to_string(const class doris::vectorized::IColumn& column, s
     ostr.write(s.data, s.size);
 }
 
+Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {
+    auto* column_data = static_cast<ColumnString*>(column);
+    column_data->insert_data(rb.position(), rb.count());
+    return Status::OK();
+}
+
 Field DataTypeString::get_default() const {
     return String();
 }
@@ -84,7 +90,7 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
-    return sizeof(uint32_t) * (column.size() + 1) + sizeof(uint64_t) +
+    return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
            data_column.get_chars().size();
 }
 
@@ -93,11 +99,11 @@ char* DataTypeString::serialize(const IColumn& column, char* buf) const {
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
     // row num
-    *reinterpret_cast<uint32_t*>(buf) = column.size();
-    buf += sizeof(uint32_t);
+    *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
+    buf += sizeof(IColumn::Offset);
     // offsets
-    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(uint32_t));
-    buf += column.size() * sizeof(uint32_t);
+    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
+    buf += column.size() * sizeof(IColumn::Offset);
     // total length
     uint64_t value_len = data_column.get_chars().size();
     *reinterpret_cast<uint64_t*>(buf) = value_len;
@@ -115,12 +121,12 @@ const char* DataTypeString::deserialize(const char* buf, IColumn* column) const 
     ColumnString::Offsets& offsets = column_string->get_offsets();
 
     // row num
-    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
-    buf += sizeof(uint32_t);
+    IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    buf += sizeof(IColumn::Offset);
     // offsets
     offsets.resize(row_num);
-    memcpy(offsets.data(), buf, sizeof(uint32_t) * row_num);
-    buf += sizeof(uint32_t) * row_num;
+    memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * row_num);
+    buf += sizeof(IColumn::Offset) * row_num;
     // total length
     uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
     buf += sizeof(uint64_t);

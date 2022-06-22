@@ -42,8 +42,7 @@ public interface TableIf {
 
     boolean isWriteLockHeldByCurrentThread();
 
-    <E extends Exception>
-    void writeLockOrException(E e) throws E;
+    <E extends Exception> void writeLockOrException(E e) throws E;
 
     void writeLockOrDdlException() throws DdlException;
 
@@ -53,8 +52,7 @@ public interface TableIf {
 
     boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException;
 
-    <E extends Exception>
-    boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E;
+    <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E;
 
     boolean tryWriteLockIfExist(long timeout, TimeUnit unit);
 
@@ -62,7 +60,7 @@ public interface TableIf {
 
     String getName();
 
-    Table.TableType getType();
+    TableType getType();
 
     List<Column> getFullSchema();
 
@@ -74,4 +72,20 @@ public interface TableIf {
 
     Column getColumn(String name);
 
+    /**
+     * Doris table type.
+     */
+    public enum TableType {
+        MYSQL,
+        ODBC,
+        OLAP,
+        SCHEMA,
+        INLINE_VIEW,
+        VIEW,
+        BROKER,
+        ELASTICSEARCH,
+        HIVE,
+        ICEBERG,
+        HUDI
+    }
 }

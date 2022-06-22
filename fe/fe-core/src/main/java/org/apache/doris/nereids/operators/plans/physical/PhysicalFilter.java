@@ -20,14 +20,18 @@ package org.apache.doris.nereids.operators.plans.physical;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Objects;
 
 /**
  * Physical filter plan operator.
  */
-public class PhysicalFilter<INPUT_TYPE extends Plan>
-        extends PhysicalUnaryOperator<PhysicalFilter<INPUT_TYPE>, INPUT_TYPE> {
+public class PhysicalFilter extends PhysicalUnaryOperator {
 
     private final Expression predicates;
 
@@ -42,12 +46,16 @@ public class PhysicalFilter<INPUT_TYPE extends Plan>
 
     @Override
     public String toString() {
-        String cond;
-        if (predicates == null) {
-            cond = "<null>";
-        } else {
-            cond = predicates.toString();
-        }
-        return "Filter (" + cond + ")";
+        return "Filter (" + predicates + ")";
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of(predicates);
+    }
+
+    @Override
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return visitor.visitPhysicalFilter((PhysicalUnaryPlan<PhysicalFilter, Plan>) plan, context);
     }
 }

@@ -18,8 +18,11 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnsCommon.cpp
 // and modified by Doris
 
-#ifdef __SSE2__
+#if defined(__SSE2__)
 #include <emmintrin.h>
+#endif
+#if defined(__aarch64__)
+#include <sse2neon.h>
 #endif
 
 #include "util/simd/bits.h"
@@ -41,7 +44,7 @@ size_t count_bytes_in_filter(const IColumn::Filter& filt) {
     const Int8* pos = reinterpret_cast<const Int8*>(filt.data());
     const Int8* end = pos + filt.size();
 
-#if defined(__SSE2__) && defined(__POPCNT__)
+#if defined(__SSE2__) || defined(__aarch64__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
     const Int8* end64 = pos + filt.size() / 64 * 64;
 
@@ -62,7 +65,9 @@ size_t count_bytes_in_filter(const IColumn::Filter& filt) {
         /// TODO Add duff device for tail?
 #endif
 
-    for (; pos < end; ++pos) count += *pos > 0;
+    for (; pos < end; ++pos) {
+        count += *pos > 0;
+    }
 
     return count;
 }

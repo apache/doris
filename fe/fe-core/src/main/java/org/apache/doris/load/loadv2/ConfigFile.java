@@ -23,6 +23,7 @@ import org.apache.doris.common.LoadException;
 // Each time before running the yarn command, we need to check that the
 // config file exists in the specified path, and if not, create them.
 public interface ConfigFile {
-    public void createFile() throws LoadException;
-    public String getFilePath();
+    void createFile() throws LoadException;
+
+    String getFilePath();
 }

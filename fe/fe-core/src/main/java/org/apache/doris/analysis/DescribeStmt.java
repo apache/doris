@@ -26,7 +26,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -169,7 +169,8 @@ public class DescribeStmt extends ShowStmt {
                                     column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
-                                    column.getDefaultValue() == null ? FeConstants.null_string : column.getDefaultValue(),
+                                    column.getDefaultValue() == null
+                                            ? FeConstants.null_string : column.getDefaultValue(),
                                     extraStr,
                                     ((Boolean) column.isVisible()).toString()
                             );
@@ -221,6 +222,7 @@ public class DescribeStmt extends ShowStmt {
     public String getTableName() {
         return dbTableName.getTbl();
     }
+
     public String getDb() {
         return dbTableName.getDb();
     }

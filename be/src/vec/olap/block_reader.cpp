@@ -17,22 +17,18 @@
 
 #include "vec/olap/block_reader.h"
 
-#include "olap/row_block.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/schema.h"
-#include "olap/storage_engine.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris::vectorized {
 
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
-        AggregateFunctionPtr function = _agg_functions[i];
-        AggregateDataPtr place = _agg_places[i];
-        function->destroy(place);
-        delete[] place;
+        _agg_functions[i]->destroy(_agg_places[i]);
+        delete[] _agg_places[i];
     }
 }
 
@@ -85,22 +81,11 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     auto& tablet_schema = tablet()->tablet_schema();
     for (auto idx : _agg_columns_idx) {
-        FieldAggregationMethod agg_method =
+        AggregateFunctionPtr function =
                 tablet_schema
                         .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
-                        .aggregation();
-        std::string agg_name =
-                TabletColumn::get_string_by_aggregation_type(agg_method) + AGG_READER_SUFFIX;
-        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-
-        // create aggregate function
-        DataTypes argument_types;
-        argument_types.push_back(_next_row.block->get_data_type(idx));
-        Array params;
-        AggregateFunctionPtr function = AggregateFunctionSimpleFactory::instance().get(
-                agg_name, argument_types, params,
-                _next_row.block->get_data_type(idx)->is_nullable());
+                        .get_aggregate_function({_next_row.block->get_data_type(idx)},
+                                                vectorized::AGG_READER_SUFFIX);
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data
@@ -362,7 +347,9 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (is_close) {
             function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
-            function->create(place); // reset aggregate data
+            // reset aggregate data
+            function->destroy(place);
+            function->create(place);
         }
     }
 }

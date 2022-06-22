@@ -19,6 +19,9 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.exceptions.ParsingException;
+import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.antlr.v4.runtime.CharStreams;
@@ -26,6 +29,8 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
+
+import java.util.function.Function;
 
 /**
  * Sql parser, convert sql DSL to logical plan.
@@ -37,33 +42,44 @@ public class SqlParser {
      *
      * @param sql sql string
      * @return logical plan
-     * @throws Exception throw exception when failed in parse stage
      */
-    public LogicalPlan parse(String sql) throws Exception {
-        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+    public LogicalPlan parse(String sql) {
+        return (LogicalPlan) parse(sql, DorisParser::singleStatement);
+    }
 
-        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
-        DorisParser parser = new DorisParser(tokenStream);
-
-        // parser.addParseListener(PostProcessor)
-        // parser.removeErrorListeners()
-        // parser.addErrorListener(ParseErrorListener)
-
-        ParserRuleContext tree;
+    private TreeNode parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         try {
-            // first, try parsing with potentially faster SLL mode
-            parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-            tree = parser.singleStatement();
-        } catch (ParseCancellationException ex) {
-            // if we fail, parse with LL mode
-            tokenStream.seek(0); // rewind input stream
-            parser.reset();
+            DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+            CommonTokenStream tokenStream = new CommonTokenStream(lexer);
+            DorisParser parser = new DorisParser(tokenStream);
 
-            parser.getInterpreter().setPredictionMode(PredictionMode.LL);
-            tree = parser.singleStatement();
+            // parser.addParseListener(PostProcessor)
+            // parser.removeErrorListeners()
+            // parser.addErrorListener(ParseErrorListener)
+
+            ParserRuleContext tree;
+            try {
+                // first, try parsing with potentially faster SLL mode
+                parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
+                tree = parseFunction.apply(parser);
+            } catch (ParseCancellationException ex) {
+                // if we fail, parse with LL mode
+                tokenStream.seek(0); // rewind input stream
+                parser.reset();
+
+                parser.getInterpreter().setPredictionMode(PredictionMode.LL);
+                tree = parseFunction.apply(parser);
+            }
+
+            LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
+            return (TreeNode) logicalPlanBuilder.visit(tree);
+
+        } catch (StackOverflowError e) {
+            throw new ParsingException(e.getMessage());
         }
+    }
 
-        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-        return (LogicalPlan) logicalPlanBuilder.visit(tree);
+    public Expression createExpression(String expression) {
+        return (Expression) parse(expression, DorisParser::expression);
     }
 }

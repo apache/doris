@@ -110,6 +110,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final boolean DEFAULT_LOAD_TO_SINGLE_TABLET = false;
 
     protected static final String STAR_STRING = "*";
+
     /*
                      +-----------------+
     fe schedule job  |  NEED_SCHEDULE  |  user resume job
@@ -731,9 +732,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 // if this is a replay thread, the update state should already be replayed by OP_CHANGE_ROUTINE_LOAD_JOB
                 if (!isReplay) {
                     // remove all of task in jobs and change job state to paused
-                    updateState(JobState.PAUSED,
-                            new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR, "current error rows of job is more than max error num"),
-                            isReplay);
+                    updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
+                                    "current error rows of job is more than max error num"), isReplay);
                 }
             }
 
@@ -758,9 +758,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     .build());
             if (!isReplay) {
                 // remove all of task in jobs and change job state to paused
-                updateState(JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR, "current error rows is more than max error num"),
-                        isReplay);
+                updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
+                                "current error rows is more than max error num"), isReplay);
             }
             // reset currentTotalNum and currentErrorNum
             this.jobStatistic.currentErrorRows = 0;
@@ -787,7 +786,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private void initPlanner() throws UserException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-        planner = new StreamLoadPlanner(db, db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
+        planner = new StreamLoadPlanner(db,
+            (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
 
     public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
@@ -896,7 +896,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             String errmsg = "be " + taskBeId + " commit task failed " + txnState.getLabel()
                     + " with error " + e.getMessage()
                     + " while transaction " + txnState.getTransactionId() + " has been committed";
-            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR, errmsg), false /* not replay */);
+            updateState(JobState.PAUSED,
+                    new ErrorReason(InternalErrorCode.INTERNAL_ERR, errmsg), false /* not replay */);
         } finally {
             writeUnlock();
             LOG.debug("unlock write lock of routine load job after committed: {}", id);
@@ -918,8 +919,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
         if (!txnOperated) {
             String msg = String.format(
-                    "should not happen, we find that txnOperated if false when handling afterVisble. job id: %d, txn id: %d",
-                    id, txnState.getTransactionId());
+                    "should not happen, we find that txnOperated if false when handling afterVisble."
+                            + " job id: %d, txn id: %d", id, txnState.getTransactionId());
             LOG.warn(msg);
             // print a log and return.
             // if this really happen, the job will be blocked, and this task can be seen by
@@ -945,18 +946,22 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 //      The routineLoadTaskInfoList will be cleared when job being paused.
                 //      So the task can not be found here.
                 // This is a normal case, we just print a log here to observe.
-                LOG.info("Can not find task with transaction {} after visible, job: {}", txnState.getTransactionId(), id);
+                LOG.info("Can not find task with transaction {} after visible, job: {}",
+                        txnState.getTransactionId(), id);
                 return;
             }
             RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
             if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED) {
                 // TODO(cmy): Normally, this should not happen. But for safe reason, just pause the job
                 String msg = String.format(
-                        "should not happen, we find that task %s is not COMMITTED when handling afterVisble. job id: %d, txn id: %d, txn status: %s",
-                        DebugUtil.printId(routineLoadTaskInfo.getId()), id, txnState.getTransactionId(), routineLoadTaskInfo.getTxnStatus().name());
+                        "should not happen, we find that task %s is not COMMITTED when handling afterVisble."
+                                + " job id: %d, txn id: %d, txn status: %s",
+                        DebugUtil.printId(routineLoadTaskInfo.getId()), id, txnState.getTransactionId(),
+                        routineLoadTaskInfo.getTxnStatus().name());
                 LOG.warn(msg);
                 try {
-                    updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.IMPOSSIBLE_ERROR_ERR, msg), false /* not replay */);
+                    updateState(JobState.PAUSED,
+                            new ErrorReason(InternalErrorCode.IMPOSSIBLE_ERROR_ERR, msg), false /* not replay */);
                 } catch (UserException e) {
                     // should not happen
                     LOG.warn("failed to pause the job {}. this should not happen", id, e);
@@ -1022,16 +1027,19 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // TODO(ml): use previous be id depend on change reason
                 }
                 // step2: commit task , update progress, maybe create a new task
-                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.ABORTED, txnStatusChangeReason);
+                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState,
+                        TransactionStatus.ABORTED, txnStatusChangeReason);
             }
         } catch (Exception e) {
-            String msg = "be " + taskBeId + " abort task " + txnState.getLabel() + " failed with error " + e.getMessage();
+            String msg = "be " + taskBeId + " abort task " + txnState.getLabel()
+                    + " failed with error " + e.getMessage();
             updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
                         false /* not replay */);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                             .add("task_id", txnState.getLabel())
-                             .add("error_msg", "change job state to paused when task has been aborted with error " + e.getMessage())
-                             .build(), e);
+                    .add("task_id", txnState.getLabel())
+                    .add("error_msg", "change job state to paused"
+                            + " when task has been aborted with error " + e.getMessage())
+                    .build(), e);
         } finally {
             writeUnlock();
             LOG.debug("unlock write lock of routine load job after aborted: {}", id);
@@ -1050,9 +1058,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     // check task exists or not before call method
     private void executeTaskOnTxnStatusChanged(RoutineLoadTaskInfo routineLoadTaskInfo, TransactionState txnState,
-            TransactionStatus txnStatus, TransactionState.TxnStatusChangeReason txnStatusChangeReason) throws UserException {
+            TransactionStatus txnStatus, TransactionState.TxnStatusChangeReason txnStatusChangeReason)
+            throws UserException {
         // step0: get progress from transaction state
-        RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
+                = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         if (rlTaskTxnCommitAttachment == null) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
@@ -1079,7 +1089,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
             } else if (txnStatus == TransactionStatus.COMMITTED) {
                 // this txn is just COMMITTED, create new task when the this txn is VISIBLE
-                // or if publish version task has some error, there will be lots of COMMITTED txns in GlobalTransactionMgr
+                // or if publish version task has some error,
+                // there will be lots of COMMITTED txns in GlobalTransactionMgr
             }
         }
     }
@@ -1220,8 +1231,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             writeLock();
             try {
                 if (!state.isFinalState()) {
-                    unprotectUpdateState(JobState.CANCELLED,
-                            new ErrorReason(InternalErrorCode.TABLE_ERR, "table does not exist"), false /* not replay */);
+                    unprotectUpdateState(JobState.CANCELLED, new ErrorReason(InternalErrorCode.TABLE_ERR,
+                            "table does not exist"), false /* not replay */);
                 }
                 return;
             } finally {
@@ -1319,7 +1330,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         List<List<String>> rows = Lists.newArrayList();
         routineLoadTaskInfoList.forEach(entity -> {
             try {
-                entity.setTxnStatus(Catalog.getCurrentCatalog().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId).getTransactionState(entity.getTxnId()).getTransactionStatus());
+                entity.setTxnStatus(Catalog.getCurrentCatalog().getGlobalTransactionMgr()
+                        .getDatabaseTransactionMgr(dbId).getTransactionState(entity.getTxnId()).getTransactionStatus());
                 rows.add(entity.getTaskShowInfo());
             } catch (AnalysisException e) {
                 LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getMessage());
@@ -1445,8 +1457,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
-        jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
+        jobProperties.put("partitions", partitions == null
+                ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
+        jobProperties.put("columnToColumnExpr", columnDescs == null
+                ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
         jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         if (getFormat().equalsIgnoreCase("json")) {
@@ -1632,9 +1646,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    abstract public void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
+    public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
 
-    abstract public void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
+    public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) {

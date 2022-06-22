@@ -22,15 +22,15 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 
 /**
  * Logical filter plan operator.
  */
-public class LogicalFilter<INPUT_TYPE extends Plan>
-         extends LogicalUnaryOperator<LogicalFilter<INPUT_TYPE>, INPUT_TYPE> {
-
+public class LogicalFilter extends LogicalUnaryOperator {
     private final Expression predicates;
 
     public LogicalFilter(Expression predicates) {
@@ -42,20 +42,18 @@ public class LogicalFilter<INPUT_TYPE extends Plan>
         return predicates;
     }
 
-
     @Override
-    public List<Slot> doComputeOutput(INPUT_TYPE input) {
+    public List<Slot> computeOutput(Plan input) {
         return input.getOutput();
     }
 
     @Override
     public String toString() {
-        String cond;
-        if (predicates == null) {
-            cond = "<null>";
-        } else {
-            cond = predicates.toString();
-        }
-        return "Filter (" + cond + ")";
+        return "Filter (" + predicates + ")";
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of(predicates);
     }
 }

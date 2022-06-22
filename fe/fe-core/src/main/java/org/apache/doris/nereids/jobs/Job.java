@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
-public abstract class Job<NODE_TYPE extends TreeNode> {
+public abstract class Job<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     protected JobType type;
     protected PlannerContext context;
 

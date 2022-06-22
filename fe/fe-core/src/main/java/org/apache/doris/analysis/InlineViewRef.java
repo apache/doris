@@ -207,7 +207,7 @@ public class InlineViewRef extends TableRef {
             materializedTupleIds.add(desc.getId());
         }
 
-        // create smap_ and baseTblSmap_ and register auxiliary eq predicates between our
+        // create sMap and baseTblSmap and register auxiliary eq predicates between our
         // tuple descriptor's slots and our *unresolved* select list exprs;
         // we create these auxiliary predicates so that the analyzer can compute the value
         // transfer graph through this inline view correctly (ie, predicates can get
@@ -234,10 +234,14 @@ public class InlineViewRef extends TableRef {
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
 
-        // anlayzeLateralViewRefs
+        // analyzeLateralViewRefs
         analyzeLateralViewRef(analyzer);
 
         // Now do the remaining join analysis
+        // In general, we should do analyze join before do RegisterColumnRef. However, We cannot move analyze join
+        // before generate sMap and baseTblSmap, because generate sMap and baseTblSmap will register all column refs
+        // in the inline view. If inline view is on right side of left semi join, exception will be thrown.
+        // Instead, we do a little trick in RegisterColumnRef to avoid this problem.
         analyzeJoin(analyzer);
     }
 
@@ -284,7 +288,8 @@ public class InlineViewRef extends TableRef {
                     false, null, selectItemExpr.isNullable(),
                     null, ""));
         }
-        InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
+        InlineView inlineView = (view != null) ? new InlineView(view, columnList)
+                : new InlineView(getExplicitAlias(), columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();

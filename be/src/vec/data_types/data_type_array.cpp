@@ -21,6 +21,7 @@
 #include "vec/data_types/data_type_array.h"
 
 #include "gen_cpp/data.pb.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -64,7 +65,7 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
     // row num
-    *reinterpret_cast<uint32_t*>(buf) = column.size();
+    *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
     buf += sizeof(IColumn::Offset);
     // offsets
     memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
@@ -78,7 +79,7 @@ const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
     auto& offsets = data_column->get_offsets();
 
     // row num
-    uint32_t row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
     buf += sizeof(IColumn::Offset);
     // offsets
     offsets.resize(row_num);
@@ -92,6 +93,94 @@ void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     auto children = col_meta->add_children();
     get_nested_type()->to_pb_column_meta(children);
+}
+
+void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    auto& data_column =
+            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+    auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+    ostr.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            ostr.write(",", 1);
+        }
+        nested->to_string(nested_column, i, ostr);
+    }
+    ostr.write("]", 1);
+}
+
+std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) const {
+    auto& data_column =
+            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+    auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+    const IColumn& nested_column = data_column.get_data();
+    std::stringstream ss;
+    ss << "[";
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            ss << ",";
+        }
+        ss << nested->to_string(nested_column, i);
+    }
+    ss << "]";
+    return ss.str();
+}
+
+Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
+    // only support one level now
+    auto* array_column = assert_cast<ColumnArray*>(column);
+    auto& offsets = array_column->get_offsets();
+
+    IColumn& nested_column = array_column->get_data();
+    if (*rb.position() != '[') {
+        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
+                                       *rb.position());
+    }
+    ++rb.position();
+    bool first = true;
+    size_t size = 0;
+    while (!rb.eof() && *rb.position() != ']') {
+        if (!first) {
+            if (*rb.position() == ',') {
+                ++rb.position();
+            } else {
+                return Status::InvalidArgument(fmt::format(
+                        "Cannot read array from text, expected comma or end of array, found '{}'",
+                        *rb.position()));
+            }
+        }
+        first = false;
+        if (*rb.position() == ']') {
+            break;
+        }
+        size_t nested_str_len = 1;
+        char* temp_char = rb.position() + nested_str_len;
+        while (*(temp_char) != ']' && *(temp_char) != ',' && temp_char != rb.end()) {
+            ++nested_str_len;
+            temp_char = rb.position() + nested_str_len;
+        }
+
+        ReadBuffer read_buffer(rb.position(), nested_str_len);
+        auto st = nested->from_string(read_buffer, &nested_column);
+        if (!st.ok()) {
+            // we should do revert if error
+            array_column->pop_back(size);
+            return st;
+        }
+        rb.position() += nested_str_len;
+        DCHECK_LE(rb.position(), rb.end());
+        ++size;
+    }
+    offsets.push_back(offsets.back() + size);
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

@@ -207,7 +207,8 @@ public class TabletScheduler extends MasterDaemon {
         // add new backends
         for (Backend be : backends.values()) {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
-                List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash).collect(Collectors.toList());
+                List<Long> pathHashes = be.getDisks().values().stream()
+                        .map(DiskInfo::getPathHash).collect(Collectors.toList());
                 PathSlot slot = new PathSlot(pathHashes, Config.schedule_slot_num_per_path);
                 backendsWorkingSlots.put(be.getId(), slot);
                 LOG.info("add new backend {} with slots num: {}", be.getId(), be.getDisks().size());
@@ -287,7 +288,8 @@ public class TabletScheduler extends MasterDaemon {
      * 3. priority may be upgraded if it is not being schedule for a long time.
      * 4. every pending task should has a max scheduled time, if schedule fails too many times, if should be removed.
      * 5. every running task should has a timeout, to avoid running forever.
-     * 6. every running task should also has a max failure time, if clone task fails too many times, if should be removed.
+     * 6. every running task should also has a max failure time,
+     *    if clone task fails too many times, if should be removed.
      *
      */
     @Override
@@ -338,7 +340,7 @@ public class TabletScheduler extends MasterDaemon {
                         infoService, invertedIndex);
                 clusterLoadStatistic.init();
                 newStatisticMap.put(clusterName, tag, clusterLoadStatistic);
-                LOG.info("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
+                LOG.debug("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
             }
         }
 
@@ -368,7 +370,7 @@ public class TabletScheduler extends MasterDaemon {
             pendingTablets.add(tabletCtx);
         }
 
-        LOG.info("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
+        LOG.debug("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
     }
 
     /**
@@ -489,7 +491,8 @@ public class TabletScheduler extends MasterDaemon {
                 s -> new SchedException(Status.UNRECOVERABLE, "db " + tabletCtx.getDbId() + " does not exist"));
         OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
                 s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletCtx.getTblId() + " does not exist"));
-        tbl.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table " + tbl.getName() + " does not exist"));
+        tbl.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table "
+                + tbl.getName() + " does not exist"));
         try {
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
 
@@ -543,7 +546,8 @@ public class TabletScheduler extends MasterDaemon {
 
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE) {
                 try {
-                    DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
+                    DatabaseTransactionMgr dbTransactionMgr
+                            = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
                     for (TransactionState transactionState : dbTransactionMgr.getPreCommittedTxnList()) {
                         if (transactionState.getTableIdList().contains(tbl.getId())) {
                             // If table releate to transaction with precommitted status, do not allow to do balance.
@@ -623,7 +627,8 @@ public class TabletScheduler extends MasterDaemon {
                     handleReplicaMissing(tabletCtx, batchTask);
                     break;
                 case VERSION_INCOMPLETE:
-                case NEED_FURTHER_REPAIR: // same as version incomplete, it prefer to the dest replica which need further repair
+                case NEED_FURTHER_REPAIR:
+                    // same as version incomplete, it prefers to the dest replica which need further repair
                     handleReplicaVersionIncomplete(tabletCtx, batchTask);
                     break;
                 case REPLICA_RELOCATING:
@@ -743,7 +748,8 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots);
         } catch (SchedException e) {
             if (e.getMessage().equals("unable to choose dest replica")) {
-                // This situation may occur when the BE nodes where all replicas of a tablet are located are decommission,
+                // This situation may occur when the BE nodes
+                // where all replicas of a tablet are located are decommission,
                 // and this task is a VERSION_INCOMPLETE task.
                 // This will lead to failure to select a suitable dest replica.
                 // At this time, we try to convert this task to a REPLICA_MISSING task, and schedule it again.
@@ -752,7 +758,8 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.releaseResource(this, true);
                 tabletCtx.setTabletStatus(TabletStatus.REPLICA_MISSING);
                 handleReplicaMissing(tabletCtx, batchTask);
-                LOG.debug("succeed to find new backend for VERSION_INCOMPLETE task. tablet id: {}", tabletCtx.getTabletId());
+                LOG.debug("succeed to find new backend for VERSION_INCOMPLETE task. tablet id: {}",
+                        tabletCtx.getTabletId());
                 return;
             } else {
                 throw e;
@@ -1085,26 +1092,30 @@ public class TabletScheduler extends MasterDaemon {
         if (chosenReplica != null && !chosenReplica.equals(minReplica) && minReplica.isAlive() && !minReplica.tooSlow()
                 && normalReplicaCount >= 1) {
             chosenReplica.setState(ReplicaState.COMPACTION_TOO_SLOW);
-            LOG.info("set replica id :{} tablet id: {}, backend id: {} to COMPACTION_TOO_SLOW", chosenReplica.getId()
-                    , tabletCtx.getTablet()
-                    .getId(), chosenReplica.getBackendId());
+            LOG.info("set replica id :{} tablet id: {}, backend id: {} to COMPACTION_TOO_SLOW",
+                    chosenReplica.getId(), tabletCtx.getTablet().getId(), chosenReplica.getBackendId());
             throw new SchedException(Status.FINISHED, "set replica to COMPACTION_TOO_SLOW");
         }
         throw new SchedException(Status.FINISHED, "No replica too slow");
     }
 
-    private void deleteReplicaInternal(TabletSchedCtx tabletCtx, Replica replica, String reason, boolean force) throws SchedException {
+    private void deleteReplicaInternal(TabletSchedCtx tabletCtx,
+            Replica replica, String reason, boolean force) throws SchedException {
         /*
-         * Before deleting a replica, we should make sure that there is no running txn on it and no more txns will be on it.
+         * Before deleting a replica, we should make sure that
+         * there is no running txn on it and no more txns will be on it.
          * So we do followings:
-         * 1. If replica is loadable, set a watermark txn id on it and set it state as DECOMMISSION, but not deleting it this time.
+         * 1. If replica is loadable, set a watermark txn id on it and set it state as DECOMMISSION,
+         *      but not deleting it this time.
          *      The DECOMMISSION state will ensure that no more txns will be on this replicas.
-         * 2. Wait for any txns before the watermark txn id to be finished. If all are finished, which means this replica is
+         * 2. Wait for any txns before the watermark txn id to be finished.
+         *      If all are finished, which means this replica is
          *      safe to be deleted.
          */
         if (!force && !Config.enable_force_drop_redundant_replica && replica.getState().canLoad()
                 && replica.getWatermarkTxnId() == -1 && !FeConstants.runningUnitTest) {
-            long nextTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+            long nextTxnId = Catalog.getCurrentGlobalTransactionMgr()
+                    .getTransactionIDGenerator().getNextTransactionId();
             replica.setWatermarkTxnId(nextTxnId);
             replica.setState(ReplicaState.DECOMMISSION);
             // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
@@ -1135,7 +1146,8 @@ public class TabletScheduler extends MasterDaemon {
             // NOTICE: only delete the replica from meta may not work. sometimes we can depend on tablet report
             // deleting these replicas, but in FORCE_REDUNDANT case, replica may be added to meta again in report
             // process.
-            sendDeleteReplicaTask(replica.getBackendId(), tabletCtx.getTabletId(), tabletCtx.getSchemaHash());
+            sendDeleteReplicaTask(replica.getBackendId(), tabletCtx.getTabletId(), replica.getId(),
+                    tabletCtx.getSchemaHash());
         }
 
         // write edit log
@@ -1152,8 +1164,8 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.getTabletId(), replica.getBackendId(), reason, force);
     }
 
-    private void sendDeleteReplicaTask(long backendId, long tabletId, int schemaHash) {
-        DropReplicaTask task = new DropReplicaTask(backendId, tabletId, schemaHash);
+    private void sendDeleteReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash) {
+        DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId, schemaHash);
         AgentBatchTask batchTask = new AgentBatchTask();
         batchTask.addTask(task);
         AgentTaskExecutor.submit(batchTask);
@@ -1175,7 +1187,8 @@ public class TabletScheduler extends MasterDaemon {
 
     /**
      * Missing for tag, which means some of replicas of this tablet are allocated in wrong backend with specified tag.
-     * Treat it as replica missing, and in handleReplicaMissing(), it will find a property backend to create new replica.
+     * Treat it as replica missing, and in handleReplicaMissing(),
+     * it will find a property backend to create new replica.
      */
     private void handleReplicaMissingForTag(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
@@ -1328,7 +1341,8 @@ public class TabletScheduler extends MasterDaemon {
                 // This is to solve, when we decommission some BEs with SSD disks,
                 // if there are no SSD disks on the remaining BEs, it will be impossible to select a
                 // suitable destination path.
-                // In this case, we need to ignore the storage medium property and try to select the destination path again.
+                // In this case, we need to ignore the storage medium property
+                // and try to select the destination path again.
                 // Set `isSupplement` to true will ignore the  storage medium property.
                 st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
                         resultPaths, true);
@@ -1462,6 +1476,7 @@ public class TabletScheduler extends MasterDaemon {
         finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
         return true;
     }
+
     /**
      * return true if we want to remove the clone task from AgentTaskQueue
      */

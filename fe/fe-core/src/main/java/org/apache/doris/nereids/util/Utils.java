@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+
+import java.util.List;
+
 /**
  * Utils for Nereids.
  */
@@ -33,5 +38,15 @@ public class Utils {
         } else {
             return part.replace("`", "``");
         }
+    }
+
+    // TODO: implement later
+    public static List<Expression> getEqConjuncts(List<Slot> left, List<Slot> right, Expression eqExpr) {
+        return null;
+    }
+
+    // TODO: implement later
+    public static List<Expression> extractConjuncts(Expression expr) {
+        return null;
     }
 }

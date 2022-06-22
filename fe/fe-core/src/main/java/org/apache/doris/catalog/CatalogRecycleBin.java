@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -87,14 +87,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return true;
     }
 
-    public synchronized boolean recycleTable(long dbId, Table table) {
+    public synchronized boolean recycleTable(long dbId, Table table, boolean isReplay) {
         if (idToTable.containsKey(table.getId())) {
             LOG.error("table[{}] already in recycle bin.", table.getId());
             return false;
         }
 
         // erase table with same name
-        eraseTableWithSameName(dbId, table.getName());
+        eraseTableWithSameName(dbId, table.getName(), isReplay);
 
         // recycle table
         RecycleTableInfo tableInfo = new RecycleTableInfo(dbId, table);
@@ -196,7 +196,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         } // end for tables
     }
 
-    private synchronized void eraseTableWithSameName(long dbId, String tableName) {
+    private synchronized void eraseTableWithSameName(long dbId, String tableName, boolean isReplay) {
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
@@ -208,7 +208,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Table table = tableInfo.getTable();
             if (table.getName().equals(tableName)) {
                 if (table.getType() == TableType.OLAP) {
-                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, false);
+                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, isReplay);
                 }
 
                 iterator.remove();

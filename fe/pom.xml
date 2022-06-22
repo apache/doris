@@ -39,14 +39,14 @@ under the License.
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
-        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
-        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
+        <connection>scm:git:https://git@github.com/apache/doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/doris.git</url>
         <tag>HEAD</tag>
     </scm>
     <issueManagement>
         <system>GitHub</system>
-        <url>https://github.com/apache/incubator-doris/issues</url>
+        <url>https://github.com/apache/doris/issues</url>
     </issueManagement>
     <mailingLists>
         <mailingList>
@@ -68,6 +68,10 @@ under the License.
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
                 <version>1.2.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
@@ -109,34 +113,6 @@ under the License.
                             </goals>
                         </execution>
                     </executions>
-                </plugin>
-                <plugin>
-                    <groupId>com.diffplug.spotless</groupId>
-                    <artifactId>spotless-maven-plugin</artifactId>
-                    <version>2.22.2</version>
-                    <configuration>
-                        <java>
-                            <excludes>
-                                <exclude>**/jmockit/**/*</exclude>
-                            </excludes>
-                            <endWithNewline />
-                            <trimTrailingWhitespace />
-                            <indent>
-                                <spaces>true</spaces>
-                                <spacesPerTab>4</spacesPerTab>
-                            </indent>
-                            <licenseHeader>
-                                <file>check/checkstyle/checkstyle-apache-header.txt</file>
-                                <delimiter>\npackage</delimiter>
-                            </licenseHeader>
-                            <importOrder>
-                                <order>\\#,org.apache.doris,,java</order>
-                            </importOrder>
-                            <removeUnusedImports />
-                            <encoding>UTF-8</encoding>
-                            <lineEndings>UNIX</lineEndings>
-                        </java>
-                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -224,8 +200,8 @@ under the License.
         <snappy-java.version>1.1.7.2</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
-        <kubernetes-client.version>1.4.27</kubernetes-client.version>
-        <kubernetes-model.version>1.0.64</kubernetes-model.version>
+        <kubernetes-client.version>5.12.2</kubernetes-client.version>
+        <kubernetes-model.version>5.12.2</kubernetes-model.version>
         <logging-interceptor.version>4.7.2</logging-interceptor.version>
         <okhttp.version>4.7.2</okhttp.version>
         <okhttp-ws.version>3.4.2</okhttp-ws.version>
@@ -655,12 +631,6 @@ under the License.
                 <groupId>javax.validation</groupId>
                 <artifactId>validation-api</artifactId>
                 <version>${validation-api.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/io.fabric8/zjsonpatch -->
-            <dependency>
-                <groupId>io.fabric8</groupId>
-                <artifactId>zjsonpatch</artifactId>
-                <version>${zjsonpatch.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
             <dependency>

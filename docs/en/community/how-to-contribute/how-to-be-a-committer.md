@@ -1,6 +1,6 @@
 ---
 {
-    "title": "How To Be A Committer",
+    "title": "How to Become Doris Committer",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# How To Be A Committer
+# How to Become Doris Committer
 
 In an Apache project, developers have three roles:
 

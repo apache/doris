@@ -17,6 +17,11 @@
 suite("test_materialized_view", "rollup") {
     def tbName1 = "test_materialized_view1"
     def tbName2 = "test_materialized_view2"
+
+    def getJobState = { tableName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+        return jobStateResult[0][8]
+    }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE ${tbName1}(
@@ -40,24 +45,32 @@ suite("test_materialized_view", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
     sql "CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;"
-    String res = "null"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
+    int max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName1)
+        if (res == "FINISHED") {
             break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
         }
-        Thread.sleep(1000)
     }
     sql "CREATE materialized VIEW seller_id_order AS SELECT store_id,seller_id, sale_amt FROM ${tbName2} ORDER BY store_id,seller_id;"
-    res = "null"
-    while (!res.contains("FINISHED")){
-        res = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName2}' ORDER BY CreateTime DESC LIMIT 1;"
-        if(res.contains("CANCELLED")){
-            print("job is cancelled")
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName2)
+        if (res == "FINISHED") {
             break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
         }
-        Thread.sleep(1000)
     }
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName2}';"
@@ -67,17 +80,35 @@ suite("test_materialized_view", "rollup") {
     sql "insert into ${tbName1} values(2, 1, 1, '2020-05-30',100);"
     sql "insert into ${tbName2} values(1, 1, 1, '2020-05-30',100);"
     sql "insert into ${tbName2} values(2, 1, 1, '2020-05-30',100);"
-    Thread.sleep(5000)
+    Thread.sleep(1000)
     explain{
         sql("SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id")
-        contains("rollup: amt_sum")
+        contains("(amt_sum)")
     }
     qt_sql "SELECT * FROM ${tbName1} order by record_id;"
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id order by store_id;"
     qt_sql "SELECT * FROM ${tbName2} order by record_id;"
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id order by store_id;"
-    sql "DROP TABLE ${tbName1}"
-    sql "DROP TABLE ${tbName2}"
+
+    sql "CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName1)
+        if (res == "FINISHED") {
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
+        }
+    }
+    sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+
+    sql "DROP TABLE ${tbName1} FORCE;"
+    sql "DROP TABLE ${tbName2} FORCE;"
+
 }
 
 

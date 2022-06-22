@@ -27,12 +27,9 @@
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/in_predicate.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch_interface.hpp"
-#include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
 #include "util/spinlock.h"
 #include "vec/exec/volap_scanner.h"
-#include "vec/exprs/vexpr.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -112,7 +109,7 @@ protected:
     Status normalize_conjuncts();
     Status build_olap_filters();
     Status build_scan_key();
-    virtual Status start_scan_thread(RuntimeState* state);
+    Status start_scan_thread(RuntimeState* state);
 
     template <class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);

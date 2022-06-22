@@ -160,7 +160,8 @@ public class CastExpr extends Expr {
                 if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
+                String beClass = toType.isDecimalV2()
+                        || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
                 if (fromType.isTime()) {
                     beClass = "TimeOperators";
                 }
@@ -264,6 +265,15 @@ public class CastExpr extends Expr {
         if (childType.matchesType(type)) {
             noOp = true;
             return;
+        }
+        // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
+        // it is necessary to check if it is castable before creating fn.
+        // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
+        if (type.isArrayType() || childType.isArrayType()) {
+            if (!Type.canCastTo(childType, type)) {
+                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
+                        + " from " + childType + " to " + type);
+            }
         }
 
         this.opcode = TExprOpcode.CAST;

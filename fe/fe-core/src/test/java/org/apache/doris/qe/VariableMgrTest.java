@@ -162,6 +162,8 @@ public class VariableMgrTest {
         SetExecutor executor = new SetExecutor(ctx, stmt);
         executor.execute();
         Assert.assertEquals(5678, VariableMgr.newSessionVariable().getMaxExecMemByte());
+        // the session var is also changed.
+        Assert.assertEquals(5678, ctx.getSessionVariable().getMaxExecMemByte());
 
         Config.edit_log_roll_num = 100;
         stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global exec_mem_limit=7890", ctx);
@@ -179,6 +181,7 @@ public class VariableMgrTest {
             Deencapsulation.setField(Catalog.class, "checkpointThreadId", Thread.currentThread().getId());
             currentCatalog.getCheckpointer().doCheckpoint();
         } catch (Throwable e) {
+            e.printStackTrace();
             Assert.fail(e.getMessage());
         } finally {
             // Restore the ckptThreadId

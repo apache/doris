@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -57,7 +57,7 @@ public class ApplyRuleJob extends Job<Plan> {
             return;
         }
 
-        GroupExpressionMatching<Plan> groupExpressionMatching
+        GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
             List<Plan> newPlans = rule.transform(plan, context);

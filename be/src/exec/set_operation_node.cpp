@@ -17,7 +17,6 @@
 
 #include "exec/set_operation_node.h"
 
-#include "exec/hash_table.hpp"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/raw_value.h"

@@ -17,26 +17,29 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.JoinType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalBroadcastHashJoin;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
+import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
+import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
+import org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator;
+import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
+import org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalBinaryOperator;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalScan;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.BinaryPlan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBinary;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 /**
  * An interface provided some PatternDescriptor.
@@ -47,231 +50,171 @@ public interface Patterns {
     // need implement
     RulePromise defaultPromise();
 
-    // logical pattern descriptors
+    /* special pattern descriptors */
 
-    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode> PatternDescriptor<T, RULE_TYPE> any() {
+    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> PatternDescriptor<T, RULE_TYPE> any() {
         return new PatternDescriptor<>(Pattern.ANY, defaultPromise());
     }
 
-    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode> PatternDescriptor<T, RULE_TYPE> multi() {
+    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> PatternDescriptor<T, RULE_TYPE> multi() {
         return new PatternDescriptor<>(Pattern.MULTI, defaultPromise());
     }
 
-    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode> PatternDescriptor<T, RULE_TYPE> fixed() {
-        return new PatternDescriptor<>(Pattern.FIXED, defaultPromise());
+    default PatternDescriptor<GroupPlan, Plan> group() {
+        return new PatternDescriptor<>(Pattern.GROUP, defaultPromise());
+    }
+
+    default PatternDescriptor<GroupPlan, Plan> multiGroup() {
+        return new PatternDescriptor<>(Pattern.MULTI_GROUP, defaultPromise());
+    }
+
+    /* abstract plan operator patterns */
+
+    /**
+     * create a leafPlan pattern.
+     */
+    default PatternDescriptor<LeafPlan, Plan> leafPlan() {
+        return new PatternDescriptor(new TypePattern(LeafPlanOperator.class), defaultPromise());
     }
 
     /**
-     * create a unboundRelation pattern.
+     * create a unaryPlan pattern.
      */
-    default PatternDescriptor<LogicalLeaf<UnboundRelation>, Plan> unboundRelation() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_UNBOUND_RELATION),
+    default PatternDescriptor<UnaryPlan<Plan>, Plan> unaryPlan() {
+        return new PatternDescriptor(new TypePattern(UnaryPlanOperator.class, Pattern.GROUP), defaultPromise());
+    }
+
+    /**
+     * create a unaryPlan pattern.
+     */
+    default <C extends Plan> PatternDescriptor<UnaryPlan<C>, Plan>
+            unaryPlan(PatternDescriptor<C, Plan> child) {
+        return new PatternDescriptor(new TypePattern(UnaryPlanOperator.class, child.pattern), defaultPromise());
+    }
+
+    /**
+     * create a binaryPlan pattern.
+     */
+    default PatternDescriptor<BinaryPlan<Plan, Plan>, Plan> binaryPlan() {
+        return new PatternDescriptor(
+                new TypePattern(BinaryPlanOperator.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
         );
     }
 
     /**
-     * create a logicalFilter pattern.
+     * create a binaryPlan pattern.
      */
-    default PatternDescriptor<LogicalUnary<LogicalFilter, Plan>, Plan> logicalFilter() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_FILTER, new Pattern<>(OperatorType.FIXED)),
+    default <LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
+            PatternDescriptor<BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, Plan> binaryPlan(
+                PatternDescriptor<LEFT_CHILD_TYPE, Plan> leftChild,
+                PatternDescriptor<RIGHT_CHILD_TYPE, Plan> rightChild) {
+        return new PatternDescriptor(
+                new TypePattern(BinaryPlanOperator.class, leftChild.pattern, rightChild.pattern),
+                defaultPromise()
+        );
+    }
+
+    /* abstract logical operator patterns */
+
+    /**
+     * create a logicalLeaf pattern.
+     */
+    default PatternDescriptor<LogicalLeafPlan<LogicalLeafOperator>, Plan> logicalLeaf() {
+        return new PatternDescriptor(new TypePattern(LogicalLeafPlan.class), defaultPromise());
+    }
+
+    /**
+     * create a logicalUnary pattern.
+     */
+    default PatternDescriptor<LogicalUnaryPlan<LogicalUnaryOperator, Plan>, Plan> logicalUnary() {
+        return new PatternDescriptor(new TypePattern(LogicalUnaryPlan.class, Pattern.GROUP), defaultPromise());
+    }
+
+    /**
+     * create a logicalUnary pattern.
+     */
+    default <C extends Plan> PatternDescriptor<LogicalUnaryPlan<LogicalUnaryOperator, C>, Plan>
+            logicalUnary(PatternDescriptor<C, Plan> child) {
+        return new PatternDescriptor(new TypePattern(LogicalUnaryPlan.class, child.pattern), defaultPromise());
+    }
+
+    /**
+     * create a logicalBinary pattern.
+     */
+    default PatternDescriptor<LogicalBinaryPlan<LogicalBinaryOperator, Plan, Plan>, Plan> logicalBinary() {
+        return new PatternDescriptor(
+                new TypePattern(LogicalBinaryPlan.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
         );
     }
 
     /**
-     * create a logicalFilter pattern with child pattern.
+     * create a logicalBinary pattern.
      */
-    default <T extends Plan> PatternDescriptor<LogicalUnary<LogicalFilter, T>, Plan>
-            logicalFilter(PatternDescriptor<T, Plan> childPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_FILTER, childPattern.pattern),
+    default <LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
+            PatternDescriptor<LogicalBinaryPlan<LogicalBinaryOperator, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, Plan>
+            logicalBinary(
+                PatternDescriptor<LEFT_CHILD_TYPE, Plan> leftChild,
+                PatternDescriptor<RIGHT_CHILD_TYPE, Plan> rightChild) {
+        return new PatternDescriptor(
+                new TypePattern(LogicalBinaryPlan.class, leftChild.pattern, rightChild.pattern),
+                defaultPromise()
+        );
+    }
+
+    /* abstract physical operator patterns */
+
+    /**
+     * create a physicalLeaf pattern.
+     */
+    default PatternDescriptor<PhysicalLeafPlan<PhysicalLeafOperator>, Plan> physicalLeaf() {
+        return new PatternDescriptor(new TypePattern(PhysicalLeafPlan.class), defaultPromise());
+    }
+
+    /**
+     * create a physicalUnary pattern.
+     */
+    default PatternDescriptor<PhysicalUnaryPlan<PhysicalUnaryOperator, Plan>, Plan> physicalUnary() {
+        return new PatternDescriptor(new TypePattern(PhysicalUnaryPlan.class, Pattern.GROUP), defaultPromise());
+    }
+
+    /**
+     * create a physicalUnary pattern.
+     */
+    default <C extends Plan> PatternDescriptor<PhysicalUnaryPlan<PhysicalUnaryOperator, C>, Plan>
+            physicalUnary(PatternDescriptor<C, Plan> child) {
+        return new PatternDescriptor(new TypePattern(PhysicalUnaryPlan.class, child.pattern), defaultPromise());
+    }
+
+    /**
+     * create a physicalBinary pattern.
+     */
+    default PatternDescriptor<PhysicalBinaryPlan<PhysicalBinaryOperator, Plan, Plan>, Plan> physicalBinary() {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalBinaryPlan.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
         );
     }
 
     /**
-     * create a logicalProject pattern.
+     * create a physicalBinary pattern.
      */
-    default PatternDescriptor<LogicalUnary<LogicalProject, Plan>, Plan> logicalProject() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_PROJECT, new Pattern<>(OperatorType.FIXED)),
+    default <LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
+            PatternDescriptor<PhysicalBinaryPlan<PhysicalBinaryOperator, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, Plan>
+            physicalBinary(
+                PatternDescriptor<LEFT_CHILD_TYPE, Plan> leftChild,
+                PatternDescriptor<RIGHT_CHILD_TYPE, Plan> rightChild) {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalBinaryPlan.class, leftChild.pattern, rightChild.pattern),
                 defaultPromise()
         );
     }
 
     /**
-     * create a logicalProject pattern.
+     * create a physicalScan pattern.
      */
-    default <T extends Plan> PatternDescriptor<LogicalUnary<LogicalProject, T>, Plan>
-            logicalProject(PatternDescriptor<T, Plan> childPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_PROJECT, childPattern.pattern),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a logicalJoin pattern.
-     */
-    default PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan> logicalJoin() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN,
-                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a logicalJoin pattern with join type.
-     */
-    default PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan> logicalJoin(JoinType joinType) {
-        return new PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN,
-                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        ).when(j -> j.operator.getJoinType() == joinType);
-    }
-
-    /**
-     * create a logicalJoin pattern with joinType and children patterns.
-     */
-    default <C1 extends Plan, C2 extends Plan>
-            PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan> logicalJoin(
-                JoinType joinType, PatternDescriptor<C1, Plan> leftChildPattern,
-                PatternDescriptor<C2, Plan> rightChildPattern) {
-        return new PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN, leftChildPattern.pattern, rightChildPattern.pattern),
-                defaultPromise()
-        ).when(j -> j.operator.getJoinType() == joinType);
-    }
-
-    /**
-     * create a logicalJoin pattern with children patterns.
-     */
-    default <C1 extends Plan, C2 extends Plan>
-            PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan> logicalJoin(
-                PatternDescriptor<C1, Plan> leftChildPattern, PatternDescriptor<C2, Plan> rightChildPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN, leftChildPattern.pattern, rightChildPattern.pattern),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a logicalJoin pattern with joinType is inner.
-     */
-    default PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan> innerLogicalJoin() {
-        return new PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN,
-                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        ).when(j -> j.operator.getJoinType() == JoinType.INNER_JOIN);
-    }
-
-    /**
-     * create a logical join pattern with join type is inner and children patterns.
-     */
-    default <C1 extends Plan, C2 extends Plan>
-            PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan> innerLogicalJoin(
-                PatternDescriptor<C1, Plan> leftChildPattern, PatternDescriptor<C2, Plan> rightChildPattern) {
-        return new PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan>(
-                new Pattern<>(OperatorType.LOGICAL_JOIN, leftChildPattern.pattern, rightChildPattern.pattern),
-                defaultPromise()
-        ).when(j -> j.operator.getJoinType() == JoinType.INNER_JOIN);
-    }
-
-    /**
-     * create a logicalRelation pattern.
-     */
-    default PatternDescriptor<LogicalLeaf<LogicalRelation>, Plan> logicalRelation() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.LOGICAL_BOUND_RELATION),
-                defaultPromise()
-        );
-    }
-
-    // physical pattern descriptors
-
-    /**
-     * create a physicalFilter pattern.
-     */
-    default PatternDescriptor<PhysicalUnary<PhysicalFilter, Plan>, Plan> physicalFilter() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_FILTER, new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a physicalFilter pattern with child pattern.
-     */
-    default <T extends Plan> PatternDescriptor<PhysicalUnary<PhysicalFilter, T>, Plan>
-            physicalFilter(PatternDescriptor<T, Plan> childPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_FILTER, childPattern.pattern),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a physicalProject pattern.
-     */
-    default PatternDescriptor<PhysicalUnary<PhysicalProject, Plan>, Plan> physicalProject() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_PROJECT, new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a physicalProject pattern with child pattern.
-     */
-    default <T extends Plan> PatternDescriptor<PhysicalUnary<PhysicalProject, T>, Plan>
-            physicalProject(PatternDescriptor<T, Plan> childPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_PROJECT, childPattern.pattern),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a physicalBroadcastHashJoin pattern.
-     */
-    default PatternDescriptor<PhysicalBinary<PhysicalBroadcastHashJoin, Plan, Plan>, Plan>
-            physicalBroadcastHashJoin() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_BROADCAST_HASH_JOIN,
-                        new Pattern<>(OperatorType.FIXED), new Pattern<>(OperatorType.FIXED)),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a physicalBroadcastHashJoin pattern with children patterns.
-     */
-    default <C1 extends Plan, C2 extends Plan>
-            PatternDescriptor<PhysicalBinary<PhysicalBroadcastHashJoin, C1, C2>, Plan>
-                physicalBroadcastHashJoin(PatternDescriptor<C1, Plan> leftChildPattern,
-                        PatternDescriptor<C2, Plan> rightChildPattern) {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_BROADCAST_HASH_JOIN,
-                        leftChildPattern.pattern,
-                        rightChildPattern.pattern
-                ),
-                defaultPromise()
-        );
-    }
-
-    /**
-     * create a physicalOlapScan pattern.
-     */
-    default PatternDescriptor<PhysicalLeaf<PhysicalOlapScan>, Plan> physicalOlapScan() {
-        return new PatternDescriptor<>(
-                new Pattern<>(OperatorType.PHYSICAL_OLAP_SCAN),
-                defaultPromise()
-        );
+    default PatternDescriptor<PhysicalLeafPlan<PhysicalScan>, Plan> physicalScan() {
+        return new PatternDescriptor(new TypePattern(PhysicalScan.class), defaultPromise());
     }
 }

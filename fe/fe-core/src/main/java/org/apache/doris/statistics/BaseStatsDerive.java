@@ -18,9 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotId;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -32,6 +31,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
+/**
+ * Base class for statistics derive.
+ */
 public class BaseStatsDerive {
     private static final Logger LOG = LogManager.getLogger(BaseStatsDerive.class);
     // estimate of the output rowCount of this node;
@@ -39,18 +41,17 @@ public class BaseStatsDerive {
     protected long rowCount = -1;
     protected long limit = -1;
 
-    protected List<Expr> conjuncts = Lists.newArrayList();
+    protected List<ExprStats> conjuncts = Lists.newArrayList();
     protected List<StatsDeriveResult> childrenStatsResult = Lists.newArrayList();
 
-    protected void init(PlanNode node) throws UserException {
+    protected void init(PlanStats node) throws UserException {
         limit = node.getLimit();
         conjuncts.addAll(node.getConjuncts());
 
-        for (PlanNode childNode : node.getChildren()) {
-            StatsDeriveResult result = childNode.getStatsDeriveResult();
+        for (StatsDeriveResult result : node.getChildrenStats()) {
             if (result == null) {
-                throw new UserException("childNode statsDeriveResult is null, childNodeType is " + childNode.getNodeType()
-                + "parentNodeType is " + node.getNodeType());
+                throw new UserException(
+                        "childNode statsDeriveResult is null.");
             }
             childrenStatsResult.add(result);
         }
@@ -83,7 +84,7 @@ public class BaseStatsDerive {
     }
 
     protected double computeSelectivity() {
-        for (Expr expr : conjuncts) {
+        for (ExprStats expr : conjuncts) {
             expr.setSelectivity();
         }
         return computeCombinedSelectivity(conjuncts);
@@ -92,19 +93,24 @@ public class BaseStatsDerive {
     /**
      * Returns the estimated combined selectivity of all conjuncts. Uses heuristics to
      * address the following estimation challenges:
-     * 1. The individual selectivities of conjuncts may be unknown.
-     * 2. Two selectivities, whether known or unknown, could be correlated. Assuming
-     * independence can lead to significant underestimation.
+     *
      * <p>
-     * The first issue is addressed by using a single default selectivity that is
-     * representative of all conjuncts with unknown selectivities.
-     * The second issue is addressed by an exponential backoff when multiplying each
-     * additional selectivity into the final result.
+     * * 1. The individual selectivities of conjuncts may be unknown.
+     * * 2. Two selectivities, whether known or unknown, could be correlated. Assuming
+     * * independence can lead to significant underestimation.
+     * </p>
+     *
+     * <p>
+     * * The first issue is addressed by using a single default selectivity that is
+     * * representative of all conjuncts with unknown selectivities.
+     * * The second issue is addressed by an exponential backoff when multiplying each
+     * * additional selectivity into the final result.
+     * </p>
      */
-    protected double computeCombinedSelectivity(List<Expr> conjuncts) {
+    protected double computeCombinedSelectivity(List<ExprStats> conjuncts) {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
-        for (Expr e : conjuncts) {
+        for (ExprStats e : conjuncts) {
             if (e.hasSelectivity()) {
                 selectivities.add(e.getSelectivity());
             }
@@ -146,16 +152,16 @@ public class BaseStatsDerive {
     }
 
 
-    protected HashMap<SlotId, Float> deriveColumnToDataSize() {
-        HashMap<SlotId, Float> columnToDataSize = new HashMap<>();
+    protected HashMap<Id, Float> deriveColumnToDataSize() {
+        HashMap<Id, Float> columnToDataSize = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
             columnToDataSize.putAll(child.getColumnToDataSize());
         }
         return columnToDataSize;
     }
 
-    protected HashMap<SlotId, Long> deriveColumnToNdv() {
-        HashMap<SlotId, Long> columnToNdv = new HashMap<>();
+    protected HashMap<Id, Long> deriveColumnToNdv() {
+        HashMap<Id, Long> columnToNdv = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
             columnToNdv.putAll(child.getColumnToNdv());
         }

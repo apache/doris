@@ -48,6 +48,7 @@ public:
 
     // This is only for http CompactionAction
     Status compact();
+    Status quick_rowsets_compact();
 
     virtual Status prepare_compact() = 0;
     Status execute_compact();
@@ -79,9 +80,6 @@ private:
     // get num rows from segment group meta of input rowsets.
     // return -1 if these are not alpha rowsets.
     int64_t _get_input_num_rows_from_seg_grps();
-
-    // check whether we should enable vectorized compaction.
-    bool _should_use_vectorized_compaction();
 
 protected:
     // the root tracker for this compaction

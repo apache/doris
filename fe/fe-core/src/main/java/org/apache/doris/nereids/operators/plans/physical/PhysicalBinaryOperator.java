@@ -22,41 +22,26 @@ import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBinary;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all physical operator that have two inputs.
  */
-public abstract class PhysicalBinaryOperator<
-            TYPE extends PhysicalBinaryOperator<TYPE, LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
-            LEFT_INPUT_TYPE extends Plan,
-            RIGHT_INPUT_TYPE extends Plan>
-        extends AbstractOperator<TYPE>
-        implements PhysicalOperator<TYPE>, BinaryPlanOperator<TYPE, LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
+public abstract class PhysicalBinaryOperator extends AbstractOperator
+        implements PhysicalOperator, BinaryPlanOperator {
 
     public PhysicalBinaryOperator(OperatorType type) {
         super(type);
     }
 
     @Override
-    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
-        return doComputeOutput(logicalProperties, (LEFT_INPUT_TYPE) inputs[0], (RIGHT_INPUT_TYPE) inputs[1]);
-    }
-
-    public List<Slot> doComputeOutput(LogicalProperties logicalProperties,
-            LEFT_INPUT_TYPE left, RIGHT_INPUT_TYPE right) {
-        return logicalProperties.getOutput();
-    }
-
-    @Override
-    public PhysicalBinary toTreeNode(GroupExpression groupExpression) {
+    public PhysicalBinaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        return new PhysicalBinary(this, groupExpression, logicalProperties,
-                new PlaceHolderPlan(), new PlaceHolderPlan());
+        return new PhysicalBinaryPlan(this, Optional.of(groupExpression), logicalProperties,
+                new GroupPlan(groupExpression.child(0)), new GroupPlan(groupExpression.child(0))
+        );
     }
 }

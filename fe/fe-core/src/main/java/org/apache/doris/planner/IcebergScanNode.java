@@ -26,6 +26,7 @@ import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
@@ -46,7 +47,7 @@ public class IcebergScanNode extends BrokerScanNode {
 
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, desc, planNodeName, fileStatusesList, filesAdded, NodeType.ICEBREG_SCAN_NODE);
+        super(id, desc, planNodeName, fileStatusesList, filesAdded, StatisticalType.ICEBERG_SCAN_NODE);
         icebergTable = (IcebergTable) desc.getTable();
     }
 

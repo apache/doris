@@ -20,6 +20,10 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * Less than and equal expression: a <= b.
  */
@@ -43,5 +47,16 @@ public class LessThanEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE 
     @Override
     public String toString() {
         return "(" + left() + " <= " + right() + ")";
+    }
+
+    @Override
+    public LessThanEqual<Expression, Expression> withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new LessThanEqual<>(children.get(0), children.get(1));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitLessThanEqual(this, context);
     }
 }

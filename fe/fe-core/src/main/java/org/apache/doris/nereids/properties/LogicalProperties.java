@@ -19,21 +19,35 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Logical properties used for analysis and optimize in Nereids.
  */
 public class LogicalProperties {
-    protected List<Slot> output;
+    protected Supplier<List<Slot>> outputSupplier;
 
-    public LogicalProperties(List<Slot> output) {
-        this.output = ImmutableList.copyOf(output);
+    /**
+     * constructor of LogicalProperties.
+     *
+     * @param outputSupplier provide the output. Supplier can lazy compute output without
+     *                       throw exception for which children have UnboundRelation
+     */
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier) {
+        this.outputSupplier = Suppliers.memoize(
+            Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
+        );
     }
 
     public List<Slot> getOutput() {
-        return output;
+        return outputSupplier.get();
+    }
+
+    public static LogicalProperties withOutput(List<Slot> output) {
+        return new LogicalProperties(Suppliers.ofInstance(output));
     }
 }

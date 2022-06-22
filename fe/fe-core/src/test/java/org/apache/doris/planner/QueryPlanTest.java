@@ -46,6 +46,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.TestWithFeService;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -423,22 +424,22 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Test
     public void testBitmapInsertInto() throws Exception {
-        assertSQLPlanOrErrorMsgContains(
-                "INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));",
-                "OLAP TABLE SINK");
+        String sql = "INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));";
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
 
-        assertSQLPlanOrErrorMsgContains(
-                "insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;",
-                "OLAP TABLE SINK",
-                "bitmap_union",
-                "1:AGGREGATE",
-                "0:OlapScanNode");
+        sql = "insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;";
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
+        Assert.assertTrue(explainString.contains("bitmap_union"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "AGGREGATE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
-        assertSQLPlanOrErrorMsgContains(
-                "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;",
-                "OLAP TABLE SINK",
-                "OUTPUT EXPRS:`id` | `id2`",
-                "0:OlapScanNode");
+        sql = "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;";
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | `id2`"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
         assertSQLPlanOrErrorMsgContains("insert into test.bitmap_table select id, id from test.bitmap_table_2;",
                 "bitmap column require the function return type is BITMAP");
@@ -1038,20 +1039,20 @@ public class QueryPlanTest extends TestWithFeService {
 
         String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and t1.k2 = t2.k2 and t1.k3 = t2.k3";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: true"));
+        Assert.assertTrue(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         queryStr = "explain select * from test.colocate1 t1 join [shuffle] test.colocate2 t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         // t1.k1 = t2.k2 not same order with distribute column
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
     }
 
     @Test
@@ -1061,12 +1062,12 @@ public class QueryPlanTest extends TestWithFeService {
         // single partition
         String queryStr = "explain select * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: true"));
+        Assert.assertTrue(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         // multi partition, should not be colocate
         queryStr = "explain select * from test.dynamic_partition t1, test.dynamic_partition t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("colocate: false"));
+        Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
     }
 
     @Test
@@ -1183,17 +1184,17 @@ public class QueryPlanTest extends TestWithFeService {
 
         String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+        Assert.assertFalse(explainString.contains("INNER JOIN(PARTITIONED)"));
 
         // should clear the jointest table to make sure do not affect other test
         for (Partition partition : tbl.getPartitions()) {
@@ -1230,17 +1231,17 @@ public class QueryPlanTest extends TestWithFeService {
 
         String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2 where t1.k1 = t2.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2, odbc_mysql t3 where t1.k1 = t3.k1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+        Assert.assertFalse(explainString.contains("INNER JOIN(PARTITIONED)"));
 
         // should clear the jointest table to make sure do not affect other test
         for (Partition partition : tbl.getPartitions()) {
@@ -1319,7 +1320,6 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("EnableTransaction: true"));
     }
 
-
     @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
@@ -1327,15 +1327,15 @@ public class QueryPlanTest extends TestWithFeService {
 
         // default set PreferBroadcastJoin true
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
 
         connectContext.getSessionVariable().setPreferJoinMethod("shuffle");
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(PARTITIONED)"));
 
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
     }
 
     @Test
@@ -1926,7 +1926,7 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
-        Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
     }
 
@@ -2116,6 +2116,22 @@ public class QueryPlanTest extends TestWithFeService {
         sql = "explain select * from out_join_1 full join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
         explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertFalse(explainString.contains("non-equal FULL OUTER JOIN is not supported"));
+
+    }
+
+    @Test
+    public void testDefaultJoinReorder() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE t1 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createTable("CREATE TABLE t2 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createTable("CREATE TABLE t3 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        String sql = "explain select x.col2 from t1,t2,t3 x,t3 y "
+                + "where x.col1=t2.col1 and y.col1=t2.col2 and t1.col1=y.col1";
+        String explainString = getSQLPlanOrErrorMsg(sql);
+        Assert.assertFalse(explainString.contains("CROSS JOIN"));
 
     }
 }

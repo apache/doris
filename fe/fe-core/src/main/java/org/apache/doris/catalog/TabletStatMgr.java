@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -71,7 +71,7 @@ public class TabletStatMgr extends MasterDaemon {
                 }
             }
         });
-        LOG.info("finished to get tablet stat of all backends. cost: {} ms",
+        LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
                 (System.currentTimeMillis() - start));
 
         // after update replica in all backends, update index row num

@@ -21,7 +21,6 @@
 #include <rapidjson/stringbuffer.h>
 
 #include "exprs/table_function/table_function.h"
-#include "gutil/strings/stringpiece.h"
 #include "runtime/string_value.h"
 
 namespace doris {

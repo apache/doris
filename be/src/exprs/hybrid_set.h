@@ -23,10 +23,13 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exprs/expr.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
+#include "vec/exprs/vliteral.h"
 
 namespace doris {
 
@@ -44,6 +47,9 @@ public:
     virtual bool find(void* data) = 0;
     // use in vectorize execute engine
     virtual bool find(void* data, size_t) = 0;
+
+    virtual Status to_vexpr_list(doris::ObjectPool* pool,
+                                 std::vector<doris::vectorized::VExpr*>* vexpr_list) = 0;
     class IteratorBase {
     public:
         IteratorBase() {}
@@ -63,10 +69,24 @@ public:
 
     ~HybridSet() override = default;
 
+    virtual Status to_vexpr_list(doris::ObjectPool* pool,
+                                 std::vector<doris::vectorized::VExpr*>* vexpr_list) override {
+        HybridSetBase::IteratorBase* it = begin();
+        DCHECK(it != nullptr);
+        while (it->has_next()) {
+            TExprNode node;
+            const void* v = it->get_value();
+            create_texpr_literal_node<T>(v, &node);
+            vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
+            it->next();
+        }
+        return Status::OK();
+    };
+
     void insert(const void* data) override {
         if (data == nullptr) return;
 
-        if (sizeof(T) >= 16) {
+        if constexpr (sizeof(T) >= 16) {
             // for largeint, it will core dump with no memcpy
             T value;
             memcpy(&value, data, sizeof(T));
@@ -121,6 +141,20 @@ public:
     StringValueSet() = default;
 
     ~StringValueSet() override = default;
+
+    virtual Status to_vexpr_list(doris::ObjectPool* pool,
+                                 std::vector<doris::vectorized::VExpr*>* vexpr_list) override {
+        HybridSetBase::IteratorBase* it = begin();
+        DCHECK(it != nullptr);
+        while (it->has_next()) {
+            TExprNode node;
+            const void* v = it->get_value();
+            create_texpr_literal_node<StringValue>(v, &node);
+            vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
+            it->next();
+        }
+        return Status::OK();
+    };
 
     void insert(const void* data) override {
         if (data == nullptr) return;

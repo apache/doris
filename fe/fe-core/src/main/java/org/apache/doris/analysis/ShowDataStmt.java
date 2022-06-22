@@ -25,7 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -227,7 +227,7 @@ public class ShowDataStmt extends ShowStmt {
                         dbName + ": " + tableName);
             }
 
-            OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
             long totalSize = 0;
             long totalReplicaCount = 0;
 

@@ -20,21 +20,13 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
 import org.apache.doris.nereids.trees.LeafNode;
 
-import java.util.List;
-
 /**
  * Abstract class for all plan node that have no child.
  */
-public interface LeafPlan<
-            PLAN_TYPE extends LeafPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LeafPlanOperator>
-        extends Plan<PLAN_TYPE, OP_TYPE>, LeafNode<PLAN_TYPE> {
+public interface LeafPlan extends Plan, LeafNode<Plan> {
 
     @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
+    LeafPlanOperator getOperator();
 
     @Override
     default int arity() {

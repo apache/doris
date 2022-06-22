@@ -49,7 +49,7 @@ import java.util.stream.Collectors;
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
  */
-public class Table extends MetaObject implements Writable {
+public class Table extends MetaObject implements Writable, TableIf {
     private static final Logger LOG = LogManager.getLogger(Table.class);
 
     // empirical value.
@@ -57,20 +57,6 @@ public class Table extends MetaObject implements Writable {
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
 
     public volatile boolean isDropped = false;
-
-    public enum TableType {
-        MYSQL,
-        ODBC,
-        OLAP,
-        SCHEMA,
-        INLINE_VIEW,
-        VIEW,
-        BROKER,
-        ELASTICSEARCH,
-        HIVE,
-        ICEBERG,
-        HUDI
-    }
 
     protected long id;
     protected volatile String name;

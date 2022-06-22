@@ -34,6 +34,7 @@
 #include "runtime/exec_env.h"
 #include "util/broker_storage_backend.h"
 #include "util/file_utils.h"
+#include "util/hdfs_storage_backend.h"
 #include "util/s3_storage_backend.h"
 #include "util/thrift_rpc_helper.h"
 
@@ -59,13 +60,20 @@ SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
           _storage_backend(nullptr) {}
 
 SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
-                               const std::map<std::string, std::string>& prop)
+                               const std::map<std::string, std::string>& prop,
+                               TStorageBackendType::type type)
         : _env(env),
           _job_id(job_id),
           _task_id(task_id),
           _broker_addr(TNetworkAddress()),
           _prop(prop) {
-    _storage_backend.reset(new S3StorageBackend(_prop));
+    if (TStorageBackendType::type::S3 == type) {
+        _storage_backend.reset(new S3StorageBackend(_prop));
+    } else if (TStorageBackendType::type::HDFS == type) {
+        _storage_backend.reset(new HDFSStorageBackend(_prop));
+    } else {
+        _storage_backend = nullptr;
+    }
 }
 
 SnapshotLoader::~SnapshotLoader() = default;
@@ -173,7 +181,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 /*
  * Download snapshot files from remote.
  * After downloaded, the local dir should contains all files existing in remote,
- * may also contains severval useless files.
+ * may also contains several useless files.
  */
 Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to_dest_path,
                                 std::vector<int64_t>* downloaded_tablet_ids) {
@@ -413,8 +421,8 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    Status convert_status =
-            SnapshotManager::instance()->convert_rowset_ids(snapshot_path, tablet_id, schema_hash);
+    Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
+            snapshot_path, tablet_id, tablet->replica_id(), schema_hash);
     if (convert_status != Status::OK()) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path

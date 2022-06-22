@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "binary_predicate.h"
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 
@@ -30,6 +29,7 @@ class TExprNode;
 
 class Literal final : public Expr {
 public:
+    Literal(const TExprNode& node);
     virtual ~Literal();
 
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new Literal(*this)); }
@@ -49,11 +49,6 @@ public:
     // init val before use
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                            ExprContext* context) override;
-
-protected:
-    friend class Expr;
-    friend Expr* create_literal(ObjectPool* pool, PrimitiveType type, const void* data);
-    Literal(const TExprNode& node);
 
 private:
     ExprValue _value;

@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Apache Doris(incubating).
+# This script is used to compile Apache Doris
 # Usage:
 #    sh build.sh --help
 #
@@ -175,9 +175,6 @@ if [[ ${HELP} -eq 1 ]]; then
     usage
     exit
 fi
-if [[ -z ${WITH_KERBEROS} ]]; then
-    WITH_KERBEROS=ON
-fi
 # build thirdparty libraries if necessary
 if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a ]]; then
     echo "Thirdparty libraries need to be build ..."
@@ -233,7 +230,6 @@ echo "Get params:
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
     WITH_MYSQL          -- $WITH_MYSQL
-    WITH_KERBEROS       -- $WITH_KERBEROS
     WITH_LZO            -- $WITH_LZO
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
@@ -296,7 +292,6 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DMAKE_TEST=OFF \
             ${CMAKE_USE_CCACHE} \
             -DWITH_MYSQL=${WITH_MYSQL} \
-            -DWITH_KERBEROS=${WITH_KERBEROS} \
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
@@ -306,7 +301,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_DWARF=${USE_DWARF} \
             -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
             -DUSE_AVX2=${USE_AVX2} \
-            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
+            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}

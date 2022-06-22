@@ -25,29 +25,28 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all concrete logical plan.
  */
-public abstract class AbstractLogicalPlan<
-            PLAN_TYPE extends AbstractLogicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LogicalOperator>
-        extends AbstractPlan<PLAN_TYPE, OP_TYPE>
-        implements LogicalPlan<PLAN_TYPE, OP_TYPE> {
-
-    protected final LogicalProperties logicalProperties;
+public abstract class AbstractLogicalPlan<OP_TYPE extends LogicalOperator>
+        extends AbstractPlan<OP_TYPE> implements LogicalPlan {
 
     public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, operator, children);
-        this.logicalProperties = new LogicalProperties(Collections.emptyList());
+        super(type, operator, operator.computeLogicalProperties(children), children);
     }
 
     public AbstractLogicalPlan(NodeType type, OP_TYPE operator,
-            GroupExpression groupExpression, LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, children);
-        this.logicalProperties = logicalProperties;
+                               Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, operator, logicalProperties.orElseGet(() -> operator.computeLogicalProperties(children)), children);
+    }
+
+    public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
+                               Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, operator, groupExpression,
+                logicalProperties.orElseGet(() -> operator.computeLogicalProperties(children)), children);
     }
 
     @Override

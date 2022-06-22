@@ -41,6 +41,8 @@ public class Group {
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
     private LogicalProperties logicalProperties;
 
+    // Map of cost lower bounds
+    // Map required plan props to cost lower bound of corresponding plan
     private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans;
     private double costLowerBound = -1;
     private boolean isExplored = false;
@@ -50,12 +52,13 @@ public class Group {
      *
      * @param groupExpression first {@link GroupExpression} in this Group
      */
-    public Group(GroupExpression groupExpression) {
+    public Group(GroupExpression groupExpression, LogicalProperties logicalProperties) {
         if (groupExpression.getOperator() instanceof LogicalOperator) {
             this.logicalExpressions.add(groupExpression);
         } else {
             this.physicalExpressions.add(groupExpression);
         }
+        this.logicalProperties = logicalProperties;
         groupExpression.setParent(this);
     }
 
@@ -102,7 +105,9 @@ public class Group {
      * @return old logical group expression
      */
     public GroupExpression rewriteLogicalExpression(
-            GroupExpression newExpression) {
+            GroupExpression newExpression, LogicalProperties logicalProperties) {
+        newExpression.setParent(this);
+        this.logicalProperties = logicalProperties;
         GroupExpression oldExpression = getLogicalExpression();
         logicalExpressions.clear();
         logicalExpressions.add(newExpression);
@@ -143,6 +148,10 @@ public class Group {
         return logicalProperties;
     }
 
+    public void setLogicalProperties(LogicalProperties logicalProperties) {
+        this.logicalProperties = logicalProperties;
+    }
+
     public boolean isExplored() {
         return isExplored;
     }
@@ -180,5 +189,10 @@ public class Group {
     @Override
     public int hashCode() {
         return Objects.hash(groupId);
+    }
+
+    @Override
+    public String toString() {
+        return "Group{" + getLogicalExpression().getOperator() + "}";
     }
 }

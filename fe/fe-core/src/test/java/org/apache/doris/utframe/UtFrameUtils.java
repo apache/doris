@@ -192,9 +192,11 @@ public class UtFrameUtils {
 
     // Create multi backends with different host for unit test.
     // the host of BE will be "127.0.0.1", "127.0.0.2"
-    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
-        // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
+    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum)
+            throws EnvVarNotSetException, IOException, FeStartException,
+            NotInitException, DdlException, InterruptedException {
+        // set runningUnitTest to true, so that for ut,
+        // the agent task will be sent to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
         int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
@@ -220,7 +222,8 @@ public class UtFrameUtils {
         backend.start();
 
         // add be
-        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(),
+                backend.getHost(), backend.getHeartbeatPort());
         Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
@@ -312,5 +315,11 @@ public class UtFrameUtils {
         QueryStmt queryStmt = (QueryStmt) statementBase;
         String digest = queryStmt.toDigest();
         return DigestUtils.md5Hex(digest);
+    }
+
+    public static boolean checkPlanResultContainsNode(String planResult, int idx, String nodeName) {
+        String realNodeName = idx + ":" + nodeName;
+        String realVNodeName = idx + ":V" + nodeName;
+        return planResult.contains(realNodeName) || planResult.contains(realVNodeName);
     }
 }
