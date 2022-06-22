@@ -17,34 +17,33 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.analysis.FunctionParams;
 
 /**
- * Logical FunctionCall Expression.
+ * Compound predicate expression.
+ * Such as &&,||,AND,OR.
  */
-public class FunctionCall extends Expression {
+public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    private FunctionName fnName;
-
-    private FunctionParams fnParams;
-
-    private FunctionCall(FunctionName functionName, FunctionParams functionParams) {
-        super(NodeType.FUNCTIONCALL, functionParams.getExpression().toArray(new Expression[0]));
-        this.fnName = functionName;
-        this.fnParams = functionParams;
+    /**
+     * Desc: Constructor for CompoundPredicate.
+     *
+     * @param type  type of expression
+     * @param left  left child of comparison predicate
+     * @param right right child of comparison predicate
+     */
+    public CompoundPredicate(NodeType type, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(type, left, right);
     }
 
-    public FunctionCall(String functionName, Expression params) {
-        this(new FunctionName(functionName), new FunctionParams(false, params));
-    }
-
-    public FunctionCall(String functionName, FunctionParams functionParams) {
-        this(new FunctionName(functionName), functionParams);
+    @Override
+    public String sql() {
+        String nodeType = getType().toString();
+        return left().sql() + ' ' + nodeType + ' ' + right().sql();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitFunctionCall(this, context);
+        return visitor.visitCompoundPredicate(this, context);
     }
 }

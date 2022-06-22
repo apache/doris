@@ -19,29 +19,38 @@ package org.apache.doris.nereids.parser;
 
 
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AggFunctionsContext;
+import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
+import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.GroupByItemContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
+import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
-import org.apache.doris.nereids.DorisParser.NotContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
+import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
+import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
@@ -52,20 +61,35 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.operators.plans.JoinType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalAggregation;
 import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
+import org.apache.doris.nereids.operators.plans.logical.LogicalSort;
+import org.apache.doris.nereids.operators.plans.logical.LogicalSort.SortItems;
+import org.apache.doris.nereids.operators.plans.logical.LogicalSort.SortItems.OrderDirection;
+import org.apache.doris.nereids.trees.analysis.FunctionParams;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Arithmetic;
+import org.apache.doris.nereids.trees.expressions.BetweenPredicate;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.FunctionCall;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Mod;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -74,11 +98,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
+import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -132,9 +158,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitQuery(QueryContext ctx) {
         Supplier<LogicalPlan> f = () -> {
             // TODO: need to add withQueryResultClauses and withCTE
-            return plan(ctx.queryTerm());
+            LogicalPlan query = plan(ctx.queryTerm());
+            LogicalPlan queryOrganization = withQueryOrganization(ctx.queryOrganization(), query);
+            return queryOrganization;
         };
         return ParserUtils.withOrigin(ctx, f);
+    }
+
+    private LogicalPlan withQueryOrganization(QueryOrganizationContext ctx, LogicalPlan children) {
+        List<SortItems> sortItems = visitQueryOrganization(ctx);
+        return sortItems == null ? children : new LogicalUnaryPlan(new LogicalSort(sortItems), children);
     }
 
     @Override
@@ -146,7 +179,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx,
                     ctx.selectClause(),
                     ctx.whereClause(),
-                    from);
+                    from,
+                    ctx.aggClause());
         };
         return ParserUtils.withOrigin(ctx, f);
     }
@@ -162,8 +196,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Expression> expressions = Lists.newArrayList();
         if (ctx != null) {
             for (NamedExpressionContext namedExpressionContext : ctx.namedExpression()) {
-                NamedExpression namedExpression = typedVisit(namedExpressionContext);
-                expressions.add(namedExpression);
+                Expression expression = typedVisit(namedExpressionContext);
+                expressions.add(expression);
             }
         }
         return expressions;
@@ -180,13 +214,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             ParserRuleContext ctx,
             SelectClauseContext selectClause,
             WhereClauseContext whereClause,
-            LogicalPlan relation) {
+            LogicalPlan relation,
+            AggClauseContext aggClause) {
         Supplier<LogicalPlan> f = () -> {
             //        Filter(expression(ctx.booleanExpression), plan);
             LogicalPlan plan = visitCommonSelectQueryClausePlan(
                     relation,
                     visitNamedExpressionSeq(selectClause.namedExpressionSeq()),
-                    whereClause);
+                    whereClause,
+                    aggClause);
             // TODO: process hint
             return plan;
         };
@@ -196,7 +232,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan visitCommonSelectQueryClausePlan(
             LogicalPlan relation,
             List<Expression> expressions,
-            WhereClauseContext whereClause) {
+            WhereClauseContext whereClause,
+            AggClauseContext aggClause) {
         // TODO: add lateral views
         // val withLateralView = lateralView.asScala.foldLeft(relation)(withGenerate)
 
@@ -218,7 +255,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             withProject = withFilter;
         }
 
-        return withProject;
+        LogicalPlan withAgg;
+        if (aggClause != null) {
+            withAgg = withAggClause(namedExpressions, aggClause.groupByItem(), withFilter);
+        } else {
+            withAgg = withProject;
+        }
+
+        return withAgg;
     }
 
     @Override
@@ -276,6 +320,50 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             );
         }
         return last;
+    }
+
+    private LogicalPlan withAggClause(List<NamedExpression> aggExpressions,
+            GroupByItemContext ctx, LogicalPlan aggClause) {
+        List<Expression> tmpExpressions = new ArrayList<>();
+        for (ExpressionContext expressionCtx : ctx.expression()) {
+            tmpExpressions.add(typedVisit(expressionCtx));
+        }
+        return new LogicalUnaryPlan(new LogicalAggregation(tmpExpressions, aggExpressions), aggClause);
+    }
+
+    /**
+     * Generate sortItems.
+     *
+     * @param ctx SortItemContext
+     * @return SortItems
+     */
+    public SortItems genSortItems(SortItemContext ctx) {
+        OrderDirection orderDirection;
+        if (ctx.DESC() != null) {
+            orderDirection = OrderDirection.DESC;
+        } else {
+            orderDirection = OrderDirection.ASC;
+        }
+        Expression expression = typedVisit(ctx.expression());
+        return new SortItems(expression, orderDirection);
+    }
+
+    /**
+     * Create SortItems list.
+     *
+     * @param ctx QueryOrganizationContext
+     * @return List of SortItems
+     */
+    public List<SortItems> visitQueryOrganization(QueryOrganizationContext ctx) {
+        List<SortItems> sortItems = new ArrayList<>();
+        if (ctx.sortClause().ORDER() != null) {
+            for (SortItemContext sortItemContext : ctx.sortClause().sortItem()) {
+                sortItems.add(genSortItems(sortItemContext));
+            }
+            return new ArrayList<>(sortItems);
+        } else {
+            return null;
+        }
     }
 
     /**
@@ -404,9 +492,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * not 1=1
      */
     @Override
-    public Expression visitNot(NotContext ctx) {
+    public Expression visitLogicalNot(LogicalNotContext ctx) {
         Expression child = expression(ctx.booleanExpression());
         return new Not(child);
+    }
+
+    @Override
+    public Expression visitLogicalBinary(LogicalBinaryContext ctx) {
+        Expression left = expression(ctx.left);
+        Expression right = expression(ctx.right);
+
+        switch (ctx.operator.getType()) {
+            case DorisParser.AND:
+                return new And(left, right);
+            case DorisParser.OR:
+                return new Or(left, right);
+            default:
+                return null;
+        }
     }
 
     /**
@@ -420,7 +523,97 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitPredicated(PredicatedContext ctx) {
         Expression e = expression(ctx.valueExpression());
         // TODO: add predicate(is not null ...)
+        if (ctx.predicate() != null) {
+            return withPredicate(ctx.predicate(), e);
+        }
         return e;
+    }
+
+    /**
+     * match predicate type and generate different predicates.
+     *
+     * @param ctx PredicateContext
+     * @param e Expression
+     * @return Expression
+     */
+    public Expression withPredicate(PredicateContext ctx, Expression e) {
+        switch (ctx.kind.getType()) {
+            case DorisParser.BETWEEN:
+                return withBetween(ctx, e);
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Generate between predicate.
+     *
+     * @param ctx PredicateContext
+     * @param e Expression
+     * @return Expression
+     */
+    public Expression withBetween(PredicateContext ctx, Expression e) {
+        boolean isNotBetween = ctx.NOT() != null ? true : false;
+        BetweenPredicate betweenPredicate = new BetweenPredicate(
+                e,
+                expression(ctx.lower),
+                expression(ctx.upper)
+        );
+        return isNotBetween ? new Not(betweenPredicate) : betweenPredicate;
+    }
+
+    @Override
+    public Expression visitArithmeticUnary(ArithmeticUnaryContext ctx) {
+        Expression e = expression(ctx);
+        switch (ctx.operator.getType()) {
+            case DorisParser.PLUS:
+                return e;
+            case DorisParser.MINUS:
+                //TODO: Add single operator subtraction
+            default:
+                return null;
+        }
+    }
+
+    @Override
+    public Expression visitArithmeticBinary(ArithmeticBinaryContext ctx) {
+        Expression left = expression(ctx.left);
+        Expression right = expression(ctx.right);
+
+        return genArithmetic(ctx.operator, left, right);
+    }
+
+    private Arithmetic  genArithmetic(Token token, Expression left, Expression right) {
+        switch (token.getType()) {
+            case DorisParser.ASTERISK:
+                return new Multiply(left, right);
+            case DorisParser.SLASH:
+                return new Divide(left, right);
+            case DorisParser.PERCENT:
+                return new Mod(left, right);
+            case DorisParser.PLUS:
+                return new Add(left, right);
+            case DorisParser.MINUS:
+                return new Subtract(left, right);
+            default:
+                return null;
+        }
+    }
+
+    @Override
+    public Expression visitAggFunctions(AggFunctionsContext ctx) {
+        // TODO:In the future, instead of specifying the function name,
+        //      the function information is obtained by parsing the catalog. This method is more scalable.
+        String functionName = "";
+        if (ctx.aggFunction().SUM() != null) {
+            functionName = "sum";
+        } else if (ctx.aggFunction().AVG() != null) {
+            functionName = "avg";
+        }
+
+        return new FunctionCall(functionName,
+                new FunctionParams(ctx.aggFunction().DISTINCT() != null,
+                        expression(ctx.aggFunction().expression())));
     }
 
     @Override
