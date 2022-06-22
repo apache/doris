@@ -780,16 +780,16 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
     }
 
     VLOG_CRITICAL << "BuildKeyRangesAndFilters";
-    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
+    // 3. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
     RETURN_IF_ERROR(build_key_ranges_and_filters());
 
     VLOG_CRITICAL << "Filter idle conjuncts";
-    // 5. Filter idle conjunct which already trans to olap filters
+    // 4. Filter idle conjunct which already trans to olap filters
     // this must be after build_scan_key, it will free the StringValue memory
     remove_pushed_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
-    // 6. Start multi thread to read several `Sub Sub ScanRange`
+    // 5. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();

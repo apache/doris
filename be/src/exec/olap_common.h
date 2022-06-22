@@ -256,9 +256,6 @@ public:
               _is_convertible(true) {}
 
     template <class T>
-    Status extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num);
-
-    template <class T>
     Status extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num, bool* exact_value);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
@@ -738,125 +735,6 @@ bool ColumnValueRange<T>::has_intersection(ColumnValueRange<T>& range) {
             return true;
         }
     }
-}
-
-template <class T>
-Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num) {
-    using namespace std;
-    typedef typename set<T>::const_iterator const_iterator_type;
-
-    // 1. clear ScanKey if some column range is empty
-    if (range.is_empty_value_range()) {
-        _begin_scan_keys.clear();
-        _end_scan_keys.clear();
-        return Status::OK();
-    }
-
-    // 2. stop extend ScanKey when it's already extend a range value
-    if (_has_range_value) {
-        return Status::OK();
-    }
-
-    //if a column doesn't have any predicate, we will try converting the range to fixed values
-    auto scan_keys_size = _begin_scan_keys.empty() ? 1 : _begin_scan_keys.size();
-    if (range.is_fixed_value_range()) {
-        if (range.get_fixed_value_size() > max_scan_key_num / scan_keys_size) {
-            if (range.is_range_value_convertible()) {
-                range.convert_to_range_value();
-            } else {
-                return Status::OK();
-            }
-        }
-    } else {
-        if (range.is_fixed_value_convertible() && _is_convertible) {
-            if (range.get_convertible_fixed_value_size() < max_scan_key_num / scan_keys_size) {
-                range.convert_to_fixed_value();
-            }
-        }
-    }
-
-    // 3.1 extend ScanKey with FixedValueRange
-    if (range.is_fixed_value_range()) {
-        // 3.1.1 construct num of fixed value ScanKey (begin_key == end_key)
-        if (_begin_scan_keys.empty()) {
-            const set<T>& fixed_value_set = range.get_fixed_value_set();
-            const_iterator_type iter = fixed_value_set.begin();
-
-            for (; iter != fixed_value_set.end(); ++iter) {
-                _begin_scan_keys.emplace_back();
-                _begin_scan_keys.back().add_value(cast_to_string(*iter));
-                _end_scan_keys.emplace_back();
-                _end_scan_keys.back().add_value(cast_to_string(*iter));
-            }
-
-            if (range.contain_null()) {
-                _begin_scan_keys.emplace_back();
-                _begin_scan_keys.back().add_null();
-                _end_scan_keys.emplace_back();
-                _end_scan_keys.back().add_null();
-            }
-        } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
-        else {
-            const set<T>& fixed_value_set = range.get_fixed_value_set();
-            int original_key_range_size = _begin_scan_keys.size();
-
-            for (int i = 0; i < original_key_range_size; ++i) {
-                OlapTuple start_base_key_range = _begin_scan_keys[i];
-                OlapTuple end_base_key_range = _end_scan_keys[i];
-
-                const_iterator_type iter = fixed_value_set.begin();
-
-                for (; iter != fixed_value_set.end(); ++iter) {
-                    // alter the first ScanKey in original place
-                    if (iter == fixed_value_set.begin()) {
-                        _begin_scan_keys[i].add_value(cast_to_string(*iter));
-                        _end_scan_keys[i].add_value(cast_to_string(*iter));
-                    } // append follow ScanKey
-                    else {
-                        _begin_scan_keys.push_back(start_base_key_range);
-                        _begin_scan_keys.back().add_value(cast_to_string(*iter));
-                        _end_scan_keys.push_back(end_base_key_range);
-                        _end_scan_keys.back().add_value(cast_to_string(*iter));
-                    }
-                }
-
-                if (range.contain_null()) {
-                    _begin_scan_keys.push_back(start_base_key_range);
-                    _begin_scan_keys.back().add_null();
-                    _end_scan_keys.push_back(end_base_key_range);
-                    _end_scan_keys.back().add_null();
-                }
-            }
-        }
-
-        _begin_include = true;
-        _end_include = true;
-    } // Extend ScanKey with range value
-    else {
-        _has_range_value = true;
-
-        if (_begin_scan_keys.empty()) {
-            _begin_scan_keys.emplace_back();
-            _begin_scan_keys.back().add_value(cast_to_string(range.get_range_min_value()),
-                                              range.contain_null());
-            _end_scan_keys.emplace_back();
-            _end_scan_keys.back().add_value(cast_to_string(range.get_range_max_value()));
-        } else {
-            for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-                _begin_scan_keys[i].add_value(cast_to_string(range.get_range_min_value()),
-                                              range.contain_null());
-            }
-
-            for (int i = 0; i < _end_scan_keys.size(); ++i) {
-                _end_scan_keys[i].add_value(cast_to_string(range.get_range_max_value()));
-            }
-        }
-
-        _begin_include = range.is_begin_include();
-        _end_include = range.is_end_include();
-    }
-
-    return Status::OK();
 }
 
 template <class T>
