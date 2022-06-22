@@ -84,6 +84,10 @@ public enum JoinType {
         }
     }
 
+    public final boolean isCrossJoin() {
+        return this == CROSS_JOIN;
+    }
+
     public final boolean isInnerOrOuterOrCrossJoin() {
         return this == INNER_JOIN || this == CROSS_JOIN || this == FULL_OUTER_JOIN;
     }

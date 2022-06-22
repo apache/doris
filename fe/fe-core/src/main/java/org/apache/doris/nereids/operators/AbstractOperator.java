@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.operators;
 
+import org.apache.doris.nereids.OperatorVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 
@@ -48,11 +49,19 @@ public abstract class AbstractOperator implements Operator {
      * Child operator should overwrite this method.
      * for example:
      * <code>
-     *     visitor.visitPhysicalOlapScanPlan(
-     *                 (PhysicalPlan<? extends PhysicalPlan, PhysicalOlapScan>) plan, context);
+     * visitor.visitPhysicalOlapScanPlan(
+     * (PhysicalPlan<? extends PhysicalPlan, PhysicalOlapScan>) plan, context);
      * </code>
      */
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
+        return null;
+    }
+
+    public <R, C> R accept(OperatorVisitor<R, C> visitor, C context) {
+        return visitor.visitOperator(this, context);
+    }
+
+    public <R, C> R accept(OperatorVisitor<R, C> visitor, Operator operator, C context) {
         return null;
     }
 
