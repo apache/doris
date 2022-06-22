@@ -278,6 +278,9 @@ public:
     const TypeInfo* type_info() const { return _type_info.get(); }
     bool is_nullable() const { return _is_nullable; }
 
+    // todo(wb) a hot fix here, need a better way to make Field support seq column
+    bool is_seq_column() const { return _name == "__DORIS_SEQUENCE_COL__"; }
+
     // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
     // only applicable to string type
     void encode_ascending(const void* value, std::string* buf) const {

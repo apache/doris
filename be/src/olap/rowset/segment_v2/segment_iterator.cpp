@@ -982,15 +982,20 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                         column_desc->type(), column_desc->is_nullable());
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             } else if (i >= block->columns()) {
-                // if i >= block->columns means the column and not the pred_column means `column i` is
-                // a delete condition column. but the column is not effective in the segment. so we just
-                // create a column to hold the data.
-                // a. origin data -> b. delete condition -> c. new load data
-                // the segment of c do not effective delete condition, but it still need read the column
-                // to match the schema.
-                // TODO: skip read the not effective delete column to speed up segment read.
-                _current_return_columns[cid] =
-                        Schema::get_data_type_ptr(*column_desc)->create_column();
+                if (column_desc->is_seq_column()) {
+                    _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
+                            column_desc->type(), column_desc->is_nullable());
+                } else {
+                    // if i >= block->columns means the column and not the pred_column means `column i` is
+                    // a delete condition column. but the column is not effective in the segment. so we just
+                    // create a column to hold the data.
+                    // a. origin data -> b. delete condition -> c. new load data
+                    // the segment of c do not effective delete condition, but it still need read the column
+                    // to match the schema.
+                    // TODO: skip read the not effective delete column to speed up segment read.
+                    _current_return_columns[cid] =
+                            Schema::get_data_type_ptr(*column_desc)->create_column();
+                }
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
