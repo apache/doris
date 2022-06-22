@@ -50,7 +50,7 @@ RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/ldb_toolchain_ge
 # there is a repo which is included all of thirdparty
 ENV REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/" \
     DEFAULT_DIR="/var/local" \
-    JAVA_HOME="/usr/lib/jvm/java-11" \
+    JAVA_HOME="/usr/lib/jvm/java-1.8.0" \
     PATH="/var/local/ldb-toolchain/bin/:$PATH"
 
 # disable auto enable ccache
@@ -66,13 +66,13 @@ RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
     && mv ${DEFAULT_DIR}/doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
     && rm -rf ${DEFAULT_DIR}/doris
 
-RUN alternatives --set java java-11-openjdk.x86_64 && alternatives --set javac java-11-openjdk.x86_64
+RUN alternatives --set java java-1.8.0-openjdk.x86_64 && alternatives --set javac java-1.8.0-openjdk.x86_64
 
 
 # squash all layers to reduce the image size
 FROM scratch
 COPY --from=builder / /
-ENV JAVA_HOME="/usr/lib/jvm/java-11" \
+ENV JAVA_HOME="/usr/lib/jvm/java-1.8.0" \
     MAVEN_HOME="/usr/share/maven" \
     REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
