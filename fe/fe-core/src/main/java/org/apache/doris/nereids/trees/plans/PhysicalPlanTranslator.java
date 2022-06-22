@@ -277,7 +277,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
             SlotReference slotReference = (SlotReference) slot;
-            SlotDescriptor slotDescriptor = context.addSlotDesc(tupleDescriptor, slot.getId());
+            SlotDescriptor slotDescriptor = context.addSlotDesc(tupleDescriptor, slot.getId().asInt());
             slotDescriptor.setColumn(slotReference.getColumn());
             slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
             slotDescriptor.setIsMaterialized(true);
