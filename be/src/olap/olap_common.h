@@ -257,11 +257,31 @@ struct OlapReaderStatistics {
     // total read bytes in memory
     int64_t bytes_read = 0;
 
+    int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
     int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
-    int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
+    // Not used any more, will be removed after non-vectorized code is removed
     int64_t block_seek_num = 0;
+    // Not used any more, will be removed after non-vectorized code is removed
     int64_t block_seek_ns = 0;
+
+    // block_load_ns
+    //      block_init_ns
+    //          block_init_seek_ns
+    //      first_read_ns
+    //          block_first_read_seek_ns
+    //      lazy_read_ns
+    //          block_lazy_read_seek_ns
+    int64_t block_init_ns = 0;
+    int64_t block_init_seek_num = 0;
+    int64_t block_init_seek_ns = 0;
+    int64_t first_read_ns = 0;
+    int64_t block_first_read_seek_num = 0;
+    int64_t block_first_read_seek_ns = 0;
+    int64_t lazy_read_ns = 0;
+    int64_t block_lazy_read_seek_num = 0;
+    int64_t block_lazy_read_seek_ns = 0;
+
     int64_t block_convert_ns = 0;
 
     int64_t raw_rows_read = 0;
@@ -270,8 +290,6 @@ struct OlapReaderStatistics {
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
-    int64_t first_read_ns = 0;
-    int64_t lazy_read_ns = 0;
     int64_t output_col_ns = 0;
 
     int64_t rows_key_range_filtered = 0;
