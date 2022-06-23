@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 /**
  * Physical sort plan operator.
  */
-public class PhysicalSort extends PhysicalUnaryOperator {
+public class PhysicalHeapSort extends PhysicalUnaryOperator {
     // Default offset is 0.
     private final int offset;
 
@@ -43,7 +43,7 @@ public class PhysicalSort extends PhysicalUnaryOperator {
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalSort(List<OrderKey> orderList, long limit, int offset, boolean useTopN) {
+    public PhysicalHeapSort(List<OrderKey> orderList, long limit, int offset, boolean useTopN) {
         super(OperatorType.PHYSICAL_SORT, limit);
         this.offset = offset;
         this.orderList = orderList;
@@ -68,7 +68,7 @@ public class PhysicalSort extends PhysicalUnaryOperator {
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalSort((PhysicalUnaryPlan<PhysicalSort, Plan>) plan, context);
+        return visitor.visitPhysicalSort((PhysicalUnaryPlan<PhysicalHeapSort, Plan>) plan, context);
     }
 
     @Override

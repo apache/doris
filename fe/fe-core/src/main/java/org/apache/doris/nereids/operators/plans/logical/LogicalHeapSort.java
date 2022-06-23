@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
  * sortItems: list of column information after order by. eg:[a, asc],[b, desc].
  * SortItems: Contains order expression information and sorting method. Default is ascending.
  */
-public class LogicalSort extends LogicalUnaryOperator {
+public class LogicalHeapSort extends LogicalUnaryOperator {
 
     // Default offset is 0.
     private int offset = 0;
@@ -47,7 +47,7 @@ public class LogicalSort extends LogicalUnaryOperator {
     /**
      * Constructor for SortItems.
      */
-    public LogicalSort(List<OrderKey> orderKeys) {
+    public LogicalHeapSort(List<OrderKey> orderKeys) {
         super(OperatorType.LOGICAL_SORT);
         this.orderKeys = Objects.requireNonNull(orderKeys, "sorItems can not be null");
     }

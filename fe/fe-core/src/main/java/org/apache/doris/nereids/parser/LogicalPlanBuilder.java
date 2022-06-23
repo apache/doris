@@ -65,9 +65,9 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregation;
 import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.operators.plans.logical.LogicalHeapSort;
 import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.operators.plans.logical.LogicalSort;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.analysis.FunctionParams;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -180,7 +180,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withQueryOrganization(QueryOrganizationContext ctx, LogicalPlan children) {
         List<OrderKey> sortItems = visitQueryOrganization(ctx);
-        return sortItems == null ? children : new LogicalUnaryPlan(new LogicalSort(sortItems), children);
+        return sortItems == null ? children : new LogicalUnaryPlan(new LogicalHeapSort(sortItems), children);
     }
 
     @Override
