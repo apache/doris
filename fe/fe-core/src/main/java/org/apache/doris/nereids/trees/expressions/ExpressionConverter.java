@@ -144,14 +144,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorC
 
     @Override
     public Expr visitBetweenPredicate(BetweenPredicate betweenPredicate, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.BetweenPredicate(
-                visit(betweenPredicate.getCompareExpr(), context),
-                visit(betweenPredicate.getLowerBound(), context),
-                visit(betweenPredicate.getUpperBound(), context),
-                // if there is a not key word, then the stale expr would be:
-                // CompoundPredicate(NOT, BetweenPredicate, null).
-                true
-        );
+        throw new RuntimeException("Unexpected invocation");
     }
 
     @Override
@@ -178,9 +171,10 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorC
 
     @Override
     public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
-        return new ArithmeticExpr(arithmetic.getArithOperator().getStaleOp(),
+        Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithOperator();
+        return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
                 visit(arithmetic.child(0), context),
-                arithmetic.children().size() > 1 ? visit(arithmetic.child(1), context) : null);
+                arithmeticOperator.isBinary() ? visit(arithmetic.child(1), context) : null);
     }
 
 }
