@@ -76,7 +76,11 @@ public class DataProperty implements Writable {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
         this.remoteStoragePolicy = remoteStoragePolicy;
-        this.remoteCooldownTimeMs = remoteCooldownTimeMs;
+        if (remoteCooldownTimeMs > 0) {
+            this.remoteCooldownTimeMs = remoteCooldownTimeMs;
+        } else {
+            this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+        }
     }
 
     public TStorageMedium getStorageMedium() {
