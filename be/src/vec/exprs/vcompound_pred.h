@@ -39,11 +39,14 @@ public:
         }
     }
 
-    virtual std::string debug_string() const override {
+    std::string debug_string() const override {
         std::stringstream out;
-        out << "CompoundPredicate {(";
-        out << _children[0]->debug_string() << ") " << _fn.name.function_name << " (";
-        out << _children[1]->debug_string() << ")}";
+        out << "CompoundPredicate {" << _fn.name.function_name;
+        out << " (" << _children[0]->debug_string();
+        if (children().size() > 1) {
+            out << ", " << _children[1]->debug_string();
+        }
+        out << ")}";
         return out.str();
     }
 };
