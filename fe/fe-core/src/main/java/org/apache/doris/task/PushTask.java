@@ -115,7 +115,7 @@ public class PushTask extends AgentTask {
         }
         request.setIsSchemaChanging(isSchemaChanging);
         switch (pushType) {
-            case LOAD: 
+            case LOAD:
                 request.setHttpFilePath(filePath);
                 if (fileSize != -1) {
                     request.setHttpFileSize(fileSize);
