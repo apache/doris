@@ -16,25 +16,26 @@
 // under the License.
 
 #include "vec/exec/vtable_valued_function_scannode.h"
-#include "common/status.h"
-#include "vec/exec/tablefunction/vnumbers_tbf.h"
 
 #include <sstream>
+
+#include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/tablefunction/vnumbers_tbf.h"
 
 namespace doris::vectorized {
 
-VTableValuedFunctionScanNode::VTableValuedFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+VTableValuedFunctionScanNode::VTableValuedFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
+                                                           const DescriptorTbl& descs)
         : ScanNode(pool, tnode, descs),
           _is_init(false),
           _tuple_id(tnode.table_valued_func_scan_node.tuple_id),
           _tuple_desc(nullptr) {
-    
     // set _table_func here
     switch (tnode.table_valued_func_scan_node.func_name) {
     case TTVFunctionName::NUMBERS:
@@ -92,13 +93,14 @@ Status VTableValuedFunctionScanNode::get_next(RuntimeState* state, RowBatch* row
     return Status::OK();
 }
 
-Status VTableValuedFunctionScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status VTableValuedFunctionScanNode::get_next(RuntimeState* state, vectorized::Block* block,
+                                              bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    Status res =  _table_func->get_next(state, block, eos);
+    Status res = _table_func->get_next(state, block, eos);
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
     return res;
@@ -115,8 +117,9 @@ Status VTableValuedFunctionScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-Status VTableValuedFunctionScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status VTableValuedFunctionScanNode::set_scan_ranges(
+        const std::vector<TScanRangeParams>& scan_ranges) {
     return _table_func->set_scan_ranges(scan_ranges);
 }
 
-} // namespace doris
+} // namespace doris::vectorized

@@ -16,9 +16,10 @@
 // under the License.
 
 #include "vec/exec/tablefunction/vnumbers_tbf.h"
-#include "exec/exec_node.h"
 
 #include <sstream>
+
+#include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -28,9 +29,8 @@
 
 namespace doris::vectorized {
 
-VNumbersTBF::VNumbersTBF(TupleId tuple_id,const TupleDescriptor* tuple_desc)
-        : VTableValuedFunctionInf(tuple_id,tuple_desc) {
-}
+VNumbersTBF::VNumbersTBF(TupleId tuple_id, const TupleDescriptor* tuple_desc)
+        : VTableValuedFunctionInf(tuple_id, tuple_desc) {}
 
 Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     bool mem_reuse = block->mem_reuse();
@@ -52,7 +52,8 @@ Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool
                 // what if batch_size < _total_numbers, should we set *eos？
                 break;
             }
-            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(columns[0].get())->insert_value(_cur_offset ++);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(columns[0].get())
+                    ->insert_value(_cur_offset++);
             if (_cur_offset >= _total_numbers) {
                 *eos = true;
                 break;
@@ -77,4 +78,4 @@ Status VNumbersTBF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ra
     return Status::OK();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

@@ -17,9 +17,10 @@
 
 #pragma once
 
-#include "vec/exec/tablefunction/vtable_valued_function_inf.h"
 #include <memory>
+
 #include "runtime/descriptors.h"
+#include "vec/exec/tablefunction/vtable_valued_function_inf.h"
 
 namespace doris {
 
@@ -34,7 +35,7 @@ namespace vectorized {
 
 class VNumbersTBF : public VTableValuedFunctionInf {
 public:
-    VNumbersTBF(TupleId tuple_id,const TupleDescriptor* tuple_desc);
+    VNumbersTBF(TupleId tuple_id, const TupleDescriptor* tuple_desc);
     ~VNumbersTBF() = default;
 
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -42,7 +43,7 @@ public:
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
-    int64_t _total_numbers;   
+    int64_t _total_numbers;
     // Number of returned columns, actually only 1 column
     int _slot_num = 1;
     int64_t _cur_offset = 0;

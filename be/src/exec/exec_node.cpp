@@ -61,7 +61,6 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/vtable_valued_function_scannode.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -80,6 +79,7 @@
 #include "vec/exec/vselect_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vtable_function_node.h"
+#include "vec/exec/vtable_valued_function_scannode.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
 
@@ -578,7 +578,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             *node = pool->add(new TableFunctionNode(pool, tnode, descs));
         }
         return Status::OK();
-    
+
     case TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VTableValuedFunctionScanNode(pool, tnode, descs));

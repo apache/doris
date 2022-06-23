@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include "vec/core/block.h"
-
 #include <memory>
+
 #include "common/global_types.h"
 #include "runtime/descriptors.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -32,7 +32,8 @@ namespace vectorized {
 
 class VTableValuedFunctionInf {
 public:
-    VTableValuedFunctionInf(TupleId tuple_id,const TupleDescriptor* tuple_desc) : _tuple_id(tuple_id), _tuple_desc(tuple_desc){}
+    VTableValuedFunctionInf(TupleId tuple_id, const TupleDescriptor* tuple_desc)
+            : _tuple_id(tuple_id), _tuple_desc(tuple_desc) {}
 
     ~VTableValuedFunctionInf() = default;
 
@@ -41,9 +42,7 @@ public:
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) = 0;
     Status close(RuntimeState* state) { return Status::OK(); }
 
-    void set_tuple_desc(const TupleDescriptor* tuple_desc) {
-        _tuple_desc = tuple_desc;
-    }
+    void set_tuple_desc(const TupleDescriptor* tuple_desc) { _tuple_desc = tuple_desc; }
 
 protected:
     TupleId _tuple_id;

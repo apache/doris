@@ -18,9 +18,10 @@
 #pragma once
 
 #include <memory>
+
 #include "exec/scan_node.h"
-#include "vec/exec/tablefunction/vtable_valued_function_inf.h"
 #include "runtime/descriptors.h"
+#include "vec/exec/tablefunction/vtable_valued_function_inf.h"
 
 namespace doris {
 
@@ -35,7 +36,8 @@ namespace vectorized {
 
 class VTableValuedFunctionScanNode : public ScanNode {
 public:
-    VTableValuedFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    VTableValuedFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
+                                 const DescriptorTbl& descs);
     ~VTableValuedFunctionScanNode() override = default;
 
     // initialize _mysql_scanner, and create _text_converter.
