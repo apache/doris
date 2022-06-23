@@ -659,9 +659,13 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
-                    // todo(wb) add a DCHECK here to check whether type is column nullable
-                    for (size_t x = 0; x < this_run; x++) {
-                        dst->insert_data(nullptr, 0); // todo(wb) vectorized here
+                    auto* null_col =
+                            vectorized::check_and_get_column<vectorized::ColumnNullable>(dst);
+                    if (null_col != nullptr) {
+                        const_cast<vectorized::ColumnNullable*>(null_col)->insert_null_elements(
+                                this_run);
+                    } else {
+                        return Status::InternalError("unexpected column type in column reader");
                     }
                 }
 
