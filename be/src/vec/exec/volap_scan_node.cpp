@@ -200,9 +200,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
-                     get_free_block) ||
-                    num_rows_in_block < _runtime_state->batch_size())) {
+    while (!eos && raw_bytes_read < raw_bytes_threshold &&
+           ((raw_rows_read < raw_rows_threshold && get_free_block) ||
+            num_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -228,12 +228,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(block);
         } else {
-            // block should not exceed MAX_BLOCK_SIZE,
-            // in order to avoid generating supper huge block when reading big-wide-table
-            constexpr size_t MAX_BLOCK_SIZE = 1024 * 1024 * 100;
             if (!blocks.empty() &&
-                blocks.back()->rows() + block->rows() <= _runtime_state->batch_size() &&
-                blocks.back()->allocated_bytes() + block->allocated_bytes() < MAX_BLOCK_SIZE) {
+                blocks.back()->rows() + block->rows() <= _runtime_state->batch_size()) {
                 MutableBlock(blocks.back()).merge(*block);
                 block->clear_column_data();
                 std::lock_guard<std::mutex> l(_free_blocks_lock);

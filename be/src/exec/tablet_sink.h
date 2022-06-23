@@ -228,8 +228,7 @@ public:
     }
 
     size_t get_pending_bytes() {
-        size_t v = _pending_batches_bytes;
-        return v;
+        return _pending_batches_bytes;
     }
 
 private:
