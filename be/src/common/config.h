@@ -469,7 +469,7 @@ CONF_mInt64(write_buffer_size, "209715200");
 // impact the load performance when user upgrading Doris.
 // user should set these configs properly if necessary.
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
-CONF_Int32(load_process_max_memory_limit_percent, "20");         // 20%
+CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
