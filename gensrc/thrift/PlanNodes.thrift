@@ -227,10 +227,14 @@ enum TTVFunctionName {
     NUMBERS = 0,
 }
 
-// Every table function should have a scan range definition to save its running 
-// parameters
-struct TNumbersTVFScanRange {
+// Every table valued function should have a scan range definition to save its
+// running parameters
+struct TTVFNumbersScanRange {
 	1: optional i64 totalNumbers
+}
+
+struct TTVFScanRange {
+  1: optional TTVFNumbersScanRange numbers_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -242,7 +246,7 @@ struct TScanRange {
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
   8: optional TExternalScanRange ext_scan_range
-  9: optional TNumbersTVFScanRange numbers_tvf_scan_range
+  9: optional TTVFScanRange tvf_scan_range
 }
 
 struct TMySQLScanNode {

@@ -74,7 +74,7 @@ Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool
 }
 
 Status VNumbersTBF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_range_params) {
-    _total_numbers = scan_range_params[0].scan_range.numbers_tvf_scan_range.totalNumbers;
+    _total_numbers = scan_range_params[0].scan_range.tvf_scan_range.numbers_params.totalNumbers;
     return Status::OK();
 }
 

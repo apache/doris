@@ -24,8 +24,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TNumbersTVFScanRange;
 import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TTVFNumbersScanRange;
+import org.apache.doris.thrift.TTVFScanRange;
 import org.apache.doris.thrift.TTVFunctionName;
 
 import com.google.common.collect.Lists;
@@ -101,9 +102,11 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
         List<TableValuedFunctionTask> res = Lists.newArrayList();
         for (int i = 0; i < tabletsNum; ++i) {
             TScanRange scanRange = new TScanRange();
-            TNumbersTVFScanRange numbersTvfScanRange = new TNumbersTVFScanRange();
-            numbersTvfScanRange.setTotalNumbers(totalNumbers);
-            scanRange.setNumbersTvfScanRange(numbersTvfScanRange);
+            TTVFScanRange tvfScanRange = new TTVFScanRange();
+            TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
+            tvfNumbersScanRange.setTotalNumbers(totalNumbers);
+            tvfScanRange.setNumbersParams(tvfNumbersScanRange);
+            scanRange.setTvfScanRange(tvfScanRange);
             res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
         }
         return res;
