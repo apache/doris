@@ -128,10 +128,6 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = new Database();
 
-                    ds.getDbOrAnalysisException(anyString);
-                    minTimes = 0;
-                    result = new Database();
-
                     ds.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList("testCluster:testDb");

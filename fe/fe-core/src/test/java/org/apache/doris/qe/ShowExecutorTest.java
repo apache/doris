@@ -197,6 +197,10 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = ds;
 
+                catalog.getCurrentDataSource();
+                minTimes = 0;
+                result = ds;
+
                 catalog.getAuth();
                 minTimes = 0;
                 result = auth;

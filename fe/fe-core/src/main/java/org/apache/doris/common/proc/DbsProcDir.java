@@ -69,7 +69,7 @@ public class DbsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        DatabaseIf db = catalog.getDataSourceMgr().getDbNullable(dbId);
+        DatabaseIf db = catalog.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             throw new AnalysisException("Database " + dbId + " does not exist");
         }

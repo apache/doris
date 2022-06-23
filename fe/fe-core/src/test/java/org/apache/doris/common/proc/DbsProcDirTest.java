@@ -112,7 +112,6 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-
         dir = new DbsProcDir(catalog);
         try {
             node = dir.lookup(String.valueOf(db2.getId()));
