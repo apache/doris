@@ -228,8 +228,12 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(block);
         } else {
+            // block should not exceed MAX_BLOCK_SIZE, 
+            // in order to avoid generating supper huge block when reading big-wide-table
+            constexpr size_t MAX_BLOCK_SIZE = 1024*1024*100;
             if (!blocks.empty() &&
-                blocks.back()->rows() + block->rows() <= _runtime_state->batch_size()) {
+                blocks.back()->rows() + block->rows() <= _runtime_state->batch_size() &&
+                blocks.back()->allocated_bytes() + block->allocated_bytes() < MAX_BLOCK_SIZE) {
                 MutableBlock(blocks.back()).merge(*block);
                 block->clear_column_data();
                 std::lock_guard<std::mutex> l(_free_blocks_lock);

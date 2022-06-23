@@ -57,7 +57,6 @@ Status VOlapTableSink::open(RuntimeState* state) {
 }
 
 size_t VOlapTableSink::get_pending_bytes() const {
-    LOG(INFO) << "VOlapTableSink: indexChannel num:" << _channels.size();
     size_t mem_consumption = 0;
     for (auto& indexChannel : _channels){
         mem_consumption += indexChannel->get_pending_bytes();

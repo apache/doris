@@ -331,7 +331,6 @@ public:
     size_t num_node_channels() const { return _node_channels.size(); }
 
     size_t get_pending_bytes() const {
-        LOG(INFO) << "Node Channel in IndexChannel: " <<_node_channels.size();
         size_t mem_consumption = 0;
         for (auto& kv:  _node_channels){
             mem_consumption += kv.second->get_pending_bytes();

@@ -334,7 +334,6 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
             //To simplify the add_row logic, postpone adding batch into req until the time of sending req
             _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
             _pending_batches_num++;
-            LOG(INFO)<<"NodeChannel add block: current mem consumption: "<<_pending_batches_bytes;
         }
 
         _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
