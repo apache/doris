@@ -115,6 +115,24 @@ public final class AnalyticInfo extends AggregateInfoBase {
     }
 
     /**
+     * Creates the intermediate and output tuple descriptors. If no agg expr has an
+     * intermediate type different from its output type, then only the output tuple
+     * descriptor is created and the intermediate tuple is set to the output tuple.
+     * TODO: Rethink we really need to use Analyticinfo be subclass of AggregateInfoBase,
+     * it seems only use the aggregateExprs
+     */
+    protected void createTupleDescs(Analyzer analyzer) {
+        // Create the intermediate tuple desc first, so that the tuple ids are increasing
+        // from bottom to top in the plan tree.
+        intermediateTupleDesc = createTupleDesc(analyzer, false);
+        if (requiresIntermediateTuple(aggregateExprs, false)) {
+            outputTupleDesc = createTupleDesc(analyzer, true);
+        } else {
+            outputTupleDesc = intermediateTupleDesc;
+        }
+    }
+
+    /**
      * Returns the intersection of the partition exprs of all the
      * analytic functions.
      */
