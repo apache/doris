@@ -140,6 +140,8 @@ public:
         return std::string(buf);
     }
 
+    const uint8_t* get_data() const { return data; }
+
 private:
     uint8_t data[3];
 } __attribute__((packed));

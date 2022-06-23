@@ -290,7 +290,37 @@ private:
                             uint16_t* sel, uint16_t size) const {
         uint16_t new_size = 0;
 
-        if (column->is_column_dictionary()) {
+        if constexpr (std::is_same_v<T, uint24_t>) {
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<uint32_t>>(
+                            column);
+            auto& data_array = nested_col_ptr->get_data();
+
+            uint24_t tmp_uint24_value;
+            for (uint16_t i = 0; i < size; i++) {
+                uint16_t idx = sel[i];
+                if constexpr (is_nullable) {
+                    if ((*null_map)[idx]) {
+                        if constexpr (is_opposite) {
+                            sel[new_size++] = idx;
+                        }
+                        continue;
+                    }
+                }
+
+                memcpy((char*)(&tmp_uint24_value), (char*)(&(data_array[idx])), sizeof(uint24_t));
+                if constexpr (!is_opposite) {
+                    if (_operator(_values.find(tmp_uint24_value), _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                } else {
+                    if (!_operator(_values.find(tmp_uint24_value), _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                }
+            }
+
+        } else if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringValue>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);

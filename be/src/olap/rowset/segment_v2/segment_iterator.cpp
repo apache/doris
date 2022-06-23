@@ -661,7 +661,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
                 predicate->type() == PredicateType::IN_LIST ||
                 predicate->type() == PredicateType::NOT_IN_LIST ||
                 predicate->type() == PredicateType::IS_NULL ||
-                predicate->type() == PredicateType::IS_NOT_NULL || type == OLAP_FIELD_TYPE_DATE ||
+                predicate->type() == PredicateType::IS_NOT_NULL ||
                 type == OLAP_FIELD_TYPE_DECIMAL) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);

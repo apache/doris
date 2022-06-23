@@ -223,6 +223,19 @@ public:
         return check_range_and_set_time(year, month, day, hour, minute, second, _type);
     }
 
+    //note(wb) not check in this method
+    void inline set_olap_date(uint64_t olap_date_val) {
+        _neg = 0;
+        _type = TIME_DATE;
+
+        _day = olap_date_val & 0x1f;
+        _month = (olap_date_val >> 5) & 0x0f;
+        _year = olap_date_val >> 9;
+        _hour = 0;
+        _minute = 0;
+        _second = 0;
+    }
+
     uint64_t to_olap_date() const {
         uint64_t val;
         val = _year;
