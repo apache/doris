@@ -356,7 +356,7 @@ public class DynamicPartitionUtil {
         StoragePolicy storagePolicy = (StoragePolicy) Catalog.getCurrentCatalog()
                 .getPolicyMgr().getPolicy(checkedPolicyCondition);
         if (Strings.isNullOrEmpty(storagePolicy.getCooldownTtl())) {
-            throw new DdlException("Storage policy type need to be ttl for properties "
+            throw new DdlException("Storage policy cooldown type need to be cooldownTtl for properties "
                     + DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + val);
         }
     }

@@ -60,6 +60,13 @@ public class StoragePolicy extends Policy {
     private static final String COOLDOWN_DATETIME = "cooldown_datetime";
     private static final String COOLDOWN_TTL = "cooldown_ttl";
 
+    // for ttl format
+    private static final String TTL_WEEK = "week";
+    private static final String TTL_DAY = "day";
+    private static final String TTL_DAY_SIMPLE = "d";
+    private static final String TTL_HOUR = "hour";
+    private static final String TTL_HOUR_SIMPLE = "h";
+
     @SerializedName(value = "storageResource")
     private String storageResource = null;
 
@@ -68,6 +75,9 @@ public class StoragePolicy extends Policy {
 
     @SerializedName(value = "cooldownTtl")
     private String cooldownTtl = null;
+
+    @SerializedName(value = "cooldownTtlSec")
+    private long cooldownTtlSec = -1;
 
     private Map<String, String> props;
 
@@ -81,13 +91,15 @@ public class StoragePolicy extends Policy {
      * @param storageResource resource name for storage
      * @param cooldownDatetime cool down time
      * @param cooldownTtl cool down time cost after partition is created
+     * @param cooldownTtlSec seconds for cooldownTtl
      */
     public StoragePolicy(final PolicyTypeEnum type, final String policyName, final String storageResource,
-                         final Date cooldownDatetime, final String cooldownTtl) {
+                         final Date cooldownDatetime, final String cooldownTtl, long cooldownTtlSec) {
         super(type, policyName);
         this.storageResource = storageResource;
         this.cooldownDatetime = cooldownDatetime;
         this.cooldownTtl = cooldownTtl;
+        this.cooldownTtlSec = cooldownTtlSec;
     }
 
     /**
@@ -126,6 +138,16 @@ public class StoragePolicy extends Policy {
         if (props.containsKey(COOLDOWN_TTL)) {
             hasCooldownTtl = true;
             this.cooldownTtl = props.get(COOLDOWN_TTL);
+            try {
+                this.cooldownTtlSec = getSecByCooldownTtl(this.cooldownTtl);
+            } catch (NumberFormatException e) {
+                LOG.error("getSecByCooldownTtl failed.", e);
+                throw new AnalysisException("getSecByCooldownTtl failed.", e);
+            }
+            if (cooldownTtlSec < 0) {
+                LOG.error("cooldownTtl can't be less than 0");
+                throw new AnalysisException("cooldownTtl can't be less than 0");
+            }
         }
         if (hasCooldownDatetime && hasCooldownTtl) {
             throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
@@ -152,7 +174,7 @@ public class StoragePolicy extends Policy {
             cooldownDatetimeStr = df.format(this.cooldownDatetime);
         }
         return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
-            cooldownDatetimeStr, this.cooldownTtl, props);
+                                  cooldownDatetimeStr, this.cooldownTtl, props);
     }
 
     @Override
@@ -161,7 +183,7 @@ public class StoragePolicy extends Policy {
     @Override
     public StoragePolicy clone() {
         return new StoragePolicy(this.type, this.policyName, this.storageResource,
-                                 this.cooldownDatetime, this.cooldownTtl);
+                                 this.cooldownDatetime, this.cooldownTtl, this.cooldownTtlSec);
     }
 
     @Override
@@ -198,5 +220,23 @@ public class StoragePolicy extends Policy {
     @Override
     public boolean isInvalid() {
         return false;
+    }
+
+    /**
+     * Get seconds by cooldownTtl, 1week=604800 1day=1d=86400, 1hour=1h=3600
+     * @param cooldownTtl cooldown ttl
+     * @return second for cooldownTtl
+     */
+    private long getSecByCooldownTtl(String cooldownTtl) throws NumberFormatException {
+        cooldownTtl = cooldownTtl.replace(TTL_DAY, TTL_DAY_SIMPLE).replace(TTL_HOUR, TTL_HOUR_SIMPLE);
+        if (cooldownTtl.endsWith(TTL_DAY_SIMPLE)) {
+            return Long.parseLong(cooldownTtl.replace(TTL_DAY_SIMPLE, "").trim());
+        } else if (cooldownTtl.endsWith(TTL_HOUR_SIMPLE)) {
+            return Long.parseLong(cooldownTtl.replace(TTL_HOUR_SIMPLE, "").trim());
+        } else if (cooldownTtl.endsWith(TTL_WEEK)) {
+            return Long.parseLong(cooldownTtl.replace(TTL_WEEK, "").trim());
+        } else {
+            return Long.parseLong(cooldownTtl.trim());
+        }
     }
 }
