@@ -443,7 +443,9 @@ TEST_F(OlapScanKeysTest, ExtendFixedTest) {
         EXPECT_TRUE(range1.add_fixed_value(i).ok());
     }
 
-    scan_keys.extend_scan_key(range1, 1024);
+    bool exact_range = true;
+    scan_keys.extend_scan_key(range1, 1024, &exact_range);
+    EXPECT_EQ(exact_range, true);
 
     std::vector<std::unique_ptr<OlapScanRange>> key_range;
     scan_keys.get_key_range(&key_range);
@@ -465,7 +467,9 @@ TEST_F(OlapScanKeysTest, ExtendFixedTest) {
         EXPECT_TRUE(range2.add_fixed_value(i).ok());
     }
 
-    scan_keys.extend_scan_key(range2, 1024);
+    exact_range = true;
+    scan_keys.extend_scan_key(range2, 1024, &exact_range);
+    EXPECT_EQ(exact_range, true);
 
     scan_keys.get_key_range(&key_range);
 
@@ -492,7 +496,9 @@ TEST_F(OlapScanKeysTest, ExtendFixedTest) {
     range2.set_whole_value_range();
     EXPECT_TRUE(range2.add_range(FILTER_LARGER_OR_EQUAL, 100).ok());
 
-    scan_keys.extend_scan_key(range2, 1024);
+    exact_range = true;
+    scan_keys.extend_scan_key(range2, 1024, &exact_range);
+    EXPECT_EQ(exact_range, true);
 
     scan_keys.get_key_range(&key_range);
 
@@ -526,15 +532,18 @@ TEST_F(OlapScanKeysTest, ExtendFixedAndRangeTest) {
         EXPECT_TRUE(range1.add_fixed_value(i).ok());
     }
 
-    scan_keys.extend_scan_key(range1, 1024);
+    bool exact_range = true;
+    scan_keys.extend_scan_key(range1, 1024, &exact_range);
+    EXPECT_EQ(exact_range, true);
 
     ColumnValueRange<int32_t> range2("col", TYPE_BIGINT);
     EXPECT_TRUE(range2.add_range(FILTER_LARGER_OR_EQUAL, 20).ok());
 
-    scan_keys.extend_scan_key(range2, 1024);
+    exact_range = true;
+    scan_keys.extend_scan_key(range2, 1024, &exact_range);
+    EXPECT_EQ(exact_range, true);
 
     std::vector<std::unique_ptr<OlapScanRange>> key_range;
-    ;
 
     scan_keys.get_key_range(&key_range);
 
@@ -551,7 +560,9 @@ TEST_F(OlapScanKeysTest, ExtendFixedAndRangeTest) {
 
     EXPECT_TRUE(range2.add_range(FILTER_LESS, 100).ok());
 
-    scan_keys.extend_scan_key(range2, 1024);
+    exact_range = true;
+    scan_keys.extend_scan_key(range2, 1024, &exact_range);
+    EXPECT_EQ(exact_range, true);
 
     scan_keys.get_key_range(&key_range);
 
@@ -575,10 +586,11 @@ TEST_F(OlapScanKeysTest, ExtendRangeTest) {
     EXPECT_TRUE(range2.add_range(FILTER_LARGER_OR_EQUAL, 20).ok());
     EXPECT_TRUE(range2.add_range(FILTER_LESS_OR_EQUAL, 100).ok());
 
-    EXPECT_TRUE(scan_keys.extend_scan_key(range2, 1024).ok());
+    bool exact_range = true;
+    EXPECT_TRUE(scan_keys.extend_scan_key(range2, 1024, &exact_range).ok());
+    EXPECT_EQ(exact_range, true);
 
     std::vector<std::unique_ptr<OlapScanRange>> key_range;
-    ;
 
     scan_keys.get_key_range(&key_range);
 
@@ -589,7 +601,9 @@ TEST_F(OlapScanKeysTest, ExtendRangeTest) {
 
     EXPECT_TRUE(range2.add_range(FILTER_LESS, 50).ok());
 
-    EXPECT_TRUE(scan_keys.extend_scan_key(range2, 1024).ok());
+    exact_range = true;
+    EXPECT_TRUE(scan_keys.extend_scan_key(range2, 1024, &exact_range).ok());
+    EXPECT_EQ(exact_range, false);
 
     scan_keys.get_key_range(&key_range);
 
@@ -606,7 +620,9 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
     {
         OlapScanKeys scan_keys;
         ColumnValueRange<int8_t> range("col", TYPE_TINYINT);
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
+        bool exact_range = true;
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
         // contain null, [-128, 127]
         EXPECT_EQ(key_range.size(), 257);
@@ -615,7 +631,9 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 
         EXPECT_TRUE(range.add_range(FILTER_LESS, 50).ok());
         scan_keys.clear();
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
+        exact_range = true;
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
 
         EXPECT_EQ(key_range.size(), 178);
@@ -626,7 +644,9 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
     {
         OlapScanKeys scan_keys;
         ColumnValueRange<int16_t> range("col", TYPE_SMALLINT);
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
+        bool exact_range = true;
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
         EXPECT_EQ(key_range.size(), 1);
         EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "null");
@@ -634,7 +654,9 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 
         EXPECT_TRUE(range.add_range(FILTER_LARGER, 0).ok());
         scan_keys.clear();
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
+        exact_range = true;
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
 
         EXPECT_EQ(key_range.size(), 1);
@@ -643,7 +665,9 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 
         EXPECT_TRUE(range.add_range(FILTER_LESS, 32766).ok());
         scan_keys.clear();
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
+        exact_range = true;
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
 
         EXPECT_EQ(key_range.size(), 1);

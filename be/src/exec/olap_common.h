@@ -256,7 +256,7 @@ public:
               _is_convertible(true) {}
 
     template <class T>
-    Status extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num);
+    Status extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num, bool* exact_value);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
@@ -738,9 +738,10 @@ bool ColumnValueRange<T>::has_intersection(ColumnValueRange<T>& range) {
 }
 
 template <class T>
-Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num) {
+Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num,
+                                     bool* exact_value) {
     using namespace std;
-    typedef typename set<T>::const_iterator const_iterator_type;
+    using ConstIterator = typename set<T>::const_iterator;
 
     // 1. clear ScanKey if some column range is empty
     if (range.is_empty_value_range()) {
@@ -760,6 +761,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
         if (range.get_fixed_value_size() > max_scan_key_num / scan_keys_size) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
+                *exact_value = false;
             } else {
                 return Status::OK();
             }
@@ -777,7 +779,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
         // 3.1.1 construct num of fixed value ScanKey (begin_key == end_key)
         if (_begin_scan_keys.empty()) {
             const set<T>& fixed_value_set = range.get_fixed_value_set();
-            const_iterator_type iter = fixed_value_set.begin();
+            ConstIterator iter = fixed_value_set.begin();
 
             for (; iter != fixed_value_set.end(); ++iter) {
                 _begin_scan_keys.emplace_back();
@@ -801,7 +803,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
                 OlapTuple start_base_key_range = _begin_scan_keys[i];
                 OlapTuple end_base_key_range = _end_scan_keys[i];
 
-                const_iterator_type iter = fixed_value_set.begin();
+                ConstIterator iter = fixed_value_set.begin();
 
                 for (; iter != fixed_value_set.end(); ++iter) {
                     // alter the first ScanKey in original place

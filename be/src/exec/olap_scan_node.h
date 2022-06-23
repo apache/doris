@@ -107,8 +107,7 @@ protected:
 
     void eval_const_conjuncts();
     Status normalize_conjuncts();
-    Status build_olap_filters();
-    Status build_scan_key();
+    Status build_key_ranges_and_filters();
     Status start_scan_thread(RuntimeState* state);
 
     template <class T>
