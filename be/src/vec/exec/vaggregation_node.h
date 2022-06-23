@@ -466,7 +466,7 @@ private:
     void _make_nullable_output_key(Block* block);
 
     Status _create_agg_status(AggregateDataPtr data);
-    Status _destory_agg_status(AggregateDataPtr data);
+    Status _destroy_agg_status(AggregateDataPtr data);
 
     Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _serialize_without_key(RuntimeState* state, Block* block, bool* eos);
