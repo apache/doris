@@ -79,7 +79,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Aggregation (" + "outputExpressions: " + StringUtils.join(aggExprList, ", ") + ", groupByExpressions: "
+        return "Aggregation (" + "aggExprList: " + StringUtils.join(aggExprList, ", ") + ", groupByExprList: "
                 + StringUtils.join(groupByExprList, ", ") + ")";
     }
 
