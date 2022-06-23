@@ -211,7 +211,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = symbol;
 
-                planner.plan((QueryStmt) any, (Analyzer) any, (TQueryOptions) any);
+                planner.plan((QueryStmt) any, (TQueryOptions) any);
                 minTimes = 0;
 
                 // mock coordinator

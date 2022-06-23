@@ -85,9 +85,10 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.PlannerAdapter;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
@@ -739,12 +740,12 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // create plan
-            planner = new PlannerAdapter(context);
+            planner = new NereidsPlanner(context);
         } else {
-            planner = new Planner();
+            planner = new OriginalPlanner(analyzer);
         }
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-            planner.plan(parsedStmt, analyzer, tQueryOptions);
+            planner.plan(parsedStmt, tQueryOptions);
         }
         // TODO(zc):
         // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
@@ -888,11 +889,11 @@ public class StmtExecutor implements ProfileWriter {
                 analyzer = new Analyzer(context.getCatalog(), context);
                 newSelectStmt.analyze(analyzer);
                 if (parsedStmt instanceof LogicalPlanAdapter) {
-                    planner = new PlannerAdapter(context);
+                    planner = new NereidsPlanner(context);
                 } else {
-                    planner = new Planner();
+                    planner = new OriginalPlanner(analyzer);
                 }
-                planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
+                planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
 
