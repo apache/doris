@@ -117,13 +117,12 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _partition_to_tablet_map.clear();
     }
     
-    //if pending bytes is more than 1G, wait
-    if ( get_pending_bytes() > 1073741824){
-        LOG(INFO)<<"VOlapTableSink pending more than 1G data, wait..";
-        while(get_pending_bytes() < 1073741824){
+    //if pending bytes is more than 500M, wait
+    constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
+    if ( get_pending_bytes() > MAX_PENDING_BYTES){
+        while(get_pending_bytes() < MAX_PENDING_BYTES){
             std::this_thread::sleep_for(std::chrono::microseconds(500));
         }
-        LOG(INFO)<<"VOlapTableSink current mem consumption: "<<get_pending_bytes();
     }
 
     for (int i = 0; i < num_rows; ++i) {

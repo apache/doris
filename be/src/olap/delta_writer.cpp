@@ -221,7 +221,6 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return OLAP_SUCCESS;
     }
-
     if (_is_cancelled) {
         return OLAP_ERR_ALREADY_CANCELLED;
     }

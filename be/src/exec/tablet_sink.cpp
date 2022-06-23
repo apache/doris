@@ -319,9 +319,10 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     auto row_no = _cur_batch->add_row();
     if (row_no == RowBatch::INVALID_ROW_INDEX || _cur_batch->total_byte_size() > BATCH_SIZE_FOR_SEND) {
         //if pending bytes is more than 1G, wait
+        constexpr size_t MAX_PENDING_BYTES = 1073741824; //1G
         if (_pending_batches_bytes>1073741824){
             LOG(INFO)<<"NodeChannel pending more than 1G data, wait..";
-            while(_pending_batches_bytes < 1073741824){
+            while(_pending_batches_bytes < MAX_PENDING_BYTES){
                 std::this_thread::sleep_for(std::chrono::microseconds(500));
             }
             LOG(INFO)<<"NodeChannel current mem consumption: "<<_pending_batches_bytes;
