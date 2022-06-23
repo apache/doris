@@ -40,37 +40,208 @@ public class AnalyticWindow {
     public static final AnalyticWindow DEFAULT_WINDOW = new AnalyticWindow(Type.RANGE,
             new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
             new Boundary(BoundaryType.CURRENT_ROW, null));
+
+    enum Type {
+        ROWS("ROWS"),
+        RANGE("RANGE");
+
+        private final String description;
+
+        private Type(String d) {
+            description = d;
+        }
+
+        @Override
+        public String toString() {
+            return description;
+        }
+
+        public TAnalyticWindowType toThrift() {
+            return this == ROWS ? TAnalyticWindowType.ROWS : TAnalyticWindowType.RANGE;
+        }
+    }
+
+    enum BoundaryType {
+        UNBOUNDED_PRECEDING("UNBOUNDED PRECEDING"),
+        UNBOUNDED_FOLLOWING("UNBOUNDED FOLLOWING"),
+        CURRENT_ROW("CURRENT ROW"),
+        PRECEDING("PRECEDING"),
+        FOLLOWING("FOLLOWING");
+
+        private final String description;
+
+        private BoundaryType(String d) {
+            description = d;
+        }
+
+        @Override
+        public String toString() {
+            return description;
+        }
+
+        public TAnalyticWindowBoundaryType toThrift() {
+            Preconditions.checkState(!isAbsolutePos());
+
+            if (this == CURRENT_ROW) {
+                return TAnalyticWindowBoundaryType.CURRENT_ROW;
+            } else if (this == PRECEDING) {
+                return TAnalyticWindowBoundaryType.PRECEDING;
+            } else if (this == FOLLOWING) {
+                return TAnalyticWindowBoundaryType.FOLLOWING;
+            }
+
+            return null;
+        }
+
+        public boolean isAbsolutePos() {
+            return this == UNBOUNDED_PRECEDING || this == UNBOUNDED_FOLLOWING;
+        }
+
+        public boolean isOffset() {
+            return this == PRECEDING || this == FOLLOWING;
+        }
+
+        public boolean isPreceding() {
+            return this == UNBOUNDED_PRECEDING || this == PRECEDING;
+        }
+
+        public boolean isFollowing() {
+            return this == UNBOUNDED_FOLLOWING || this == FOLLOWING;
+        }
+
+        public BoundaryType converse() {
+            switch (this) {
+                case UNBOUNDED_PRECEDING:
+                    return UNBOUNDED_FOLLOWING;
+
+                case UNBOUNDED_FOLLOWING:
+                    return UNBOUNDED_PRECEDING;
+
+                case PRECEDING:
+                    return FOLLOWING;
+
+                case FOLLOWING:
+                    return PRECEDING;
+
+                default:
+                    return CURRENT_ROW;
+            }
+        }
+    }
+
+    public static class Boundary {
+        private final BoundaryType type;
+
+        // Offset expr. Only set for PRECEDING/FOLLOWING. Needed for toSql().
+        private final Expr expr;
+
+        // The offset value. Set during analysis after evaluating expr_. Integral valued
+        // for ROWS windows.
+        private BigDecimal offsetValue;
+
+        public BoundaryType getType() {
+            return type;
+        }
+
+        public Expr getExpr() {
+            return expr;
+        }
+
+        public Boundary(BoundaryType type, Expr e) {
+            this(type, e, null);
+        }
+
+        // c'tor used by clone()
+        private Boundary(BoundaryType type, Expr e, BigDecimal offsetValue) {
+            Preconditions.checkState(
+                    (type.isOffset() && e != null)
+                    || (!type.isOffset() && e == null));
+            this.type = type;
+            this.expr = e;
+            this.offsetValue = offsetValue;
+        }
+
+        public String toSql() {
+            StringBuilder sb = new StringBuilder();
+
+            if (expr != null) {
+                sb.append(expr.toSql()).append(" ");
+            }
+
+            sb.append(type.toString());
+            return sb.toString();
+        }
+
+        public String toDigest() {
+            StringBuilder sb = new StringBuilder();
+
+            if (expr != null) {
+                sb.append(expr.toDigest()).append(" ");
+            }
+
+            sb.append(type.toString());
+            return sb.toString();
+        }
+
+        public TAnalyticWindowBoundary toThrift(Type windowType) {
+            TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
+
+            if (type.isOffset() && windowType == Type.ROWS) {
+                result.setRowsOffsetValue(offsetValue.longValue());
+            }
+
+            // TODO: range windows need range_offset_predicate
+            return result;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, expr);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj == null) {
+                return false;
+            }
+
+            if (obj.getClass() != this.getClass()) {
+                return false;
+            }
+
+            Boundary o = (Boundary) obj;
+            boolean exprEqual = (expr == null) == (o.expr == null);
+
+            if (exprEqual && expr != null) {
+                exprEqual = expr.equals(o.expr);
+            }
+
+            return type == o.type && exprEqual;
+        }
+
+        public Boundary converse() {
+            Boundary result = new Boundary(type.converse(),
+                    (expr != null) ? expr.clone() : null);
+            result.offsetValue = offsetValue;
+            return result;
+        }
+
+        @Override
+        public Boundary clone() {
+            return new Boundary(type, expr != null ? expr.clone() : null, offsetValue);
+        }
+
+        public void analyze(Analyzer analyzer) throws AnalysisException {
+            if (expr != null) {
+                expr.analyze(analyzer);
+            }
+        }
+    }
+
     private final Type type;
     private final Boundary leftBoundary;
     private Boundary rightBoundary;  // may be null before analyze()
     private String toSqlString;  // cached after analysis
-    public AnalyticWindow(Type type, Boundary b) {
-        this.type = type;
-        Preconditions.checkNotNull(b);
-        leftBoundary = b;
-        rightBoundary = null;
-    }
-    public AnalyticWindow(Type type, Boundary l, Boundary r) {
-        this.type = type;
-        Preconditions.checkNotNull(l);
-        leftBoundary = l;
-        Preconditions.checkNotNull(r);
-        rightBoundary = r;
-    }
-    /**
-     * Clone c'tor
-     */
-    private AnalyticWindow(AnalyticWindow other) {
-        type = other.type;
-        Preconditions.checkNotNull(other.leftBoundary);
-        leftBoundary = other.leftBoundary.clone();
-
-        if (other.rightBoundary != null) {
-            rightBoundary = other.rightBoundary.clone();
-        }
-
-        toSqlString = other.toSqlString;  // safe to share
-    }
 
     public Type getType() {
         return type;
@@ -86,6 +257,36 @@ public class AnalyticWindow {
 
     public Boundary setRightBoundary(Boundary b) {
         return rightBoundary = b;
+    }
+
+    public AnalyticWindow(Type type, Boundary b) {
+        this.type = type;
+        Preconditions.checkNotNull(b);
+        leftBoundary = b;
+        rightBoundary = null;
+    }
+
+    public AnalyticWindow(Type type, Boundary l, Boundary r) {
+        this.type = type;
+        Preconditions.checkNotNull(l);
+        leftBoundary = l;
+        Preconditions.checkNotNull(r);
+        rightBoundary = r;
+    }
+
+    /**
+     * Clone c'tor
+     */
+    private AnalyticWindow(AnalyticWindow other) {
+        type = other.type;
+        Preconditions.checkNotNull(other.leftBoundary);
+        leftBoundary = other.leftBoundary.clone();
+
+        if (other.rightBoundary != null) {
+            rightBoundary = other.rightBoundary.clone();
+        }
+
+        toSqlString = other.toSqlString;  // safe to share
     }
 
     public AnalyticWindow reverse() {
@@ -132,6 +333,7 @@ public class AnalyticWindow {
 
         return sb.toString();
     }
+
 
     public TAnalyticWindow toThrift() {
         TAnalyticWindow result = new TAnalyticWindow(type.toThrift());
@@ -332,203 +534,6 @@ public class AnalyticWindow {
 
             if (leftBoundary.getType() != BoundaryType.UNBOUNDED_PRECEDING) {
                 checkOffsetBoundaries(analyzer, rightBoundary, leftBoundary);
-            }
-        }
-    }
-
-    enum Type {
-        ROWS("ROWS"),
-        RANGE("RANGE");
-
-        private final String description;
-
-        private Type(String d) {
-            description = d;
-        }
-
-        @Override
-        public String toString() {
-            return description;
-        }
-
-        public TAnalyticWindowType toThrift() {
-            return this == ROWS ? TAnalyticWindowType.ROWS : TAnalyticWindowType.RANGE;
-        }
-    }
-
-    enum BoundaryType {
-        UNBOUNDED_PRECEDING("UNBOUNDED PRECEDING"),
-        UNBOUNDED_FOLLOWING("UNBOUNDED FOLLOWING"),
-        CURRENT_ROW("CURRENT ROW"),
-        PRECEDING("PRECEDING"),
-        FOLLOWING("FOLLOWING");
-
-        private final String description;
-
-        private BoundaryType(String d) {
-            description = d;
-        }
-
-        @Override
-        public String toString() {
-            return description;
-        }
-
-        public TAnalyticWindowBoundaryType toThrift() {
-            Preconditions.checkState(!isAbsolutePos());
-
-            if (this == CURRENT_ROW) {
-                return TAnalyticWindowBoundaryType.CURRENT_ROW;
-            } else if (this == PRECEDING) {
-                return TAnalyticWindowBoundaryType.PRECEDING;
-            } else if (this == FOLLOWING) {
-                return TAnalyticWindowBoundaryType.FOLLOWING;
-            }
-
-            return null;
-        }
-
-        public boolean isAbsolutePos() {
-            return this == UNBOUNDED_PRECEDING || this == UNBOUNDED_FOLLOWING;
-        }
-
-        public boolean isOffset() {
-            return this == PRECEDING || this == FOLLOWING;
-        }
-
-        public boolean isPreceding() {
-            return this == UNBOUNDED_PRECEDING || this == PRECEDING;
-        }
-
-        public boolean isFollowing() {
-            return this == UNBOUNDED_FOLLOWING || this == FOLLOWING;
-        }
-
-        public BoundaryType converse() {
-            switch (this) {
-                case UNBOUNDED_PRECEDING:
-                    return UNBOUNDED_FOLLOWING;
-
-                case UNBOUNDED_FOLLOWING:
-                    return UNBOUNDED_PRECEDING;
-
-                case PRECEDING:
-                    return FOLLOWING;
-
-                case FOLLOWING:
-                    return PRECEDING;
-
-                default:
-                    return CURRENT_ROW;
-            }
-        }
-    }
-
-    public static class Boundary {
-        private final BoundaryType type;
-
-        // Offset expr. Only set for PRECEDING/FOLLOWING. Needed for toSql().
-        private final Expr expr;
-
-        // The offset value. Set during analysis after evaluating expr_. Integral valued
-        // for ROWS windows.
-        private BigDecimal offsetValue;
-
-        public Boundary(BoundaryType type, Expr e) {
-            this(type, e, null);
-        }
-
-        // c'tor used by clone()
-        private Boundary(BoundaryType type, Expr e, BigDecimal offsetValue) {
-            Preconditions.checkState(
-                    (type.isOffset() && e != null)
-                    || (!type.isOffset() && e == null));
-            this.type = type;
-            this.expr = e;
-            this.offsetValue = offsetValue;
-        }
-
-        public BoundaryType getType() {
-            return type;
-        }
-
-        public Expr getExpr() {
-            return expr;
-        }
-
-        public String toSql() {
-            StringBuilder sb = new StringBuilder();
-
-            if (expr != null) {
-                sb.append(expr.toSql()).append(" ");
-            }
-
-            sb.append(type.toString());
-            return sb.toString();
-        }
-
-        public String toDigest() {
-            StringBuilder sb = new StringBuilder();
-
-            if (expr != null) {
-                sb.append(expr.toDigest()).append(" ");
-            }
-
-            sb.append(type.toString());
-            return sb.toString();
-        }
-
-        public TAnalyticWindowBoundary toThrift(Type windowType) {
-            TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
-
-            if (type.isOffset() && windowType == Type.ROWS) {
-                result.setRowsOffsetValue(offsetValue.longValue());
-            }
-
-            // TODO: range windows need range_offset_predicate
-            return result;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(type, expr);
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (obj == null) {
-                return false;
-            }
-
-            if (obj.getClass() != this.getClass()) {
-                return false;
-            }
-
-            Boundary o = (Boundary) obj;
-            boolean exprEqual = (expr == null) == (o.expr == null);
-
-            if (exprEqual && expr != null) {
-                exprEqual = expr.equals(o.expr);
-            }
-
-            return type == o.type && exprEqual;
-        }
-
-        public Boundary converse() {
-            Boundary result = new Boundary(type.converse(),
-                    (expr != null) ? expr.clone() : null);
-            result.offsetValue = offsetValue;
-            return result;
-        }
-
-        @Override
-        public Boundary clone() {
-            return new Boundary(type, expr != null ? expr.clone() : null, offsetValue);
-        }
-
-        public void analyze(Analyzer analyzer) throws AnalysisException {
-            if (expr != null) {
-                expr.analyze(analyzer);
             }
         }
     }
