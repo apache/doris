@@ -266,7 +266,6 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
         }
     }
     VLOG_CRITICAL << "flush " << counter << " memtables to reduce memory: " << sum;
-    LOG(INFO) << "before reduce: tabelts channle consume "<< mem_consumption();
     for (int i = 0; i < counter; i++) {
         writers[i]->flush_memtable_and_wait(false);
     }
@@ -277,7 +276,6 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
             return Status::InternalError(fmt::format("failed to reduce mem consumption by flushing memtable. err: {}", st));
         }
     }
-    LOG(INFO) << "after reduce: tabelts channle consume " << mem_consumption();
     return Status::OK();
 }
 
