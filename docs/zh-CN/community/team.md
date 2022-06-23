@@ -28,7 +28,7 @@ under the License.
 
 我们要感谢以下提交者，他们帮助Apache Doris 取得了今天的进展。此列表可能已过时，正式列表位于 [Apache 的网站上](https://people.apache.org/committers-by-project.html#doris) 。
 
-## PMC (22)
+## PMC (15)
 
 | Apache ID                                                    | Github 用户名       | 公开名        |
 | :----------------------------------------------------------- | :------------------ | :------------ |
