@@ -83,7 +83,6 @@ public class AgentTaskTest {
 
     private AgentTask createReplicaTask;
     private AgentTask dropTask;
-    private AgentTask pushTask;
     private AgentTask cloneTask;
     private AgentTask cancelDeleteTask;
     private AgentTask storageMediaMigrationTask;
@@ -116,12 +115,6 @@ public class AgentTaskTest {
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1);
-
-        // push
-        pushTask =
-                new PushTask(null, backendId1, dbId, tableId, partitionId, indexId1, tabletId1,
-                             replicaId1, schemaHash1, version, "/home/a", 10L, 200, 80000L,
-                             TPushType.LOAD, null, false, TPriority.NORMAL);
 
         // clone
         cloneTask =
@@ -174,12 +167,6 @@ public class AgentTaskTest {
         Assert.assertEquals(TTaskType.DROP, request2.getTaskType());
         Assert.assertEquals(dropTask.getSignature(), request2.getSignature());
         Assert.assertNotNull(request2.getDropTabletReq());
-
-        // push
-        TAgentTaskRequest request3 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, pushTask);
-        Assert.assertEquals(TTaskType.PUSH, request3.getTaskType());
-        Assert.assertEquals(pushTask.getSignature(), request3.getSignature());
-        Assert.assertNotNull(request3.getPushReq());
 
         // clone
         TAgentTaskRequest request4 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, cloneTask);

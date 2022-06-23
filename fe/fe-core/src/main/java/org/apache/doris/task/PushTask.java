@@ -94,16 +94,6 @@ public class PushTask extends AgentTask {
         this.tDescriptorTable = null;
     }
 
-    public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
-            long indexId, long tabletId, long replicaId, int schemaHash, long version,
-            String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
-            List<Predicate> conditions, boolean needDecompress, TPriority priority) {
-        this(resourceInfo, backendId, dbId, tableId, partitionId, indexId,
-                tabletId, replicaId, schemaHash, version, filePath,
-                fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress,
-                priority, TTaskType.PUSH, -1, tableId);
-    }
-
     // for load v2 (SparkLoadJob)
     public PushTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                     long replicaId, int schemaHash, int timeoutSecond, long loadJobId, TPushType pushType,
@@ -125,8 +115,7 @@ public class PushTask extends AgentTask {
         }
         request.setIsSchemaChanging(isSchemaChanging);
         switch (pushType) {
-            case LOAD:
-            case LOAD_DELETE:
+            case LOAD: 
                 request.setHttpFilePath(filePath);
                 if (fileSize != -1) {
                     request.setHttpFileSize(fileSize);
