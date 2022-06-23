@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
@@ -108,6 +109,7 @@ public class ConnectContext {
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
     protected Catalog catalog;
+    protected String defaultCatalog = InternalDataSource.INTERNAL_DS_NAME;
     protected boolean isSend;
 
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
@@ -290,6 +292,7 @@ public class ConnectContext {
 
     public void setCatalog(Catalog catalog) {
         this.catalog = catalog;
+        defaultCatalog = catalog.getInternalDataSource().getName();
     }
 
     public Catalog getCatalog() {
@@ -408,6 +411,14 @@ public class ConnectContext {
 
     public MysqlCapability getServerCapability() {
         return serverCapability;
+    }
+
+    public String getDefaultCatalog() {
+        return defaultCatalog;
+    }
+
+    public void changeDefaultCatalog(String catalogName) {
+        defaultCatalog = catalogName;
     }
 
     public String getDatabase() {
