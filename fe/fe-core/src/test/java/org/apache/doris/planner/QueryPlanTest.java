@@ -1141,6 +1141,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + " on t2.k1 = t3.k1 and t2.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        System.out.println("SQL explain : " + explainString);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
 
         // support recurse of bucket shuffle because t4 join t2 and join column name is same as t2 distribute column name
@@ -1589,32 +1590,31 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 2> | <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 2> | <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 2> | <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 2> | <slot 3>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
+        Assert.assertTrue(explainString.contains("<slot 5> | <slot 7>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
+        Assert.assertTrue(explainString.contains("<slot 5> | <slot 7>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
+        Assert.assertTrue(explainString.contains("<slot 5> | <slot 7>"));
     }
 
     @Test
@@ -2063,7 +2063,7 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(<slot 4> AS INT) | CAST(<slot 5> AS INT)"));
     }
 
     @Test

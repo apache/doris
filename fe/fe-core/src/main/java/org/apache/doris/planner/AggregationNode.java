@@ -331,7 +331,12 @@ public class AggregationNode extends PlanNode {
         // Actually need to take a column as the input column of the agg operator
         if (result.isEmpty()) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(getChild(0).getOutputTupleIds().get(0));
-            result.add(tupleDesc.getMaterializedSlots().get(0).getId());
+            // If the query result is empty set such as: select count(*) from table where 1=2
+            // then the materialized slot will be empty
+            // So the result should be empty also.
+            if (!tupleDesc.getMaterializedSlots().isEmpty()) {
+                result.add(tupleDesc.getMaterializedSlots().get(0).getId());
+            }
         }
         return result;
     }
