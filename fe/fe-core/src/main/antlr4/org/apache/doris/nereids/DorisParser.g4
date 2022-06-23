@@ -178,12 +178,14 @@ booleanExpression
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
+    | NOT? kind=IN '(' expression (',' expression)* ')'
     ;
 
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
     | operator=(MINUS | PLUS) valueExpression                                                #arithmeticUnary
-    | left=valueExpression operator=(ASTERISK | SLASH | PERCENT) right=valueExpression #arithmeticBinary
+    | left=valueExpression operator=(ASTERISK | DIV | PERCENT | SLASH)
+      right=valueExpression                                                                  #arithmeticBinary
     | left=valueExpression operator=(PLUS | MINUS) right=valueExpression                     #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
@@ -196,6 +198,7 @@ primaryExpression
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
+    | '(' expression ')'                                                                       #parenthesizedExpression
     ;
 
 qualifiedName

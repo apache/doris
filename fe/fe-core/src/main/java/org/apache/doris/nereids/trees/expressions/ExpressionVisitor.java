@@ -93,6 +93,10 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(arithmetic, context);
     }
 
+    public R visitInPredicate(InPredicate inPredicate, C context) {
+        return visit(inPredicate, context);
+    }
+
 
     /* ********************************************************************************************
      * Unbound expressions

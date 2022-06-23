@@ -68,7 +68,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
      *
      * @return all agg expressions.
      */
-    public List<? extends NamedExpression> getoutputExpressions() {
+    public List<? extends NamedExpression> getOutputExpressions() {
         return outputExpressions;
     }
 

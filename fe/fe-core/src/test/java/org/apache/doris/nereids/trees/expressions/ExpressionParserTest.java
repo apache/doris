@@ -134,4 +134,10 @@ public class ExpressionParserTest {
         String sort1 = "select a from test order by 1";
         assertSql(sort1);
     }
+
+    @Test
+    public void testBrackets() throws Exception {
+        String brackets = "select * from t1 where (a = 1) and (b = 1)";
+        assertSql(brackets);
+    }
 }

@@ -67,25 +67,11 @@ public class AnalyzeTest extends TestWithFeService {
         Assertions.assertTrue(checkBound(analyzed));
     }
 
-    private LogicalPlan analyze(String sql) throws Exception {
+    private LogicalPlan analyze(String sql) {
         LogicalPlan parsed = parser.parseSingle(sql);
-        return analyze(parsed, connectContext);
+        return TestAnalyzer.analyze(parsed, connectContext);
     }
 
-    private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
-        Memo memo = new Memo();
-        memo.initialize(inputPlan);
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, connectContext, new PhysicalProperties());
-        optimizerContext.pushJob(
-            new RewriteBottomUpJob(memo.getRoot(), new BindSlotReference().buildRules(), plannerContext)
-        );
-        optimizerContext.pushJob(
-            new RewriteBottomUpJob(memo.getRoot(), new BindRelation().buildRules(), plannerContext)
-        );
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
-        return (LogicalPlan) memo.copyOut();
-    }
 
     private boolean checkBound(LogicalPlan root) {
         if (!checkPlanNodeBound(root))  {
@@ -125,5 +111,23 @@ public class AnalyzeTest extends TestWithFeService {
             }
         }
         return true;
+    }
+
+    public static class TestAnalyzer {
+
+        public static LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
+            Memo memo = new Memo();
+            memo.initialize(inputPlan);
+            OptimizerContext optimizerContext = new OptimizerContext(memo);
+            PlannerContext plannerContext = new PlannerContext(optimizerContext, connectContext, new PhysicalProperties());
+            optimizerContext.pushJob(
+                    new RewriteBottomUpJob(memo.getRoot(), new BindSlotReference().buildRules(), plannerContext)
+            );
+            optimizerContext.pushJob(
+                    new RewriteBottomUpJob(memo.getRoot(), new BindRelation().buildRules(), plannerContext)
+            );
+            plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+            return (LogicalPlan) memo.copyOut();
+        }
     }
 }

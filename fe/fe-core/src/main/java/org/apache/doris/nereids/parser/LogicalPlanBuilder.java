@@ -42,6 +42,7 @@ import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
@@ -82,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.FunctionCall;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
@@ -97,6 +99,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
@@ -554,6 +557,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         switch (ctx.kind.getType()) {
             case DorisParser.BETWEEN:
                 return withBetween(ctx, e);
+            case DorisParser.IN:
+                return withIn(ctx, e);
             default:
                 return null;
         }
@@ -574,6 +579,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 expression(ctx.upper)
         );
         return isNotBetween ? new Not(betweenPredicate) : betweenPredicate;
+    }
+
+    /**
+     * Generate In predicate.
+     *
+     * @param ctx PredicateContext
+     * @param e Expression
+     * @return Expression
+     */
+    public Expression withIn(PredicateContext ctx, Expression e) {
+        boolean isNotIn = ctx.NOT() != null ? true : false;
+        List<Expression> expressions = ctx.expression().stream()
+                .map(expr -> expression(expr)).collect(ImmutableList.toImmutableList());
+        InPredicate inPredicate = new InPredicate(e, expressions);
+        return isNotIn ? new Not(inPredicate) : inPredicate;
     }
 
     @Override
@@ -601,7 +621,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         switch (token.getType()) {
             case DorisParser.ASTERISK:
                 return new Multiply(left, right);
-            case DorisParser.SLASH:
+            case DorisParser.DIV:
                 return new Divide(left, right);
             case DorisParser.PERCENT:
                 return new Mod(left, right);
@@ -649,6 +669,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // todo: handle quoted and unquoted
         return UnboundSlot.quoted(ctx.getText());
     }
+
+    @Override
+    public Expression visitParenthesizedExpression(ParenthesizedExpressionContext ctx) {
+        Expression e = expression(ctx.expression());
+        return e;
+    }
+
 
     /**
      * Create a NULL literal expression.

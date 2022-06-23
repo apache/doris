@@ -59,6 +59,7 @@ public enum NodeType {
     BITNOT,
     FACTORIAL,
     FUNCTIONCALL,
+    IN,
 
     // pattern
     PATTERN
