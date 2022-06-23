@@ -65,8 +65,7 @@ private:
     Status start_scan(RuntimeState* state);
     void eval_const_conjuncts();
     Status normalize_conjuncts();
-    Status build_olap_filters();
-    Status build_scan_key();
+    Status build_key_ranges_and_filters();
     template <class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
