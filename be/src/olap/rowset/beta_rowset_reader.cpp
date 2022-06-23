@@ -188,15 +188,17 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
 OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     if (config::enable_storage_vectorization && _context->is_vec) {
-        auto s = _iterator->next_batch(block);
-        if (!s.ok()) {
-            if (s.is_end_of_file()) {
-                return OLAP_ERR_DATA_EOF;
-            } else {
-                LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return OLAP_ERR_ROWSET_READ_FAILED;
+        do {
+            auto s = _iterator->next_batch(block);
+            if (!s.ok()) {
+                if (s.is_end_of_file()) {
+                    return OLAP_ERR_DATA_EOF;
+                } else {
+                    LOG(WARNING) << "failed to read next block: " << s.to_string();
+                    return OLAP_ERR_ROWSET_READ_FAILED;
+                }
             }
-        }
+        } while (block->rows() == 0);
     } else {
         bool is_first = true;
 
