@@ -115,7 +115,7 @@ Status OlapScanner::prepare(
 
     {
         // Initialize _params
-        RETURN_IF_ERROR(_init_params(key_ranges, filters, bloom_filters, function_filters));
+        RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
     }
 
     return Status::OK();
@@ -145,7 +145,7 @@ Status OlapScanner::open() {
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
     RETURN_IF_ERROR(_init_return_columns());
 
@@ -163,7 +163,7 @@ Status OlapScanner::_init_tablet_reader_params(
                             _tablet_reader_params.bloom_filters.begin()));
 
     std::copy(function_filters.cbegin(), function_filters.cend(),
-              std::inserter(_params.function_filters, _params.function_filters.begin()));
+              std::inserter(_tablet_reader_params.function_filters, _tablet_reader_params.function_filters.begin()));
 
     // Range
     for (auto key_range : key_ranges) {

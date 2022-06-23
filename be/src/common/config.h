@@ -762,7 +762,7 @@ CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
 
-CONF_Bool(enable_function_pushdown, "true");
+CONF_mBool(enable_function_pushdown, "true");
 
 } // namespace config
 

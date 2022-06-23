@@ -587,7 +587,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
                                                                       column.type());
 }
 
-ColumnPredicate* Reader::_parse_to_predicate(const FunctionFilter& function_filter) {
+ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {
     int32_t index = _tablet->field_index(function_filter._col_name);
     if (index < 0) {
         return nullptr;
@@ -597,7 +597,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const FunctionFilter& function_filt
     return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx, function_filter._string_param);
 }
 
-ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool opposite) const {
+ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition, bool opposite) const {
     // TODO: not equal and not in predicate is not pushed down
     int32_t index = _tablet->field_index(condition.column_name);
     if (index < 0) {

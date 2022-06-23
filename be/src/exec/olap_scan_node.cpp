@@ -747,14 +747,12 @@ Status OlapScanNode::build_function_filters() {
             {
                 doris_udf::FunctionContext *func_cxt = ex_ctx->fn_context(fn_expr->get_fn_context_index());
                 if (!func_cxt) {
-                    LOG(WARNING) << "like function miss function context";
-                    continue;;
-                }
-
-                if (fn_expr->children().size() != 2) {
-                    LOG(WARNING) << "like function should have two params";
                     continue;
                 }
+                if (fn_expr->children().size() != 2) {
+                    continue;
+                }
+
                 SlotRef* slot_ref = nullptr;
                 Expr* expr = nullptr;
                 if (TExprNodeType::SLOT_REF == fn_expr->get_child(0)->node_type()) {
@@ -764,9 +762,11 @@ Status OlapScanNode::build_function_filters() {
                     expr = fn_expr->get_child(0);
                     slot_ref = (SlotRef*)(fn_expr->get_child(1));
                 } else {
-                    LOG(WARNING) << "like function no slot_ref";
                     continue;
                 }
+
+                if (TExprNodeType::STRING_LITERAL != expr->node_type())
+                    continue;
 
                 const SlotDescriptor* slot_desc = nullptr;
                 std::vector<SlotId> slot_ids;
@@ -779,17 +779,11 @@ Status OlapScanNode::build_function_filters() {
                 }
 
                 if (!slot_desc) {
-                    LOG(WARNING) << "like function slot_desc is null";
                     continue;
                 }
 
-                PrimitiveType type = expr->type().type;
-                if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
-                    LOG(WARNING) << "like value is not a string";
-                    continue;
-                }
                 std::string col = slot_desc->col_name();
-                StringValue *val = static_cast<StringValue *>(ex_ctx->get_value(expr, nullptr));
+                StringVal val = expr->get_string_val(ex_ctx, nullptr);
                 _push_down_functions.emplace_back(opposite, col, func_cxt, val);
                 _pushed_func_conjuncts_index.insert(conj_idx);
             }

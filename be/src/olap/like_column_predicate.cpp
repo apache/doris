@@ -16,8 +16,6 @@
 // under the License.
 
 #include "udf/udf.h"
-#include "exprs/like_predicate.h"
-
 #include "olap/like_column_predicate.h"
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
@@ -25,9 +23,8 @@
 
 namespace doris {
 
-LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx, StringValue* val)
-    : ColumnPredicate(column_id, opposite), _fn_ctx(fn_ctx) {
-    val->to_string_val(&pattern);
+LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx, doris_udf::StringVal val)
+    : ColumnPredicate(column_id, opposite), _fn_ctx(fn_ctx), pattern(val) {
     _state = reinterpret_cast<LikePredicateState*>(_fn_ctx->get_function_state(doris_udf::FunctionContext::THREAD_LOCAL));
 }
 
@@ -42,35 +39,77 @@ void LikeColumnPredicate::evaluate(VectorizedRowBatch* batch) const {
 }
 
 void LikeColumnPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-    uint16_t new_size = 0;
     if (block->is_nullable()) {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            if (block->cell(idx).is_null())
-            {
-                new_size += _opposite ? 1 : 0;
-                continue;
-            }
+        _base_evaluate<true>(block, sel, size);
+    } else {
+        _base_evaluate<false>(block, sel, size);
+    }
+}
 
-            const StringValue* str_value = reinterpret_cast<const StringValue*>(block->cell(idx).cell_ptr());
-            doris_udf::StringVal target;
-            str_value->to_string_val(&target);
-            auto result = (_state->function)(_fn_ctx, target, pattern).val;
-            new_size += _opposite ? !result : result;
+void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
+    uint16_t new_size = 0;
+
+    if (column.is_nullable()) {
+        auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+        auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        auto& nested_col = nullable_col->get_nested_column();
+        if (nested_col.is_column_dictionary()) {
+            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+            auto& data_array = nested_col_ptr->get_data();
+            for (uint16_t i = 0; i < *size; i++) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+                if (null_map_data[idx]) {
+                    new_size += _opposite;
+                    continue;
+                }
+
+                StringValue cell_value = nested_col_ptr->get_value(data_array[idx]);
+                doris_udf::StringVal target;
+                cell_value.to_string_val(&target);
+                new_size += _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
+        }
+        else
+        {
+            for (uint16_t i = 0; i < *size; i++) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+                if (null_map_data[idx]) {
+                    new_size += _opposite;
+                    continue;
+                }
+
+                StringRef cell_value = nested_col.get_data_at(idx);
+                doris_udf::StringVal target = cell_value.to_string_val();
+                new_size += _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
         }
     } else {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            const StringValue* str_value = reinterpret_cast<const StringValue*>(block->cell(idx).cell_ptr());
-            doris_udf::StringVal target;
-            str_value->to_string_val(&target);
-            auto result = (_state->function)(_fn_ctx, target, pattern).val;
-            new_size += _opposite ? !result : result;
+        if (column.is_column_dictionary()) {
+            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(column);
+            auto& data_array = nested_col_ptr->get_data();
+            for (uint16_t i = 0; i < *size; i++) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+                StringValue cell_value = nested_col_ptr->get_value(data_array[idx]);
+                doris_udf::StringVal target;
+                cell_value.to_string_val(&target);
+                new_size += _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
+        } else {
+            for (uint16_t i = 0; i < *size; i++) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+                StringRef cell_value = column.get_data_at(idx);
+                doris_udf::StringVal target = cell_value.to_string_val();
+                new_size += _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
         }
     }
+
     *size = new_size;
 }
+
 
 } //namespace doris

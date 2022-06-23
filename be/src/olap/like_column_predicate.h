@@ -18,21 +18,27 @@
 #ifndef DORIS_BE_SRC_OLAP_LIKE_COLUMN_PREDICATE_H
 #define DORIS_BE_SRC_OLAP_LIKE_COLUMN_PREDICATE_H
 
-#include <stdint.h>
 
+#include "udf/udf.h"
 #include "olap/column_predicate.h"
+#include "exprs/like_predicate.h"
+#include "runtime/string_value.h"
+#include "runtime/vectorized_row_batch.h"
+#include "vec/columns/column_dictionary.h"
+#include "vec/core/types.h"
 
 namespace doris {
 
 class VectorizedRowBatch;
-struct LikePredicateState;
 
 class LikeColumnPredicate : public ColumnPredicate {
 public:
-    LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx, StringValue*  val);
+    LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx, doris_udf::StringVal val);
     ~LikeColumnPredicate() override = default;
 
+    PredicateType type() const override { return PredicateType::EQ; }
     void evaluate(VectorizedRowBatch* batch) const override;
+    void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
@@ -40,13 +46,33 @@ public:
     void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {}
     Status evaluate(const Schema& schema,
                             const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
-                            Roaring* roaring) const override { return Status::OK(); }
+                            roaring::Roaring* roaring) const override { return Status::OK(); }
 
 private:
+    template <bool is_nullable>
+    void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
+        uint16_t new_size = 0;
+        for (uint16_t i = 0; i < *size; ++i) {
+            uint16_t idx = sel[i];
+            sel[new_size] = idx;
+            const StringValue* cell_value = reinterpret_cast<const StringValue*>(block->cell(idx).cell_ptr());
+            doris_udf::StringVal target;
+            cell_value->to_string_val(&target);
+            if constexpr (is_nullable) {
+                new_size += _opposite ^ (!block->cell(idx).is_null() &&
+                                          (_state->function)(_fn_ctx, target, pattern).val);
+            } else {
+                new_size += _opposite ^ (_state->function)(_fn_ctx, target, pattern).val;
+            }
+        }
+        *size = new_size;
+    }
+
     std::string _origin;
-    doris_udf::StringVal pattern;
     // life time controlled by scan node
     doris_udf::FunctionContext* _fn_ctx;
+    doris_udf::StringVal pattern;
+
     LikePredicateState* _state;
 };
 

@@ -49,7 +49,7 @@ public:
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,
-                   const std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
+                   const std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
                    const std::vector<FunctionFilter>& function_filters);
 
     Status open();
@@ -91,9 +91,9 @@ public:
     const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
 private:
-    Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
+    Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
                         const std::vector<TCondition>& filters,
-                        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
+                        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
                         const std::vector<FunctionFilter>& function_filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);

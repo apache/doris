@@ -27,7 +27,7 @@ namespace doris {
 
 class FunctionFilter {
 public:
-    FunctionFilter(bool opposite, std::string& col_name, doris_udf::FunctionContext* fn_ctx,  StringValue* string_param)
+    FunctionFilter(bool opposite, const std::string& col_name, doris_udf::FunctionContext* fn_ctx,  doris_udf::StringVal string_param)
     : _opposite(opposite), _col_name(col_name), _fn_ctx(fn_ctx), _string_param(string_param)
     {}
 
@@ -35,7 +35,7 @@ public:
     std::string _col_name;
     // these pointer's life time controlled by scan node
     doris_udf::FunctionContext *_fn_ctx;
-    StringValue * _string_param; // only one param from conjunct, because now only support like predicate 
+    doris_udf::StringVal _string_param; // only one param from conjunct, because now only support like predicate
 };
 
 } // namespace doris

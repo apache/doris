@@ -166,7 +166,7 @@ protected:
 
     ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
 
-    OLAPStatus _init_delete_condition(const ReaderParams& read_params);
+    Status _init_delete_condition(const ReaderParams& read_params);
 
     Status _init_return_columns(const ReaderParams& read_params);
     void _init_seek_columns();

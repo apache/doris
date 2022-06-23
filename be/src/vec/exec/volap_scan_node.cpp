@@ -729,6 +729,72 @@ Status VOlapScanNode::build_olap_filters() {
     return Status::OK();
 }
 
+Status VOlapScanNode::build_function_filters() {
+    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        ExprContext* ex_ctx = _conjunct_ctxs[conj_idx];
+        Expr* fn_expr = ex_ctx->root();
+        bool opposite = false;
+
+        if (TExprNodeType::COMPOUND_PRED == fn_expr->node_type())
+        {
+            if (TExprOpcode::COMPOUND_NOT == fn_expr->op())
+            {
+                fn_expr = fn_expr->get_child(0);
+                opposite = true;
+            }
+        }
+
+        if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type())
+        {
+            // currently only support like / not like
+            if ("like" == fn_expr->fn().name.function_name)
+            {
+                doris_udf::FunctionContext *func_cxt = ex_ctx->fn_context(fn_expr->get_fn_context_index());
+                if (!func_cxt) {
+                    continue;
+                }
+                if (fn_expr->children().size() != 2) {
+                    continue;
+                }
+
+                SlotRef* slot_ref = nullptr;
+                Expr* expr = nullptr;
+                if (TExprNodeType::SLOT_REF == fn_expr->get_child(0)->node_type()) {
+                    expr = fn_expr->get_child(1);
+                    slot_ref = (SlotRef*)(fn_expr->get_child(0));
+                } else if (TExprNodeType::SLOT_REF == fn_expr->get_child(1)->node_type()) {
+                    expr = fn_expr->get_child(0);
+                    slot_ref = (SlotRef*)(fn_expr->get_child(1));
+                } else {
+                    continue;
+                }
+
+                if (TExprNodeType::STRING_LITERAL != expr->node_type())
+                    continue;
+
+                const SlotDescriptor* slot_desc = nullptr;
+                std::vector<SlotId> slot_ids;
+                slot_ref->get_slot_ids(&slot_ids);
+                for (SlotDescriptor* slot : _tuple_desc->slots()) {
+                    if (slot->id() == slot_ids[0]) {
+                        slot_desc = slot;
+                        break;
+                    }
+                }
+
+                if (!slot_desc) {
+                    continue;
+                }
+                std::string col = slot_desc->col_name();
+                StringVal val = expr->get_string_val(ex_ctx, nullptr);
+                _push_down_functions.emplace_back(opposite, col, func_cxt, val);
+                _pushed_func_conjuncts_index.insert(conj_idx);
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status VOlapScanNode::build_scan_key() {
     const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
     const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
@@ -772,17 +838,22 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
     }
 
     VLOG_CRITICAL << "BuildOlapFilters";
-    // 3. Using ColumnValueRange to Build StorageEngine filters
+    // 3.1 Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_olap_filters());
+    // 3.2 Function pushdown
+    if (config::enable_function_pushdown)
+        RETURN_IF_ERROR(build_function_filters());
 
     VLOG_CRITICAL << "BuildScanKey";
     // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
 
     VLOG_CRITICAL << "Filter idle conjuncts";
-    // 5. Filter idle conjunct which already trans to olap filters
+    // 5.1 Filter idle conjunct which already trans to olap filters
     // this must be after build_scan_key, it will free the StringValue memory
     remove_pushed_conjuncts(state);
+    // 5.2 move the pushed function context
+    move_pushed_func_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
     // 6. Start multi thread to read several `Sub Sub ScanRange`
@@ -1008,6 +1079,36 @@ void VOlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
     auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
     std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
     _runtime_profile->add_info_string("NonPushdownPredicate", vconjunct_information);
+}
+
+void VOlapScanNode::move_pushed_func_conjuncts(RuntimeState *state) {
+    if (_pushed_func_conjuncts_index.empty()) {
+        return;
+    }
+
+    std::vector<ExprContext*> new_conjunct_ctxs;
+    for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
+        if (std::find(_pushed_func_conjuncts_index.cbegin(), _pushed_func_conjuncts_index.cend(), i) == _pushed_func_conjuncts_index.cend()){
+            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        } else {
+            _pushed_func_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        }
+    }
+
+    _conjunct_ctxs = std::move(new_conjunct_ctxs);
+    _direct_conjunct_size = _conjunct_ctxs.size();
+
+    // set vconjunct_ctx is empty, if all conjunct
+    if (_direct_conjunct_size == 0) {
+        if (_vconjunct_ctx_ptr != nullptr) {
+            (*_vconjunct_ctx_ptr)->close(state);
+            _vconjunct_ctx_ptr = nullptr;
+        }
+    }
+
+    // filter idle conjunct in vexpr_contexts
+    auto checker = [&](int index) { return _pushed_func_conjuncts_index.count(index); };
+    std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
 }
 
 // Construct the ColumnValueRange for one specified column
@@ -1437,7 +1538,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _olap_filter,
-                                             _bloom_filters_push_down));
+                                             _bloom_filters_push_down, _push_down_functions));
 
             _volap_scanners.push_back(scanner);
             disk_set.insert(scanner->scan_disk());
@@ -1500,6 +1601,8 @@ Status VOlapScanNode::close(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->consumer_close();
     }
+    // pushed functions close
+    Expr::close(_pushed_func_conjunct_ctxs, state);
 
     VLOG_CRITICAL << "VOlapScanNode::close()";
     return ScanNode::close(state);
