@@ -89,7 +89,15 @@ public class HelpTopic implements HelpObjectIface {
         // Keyword
         String keyword = doc.getValue().get(KEYWORDS);
         if (!Strings.isNullOrEmpty(keyword)) {
-            this.keywords = Lists.newArrayList(Splitter.onPattern(",").trimResults().omitEmptyStrings().split(keyword));
+            List<String> keywordTexts = Lists.newArrayList(
+                    Splitter.onPattern("\n").trimResults().omitEmptyStrings().split(keyword));
+            for (String keywordText : keywordTexts) {
+                if (keywordText.startsWith("```")) {
+                    continue;
+                }
+                this.keywords.addAll(Lists.newArrayList(
+                        Splitter.onPattern(",").trimResults().omitEmptyStrings().split(keywordText)));
+            }
         }
         // Category
         String category = doc.getValue().get(CATEGORY);
