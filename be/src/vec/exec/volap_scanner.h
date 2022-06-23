@@ -98,7 +98,7 @@ private:
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
             const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                     bloom_filters);
-    Status _init_return_columns();
+    Status _init_return_columns(bool need_seq_col);
 
     // Update profile that need to be reported in realtime.
     void _update_realtime_counter();
