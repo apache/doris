@@ -30,6 +30,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
+import lombok.Getter;
 
 import java.util.Map;
 import java.util.Optional;
@@ -45,6 +46,7 @@ import java.util.Optional;
           enable = true
       )
 */
+@Getter
 public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public static final String SQL_PROPERTY = "sql";
@@ -81,21 +83,24 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
     // whether to use the rule, default is true
     private boolean enable;
 
+    private boolean ifNotExists;
+
     private final Map<String, String> properties;
 
     private static final String NAME_TYPE = "SQL BLOCK RULE NAME";
 
-    public static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(SQL_PROPERTY)
-            .add(SQL_HASH_PROPERTY)
-            .add(GLOBAL_PROPERTY)
-            .add(ENABLE_PROPERTY)
-            .add(SCANNED_PARTITION_NUM)
-            .add(SCANNED_TABLET_NUM)
-            .add(SCANNED_CARDINALITY)
-            .build();
+    public static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>().add(SQL_PROPERTY)
+            .add(SQL_HASH_PROPERTY).add(GLOBAL_PROPERTY).add(ENABLE_PROPERTY).add(SCANNED_PARTITION_NUM)
+            .add(SCANNED_TABLET_NUM).add(SCANNED_CARDINALITY).build();
 
     public CreateSqlBlockRuleStmt(String ruleName, Map<String, String> properties) {
+        this.ifNotExists = false;
+        this.ruleName = ruleName;
+        this.properties = properties;
+    }
+
+    public CreateSqlBlockRuleStmt(boolean ifNotExists, String ruleName, Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
         this.ruleName = ruleName;
         this.properties = properties;
     }
@@ -130,63 +135,28 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
         this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null,
                 SCANNED_CARDINALITY + " should be a long");
 
-        this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY),
-                false, GLOBAL_PROPERTY + " should be a boolean");
-        this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY),
-                true, ENABLE_PROPERTY + " should be a boolean");
+        this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY), false,
+                GLOBAL_PROPERTY + " should be a boolean");
+        this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true,
+                ENABLE_PROPERTY + " should be a boolean");
     }
 
     public static void checkCommonProperties(Map<String, String> properties) throws UserException {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Not set properties");
         }
-        Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !PROPERTIES_SET.contains(entity)).findFirst();
+        Optional<String> optional = properties.keySet().stream().filter(entity -> !PROPERTIES_SET.contains(entity))
+                .findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
     }
 
-    public String getRuleName() {
-        return ruleName;
-    }
-
-    public String getSql() {
-        return sql;
-    }
-
-    public String getSqlHash() {
-        return sqlHash;
-    }
-
-    public Long getPartitionNum() {
-        return partitionNum;
-    }
-
-    public Long getTabletNum() {
-        return tabletNum;
-    }
-
-    public Long getCardinality() {
-        return cardinality;
-    }
-
-    public boolean isGlobal() {
-        return global;
-    }
-
-    public boolean isEnable() {
-        return enable;
-    }
-
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE SQL_BLOCK_RULE ")
-                .append(ruleName)
-                .append(" \nPROPERTIES(\n")
-                .append(new PrintableMap<>(properties, " = ", true, true, true))
-                .append(")");
+        sb.append("CREATE SQL_BLOCK_RULE ").append(ruleName).append(" \nPROPERTIES(\n")
+                .append(new PrintableMap<>(properties, " = ", true, true, true)).append(")");
         return sb.toString();
     }
 }

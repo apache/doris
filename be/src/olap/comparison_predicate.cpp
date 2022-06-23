@@ -224,6 +224,9 @@ COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=, true)
 COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >, true)
 COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=, true)
 
+// todo(wb) for date type we use uint32_t to save it but using Predicate<uint24> to evaluate it.
+// This is done for compatibility with Row Version predicate.
+// We can use Predicate<uint32_t> for date after Row Version is removed.
 #define COMPARISON_PRED_COLUMN_EVALUATE_VEC(CLASS, OP)                                           \
     template <class T>                                                                           \
     void CLASS<T>::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const { \
@@ -236,15 +239,40 @@ COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=, true)
             auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(      \
                                         *(nullable_column->get_null_map_column_ptr()))           \
                                         .get_data();                                             \
-            for (uint16_t i = 0; i < size; i++) {                                                \
-                flags[i] = (data_array[i] OP _value) && (!null_bitmap[i]);                       \
+            if constexpr (std::is_same_v<T, uint24_t>) {                                         \
+                auto& predicate_column =                                                         \
+                        reinterpret_cast<const vectorized::PredicateColumnType<uint32_t>&>(      \
+                                nullable_column->get_nested_column());                           \
+                uint32_t int32_val = 0;                                                          \
+                char* int32_val_ptr = (char*)&int32_val;                                         \
+                memory_copy(int32_val_ptr, _value.get_data(), sizeof(uint24_t));                 \
+                auto& data_array_uint32_t = predicate_column.get_data();                         \
+                for (uint16_t i = 0; i < size; i++) {                                            \
+                    flags[i] = (data_array_uint32_t[i] OP int32_val) && (!null_bitmap[i]);       \
+                }                                                                                \
+            } else {                                                                             \
+                for (uint16_t i = 0; i < size; i++) {                                            \
+                    flags[i] = (data_array[i] OP _value) && (!null_bitmap[i]);                   \
+                }                                                                                \
             }                                                                                    \
         } else {                                                                                 \
-            auto& predicate_column =                                                             \
-                    reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);               \
-            auto& data_array = predicate_column.get_data();                                      \
-            for (uint16_t i = 0; i < size; i++) {                                                \
-                flags[i] = data_array[i] OP _value;                                              \
+            if constexpr (std::is_same_v<T, uint24_t>) {                                         \
+                auto& predicate_column =                                                         \
+                        reinterpret_cast<vectorized::PredicateColumnType<uint32_t>&>(column);    \
+                uint32_t int32_val = 0;                                                          \
+                char* int32_val_ptr = (char*)&int32_val;                                         \
+                memory_copy(int32_val_ptr, _value.get_data(), sizeof(uint24_t));                 \
+                auto& data_array = predicate_column.get_data();                                  \
+                for (uint16_t i = 0; i < size; i++) {                                            \
+                    flags[i] = data_array[i] OP int32_val;                                       \
+                }                                                                                \
+            } else {                                                                             \
+                auto& predicate_column =                                                         \
+                        reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);           \
+                auto& data_array = predicate_column.get_data();                                  \
+                for (uint16_t i = 0; i < size; i++) {                                            \
+                    flags[i] = data_array[i] OP _value;                                          \
+                }                                                                                \
             }                                                                                    \
         }                                                                                        \
         if (_opposite) {                                                                         \
@@ -502,6 +530,7 @@ COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
     template CLASS<decimal12_t>::CLASS(uint32_t column_id, const decimal12_t& value,           \
                                        bool opposite);                                         \
     template CLASS<uint24_t>::CLASS(uint32_t column_id, const uint24_t& value, bool opposite); \
+    template CLASS<uint32_t>::CLASS(uint32_t column_id, const uint32_t& value, bool opposite); \
     template CLASS<uint64_t>::CLASS(uint32_t column_id, const uint64_t& value, bool opposite); \
     template CLASS<bool>::CLASS(uint32_t column_id, const bool& value, bool opposite);
 
@@ -662,6 +691,8 @@ COMPARISON_PRED_COLUMN_EVALUATE_DECLARATION(GreaterEqualPredicate)
     template void CLASS<StringValue>::evaluate_vec(vectorized::IColumn& column, uint16_t size, \
                                                    bool* flags) const;                         \
     template void CLASS<uint24_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
+                                                bool* flags) const;                            \
+    template void CLASS<uint32_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
                                                 bool* flags) const;                            \
     template void CLASS<uint64_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
                                                 bool* flags) const;                            \

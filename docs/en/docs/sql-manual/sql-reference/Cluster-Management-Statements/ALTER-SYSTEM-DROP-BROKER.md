@@ -60,7 +60,7 @@ ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, FOLLOWER
+    ALTER, SYSTEM, DROP, FOLLOWER, ALTER SYSTEM
 
 ### Best Practice
 

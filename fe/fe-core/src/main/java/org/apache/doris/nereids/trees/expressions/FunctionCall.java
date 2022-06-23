@@ -18,48 +18,32 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.nereids.trees.NodeType;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
+import org.apache.doris.nereids.trees.analysis.FunctionParams;
 
 /**
- * Temp definition of FunctionCallExpression.
+ * Logical FunctionCall Expression.
  */
 public class FunctionCall extends Expression {
 
-    private final FunctionName functionName;
+    private FunctionName fnName;
 
-    private final List<Expression> params;
+    private FunctionParams fnParams;
 
-    private final Function fn;
-
-    /**
-     * Constructor of FunctionCallExpression.
-     */
-    public FunctionCall(FunctionName functionName,
-                                  Function fn, Expression... children) {
-        super(NodeType.EXPRESSION, children);
-        this.functionName = functionName;
-        this.params = Arrays.stream(children).collect(Collectors.toList());
-        this.fn = fn;
+    private FunctionCall(FunctionName functionName, FunctionParams functionParams) {
+        super(NodeType.FUNCTIONCALL, functionParams.getExpression().toArray(new Expression[0]));
+        this.fnName = functionName;
+        this.fnParams = functionParams;
     }
 
-    public FunctionName getFunctionName() {
-        return functionName;
+    public FunctionCall(String functionName, Expression params) {
+        this(new FunctionName(functionName), new FunctionParams(false, params));
     }
 
-    public List<Expression> getParams() {
-        return params;
+    public FunctionCall(String functionName, FunctionParams functionParams) {
+        this(new FunctionName(functionName), functionParams);
     }
 
-    public Function getFn() {
-        return fn;
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitFunctionCall(this, context);
     }

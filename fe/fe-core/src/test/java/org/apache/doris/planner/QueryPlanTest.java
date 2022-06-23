@@ -1927,7 +1927,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
-        Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
+        Assert.assertTrue(explainStr.contains("tuple ids: 0 1 4"));
     }
 
     @Ignore

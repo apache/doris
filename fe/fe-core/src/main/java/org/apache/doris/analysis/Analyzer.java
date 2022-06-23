@@ -1365,10 +1365,13 @@ public class Analyzer {
      * is already fully qualified, returns tableName.
      */
     public TableName getFqTableName(TableName tableName) {
-        if (tableName.isFullyQualified()) {
-            return tableName;
+        if (Strings.isNullOrEmpty(tableName.getCtl())) {
+            tableName.setCtl(getDefaultCatalog());
         }
-        return new TableName(getDefaultDb(), tableName.getTbl());
+        if (Strings.isNullOrEmpty(tableName.getDb())) {
+            tableName.setDb(getDefaultDb());
+        }
+        return tableName;
     }
 
     public TupleId getTupleId(SlotId slotId) {
@@ -1933,6 +1936,10 @@ public class Analyzer {
 
     public long getConnectId() {
         return globalState.context.getConnectionId();
+    }
+
+    public String getDefaultCatalog() {
+        return globalState.context.getDefaultCatalog();
     }
 
     public String getDefaultDb() {
