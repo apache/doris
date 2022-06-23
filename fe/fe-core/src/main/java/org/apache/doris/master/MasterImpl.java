@@ -33,7 +33,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
-import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -67,7 +66,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -149,11 +147,6 @@ public class MasterImpl {
                 case CREATE:
                     Preconditions.checkState(request.isSetReportVersion());
                     finishCreateReplica(task, request);
-                    break;
-                case PUSH:
-                    checkHasTabletInfo(request);
-                    Preconditions.checkState(request.isSetReportVersion());
-                    finishPush(task, request);
                     break;
                 case REALTIME_PUSH:
                     checkHasTabletInfo(request);
@@ -361,7 +354,7 @@ public class MasterImpl {
 
             // handle load job
             // TODO yiguolei: why delete should check request version and task version?
-            if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
+            if (pushTask.getPushType() == TPushType.LOAD) {
                 long loadJobId = pushTask.getLoadJobId();
                 LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(loadJobId);
                 if (job == null) {
@@ -479,127 +472,6 @@ public class MasterImpl {
         return replica;
     }
 
-    private void finishPush(AgentTask task, TFinishTaskRequest request) {
-        List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
-        Preconditions.checkState(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-
-        PushTask pushTask = (PushTask) task;
-        // if replica report already update replica version and load checker add new version push task,
-        // we might get new version push task, so check task version first
-        // all tablets in tablet infos should have same version and version hash
-        long finishVersion = finishTabletInfos.get(0).getVersion();
-        long taskVersion = pushTask.getVersion();
-        if (finishVersion != taskVersion) {
-            LOG.debug("finish tablet version is not consistent with task. "
-                    + "finish version: {}, task: {}",
-                    finishVersion, pushTask);
-            return;
-        }
-
-        long dbId = pushTask.getDbId();
-        long backendId = pushTask.getBackendId();
-        long signature = task.getSignature();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
-        if (db == null) {
-            AgentTaskQueue.removePushTask(backendId, signature, finishVersion,
-                                          pushTask.getPushType(), pushTask.getTaskType());
-            return;
-        }
-
-        long tableId = pushTask.getTableId();
-        long partitionId = pushTask.getPartitionId();
-        long pushIndexId = pushTask.getIndexId();
-        long pushTabletId = pushTask.getTabletId();
-
-        // push finish type:
-        //                  numOfFinishTabletInfos  tabletId schemaHash
-        // Normal:                     1                   /          /
-        // SchemaChangeHandler         2                 same      diff
-        // RollupHandler               2                 diff      diff
-        //
-        // reuse enum 'PartitionState' here as 'push finish type'
-        PartitionState pushState = null;
-        if (finishTabletInfos.size() == 1) {
-            pushState = PartitionState.NORMAL;
-        } else if (finishTabletInfos.size() == 2) {
-            if (finishTabletInfos.get(0).getTabletId() == finishTabletInfos.get(1).getTabletId()) {
-                pushState = PartitionState.SCHEMA_CHANGE;
-            } else {
-                pushState = PartitionState.ROLLUP;
-            }
-        } else {
-            LOG.warn("invalid push report infos. finishTabletInfos' size: " + finishTabletInfos.size());
-            return;
-        }
-
-        LOG.debug("push report state: {}", pushState.name());
-
-        OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
-        if (olapTable == null || !olapTable.writeLockIfExist()) {
-            AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
-            LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
-            return;
-        }
-        try {
-            Partition partition = olapTable.getPartition(partitionId);
-            if (partition == null) {
-                throw new MetaNotFoundException("cannot find partition[" + partitionId + "] when push finished");
-            }
-
-            // update replica version
-            List<ReplicaPersistInfo> infos = new LinkedList<ReplicaPersistInfo>();
-            List<Long> tabletIds = finishTabletInfos.stream().map(
-                    finishTabletInfo -> finishTabletInfo.getTabletId()).collect(Collectors.toList());
-            List<TabletMeta> tabletMetaList = Catalog.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
-            for (int i = 0; i < tabletMetaList.size(); i++) {
-                TabletMeta tabletMeta = tabletMetaList.get(i);
-                TTabletInfo tTabletInfo = finishTabletInfos.get(i);
-                long indexId = tabletMeta.getIndexId();
-                ReplicaPersistInfo info = updateReplicaInfo(olapTable, partition,
-                        backendId, pushIndexId, indexId,
-                        tTabletInfo, pushState);
-                if (info != null) {
-                    infos.add(info);
-                }
-            }
-
-            // should be done before addReplicaPersistInfos and countDownLatch
-            long reportVersion = request.getReportVersion();
-            Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
-                                                                       task.getDbId(), task.getTableId());
-
-            if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
-                // handle load job
-                long loadJobId = pushTask.getLoadJobId();
-                LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(loadJobId);
-                if (job == null) {
-                    throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
-                }
-
-                Preconditions.checkState(!infos.isEmpty());
-                for (ReplicaPersistInfo info : infos) {
-                    job.addReplicaPersistInfos(info);
-                }
-            } else if (pushTask.getPushType() == TPushType.DELETE) {
-                // report delete task must match version and version hash
-                if (pushTask.getVersion() != request.getRequestVersion()) {
-                    throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
-                            + request.getRequestVersion() + "]");
-                }
-            }
-
-            AgentTaskQueue.removePushTask(backendId, signature, finishVersion,
-                                          pushTask.getPushType(), pushTask.getTaskType());
-            LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
-        } catch (MetaNotFoundException e) {
-            AgentTaskQueue.removePushTask(backendId, signature, finishVersion,
-                                          pushTask.getPushType(), pushTask.getTaskType());
-            LOG.warn("finish push replica error", e);
-        } finally {
-            olapTable.writeUnlock();
-        }
-    }
-
     private void finishClearAlterTask(AgentTask task, TFinishTaskRequest request) {
         ClearAlterTask clearAlterTask = (ClearAlterTask) task;
         clearAlterTask.setFinished(true);
@@ -630,54 +502,6 @@ public class MasterImpl {
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(),
                                   publishVersionTask.getTaskType(),
                                   publishVersionTask.getSignature());
-    }
-
-    private ReplicaPersistInfo updateReplicaInfo(OlapTable olapTable, Partition partition,
-                                                 long backendId, long pushIndexId, long indexId,
-                                                 TTabletInfo tTabletInfo, PartitionState pushState)
-            throws MetaNotFoundException {
-        long tabletId = tTabletInfo.getTabletId();
-        int schemaHash = tTabletInfo.getSchemaHash();
-        long version = tTabletInfo.getVersion();
-        long rowCount = tTabletInfo.getRowCount();
-        long dataSize = tTabletInfo.getDataSize();
-
-        if (indexId != pushIndexId) {
-            // this may be a rollup tablet
-            if (pushState != PartitionState.ROLLUP && indexId != TabletInvertedIndex.NOT_EXIST_VALUE) {
-                // this probably should not happened. add log to observe(cmy)
-                LOG.warn("push task report tablet[{}] with different index[{}] and is not in ROLLUP. push index[{}]",
-                         tabletId, indexId, pushIndexId);
-                return null;
-            }
-
-            if (indexId == TabletInvertedIndex.NOT_EXIST_VALUE) {
-                LOG.warn("tablet[{}] may be dropped. push index[{}]", tabletId, pushIndexId);
-                return null;
-            }
-            return null;
-        }
-
-        MaterializedIndex materializedIndex = partition.getIndex(pushIndexId);
-        if (materializedIndex == null) {
-            throw new MetaNotFoundException("Cannot find index[" + pushIndexId + "]");
-        }
-        Tablet tablet = materializedIndex.getTablet(tabletId);
-        if (tablet == null) {
-            throw new MetaNotFoundException("Cannot find tablet[" + tabletId + "]");
-        }
-
-        // update replica info
-        Replica replica = tablet.getReplicaByBackendId(backendId);
-        if (replica == null) {
-            throw new MetaNotFoundException("cannot find replica in tablet[" + tabletId + "], backend[" + backendId
-                    + "]");
-        }
-        replica.updateVersionInfo(version, dataSize, rowCount);
-
-        LOG.debug("replica[{}] report schemaHash:{}", replica.getId(), schemaHash);
-        return ReplicaPersistInfo.createForLoad(olapTable.getId(), partition.getId(), pushIndexId, tabletId,
-                replica.getId(), version, schemaHash, dataSize, rowCount);
     }
 
     private void finishDropReplica(AgentTask task) {
