@@ -111,6 +111,9 @@ public class SqlBlockRuleMgr implements Writable {
             SqlBlockRule sqlBlockRule = SqlBlockRule.fromCreateStmt(stmt);
             String ruleName = sqlBlockRule.getName();
             if (existRule(ruleName)) {
+                if (stmt.isIfNotExists()) {
+                    return;
+                }
                 throw new DdlException("the sql block rule " + ruleName + " already create");
             }
             verifyLimitations(sqlBlockRule);
@@ -195,6 +198,9 @@ public class SqlBlockRuleMgr implements Writable {
             List<String> ruleNames = stmt.getRuleNames();
             for (String ruleName : ruleNames) {
                 if (!existRule(ruleName)) {
+                    if (stmt.isIfExists()) {
+                        continue;
+                    }
                     throw new DdlException("the sql block rule " + ruleName + " not exist");
                 }
             }

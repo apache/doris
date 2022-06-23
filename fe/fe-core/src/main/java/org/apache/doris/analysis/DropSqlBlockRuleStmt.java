@@ -24,11 +24,15 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import lombok.Getter;
 import org.apache.parquet.Strings;
 
 import java.util.List;
 
+@Getter
 public class DropSqlBlockRuleStmt extends DdlStmt {
+
+    private boolean ifExists;
 
     private List<String> ruleNames;
 
@@ -41,12 +45,9 @@ public class DropSqlBlockRuleStmt extends DdlStmt {
         }
     }
 
-    public DropSqlBlockRuleStmt(List<String> ruleNames) {
+    public DropSqlBlockRuleStmt(boolean ifExists, List<String> ruleNames) {
+        this.ifExists = ifExists;
         this.ruleNames = ruleNames;
-    }
-
-    public List<String> getRuleNames() {
-        return ruleNames;
     }
 
     @Override

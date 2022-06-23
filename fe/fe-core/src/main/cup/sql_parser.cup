@@ -1366,9 +1366,9 @@ create_stmt ::=
         RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
     :}
     /* sql_block_rule */
-    | KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName opt_properties:properties
+    | KW_CREATE KW_SQL_BLOCK_RULE opt_if_not_exists:ifNotExists ident:ruleName opt_properties:properties
     {:
-        RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
+        RESULT = new CreateSqlBlockRuleStmt(ifNotExists, ruleName, properties);
     :}
     /* row policy */
     | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
@@ -2087,9 +2087,9 @@ drop_stmt ::=
     {:
         RESULT = new DropEncryptKeyStmt(keyName);
     :}
-    | KW_DROP KW_SQL_BLOCK_RULE ident_list:ruleNames
+    | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
     {:
-        RESULT = new DropSqlBlockRuleStmt(ruleNames);
+        RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
     :}
     | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl
     {:

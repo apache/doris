@@ -21,7 +21,7 @@ suite("test_sql_block_rule", "sql_block_rule") {
               """
 
     sql """
-                CREATE SQL_BLOCK_RULE test_rule_sql
+                CREATE SQL_BLOCK_RULE if not exists test_rule_sql
                 PROPERTIES("sql"="SELECT \\\\* FROM table_2", "global"= "true", "enable"= "true")
               """
 
@@ -31,7 +31,7 @@ suite("test_sql_block_rule", "sql_block_rule") {
     }
 
     sql """
-                DROP SQL_BLOCK_RULE test_rule_sql
+                DROP SQL_BLOCK_RULE if exists test_rule_sql
               """
 
     sql """
@@ -39,7 +39,7 @@ suite("test_sql_block_rule", "sql_block_rule") {
               """
 
     sql """
-                CREATE SQL_BLOCK_RULE test_rule_num
+                CREATE SQL_BLOCK_RULE if not exists test_rule_num
                 PROPERTIES("tablet_num"="1", "global"= "true", "enable"= "true")
               """
 
@@ -53,7 +53,7 @@ suite("test_sql_block_rule", "sql_block_rule") {
               """
 
     sql """
-                DROP SQL_BLOCK_RULE test_rule_num
+                DROP SQL_BLOCK_RULE if exists test_rule_num
               """
 
     sql """
