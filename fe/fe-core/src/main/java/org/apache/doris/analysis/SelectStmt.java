@@ -300,9 +300,10 @@ public class SelectStmt extends QueryStmt {
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
                 inlineStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else if (tblRef instanceof TableValuedFunctionRef) {
-            	TableValuedFunctionRef tblFuncRef = (TableValuedFunctionRef) tblRef;
-                tableMap.put(tblFuncRef.getTableFunction().getTable().getId(), tblFuncRef.getTableFunction().getTable());
-			} else {
+                TableValuedFunctionRef tblFuncRef = (TableValuedFunctionRef) tblRef;
+                tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
+                         tblFuncRef.getTableFunction().getTable());
+            } else {
                 String dbName = tblRef.getName().getDb();
                 String tableName = tblRef.getName().getTbl();
                 if (Strings.isNullOrEmpty(dbName)) {

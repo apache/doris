@@ -46,8 +46,8 @@ import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
@@ -1723,7 +1723,7 @@ public class SingleNodePlanner {
                         null, -1);
                 break;
             case TABLE_VALUED_FUNCTION:
-            	scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
                         "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
                 break;
             default:

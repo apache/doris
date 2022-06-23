@@ -29,6 +29,7 @@ import java.util.List;
 public abstract class TableValuedFunctionInf {
 
     public abstract TTVFunctionName getFuncName();
+
     public Table getTable() {
         Table table = new Table(-1, getTableName(), TableIf.TableType.TABLE_VALUED_FUNCTION, getTableColumns());
         return table;
@@ -45,5 +46,6 @@ public abstract class TableValuedFunctionInf {
     public abstract String getTableName();
 
     public abstract List<Column> getTableColumns();
+
     public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
 }

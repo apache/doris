@@ -17,12 +17,11 @@
 
 package org.apache.doris.planner;
 
-import java.util.List;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.TableValuedFunctionInf;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -36,6 +35,11 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
+
+/**
+ * This scan node is used for table valued function.
+ */
 public class TableValuedFunctionScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(TableValuedFunctionScanNode.class.getName());
 
@@ -43,8 +47,9 @@ public class TableValuedFunctionScanNode extends ScanNode {
     private TableValuedFunctionInf tvf;
     private boolean isFinalized = false;
 
-    public TableValuedFunctionScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, TableValuedFunctionInf tvf) {
-        super(id, desc, planNodeName, NodeType.TABLE_VALUED_FUNCTION_NODE);
+    public TableValuedFunctionScanNode(PlanNodeId id, TupleDescriptor desc,
+                                       String planNodeName, TableValuedFunctionInf tvf) {
+        super(id, desc, planNodeName, StatisticalType.TABLE_VALUED_FUNCTION_NODE);
         this.tvf = tvf;
     }
 

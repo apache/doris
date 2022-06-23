@@ -25,13 +25,16 @@ public class TableValuedFunctionTask {
     private Backend backend;
     // Function running parameters
     private TScanRange execParams;
+
     public TableValuedFunctionTask(Backend backend, TScanRange execParams) {
         this.backend = backend;
         this.execParams = execParams;
     }
+
     public Backend getBackend() {
         return backend;
     }
+
     public TScanRange getExecParams() {
         return execParams;
     }

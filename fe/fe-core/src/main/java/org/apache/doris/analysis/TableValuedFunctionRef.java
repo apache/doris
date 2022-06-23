@@ -59,8 +59,9 @@ public class TableValuedFunctionRef extends TableRef {
      */
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (isAnalyzed)
+        if (isAnalyzed) {
             return;
+        }
         // Table function could generate a table which will has columns
         // Maybe will call be during this process
         this.table = tableFunction.getTable();

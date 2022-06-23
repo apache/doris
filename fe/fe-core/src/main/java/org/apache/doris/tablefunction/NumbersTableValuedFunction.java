@@ -26,9 +26,9 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNumbersTVFScanRange;
 import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TTVFunctionName;
 
 import com.google.common.collect.Lists;
-import org.apache.doris.thrift.TTVFunctionName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,18 +38,28 @@ import java.util.List;
 
 // Table function that generate int64 numbers
 // have a single column number
+
+/**
+ * The Implement of table valued function——numbers(N,M).
+ */
 public class NumbersTableValuedFunction extends TableValuedFunctionInf {
-    private final static Logger LOG = LogManager.getLogger(PlanNode.class);
     public static final String NAME = "numbers";
+    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
     // The total numbers will be generated.
     private long totalNumbers;
     // The total backends will server it.
     private int tabletsNum;
 
+    /**
+     * Constructor.
+     * @param params params from user
+     * @throws UserException exception
+     */
     public NumbersTableValuedFunction(List<String> params) throws UserException {
         if (params.size() < 1 || params.size() > 2) {
             throw new UserException(
-                    "numbers table function only support numbers(10000 /*total numbers*/) or numbers(10000, 2 /*number of tablets to run*/)");
+                    "numbers table function only support numbers(10000 /*total numbers*/)"
+                        + "or numbers(10000, 2 /*number of tablets to run*/)");
         }
         totalNumbers = Long.parseLong(params.get(0));
         // default tabletsNum is 1.
@@ -58,6 +68,7 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
             tabletsNum = Integer.parseInt(params.get(1));
         }
     }
+
     @Override
     public TTVFunctionName getFuncName() {
         return TTVFunctionName.NUMBERS;
