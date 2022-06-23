@@ -55,7 +55,7 @@ ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port"
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, OBSERVER
+    ALTER, SYSTEM, DROP, OBSERVER, ALTER SYSTEM
 
 ### Best Practice
 

@@ -50,7 +50,7 @@ public class TestPlanOutput implements Plans {
             new LogicalRelation(table, ImmutableList.of("a"))
         );
         List<Slot> output = relationPlan.getOutput();
-        Assertions.assertTrue(output.size() == 2);
+        Assertions.assertEquals(2, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
         Assertions.assertEquals(output.get(0).getQualifiedName(), "a.id");
         Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
@@ -90,7 +90,7 @@ public class TestPlanOutput implements Plans {
         // column prune
         LogicalLeafPlan<LogicalRelation> newPlan = relationPlan.withOutput(ImmutableList.of(output.get(0)));
         output = newPlan.getOutput();
-        Assertions.assertTrue(output.size() == 1);
+        Assertions.assertEquals(1, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
         Assertions.assertEquals(output.get(0).getQualifiedName(), "a.id");
         Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);

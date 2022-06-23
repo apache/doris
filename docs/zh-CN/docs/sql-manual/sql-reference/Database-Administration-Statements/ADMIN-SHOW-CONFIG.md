@@ -71,7 +71,7 @@ ADMIN SHOW CONFIG
 
 ### Keywords
 
-    ADMIN, SHOW, CONFIG
+    ADMIN, SHOW, CONFIG, ADMIN SHOW
 
 ### Best Practice
 
