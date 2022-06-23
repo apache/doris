@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
@@ -49,6 +51,10 @@ public class VirtualSlotRefTest {
     @Before
     public void setUp() throws IOException, AnalysisException {
         Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
+        // read objects from file
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
         analyzer = new Analyzer(analyzerBase.getCatalog(), analyzerBase.getContext());
         String[] cols = {"k1", "k2", "k3"};
         slots = new ArrayList<>();

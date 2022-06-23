@@ -32,14 +32,19 @@ import java.io.IOException;
 public class TablePrivTable extends PrivTable {
 
     /*
-     * Return first priv which match the user@host on db.tbl The returned priv will
+     * Return first priv which match the user@host on ctl.db.tbl The returned priv will
      * be saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String db, String tbl, PrivBitSet savedPrivs) {
+    public void getPrivs(UserIdentity currentUser, String ctl, String db, String tbl, PrivBitSet savedPrivs) {
         TablePrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
             if (!tblPrivEntry.match(currentUser, true)) {
+                continue;
+            }
+
+            // check catalog
+            if (!tblPrivEntry.isAnyCtl() && !tblPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
             }
 
@@ -64,33 +69,17 @@ public class TablePrivTable extends PrivTable {
         savedPrivs.or(matchedEntry.getPrivSet());
     }
 
-    /*
-     * Check if user@host has specified privilege on any table
-     */
-    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
-        for (PrivEntry entry : entries) {
-            TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
-            // check host
-            if (!tblPrivEntry.isAnyHost() && !tblPrivEntry.getHostPattern().match(host)) {
-                continue;
-            }
-            // check user
-            if (!tblPrivEntry.isAnyUser() && !tblPrivEntry.getUserPattern().match(user)) {
-                continue;
-            }
-            // check priv
-            if (tblPrivEntry.privSet.satisfy(wanted)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public boolean hasPrivsOfDb(UserIdentity currentUser, String db) {
+    public boolean hasPrivsOfDb(UserIdentity currentUser, String ctl, String db) {
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
 
             if (!tblPrivEntry.match(currentUser, true)) {
+                continue;
+            }
+
+            // check catalog
+            Preconditions.checkState(!tblPrivEntry.isAnyCtl());
+            if (!tblPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
             }
 

@@ -107,7 +107,7 @@ public class GrantStmt extends DdlStmt {
         }
 
         if (tblPattern != null) {
-            tblPattern.analyze(analyzer.getClusterName());
+            tblPattern.analyze(analyzer);
         } else {
             // TODO(wyb): spark-load
             if (!Config.enable_spark_load) {
@@ -148,7 +148,7 @@ public class GrantStmt extends DdlStmt {
         // Rule 1
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(PaloPrivilege.ADMIN_PRIV)
                 || privileges.contains(PaloPrivilege.NODE_PRIV))) {
-            throw new AnalysisException("ADMIN_PRIV and NODE_PRIV can only be granted on *.*");
+            throw new AnalysisException("ADMIN_PRIV and NODE_PRIV can only be granted on *.*.*");
         }
 
         // Rule 2

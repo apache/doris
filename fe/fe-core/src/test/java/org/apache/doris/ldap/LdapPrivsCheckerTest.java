@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -38,6 +39,7 @@ import java.util.Map;
 
 public class LdapPrivsCheckerTest {
     private static final String CLUSTER = "default_cluster";
+    private static final String INTERNAL = InternalDataSource.INTERNAL_DS_NAME;
     private static final String DB = "palodb";
     private static final String TABLE_DB = "tabledb";
     private static final String TABLE1 = "table1";
@@ -63,13 +65,13 @@ public class LdapPrivsCheckerTest {
                 PaloRole role = new PaloRole("");
                 Map<TablePattern, PrivBitSet> tblPatternToPrivs = role.getTblPatternToPrivs();
 
-                TablePattern global = new TablePattern("*", "*");
+                TablePattern global = new TablePattern("*", "*", "*");
                 tblPatternToPrivs.put(global, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.CREATE_PRIV));
-                TablePattern db = new TablePattern(DB, "*");
+                TablePattern db = new TablePattern(INTERNAL, DB, "*");
                 tblPatternToPrivs.put(db, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV));
-                TablePattern tbl1 = new TablePattern(TABLE_DB, TABLE1);
+                TablePattern tbl1 = new TablePattern(INTERNAL, TABLE_DB, TABLE1);
                 tblPatternToPrivs.put(tbl1, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.ALTER_PRIV));
-                TablePattern tbl2 = new TablePattern(TABLE_DB, TABLE2);
+                TablePattern tbl2 = new TablePattern(INTERNAL, TABLE_DB, TABLE2);
                 tblPatternToPrivs.put(tbl2, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.DROP_PRIV));
 
                 Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = role.getResourcePatternToPrivs();

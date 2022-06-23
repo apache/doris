@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.system.SystemInfoService;
 
@@ -39,6 +40,13 @@ public class FeNameFormat {
         }
         if (clusterName.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CLUSTER_NAME, clusterName);
+        }
+    }
+
+    public static void checkCatalogName(String catalogName) throws AnalysisException {
+        if (!InternalDataSource.INTERNAL_DS_NAME.equals(catalogName)
+                && (Strings.isNullOrEmpty(catalogName) || !catalogName.matches(COMMON_NAME_REGEX))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CATALOG_NAME, catalogName);
         }
     }
 

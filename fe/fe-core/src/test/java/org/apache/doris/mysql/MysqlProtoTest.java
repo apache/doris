@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.ldap.LdapClient;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -81,6 +82,10 @@ public class MysqlProtoTest {
                         return true;
                     }
                 };
+
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = new InternalDataSource();
 
                 catalog.getDbNullable(anyString);
                 minTimes = 0;
