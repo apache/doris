@@ -26,7 +26,7 @@ public class PrivEntryTest {
     @Test
     public void testNameWithUnderscores() throws Exception {
         TablePrivEntry tablePrivEntry = TablePrivEntry.create(
-                "127.%", "db_db1", "user1", "tbl_tbl1", false,
+                "user1", "127.%", "__internal", "db_db1", "tbl_tbl1", false,
                 PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.DROP_PRIV));
         // pattern match
         Assert.assertFalse(tablePrivEntry.getDbPattern().match("db-db1"));
@@ -38,11 +38,11 @@ public class PrivEntryTest {
         userIdentity.setIsAnalyzed();
 
         PrivBitSet privs1 = PrivBitSet.of();
-        tablePrivTable.getPrivs(userIdentity, "db#db1", "tbl#tbl1", privs1);
+        tablePrivTable.getPrivs(userIdentity, "##internal", "db#db1", "tbl#tbl1", privs1);
         Assert.assertFalse(PaloPrivilege.satisfy(privs1, PrivPredicate.DROP));
 
         PrivBitSet privs2 = PrivBitSet.of();
-        tablePrivTable.getPrivs(userIdentity, "db_db1", "tbl_tbl1", privs2);
+        tablePrivTable.getPrivs(userIdentity, "__internal", "db_db1", "tbl_tbl1", privs2);
         Assert.assertTrue(PaloPrivilege.satisfy(privs2, PrivPredicate.DROP));
     }
 }
