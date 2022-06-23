@@ -90,6 +90,8 @@ public:
                          uint64_t num_rows, const FilePathDesc& path_desc,
                          std::unique_ptr<ColumnReader>* reader);
 
+    enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
+
     ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
@@ -134,6 +136,12 @@ public:
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
+    uint64_t num_rows() { return _num_rows; }
+
+    void set_dict_encoding_type(DictEncodingType type) { _dict_encoding_type = type; }
+
+    DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  FilePathDesc path_desc);
@@ -173,6 +181,8 @@ private:
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
     FilePathDesc _path_desc;
+
+    DictEncodingType _dict_encoding_type;
 
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
@@ -244,6 +254,8 @@ public:
         return Status::OK();
     }
 
+    virtual bool is_all_dict_encoding() const { return false; }
+
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -281,6 +293,8 @@ public:
 
     bool is_nullable() { return _reader->is_nullable(); }
 
+    bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
+
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
@@ -309,6 +323,8 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
+
+    bool _is_all_dict_encoding = false;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
 };

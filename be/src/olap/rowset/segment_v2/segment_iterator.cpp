@@ -658,27 +658,20 @@ void SegmentIterator::_vec_init_lazy_materialization() {
 
         for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
-            FieldType type = _schema.column(cid)->type();
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
             // Step1: check pred using short eval or vec eval
-            if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
-                type == OLAP_FIELD_TYPE_STRING || predicate->type() == PredicateType::BF ||
-                predicate->type() == PredicateType::IN_LIST ||
-                predicate->type() == PredicateType::NOT_IN_LIST ||
-                predicate->type() == PredicateType::IS_NULL ||
-                predicate->type() == PredicateType::IS_NOT_NULL ||
-                type == OLAP_FIELD_TYPE_DECIMAL) {
-                short_cir_pred_col_id_set.insert(cid);
-                _short_cir_eval_predicate.push_back(predicate);
-            } else {
+            if (_can_evaluated_by_vectorized(predicate)) {
                 vec_pred_col_id_set.insert(predicate->column_id());
                 if (_pre_eval_block_predicate == nullptr) {
                     _pre_eval_block_predicate.reset(new AndBlockColumnPredicate());
                 }
                 _pre_eval_block_predicate->add_column_predicate(
                         new SingleColumnBlockPredicate(predicate));
+            } else {
+                short_cir_pred_col_id_set.insert(cid);
+                _short_cir_eval_predicate.push_back(predicate);
             }
         }
 
@@ -771,6 +764,30 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     for (int i = 0; i < _schema.num_column_ids(); i++) {
         auto cid = _schema.column_id(i);
         _schema_block_id_map[cid] = i;
+    }
+}
+
+bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
+    auto cid = predicate->column_id();
+    FieldType field_type = _schema.column(cid)->type();
+    switch (predicate->type()) {
+    case PredicateType::EQ:
+    case PredicateType::NE:
+    case PredicateType::LE:
+    case PredicateType::LT:
+    case PredicateType::GE:
+    case PredicateType::GT: {
+        if (field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+            field_type == OLAP_FIELD_TYPE_STRING) {
+            return config::enable_low_cardinality_optimize &&
+                   _column_iterators[cid]->is_all_dict_encoding();
+        } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
+            return false;
+        }
+        return true;
+    }
+    default:
+        return false;
     }
 }
 
@@ -881,44 +898,36 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
 
     uint16_t new_size = 0;
-    size_t num_zeros = simd::count_zero_num(reinterpret_cast<int8_t*>(ret_flags), original_size);
-    if (0 == num_zeros) {
-        for (uint16_t i = 0; i < original_size; i++) {
-            sel_rowid_idx[i] = i;
-        }
-        new_size = original_size;
-    } else if (num_zeros == original_size) {
-        //no row pass, let new_size = 0
-    } else {
-        uint32_t sel_pos = 0;
-        const uint32_t sel_end = sel_pos + selected_size;
-        static constexpr size_t SIMD_BYTES = 32;
-        const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
-        while (sel_pos < sel_end_simd) {
-            auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
-            if (0 == mask) {
-                //pass
-            } else if (0xffffffff == mask) {
-                for (uint32_t i = 0; i < SIMD_BYTES; i++) {
-                    sel_rowid_idx[new_size++] = sel_pos + i;
-                }
-            } else {
-                while (mask) {
-                    const size_t bit_pos = __builtin_ctzll(mask);
-                    sel_rowid_idx[new_size++] = sel_pos + bit_pos;
-                    mask = mask & (mask - 1);
-                }
-            }
-            sel_pos += SIMD_BYTES;
-        }
+    uint32_t sel_pos = 0;
+    const uint32_t sel_end = sel_pos + selected_size;
+    static constexpr size_t SIMD_BYTES = 32;
+    const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
-        for (; sel_pos < sel_end; sel_pos++) {
-            if (ret_flags[sel_pos]) {
-                sel_rowid_idx[new_size++] = sel_pos;
+    while (sel_pos < sel_end_simd) {
+        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+        if (0 == mask) {
+            //pass
+        } else if (0xffffffff == mask) {
+            for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                sel_rowid_idx[new_size++] = sel_pos + i;
             }
+        } else {
+            while (mask) {
+                const size_t bit_pos = __builtin_ctzll(mask);
+                sel_rowid_idx[new_size++] = sel_pos + bit_pos;
+                mask = mask & (mask - 1);
+            }
+        }
+        sel_pos += SIMD_BYTES;
+    }
+
+    for (; sel_pos < sel_end; sel_pos++) {
+        if (ret_flags[sel_pos]) {
+            sel_rowid_idx[new_size++] = sel_pos;
         }
     }
+
     _opts.stats->rows_vec_cond_filtered += original_size - new_size;
     return new_size;
 }

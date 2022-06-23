@@ -119,6 +119,8 @@ private:
         return Status::OK();
     }
 
+    bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
+
 private:
     class BitmapRangeIterator;
 
