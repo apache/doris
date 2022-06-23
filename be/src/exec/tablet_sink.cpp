@@ -317,15 +317,8 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     }
     constexpr size_t BATCH_SIZE_FOR_SEND = 2 * 1024 * 1024; //2M
     auto row_no = _cur_batch->add_row();
-    if (row_no == RowBatch::INVALID_ROW_INDEX || _cur_batch->tuple_data_pool()->total_allocated_bytes() > BATCH_SIZE_FOR_SEND) {
-        //if pending bytes is more than 1G, wait
-        constexpr size_t MAX_PENDING_BYTES = 1073741824; //1G
-        if (_pending_batches_bytes>1073741824){
-            while(_pending_batches_bytes < MAX_PENDING_BYTES){
-                std::this_thread::sleep_for(std::chrono::microseconds(500));
-            }
-        }
-
+    if (row_no == RowBatch::INVALID_ROW_INDEX ||
+        _cur_batch->tuple_data_pool()->total_allocated_bytes() > BATCH_SIZE_FOR_SEND) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
