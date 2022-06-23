@@ -75,8 +75,8 @@ under the License.
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
 | [dataroaring](https://people.apache.org/committer-index.html#dataroaring) | dataroaring | Yongqiang Yang   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
-| [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    |         | Zeno Yang     |
-| [zshao](https://people.apache.org/committer-index.html#zshao)    | wuyunfeng        | Yunfeng Wu     |
+| [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    | zenoyang  | Zeno Yang     |
+| [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao | Zheng Shao |
 
 ## Contributors
 

@@ -28,7 +28,7 @@ under the License.
 
 We'd like to thank the following committers to the Apache Doris project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
 
-## PPMC (15)
+## PMC (15)
 
 | Apache ID                                                    | Github Username       | Public Name        |
 | :----------------------------------------------------------- | :------------------ | :------------ |
@@ -75,8 +75,8 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
 | [dataroaring](https://people.apache.org/committer-index.html#dataroaring) | dataroaring | Yongqiang Yang   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
-| [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    |         | Zeno Yang     |
-| [zshao](https://people.apache.org/committer-index.html#zshao)    | wuyunfeng        | Yunfeng Wu     |
+| [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    |  zenoyang       | Zeno Yang     |
+| [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao        | Zheng Shao |
 
 ## Contributors
 
