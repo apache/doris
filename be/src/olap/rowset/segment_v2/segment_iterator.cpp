@@ -131,10 +131,13 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (!opts.column_predicates.empty()) {
         _col_predicates = opts.column_predicates;
     }
+    // Read options will not change, so that just reserve here
+    _block_rowids.reserve(_opts.block_row_max);
     return Status::OK();
 }
 
 Status SegmentIterator::_init(bool is_vec) {
+    SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     // get file handle from file descriptor of segment
     fs::BlockManager* block_mgr = fs::fs_util::block_manager(_segment->_path_desc);
@@ -445,7 +448,11 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, r
 
 // seek to the row and load that row to _key_cursor
 Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
-    RETURN_IF_ERROR(_seek_columns(_seek_schema->column_ids(), rowid));
+    {
+        _opts.stats->block_init_seek_num += 1;
+        SCOPED_RAW_TIMER(&_opts.stats->block_init_seek_ns);
+        RETURN_IF_ERROR(_seek_columns(_seek_schema->column_ids(), rowid));
+    }
     size_t num_rows = 1;
     // please note that usually RowBlockV2.clear() is called to free MemPool memory before reading the next block,
     // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
@@ -484,8 +491,6 @@ void SegmentIterator::_init_lazy_materialization() {
 }
 
 Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
-    _opts.stats->block_seek_num += 1;
-    SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
     for (auto cid : column_ids) {
         RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));
     }
@@ -508,15 +513,11 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init());
-        if (_lazy_materialization_read) {
-            _block_rowids.reserve(block->capacity());
-        }
         _inited = true;
     }
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = block->capacity();
-    _block_rowids.resize(nrows_read_limit);
     const auto& read_columns =
             _lazy_materialization_read ? _predicate_columns : block->schema()->column_ids();
 
@@ -534,6 +535,8 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
             }
             if (_cur_rowid == 0 || _cur_rowid != range_from) {
                 _cur_rowid = range_from;
+                _opts.stats->block_first_read_seek_num += 1;
+                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
                 RETURN_IF_ERROR(_seek_columns(read_columns, _cur_rowid));
             }
             size_t rows_to_read = range_to - range_from;
@@ -597,7 +600,11 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
                 ++j;
             }
             uint16_t range_size = j - i;
-            RETURN_IF_ERROR(_seek_columns(_non_predicate_columns, _block_rowids[sv[i]]));
+            {
+                _opts.stats->block_lazy_read_seek_num += 1;
+                SCOPED_RAW_TIMER(&_opts.stats->block_lazy_read_seek_ns);
+                RETURN_IF_ERROR(_seek_columns(_non_predicate_columns, _block_rowids[sv[i]]));
+            }
             RETURN_IF_ERROR(_read_columns(_non_predicate_columns, block, sv[i], range_size));
             i += range_size;
         }
@@ -839,6 +846,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
         if (_cur_rowid == 0 || _cur_rowid != range_from) {
             _cur_rowid = range_from;
+            _opts.stats->block_first_read_seek_num += 1;
+            SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
             RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
         }
         size_t rows_to_read = range_to - range_from;
@@ -956,7 +965,11 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
             end_idx++;
         }
         size_t range = end_idx - start_idx;
-        _seek_columns(read_column_ids, rowid_vector[sel_rowid_idx[start_idx]]);
+        {
+            _opts.stats->block_lazy_read_seek_num += 1;
+            SCOPED_RAW_TIMER(&_opts.stats->block_lazy_read_seek_ns);
+            _seek_columns(read_column_ids, rowid_vector[sel_rowid_idx[start_idx]]);
+        }
         _read_columns(read_column_ids, *mutable_columns, range);
         start_idx += range;
     }

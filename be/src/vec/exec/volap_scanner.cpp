@@ -359,6 +359,7 @@ void VOlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_load_counter, stats.blocks_load);
     COUNTER_UPDATE(_parent->_block_fetch_timer, stats.block_fetch_ns);
     COUNTER_UPDATE(_parent->_block_seek_timer, stats.block_seek_ns);
+    COUNTER_UPDATE(_parent->_block_seek_counter, stats.block_seek_num);
     COUNTER_UPDATE(_parent->_block_convert_timer, stats.block_convert_ns);
 
     COUNTER_UPDATE(_parent->_raw_rows_counter, stats.raw_rows_read);
@@ -367,8 +368,15 @@ void VOlapScanner::update_counter() {
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, stats.num_rows_filtered);
     COUNTER_UPDATE(_parent->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(_parent->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_UPDATE(_parent->_block_init_timer, stats.block_init_ns);
+    COUNTER_UPDATE(_parent->_block_init_seek_timer, stats.block_init_seek_ns);
+    COUNTER_UPDATE(_parent->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(_parent->_first_read_timer, stats.first_read_ns);
+    COUNTER_UPDATE(_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
+    COUNTER_UPDATE(_parent->_first_read_seek_counter, stats.block_first_read_seek_num);
     COUNTER_UPDATE(_parent->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(_parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
+    COUNTER_UPDATE(_parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(_parent->_output_col_timer, stats.output_col_ns);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);
 
@@ -392,7 +400,6 @@ void VOlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);
-    COUNTER_UPDATE(_parent->_block_seek_counter, stats.block_seek_num);
 
     COUNTER_UPDATE(_parent->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(_parent->_total_segment_counter, stats.total_segment_number);

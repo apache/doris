@@ -119,14 +119,24 @@ void VOlapScanNode::_init_counter(RuntimeState* state) {
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
+    // Will be delete after non-vectorized code is removed
     _block_seek_timer = ADD_TIMER(_segment_profile, "BlockSeekTime");
     _block_seek_counter = ADD_COUNTER(_segment_profile, "BlockSeekCount", TUnit::UNIT);
+    _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
+    _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
+    _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
 
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
+    _first_read_seek_timer = ADD_TIMER(_segment_profile, "FirstReadSeekTime");
+    _first_read_seek_counter = ADD_COUNTER(_segment_profile, "FirstReadSeekCount", TUnit::UNIT);
+
     _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
+    _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
+    _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
+
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
