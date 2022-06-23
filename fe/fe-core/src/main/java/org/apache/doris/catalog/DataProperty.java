@@ -30,6 +30,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Date;
 import java.util.Objects;
 
 public class DataProperty implements Writable {
@@ -44,6 +45,8 @@ public class DataProperty implements Writable {
     private long cooldownTimeMs;
     @SerializedName(value = "remoteStoragePolicy")
     private String remoteStoragePolicy;
+    @SerializedName(value = "storageDataBaseTime")
+    private Date storageDataBaseTime;
 
     private DataProperty() {
         // for persist
@@ -58,6 +61,7 @@ public class DataProperty implements Writable {
             this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
         this.remoteStoragePolicy = "";
+        this.storageDataBaseTime = new Date();
     }
 
     /**
@@ -71,6 +75,7 @@ public class DataProperty implements Writable {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
         this.remoteStoragePolicy = remoteStoragePolicy;
+        this.storageDataBaseTime = new Date();
     }
 
     public TStorageMedium getStorageMedium() {
@@ -83,6 +88,14 @@ public class DataProperty implements Writable {
 
     public String getRemoteStoragePolicy() {
         return remoteStoragePolicy;
+    }
+
+    public Date getStorageDataBaseTime() {
+        return storageDataBaseTime;
+    }
+
+    public void setStorageDataBaseTime(Date storageDataBaseTime) {
+        this.storageDataBaseTime = storageDataBaseTime;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
