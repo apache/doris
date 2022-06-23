@@ -18,7 +18,6 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -38,7 +37,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -228,7 +226,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
 
             if (StringUtils.isNotEmpty(storagePolicyName)) {
-                partitionProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, storagePolicyName);
+                setStoragePolicyProperty(partitionProperties, dynamicPartitionProperty, now, idx, storagePolicyName);
             }
 
             String partitionName = dynamicPartitionProperty.getPrefix()
@@ -264,6 +262,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
                 property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownTime);
+    }
+
+    private void setStoragePolicyProperty(HashMap<String, String> partitionProperties,
+                                          DynamicPartitionProperty property, ZonedDateTime now, int offset,
+                                          String storagePolicyName) {
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, storagePolicyName);
         String baseTime = DynamicPartitionUtil.getPartitionRangeString(
                 property, now, offset, DynamicPartitionUtil.DATETIME_FORMAT);
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_DATA_BASE_TIME, baseTime);
