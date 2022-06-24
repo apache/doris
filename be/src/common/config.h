@@ -144,6 +144,7 @@ CONF_String(doris_cgroups, "");
 CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
 CONF_mBool(compress_rowbatches, "true");
+CONF_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
 // if true, each disk will have a separate thread pool for scanner
@@ -635,7 +636,14 @@ CONF_Bool(track_new_delete, "true");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
-CONF_Bool(memory_verbose_track, "true");
+//
+// At present, there is a performance problem in the frequent switch thread mem tracker.
+// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
+// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
+// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
+// TODO: 1. Reduce unnecessary thread mem tracker switches,
+//       2. Consider using raw pointers for mem tracker in thread local
+CONF_Bool(memory_verbose_track, "false");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:

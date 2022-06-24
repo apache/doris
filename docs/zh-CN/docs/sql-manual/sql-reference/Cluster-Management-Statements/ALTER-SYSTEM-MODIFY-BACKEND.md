@@ -71,7 +71,7 @@ ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
    ```
 ### Keywords
 
-    ALTER, SYSTEM, ADD, BACKEND
+    ALTER, SYSTEM, ADD, BACKEND, ALTER SYSTEM
 
 ### Best Practice
 

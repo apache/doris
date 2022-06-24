@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs.scheduler;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 
 /**

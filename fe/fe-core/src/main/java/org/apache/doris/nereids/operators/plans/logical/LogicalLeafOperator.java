@@ -44,7 +44,7 @@ public abstract class LogicalLeafOperator extends AbstractOperator
     @Override
     public LogicalProperties computeLogicalProperties(Plan... inputs) {
         Preconditions.checkArgument(inputs.length == 0);
-        return new LogicalProperties(computeOutput());
+        return new LogicalProperties(() -> computeOutput());
     }
 
     public abstract List<Slot> computeOutput();

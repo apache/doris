@@ -17,50 +17,46 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalSort;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 /**
- * Base class for the processing of logical and physical plan.
+ * Base class for the processing of logical and physical operator.
  *
  * @param <R> Return type of each visit method.
  * @param <C> Context type.
  */
-@SuppressWarnings("rawtypes")
-public abstract class PlanOperatorVisitor<R, C> {
+public abstract class OperatorVisitor<R, C> {
+    /* Operator */
 
-    public abstract R visit(Plan plan, C context);
+    public abstract R visitOperator(Operator operator, C context);
 
-    public R visitPhysicalAggregationPlan(PhysicalUnaryPlan<PhysicalAggregation, Plan> aggPlan, C context) {
+    public R visitPhysicalAggregation(PhysicalAggregation physicalAggregation, C context) {
         return null;
     }
 
-    public R visitPhysicalOlapScanPlan(PhysicalLeafPlan<PhysicalOlapScan> olapScanPlan, C context) {
+    public R visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, C context) {
         return null;
     }
 
-    public R visitPhysicalSortPlan(PhysicalUnaryPlan<PhysicalSort, Plan> sortPlan, C context) {
+    public R visitPhysicalSort(PhysicalSort physicalSort, C context) {
         return null;
     }
 
-    public R visitPhysicalHashJoinPlan(PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan> hashJoinPlan, C context) {
+    public R visitPhysicalHashJoin(PhysicalHashJoin physicalHashJoin, C context) {
         return null;
     }
 
-    public R visitPhysicalProject(PhysicalUnaryPlan<PhysicalProject, Plan> projectPlan, C context) {
+    public R visitPhysicalProject(PhysicalProject physicalProject,  C context) {
         return null;
     }
 
-    public R visitPhysicalFilter(PhysicalUnaryPlan<PhysicalFilter, Plan> filterPlan, C context) {
+    public R visitPhysicalFilter(PhysicalFilter physicalFilter, C context) {
         return null;
     }
-
 }

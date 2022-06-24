@@ -15,29 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression.rewrite;
+package org.apache.doris.statistics;
 
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Literal;
-import org.apache.doris.nereids.trees.expressions.Not;
 
-/**
- * Use the visitor pattern to iterate over all expressions for expression rewriting.
- */
-public abstract class ExpressionVisitor<R, C> {
+public class SlotStatsDeriveResult {
 
-    public abstract R visitExpression(Expression expr, C context);
+    // number of distinct value
+    private long ndv;
+    private Literal max;
+    private Literal min;
 
-    public R visitNot(Not expr, C context) {
-        return visitExpression(expr, context);
+    public long getNdv() {
+        return ndv;
     }
 
-    public R visitComparisonPredicate(ComparisonPredicate expr, C context) {
-        return visitExpression(expr, context);
+    public void setNdv(long ndv) {
+        this.ndv = ndv;
     }
 
-    public R visitLiteral(Literal expr, C context) {
-        return visitExpression(expr, context);
+    public Literal getMax() {
+        return max;
+    }
+
+    public void setMax(Literal max) {
+        this.max = max;
+    }
+
+    public Literal getMin() {
+        return min;
+    }
+
+    public void setMin(Literal min) {
+        this.min = min;
     }
 }

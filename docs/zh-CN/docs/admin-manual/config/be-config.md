@@ -331,12 +331,6 @@ BE创建tablet的工作线程数
 
 BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 
-### `cumulative_compaction_skip_window_seconds`
-
-默认值：30 （s）
-
-CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查询的版本（以防查询计划阶段花费一些时间）。改参数是设置跳过的窗口时间大小
-
 ### `cumulative_compaction_trace_threshold`
 
 * 类型：int32

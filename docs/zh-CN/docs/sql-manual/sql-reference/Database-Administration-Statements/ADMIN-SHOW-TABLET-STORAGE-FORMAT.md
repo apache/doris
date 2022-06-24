@@ -50,5 +50,5 @@ under the License.
     4 rows in set (0.034 sec)
 
 ### keywords
-    ADMIN,SHOW,TABLET,STORAGE,FORMAT
+    ADMIN, SHOW, TABLET, STORAGE, FORMAT, ADMIN SHOW
 

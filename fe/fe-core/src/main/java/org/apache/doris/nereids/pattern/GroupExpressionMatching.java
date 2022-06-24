@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.pattern;
 
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.Iterator;
@@ -30,28 +31,26 @@ import java.util.Objects;
 
 /**
  * Get all pattern matching subtree in query plan from a group expression.
- * TODO: adapt ANY and MULTI
- * TODO: add ut
  */
 public class GroupExpressionMatching implements Iterable<Plan> {
-    private final Pattern<? extends Plan, Plan> pattern;
+    private final Pattern<Plan, Plan> pattern;
     private final GroupExpression groupExpression;
 
     public GroupExpressionMatching(Pattern<? extends Plan, Plan> pattern, GroupExpression groupExpression) {
-        this.pattern = Objects.requireNonNull(pattern);
-        this.groupExpression = Objects.requireNonNull(groupExpression);
+        this.pattern = (Pattern<Plan, Plan>) Objects.requireNonNull(pattern, "pattern can not be null");
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
     }
 
     @Override
-    public GroupExpressionIterator<Plan> iterator() {
-        return new GroupExpressionIterator<>(pattern, groupExpression);
+    public GroupExpressionIterator iterator() {
+        return new GroupExpressionIterator(pattern, groupExpression);
     }
 
     /**
      * Iterator to get all subtrees.
      */
-    public static class GroupExpressionIterator<NODE_TYPE extends TreeNode<NODE_TYPE>> implements Iterator<NODE_TYPE> {
-        private final List<NODE_TYPE> results;
+    public static class GroupExpressionIterator implements Iterator<Plan> {
+        private final List<Plan> results = Lists.newArrayList();
         private int resultIndex = 0;
 
         /**
@@ -60,58 +59,105 @@ public class GroupExpressionMatching implements Iterable<Plan> {
          * @param pattern pattern to match
          * @param groupExpression group expression to be matched
          */
-        public GroupExpressionIterator(Pattern<? extends NODE_TYPE, NODE_TYPE> pattern,
-                GroupExpression groupExpression) {
-            results = Lists.newArrayList();
-
+        public GroupExpressionIterator(Pattern<Plan, Plan> pattern, GroupExpression groupExpression) {
             if (!pattern.matchOperator(groupExpression.getOperator())) {
                 return;
             }
-            if (pattern.arity() > groupExpression.arity()) {
-                return;
-            }
-            if (pattern.arity() < groupExpression.arity()
-                    && (!pattern.children().contains(Pattern.MULTI)
-                    || !pattern.children().contains(Pattern.MULTI_FIXED))) {
+
+            // (logicalFilter(), multi()) match (logicalFilter()),
+            // but (logicalFilter(), logicalFilter(), multi()) not match (logicalFilter())
+            boolean extraMulti = pattern.arity() == groupExpression.arity() + 1
+                    && (pattern.hasMultiChild() || pattern.hasMultiGroupChild());
+            if (pattern.arity() > groupExpression.arity() && !extraMulti) {
                 return;
             }
 
-            NODE_TYPE root = groupExpression.getOperator().toTreeNode(groupExpression);
+            // (multi()) match (logicalFilter(), logicalFilter()),
+            // but (logicalFilter()) not match (logicalFilter(), logicalFilter())
+            if (!pattern.isAny() && pattern.arity() < groupExpression.arity()
+                    && !pattern.hasMultiChild() && !pattern.hasMultiGroupChild()) {
+                return;
+            }
 
-            List<List<NODE_TYPE>> childrenResults = Lists.newArrayListWithCapacity(groupExpression.arity());
-            for (int i = 0; i < groupExpression.arity(); ++i) {
-                childrenResults.add(Lists.newArrayList());
-                int patternChildIndex = i >= pattern.arity() ? pattern.arity() - 1 : i;
-                for (NODE_TYPE child : new GroupMatching<NODE_TYPE>(
-                        pattern.child(patternChildIndex), groupExpression.child(i))) {
-                    childrenResults.get(i).add(child);
+            // Pattern.GROUP / Pattern.MULTI / Pattern.MULTI_GROUP can not match GroupExpression
+            if (pattern.isGroup() || pattern.isMulti() || pattern.isMultiGroup()) {
+                return;
+            }
+
+            // toTreeNode will wrap operator to plan, and set GroupPlan as children placeholder
+            Plan root = groupExpression.getOperator().toTreeNode(groupExpression);
+            // pattern.arity() == 0 equals to root.arity() == 0
+            if (pattern.arity() == 0) {
+                if (pattern.matchPredicates(root)) {
+                    // if no children pattern, we treat all children as GROUP. e.g. Pattern.ANY.
+                    // leaf plan will enter this branch too, e.g. logicalRelation().
+                    results.add(root);
+                }
+            } else {
+                // matching children group, one List<Plan> per child
+                // first dimension is every child group's plan
+                // second dimension is all matched plan in one group
+                List<List<Plan>> childrenPlans = Lists.newArrayListWithCapacity(groupExpression.arity());
+                for (int i = 0; i < groupExpression.arity(); ++i) {
+                    Group childGroup = groupExpression.child(i);
+                    List<Plan> childrenPlan = matchingChildGroup(pattern, childGroup, i);
+                    childrenPlans.add(childrenPlan);
+                }
+
+                assembleAllCombinationPlanTree(root, pattern, childrenPlans);
+            }
+        }
+
+        private List<Plan> matchingChildGroup(Pattern<? extends Plan, Plan> parentPattern,
+                                              Group childGroup, int childIndex) {
+            boolean isLastPattern = childIndex + 1 >= parentPattern.arity();
+            int patternChildIndex = isLastPattern ? parentPattern.arity() - 1 : childIndex;
+            Pattern<? extends Plan, Plan> childPattern = parentPattern.child(patternChildIndex);
+
+            // translate MULTI and MULTI_GROUP to ANY and GROUP
+            if (isLastPattern) {
+                if (childPattern.isMulti()) {
+                    childPattern = Pattern.ANY;
+                } else if (childPattern.isMultiGroup()) {
+                    childPattern = Pattern.GROUP;
                 }
             }
 
-            if (pattern.arity() == 0) {
-                results.add(root);
-            } else {
-                int[] childrenResultsIndex = new int[groupExpression.arity()];
-                int offset = 0;
-                while (offset < childrenResults.size()) {
-                    List<NODE_TYPE> children = Lists.newArrayList();
-                    for (int i = 0; i < childrenResults.size(); i++) {
-                        children.add(childrenResults.get(i).get(childrenResultsIndex[i]));
-                    }
-                    NODE_TYPE result = root.withChildren(children);
-                    results.add(result);
-                    offset = 0;
-                    while (true) {
-                        childrenResultsIndex[offset]++;
-                        if (childrenResultsIndex[offset] == childrenResults.get(offset).size()) {
-                            childrenResultsIndex[offset] = 0;
-                            offset++;
-                            if (offset == childrenResults.size()) {
-                                break;
-                            }
-                        } else {
+            ImmutableList.Builder<Plan> matchingChildren = ImmutableList.builder();
+            new GroupMatching(childPattern, childGroup).forEach(matchingChildren::add);
+            return matchingChildren.build();
+        }
+
+        private void assembleAllCombinationPlanTree(Plan root, Pattern<Plan, Plan> rootPattern,
+                                                    List<List<Plan>> childrenPlans) {
+            int[] childrenPlanIndex = new int[childrenPlans.size()];
+            int offset = 0;
+
+            // assemble all combination of plan tree by current root plan and children plan
+            while (offset < childrenPlans.size()) {
+                List<Plan> children = Lists.newArrayList();
+                for (int i = 0; i < childrenPlans.size(); i++) {
+                    children.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
+                }
+                // assemble children: replace GroupPlan to real plan,
+                // withChildren will erase groupExpression, so we must
+                // withGroupExpression too.
+                Plan rootWithChildren = root.withChildren(children)
+                        .withGroupExpression(root.getGroupExpression());
+                if (rootPattern.matchPredicates(rootWithChildren)) {
+                    results.add(rootWithChildren);
+                }
+                offset = 0;
+                while (true) {
+                    childrenPlanIndex[offset]++;
+                    if (childrenPlanIndex[offset] == childrenPlans.get(offset).size()) {
+                        childrenPlanIndex[offset] = 0;
+                        offset++;
+                        if (offset == childrenPlans.size()) {
                             break;
                         }
+                    } else {
+                        break;
                     }
                 }
             }
@@ -123,7 +169,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
         }
 
         @Override
-        public NODE_TYPE next() {
+        public Plan next() {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }

@@ -21,9 +21,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.thrift.TDescriptorTable;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -113,6 +115,21 @@ public class DescriptorTable {
         return tupleDescs.get(id);
     }
 
+    /**
+     * Return all tuple desc by idList.
+     */
+    public List<TupleDescriptor> getTupleDesc(List<TupleId> idList) throws AnalysisException {
+        List<TupleDescriptor> result = Lists.newArrayList();
+        for (TupleId tupleId : idList) {
+            TupleDescriptor tupleDescriptor = getTupleDesc(tupleId);
+            if (tupleDescriptor == null) {
+                throw new AnalysisException("Invalid tuple id:" + tupleId.toString());
+            }
+            result.add(tupleDescriptor);
+        }
+        return result;
+    }
+
     public SlotDescriptor getSlotDesc(SlotId id) {
         return slotDescs.get(id);
     }
@@ -161,7 +178,7 @@ public class DescriptorTable {
                 // but its table has no id
                 if (tupleD.getTable() != null
                         && tupleD.getTable().getId() >= 0) {
-                    referencedTbls.add(tupleD.getTable());
+                    referencedTbls.add((Table) tupleD.getTable());
                 }
                 for (SlotDescriptor slotD : tupleD.getMaterializedSlots()) {
                     result.addToSlotDescriptors(slotD.toThrift());

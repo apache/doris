@@ -182,7 +182,7 @@ private:
 };
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
-// see https://github.com/apache/incubator-doris/pull/7911
+// see https://github.com/apache/doris/pull/7911
 //
 // If we want to avoid this error,
 // 1. For non-trivial variables in thread_local, such as std::string, you need to store them as pointers to
@@ -210,6 +210,8 @@ public:
 
     ThreadContext* get();
 
+    bool _init = false;
+
 private:
     DECLARE_STATIC_THREAD_LOCAL(ThreadContext, thread_local_ctx);
 };
@@ -221,7 +223,12 @@ static ThreadContext* tls_ctx() {
     if (tls != nullptr) {
         return tls;
     } else {
-        return thread_local_ctx.get();
+        if (thread_local_ctx._init) {
+            return thread_local_ctx.get();
+        } else {
+            // TCMalloc hook is triggered during ThreadContext construction, which may lead to deadlock.
+            return nullptr;
+        }
     }
 }
 

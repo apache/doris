@@ -1878,15 +1878,13 @@ public class Catalog {
      * Load datasource through file.
      **/
     public long loadDatasource(DataInputStream in, long checksum) throws IOException {
-        if (Config.enable_multi_catalog) {
-            DataSourceMgr mgr = DataSourceMgr.read(in);
-            // When enable the multi catalog in the first time, the mgr will be a null value.
-            // So ignore it to use default datasource manager.
-            if (mgr != null) {
-                this.dataSourceMgr = mgr;
-            }
-            LOG.info("finished replay datasource from image");
+        DataSourceMgr mgr = DataSourceMgr.read(in);
+        // When enable the multi catalog in the first time, the mgr will be a null value.
+        // So ignore it to use default datasource manager.
+        if (mgr != null) {
+            this.dataSourceMgr = mgr;
         }
+        LOG.info("finished replay datasource from image");
         return checksum;
     }
 
@@ -2159,10 +2157,7 @@ public class Catalog {
      * Save datasource image.
      */
     public long saveDatasource(CountingDataOutputStream out, long checksum) throws IOException {
-        // Do not write datasource image when enable multi catalog is false.
-        if (Config.enable_multi_catalog) {
-            Catalog.getCurrentCatalog().getDataSourceMgr().write(out);
-        }
+        Catalog.getCurrentCatalog().getDataSourceMgr().write(out);
         return checksum;
     }
 
@@ -2853,11 +2848,11 @@ public class Catalog {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
 
-            // remote storage resource
-            String remoteStorageResource = olapTable.getRemoteStorageResource();
-            if (!Strings.isNullOrEmpty(remoteStorageResource)) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE).append("\" = \"");
-                sb.append(remoteStorageResource).append("\"");
+            // remote storage
+            String remoteStoragePolicy = olapTable.getRemoteStoragePolicy();
+            if (!Strings.isNullOrEmpty(remoteStoragePolicy)) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY).append("\" = \"");
+                sb.append(remoteStoragePolicy).append("\"");
             }
             // compression type
             if (olapTable.getCompressionType() != TCompressionType.LZ4F) {

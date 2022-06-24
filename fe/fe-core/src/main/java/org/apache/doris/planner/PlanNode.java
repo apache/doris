@@ -36,6 +36,8 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -71,7 +73,7 @@ import java.util.Set;
  * this node, ie, they only reference tuples materialized by this node or one of
  * its children (= are bound by tupleIds).
  */
-public abstract class PlanNode extends TreeNode<PlanNode> {
+public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
@@ -137,10 +139,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     protected List<SlotId> outputSlotIds;
 
-    protected NodeType nodeType = NodeType.DEFAULT;
+    protected StatisticalType statisticalType = StatisticalType.DEFAULT;
     protected StatsDeriveResult statsDeriveResult;
 
-    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName, NodeType nodeType) {
+    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
+            StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
         // make a copy, just to be on the safe side
@@ -149,10 +152,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
+        this.statisticalType = statisticalType;
     }
 
-    protected PlanNode(PlanNodeId id, String planNodeName, NodeType nodeType) {
+    protected PlanNode(PlanNodeId id, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
         this.tupleIds = Lists.newArrayList();
@@ -160,13 +163,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
+        this.statisticalType = statisticalType;
     }
 
     /**
      * Copy ctor. Also passes in new id.
      */
-    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, NodeType nodeType) {
+    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = node.limit;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
@@ -177,36 +180,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         this.compactData = node.compactData;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
-    }
-
-    public enum NodeType {
-        DEFAULT,
-        AGG_NODE,
-        ANALYTIC_EVAL_NODE,
-        ASSERT_NUM_ROWS_NODE,
-        BROKER_SCAN_NODE,
-        CROSS_JOIN_NODE,
-        EMPTY_SET_NODE,
-        ES_SCAN_NODE,
-        EXCEPT_NODE,
-        EXCHANGE_NODE,
-        HASH_JOIN_NODE,
-        HIVE_SCAN_NODE,
-        ICEBERG_SCAN_NODE,
-        INTERSECT_NODE,
-        LOAD_SCAN_NODE,
-        MYSQL_SCAN_NODE,
-        ODBC_SCAN_NODE,
-        OLAP_SCAN_NODE,
-        REPEAT_NODE,
-        SELECT_NODE,
-        SET_OPERATION_NODE,
-        SCHEMA_SCAN_NODE,
-        SORT_NODE,
-        STREAM_LOAD_SCAN_NODE,
-        TABLE_FUNCTION_NODE,
-        UNION_NODE,
+        this.statisticalType = statisticalType;
     }
 
     public String getPlanNodeName() {
@@ -217,8 +191,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         return statsDeriveResult;
     }
 
-    public NodeType getNodeType() {
-        return nodeType;
+    public StatisticalType getStatisticalType() {
+        return statisticalType;
     }
 
     public void setStatsDeriveResult(StatsDeriveResult statsDeriveResult) {
@@ -344,6 +318,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         tblRefIds = ids;
     }
 
+    public ArrayList<TupleId> getOutputTblRefIds() {
+        return tblRefIds;
+    }
+
+    public ArrayList<TupleId> getOutputTupleIds() {
+        return tupleIds;
+    }
+
     public Set<TupleId> getNullableTupleIds() {
         Preconditions.checkState(nullableTupleIds != null);
         return nullableTupleIds;
@@ -351,6 +333,15 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     public List<Expr> getConjuncts() {
         return conjuncts;
+    }
+
+    @Override
+    public List<StatsDeriveResult> getChildrenStats() {
+        List<StatsDeriveResult> statsDeriveResultList = Lists.newArrayList();
+        for (PlanNode child : children) {
+            statsDeriveResultList.add(child.getStatsDeriveResult());
+        }
+        return statsDeriveResultList;
     }
 
     void initCompoundPredicate(Expr expr) {
@@ -970,6 +961,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
+    public void projectOutputTuple() throws NotImplementedException {
+        throw new NotImplementedException("The `projectOutputTuple` hasn't been implemented in " + planNodeName + ". "
+        + "But it does not affect the project optimizer");
+    }
+
     /**
      * If an plan node implements this method, its child plan node has the ability to implement the project.
      * The return value of this method will be used as
@@ -989,7 +985,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
      *         agg node
      *    (required slots: a.k1)
      */
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);
     }
 

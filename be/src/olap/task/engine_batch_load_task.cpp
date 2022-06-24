@@ -65,8 +65,7 @@ EngineBatchLoadTask::~EngineBatchLoadTask() {}
 Status EngineBatchLoadTask::execute() {
     SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     Status status = Status::OK();
-    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
-        _push_req.push_type == TPushType::LOAD_V2) {
+    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();
         if (status.ok()) {
             uint32_t retry_time = 0;
@@ -301,9 +300,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
     }
 
     PushType type = PUSH_NORMAL;
-    if (request.push_type == TPushType::LOAD_DELETE) {
-        type = PUSH_FOR_LOAD_DELETE;
-    } else if (request.push_type == TPushType::LOAD_V2) {
+    if (request.push_type == TPushType::LOAD_V2) {
         type = PUSH_NORMAL_V2;
     }
 

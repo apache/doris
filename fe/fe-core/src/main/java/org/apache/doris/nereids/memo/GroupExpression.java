@@ -17,14 +17,19 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.operators.Operator;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 
 import com.clearspring.analytics.util.Lists;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
 import java.util.BitSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -36,6 +41,9 @@ public class GroupExpression {
     private final Operator op;
     private final BitSet ruleMasks;
     private boolean statDerived;
+
+    // Mapping from output properties to the corresponding best cost, statistics, and child properties.
+    private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
 
     public GroupExpression(Operator op) {
         this(op, Lists.newArrayList());
@@ -52,6 +60,7 @@ public class GroupExpression {
         this.children = Objects.requireNonNull(children);
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
+        this.lowestCostTable = Maps.newHashMap();
     }
 
     public int arity() {
@@ -104,6 +113,15 @@ public class GroupExpression {
 
     public void setStatDerived(boolean statDerived) {
         this.statDerived = statDerived;
+    }
+
+    public Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> getLowestCostTable() {
+        return lowestCostTable;
+    }
+
+    public List<PhysicalProperties> getInputPropertiesList(PhysicalProperties require) {
+        Preconditions.checkState(lowestCostTable.containsKey(require));
+        return lowestCostTable.get(require).second;
     }
 
     @Override

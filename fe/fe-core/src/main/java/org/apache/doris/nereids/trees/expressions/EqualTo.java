@@ -49,4 +49,8 @@ public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extend
         Preconditions.checkArgument(children.size() == 2);
         return new EqualTo<>(children.get(0), children.get(1));
     }
+
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitEqualTo(this, context);
+    }
 }

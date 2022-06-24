@@ -24,6 +24,8 @@ public enum NodeType {
     // plan
     LOGICAL,
     PHYSICAL,
+    // group plan
+    GROUP,
 
     // expressions
     EXPRESSION,
@@ -42,11 +44,23 @@ public enum NodeType {
     NOT,
     ALIAS,
     COMPOUND,
+    AND,
+    OR,
+    BETWEEN,
+    MULTIPLY,
+    DIVIDE,
+    MOD,
+    INT_DIVIDE,
+    ADD,
+    SUBTRACT,
+    BITAND,
+    BITOR,
+    BITXOR,
+    BITNOT,
+    FACTORIAL,
+    FUNCTIONCALL,
 
     // pattern
-    PATTERN,
-
-    // fixed
-    FIXED,
+    PATTERN
     ;
 }

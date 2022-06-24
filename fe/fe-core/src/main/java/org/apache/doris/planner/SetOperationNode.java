@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -83,23 +84,23 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId;
 
-    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, NodeType nodeType) {
-        super(id, tupleId.asList(), planNodeName, nodeType);
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, StatisticalType statisticalType) {
+        super(id, tupleId.asList(), planNodeName, statisticalType);
         this.setOpResultExprs = Lists.newArrayList();
         this.tupleId = tupleId;
         this.isInSubplan = false;
     }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
-                               List<Expr> setOpResultExprs, boolean isInSubplan, NodeType nodeType) {
-        super(id, tupleId.asList(), planNodeName, nodeType);
+                               List<Expr> setOpResultExprs, boolean isInSubplan, StatisticalType statisticalType) {
+        super(id, tupleId.asList(), planNodeName, statisticalType);
         this.setOpResultExprs = setOpResultExprs;
         this.tupleId = tupleId;
         this.isInSubplan = isInSubplan;
     }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
-        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        super(id, tupleId.asList(), planNodeName, StatisticalType.SET_OPERATION_NODE);
         this.setOpResultExprs = Lists.newArrayList();
         this.tupleId = tupleId;
         this.isInSubplan = false;
@@ -107,7 +108,7 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
                                List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        super(id, tupleId.asList(), planNodeName, StatisticalType.SET_OPERATION_NODE);
         this.setOpResultExprs = setOpResultExprs;
         this.tupleId = tupleId;
         this.isInSubplan = isInSubplan;
@@ -346,6 +347,7 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         Preconditions.checkState(conjuncts.isEmpty());
+        createDefaultSmap(analyzer);
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
     }
