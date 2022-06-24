@@ -943,7 +943,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         }
         // the size of a block: no more than 64M
         constexpr uint32_t max_block_size = 1024 * 64;
-        _batch_size_of_current_return_column =
+        _batch_size_of_return_block =
                 std::max( 1u, std::min((uint32_t)_opts.block_row_max,
                          max_block_size / std::max(1u, return_column_row_length)));
     }
@@ -951,7 +951,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     _init_current_block(block, _current_return_columns);
 
     uint32_t nrows_read = 0;
-    _read_columns_by_index(_batch_size_of_current_return_column, nrows_read,
+    _read_columns_by_index(_batch_size_of_return_block, nrows_read,
                            _lazy_materialization_read);
 
     _opts.stats->blocks_load += 1;
