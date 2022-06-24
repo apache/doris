@@ -71,7 +71,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
-/*
+/**
  * Version 2 of SchemaChangeJob.
  * This is for replacing the old SchemaChangeJob
  * https://github.com/apache/incubator-doris/issues/1429
@@ -79,6 +79,9 @@ import java.util.concurrent.TimeUnit;
 public class MigrationJob extends AlterJobV2 {
     private static final Logger LOG = LogManager.getLogger(MigrationJob.class);
 
+    // The migration job will wait all transactions before this txn id finished, then send the migration tasks.
+    @SerializedName(value = "watershedTxnId")
+    protected long watershedTxnId = -1;
     // partition id -> (shadow index id -> (shadow tablet id -> origin tablet id))
     @SerializedName(value = "partitionIndexTabletMap")
     private Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
@@ -101,9 +104,6 @@ public class MigrationJob extends AlterJobV2 {
     @SerializedName(value = "indexShortKeyMap")
     private Map<Long, Short> indexShortKeyMap = Maps.newHashMap();
 
-    // The migration job will wait all transactions before this txn id finished, then send the migration tasks.
-    @SerializedName(value = "watershedTxnId")
-    protected long watershedTxnId = -1;
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
     @SerializedName(value = "destStorageParam")
@@ -120,6 +120,14 @@ public class MigrationJob extends AlterJobV2 {
         super(JobType.MIGRATION);
     }
 
+    /**
+     * add new shadowId to tabletMap.
+     *
+     * @param partitionId partition id
+     * @param shadowIdxId shadow index id
+     * @param shadowTabletId shadow tablet id
+     * @param originTabletId origin tablet id
+     */
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
         Map<Long, Long> tabletMap = partitionIndexTabletMap.get(partitionId, shadowIdxId);
         if (tabletMap == null) {
@@ -133,6 +141,17 @@ public class MigrationJob extends AlterJobV2 {
         partitionIndexMap.put(partitionId, shadowIdxId, shadowIdx);
     }
 
+    /**
+     * make index maps.
+     *
+     * @param shadowIdxId shadowIdxId
+     * @param originIdxId originIdxId
+     * @param shadowIndexName shadowIndexName
+     * @param shadowSchemaVersion shadowSchemaVersion
+     * @param shadowSchemaHash shadowSchemaHash
+     * @param shadowIdxShortKeyCount shadowIdxShortKeyCount
+     * @param shadowIdxSchema shadowIdxSchema
+     */
     public void addIndexSchema(long shadowIdxId, long originIdxId,
                                String shadowIndexName, int shadowSchemaVersion, int shadowSchemaHash,
                                short shadowIdxShortKeyCount, List<Column> shadowIdxSchema) {
@@ -153,7 +172,7 @@ public class MigrationJob extends AlterJobV2 {
 
     /**
      * clear some date structure in this job to save memory
-     * these data structures must not used in getInfo method
+     * these data structures must not used in getInfo method.
      */
     private void pruneMeta() {
         partitionIndexTabletMap.clear();
@@ -173,7 +192,8 @@ public class MigrationJob extends AlterJobV2 {
     protected void runPendingJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
         LOG.info("begin to send create replica tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException(
+                "Database " + s + " does not exist"));
 
         if (!checkTableStable(db)) {
             return;
@@ -234,7 +254,8 @@ public class MigrationJob extends AlterJobV2 {
                                     shadowSchema, null, 0, countDownLatch, null, tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId), tbl.getDataSortInfo(),
                                     tbl.getCompressionType());
-                            createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
+                            createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
+                                    .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
@@ -254,7 +275,7 @@ public class MigrationJob extends AlterJobV2 {
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);
             long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum,
-                Config.max_create_table_timeout_second * 1000L);
+                    Config.max_create_table_timeout_second * 1000L);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -291,7 +312,8 @@ public class MigrationJob extends AlterJobV2 {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr()
+                .getTransactionIDGenerator().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
         // write edit log
@@ -314,10 +336,10 @@ public class MigrationJob extends AlterJobV2 {
 
         for (long shadowIdxId : indexIdMap.keySet()) {
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
-                indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
-                indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
-                indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
-                tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)));
+                    indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
+                    indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
+                    indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
+                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)));
         }
 
         tbl.rebuildFullSchema();
@@ -343,7 +365,8 @@ public class MigrationJob extends AlterJobV2 {
         }
 
         LOG.info("previous transactions are all finished, begin to send migration tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException(
+                "Database " + s + " does not exist"));
 
         OlapTable tbl;
         try {
@@ -378,11 +401,11 @@ public class MigrationJob extends AlterJobV2 {
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
                             StorageMediaMigrationV2Task migrationTask = new StorageMediaMigrationV2Task(
-                                shadowReplica.getBackendId(), dbId, tableId, partitionId,
-                                shadowIdxId, originIdxId,
-                                shadowTabletId, originTabletId, shadowReplica.getId(),
-                                shadowSchemaHash, originSchemaHash,
-                                visibleVersion, jobId);
+                                    shadowReplica.getBackendId(), dbId, tableId, partitionId,
+                                    shadowIdxId, originIdxId,
+                                    shadowTabletId, originTabletId, shadowReplica.getId(),
+                                    shadowSchemaHash, originSchemaHash,
+                                    visibleVersion, jobId);
                             migrationBatchTask.addTask(migrationTask);
                         }
                     }
@@ -415,7 +438,8 @@ public class MigrationJob extends AlterJobV2 {
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException(
+                "Database " + s + " does not exist"));
 
         OlapTable tbl;
         try {
@@ -429,7 +453,8 @@ public class MigrationJob extends AlterJobV2 {
             List<AgentTask> tasks = migrationBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
-                    throw new AlterCancelException("migration task failed after try three times: " + task.getErrorMsg());
+                    throw new AlterCancelException("migration task failed after try three times: "
+                            + task.getErrorMsg());
                 }
             }
             return;
@@ -449,7 +474,8 @@ public class MigrationJob extends AlterJobV2 {
                 Preconditions.checkNotNull(partition, partitionId);
 
                 long visiableVersion = partition.getVisibleVersion();
-                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(
+                        partition.getId()).getTotalReplicaNum();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
@@ -460,16 +486,16 @@ public class MigrationJob extends AlterJobV2 {
                         int healthyReplicaNum = 0;
                         for (Replica replica : replicas) {
                             if (replica.getLastFailedVersion() < 0
-                                && replica.checkVersionCatchUp(visiableVersion, false)) {
+                                    && replica.checkVersionCatchUp(visiableVersion, false)) {
                                 healthyReplicaNum++;
                             }
                         }
 
                         if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                             LOG.warn("shadow tablet {} has few healthy replicas: {}, migration job: {}",
-                                shadowTablet.getId(), replicas, jobId);
+                                    shadowTablet.getId(), replicas, jobId);
                             throw new AlterCancelException(
-                                "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
+                                    "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
                         }
                     } // end for tablets
                 }
@@ -524,7 +550,8 @@ public class MigrationJob extends AlterJobV2 {
                     Catalog.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
                 }
             }
-            tbl.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(destStorageParam.getStorageMedium()));
+            tbl.getPartitionInfo().setDataProperty(
+                    partition.getId(), new DataProperty(destStorageParam.getStorageMedium()));
         }
 
         // update index schema info of each index
@@ -598,7 +625,8 @@ public class MigrationJob extends AlterJobV2 {
                             }
                             partition.deleteRollupIndex(shadowIdx.getId());
                         }
-                        tbl.getPartitionInfo().getDataProperty(partitionId).setMigrationState(DataProperty.MigrationState.NONE);
+                        tbl.getPartitionInfo().getDataProperty(partitionId)
+                                .setMigrationState(DataProperty.MigrationState.NONE);
                     }
                     for (String shadowIndexName : indexIdToName.values()) {
                         tbl.deleteIndexInfo(shadowIndexName);
@@ -615,7 +643,8 @@ public class MigrationJob extends AlterJobV2 {
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
     protected boolean isPreviousLoadFinished() throws AnalysisException {
-        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
+        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 
     /**
@@ -638,7 +667,8 @@ public class MigrationJob extends AlterJobV2 {
                 dataProperty.setMigrationState(DataProperty.MigrationState.RUNNING);
 
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                    indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, destStorageParam.getStorageMedium());
+                        indexSchemaVersionAndHashMap.get(
+                                shadowIndexId).schemaHash, destStorageParam.getStorageMedium());
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
@@ -768,6 +798,12 @@ public class MigrationJob extends AlterJobV2 {
         }
     }
 
+    /**
+     * get unfinished migration job used to check.
+     *
+     * @param limit max task count.
+     * @return tasks
+     */
     public List<List<String>> getUnfinishedTasks(int limit) {
         List<List<String>> taskInfos = Lists.newArrayList();
         if (jobState == JobState.RUNNING) {
