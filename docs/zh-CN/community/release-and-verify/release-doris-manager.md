@@ -28,7 +28,7 @@ under the License.
 
 其代码库独立于 Doris 主代码库位于：
 
-- https://github.com/apache/incubator-doris-manager
+- https://github.com/apache/doris-manager
 
 ## 准备发布
 
@@ -79,7 +79,7 @@ $ git push origin 1.0.0-rc01
 Counting objects: 1, done.
 Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
 Total 1 (delta 0), reused 0 (delta 0)
-To git@github.com:apache/incubator-doris-manager.git
+To git@github.com:apache/doris-manager.git
  * [new tag]         1.0.0-rc01 -> 1.0.0-rc01
 
 $ git tag
@@ -90,15 +90,15 @@ $ git tag
 如下步骤，也需要通过 SecureCRT 等终端直接登录用户账户，不能通过 su - user 或者 ssh 转，否则密码输入 box 会显示不出来而报错。
 
 ```
-git archive --format=tar 1.0.0-rc01 --prefix=apache-doris-incubating-manager-src-1.0.0-rc01/ | gzip > apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
+git archive --format=tar 1.0.0-rc01 --prefix=apache-doris-manager-src-1.0.0-rc01/ | gzip > apache-doris-manager-src-1.0.0-rc01.tar.gz
 
-gpg -u xxx@apache.org --armor --output apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.asc --detach-sign apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
+gpg -u xxx@apache.org --armor --output apache-doris-manager-src-1.0.0-rc01.tar.gz.asc --detach-sign apache-doris-manager-src-1.0.0-rc01.tar.gz
 
-gpg --verify apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.asc apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
+gpg --verify apache-doris-manager-src-1.0.0-rc01.tar.gz.asc apache-doris-manager-src-1.0.0-rc01.tar.gz
 
-sha512sum apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz > apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.sha512
+sha512sum apache-doris-manager-src-1.0.0-rc01.tar.gz > apache-doris-manager-src-1.0.0-rc01.tar.gz.sha512
 
-sha512sum --check apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.sha512
+sha512sum --check apache-doris-manager-src-1.0.0-rc01.tar.gz.sha512
 ```
 
 然后将打包的内容上传到svn仓库中，首先下载 svn 库：
@@ -113,9 +113,9 @@ svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 ./doris/
 ├── doris-manager
 │   └── 1.0.0
-│       ├── apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
-│       ├── apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.asc
-│       └── apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.sha512
+│       ├── apache-doris-manager-src-1.0.0-rc01.tar.gz
+│       ├── apache-doris-manager-src-1.0.0-rc01.tar.gz.asc
+│       └── apache-doris-manager-src-1.0.0-rc01.tar.gz.sha512
 ```
 
 上传这些文件
@@ -127,27 +127,27 @@ svn commit -m "Add doris manager 1.0.0-rc01"
 
 ###  发邮件到社区 dev@doris.apache.org 进行投票
 
-[VOTE] Release Apache Doris Manager 1.0.0-incubating-rc01
+[VOTE] Release Apache Doris Manager 1.0.0-rc01
 
 ```
 Hi All,
 
-This is a call for vote to release Doris Manager v1.0.0 for Apache Doris(Incubating).
+This is a call for vote to release Doris Manager v1.0.0 for Apache Doris.
 
-- apache-doris-incubating-manager-src-1.0.0-rc01
+- apache-doris-manager-src-1.0.0-rc01
 
 The release node:
 
 
 
 The release candidates:
-https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/
+https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/
 
 Keys to verify the Release Candidate:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 
 Look at here for how to verify this release candidate:
-http://doris.incubator.apache.org/community/release-and-verify/release-verify.html
+http://doris.apache.org/community/release-and-verify/release-verify.html
 
 Vote thread at dev@doris: [1]
 
@@ -166,7 +166,7 @@ Brs，
 xxxx
 ------------------
 DISCLAIMER: 
-Apache Doris (incubating) is an effort undergoing incubation at The
+Apache Doris is an effort undergoing incubation at The
 Apache Software Foundation (ASF), sponsored by the Apache Incubator PMC.
 
 Incubation is required of all newly accepted
@@ -183,7 +183,7 @@ that the project has yet to be fully endorsed by the ASF.
 
 ### 投票通过后，发 Result 邮件
 
-[Result][VOTE] Release Apache Doris Manager 1.0.0-incubating-rc01
+[Result][VOTE] Release Apache Doris Manager 1.0.0-rc01
 
 ```text
 Thanks to everyone, and this vote is now closed.
@@ -202,10 +202,12 @@ xxx
 
 dev 邮件组通过后，再发送邮件到 general@incubator 邮件组进行 IPMC 投票。
 
+**如非孵化器项目，请跳过**
+
 ```text
 Hi all,
 
-Please review and vote on Apache Doris Manager 1.0.0-incubating-rc01 release.
+Please review and vote on Apache Doris Manager 1.0.0-rc01 release.
 
 Doris manager is a platform for automatic installation, deployment and management of Doris groups
 
@@ -216,18 +218,18 @@ The vote result email thread:
 https://lists.apache.org/thread.html/64d229f0ba15d66adc83306bc8d7b7ccd5910ecb7e842718ce6a61da@%3Cdev.doris.apache.org%3E
 
 The release candidate has been tagged in GitHub as 1.0.0-rc01, available here:
-https://github.com/apache/incubator-doris-manager/releases/tag/1.0.0-rc01
+https://github.com/apache/doris-manager/releases/tag/1.0.0-rc01
 
 There is no CHANGE LOG file because this is the first release of Apache Doris.
 Thanks to everyone who has contributed to this release, and there is a simple release notes can be found here:
-https://github.com/apache/incubator-doris/issues/406
+https://github.com/apache/doris/issues/406
 
 The artifacts (source, signature and checksum) corresponding to this release candidate can be found here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/
+https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/
 
 This has been signed with PGP key 33DBF2E0, corresponding to lide@apache.org.
 KEYS file is available here:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -240,12 +242,12 @@ To verify and build, you can refer to following instruction:
 
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
-$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
+$ wget https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/apache-doris-manager-src-1.0.0-rc01.tar.gz
 
 Step4: Build Doris
 Now you can decompress and enter Doris source path and build Doris.
-$ tar zxvf apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
-$ cd apache-doris-incubating-manager-src-1.0.0-rc01
+$ tar zxvf apache-doris-manager-src-1.0.0-rc01.tar.gz
+$ cd apache-doris-manager-src-1.0.0-rc01
 $ sh build.sh
 
 Best Regards,
@@ -253,7 +255,7 @@ xxx
 
 ----
 DISCLAIMER: 
-Apache Doris (incubating) is an effort undergoing incubation at The
+Apache Doris is an effort undergoing incubation at The
 Apache Software Foundation (ASF), sponsored by the Apache Incubator PMC.
 
 Incubation is required of all newly accepted
@@ -275,12 +277,12 @@ https://lists.apache.org/list.html?dev@doris.apache.org
 
 ### 发 Result 邮件到 general@incubator.apache.org
 
-[RESULT][VOTE] Release Apache Doris Manager 1.0.0-incubating-rc01
+[RESULT][VOTE] Release Apache Doris Manager 1.0.0-rc01
 
 ```text
 Hi,
 
-Thanks to everyone, and the vote for releasing Apache Doris Manager 1.0.0-incubating-rc01 is now closed.
+Thanks to everyone, and the vote for releasing Apache Doris Manager 1.0.0-rc01 is now closed.
 
 It has passed with 4 +1 (binding) votes and no 0 or -1 votes.
 

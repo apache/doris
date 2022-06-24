@@ -26,7 +26,7 @@ under the License.
 
 # Release Doris Core
 
-Doris Core refers to the content published in https://github.com/apache/incubator-doris.
+Doris Core refers to the content published in https://github.com/apache/doris.
 
 ## Preparing for release
 

@@ -28,7 +28,7 @@ under the License.
 
 - The Flink Doris Connector can support operations (read, insert, modify, delete) data stored in Doris through Flink.
 
-Github: https://github.com/apache/incubator-doris-flink-connector
+Github: [doris-flink-connector](https://github.com/apache/doris-flink-connector)
 
 * `Doris` table can be mapped to `DataStream` or `Table`.
 

@@ -28,7 +28,7 @@ under the License.
 
 Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据，也支持通过Spark写入数据到Doris。
 
-代码库地址：https://github.com/apache/incubator-doris-spark-connector
+代码库地址：[doris-spark-connector](https://github.com/apache/doris-spark-connector)
 
 - 支持从`Doris`中读取数据
 - 支持`Spark DataFrame`批量/流式 写入`Doris`

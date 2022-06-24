@@ -33,8 +33,8 @@ Doris Connectors 目前包含：
 
 其代码库独立于 Doris 主代码库，分别位于：
 
-- https://github.com/apache/incubator-doris-flink-connector
-- https://github.com/apache/incubator-doris-spark-connector
+- https://github.com/apache/doris-flink-connector
+- https://github.com/apache/doris-spark-connector
 
 ## 准备发布
 
@@ -210,6 +210,8 @@ Please vote accordingly:
 ```
 
 dev 邮件组通过后，再发送邮件到 general@incubator 邮件组进行 IPMC 投票。
+
+**如非孵化器项目，请跳过**
 
 ```
 Hi All,

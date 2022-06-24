@@ -28,7 +28,7 @@ under the License.
 
 Its codebase is separate from the main Doris codebase at:
 
-- https://github.com/apache/incubator-doris-manager
+- https://github.com/apache/doris-manager
 
 ## ready to publish
 
@@ -79,7 +79,7 @@ $ git push origin 1.0.0-rc01
 Counting objects: 1, done.
 Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
 Total 1 (delta 0), reused 0 (delta 0)
-To git@github.com:apache/incubator-doris-manager.git
+To git@github.com:apache/doris-manager.git
  * [new tag] 1.0.0-rc01 -> 1.0.0-rc01
 
 $ git tag
@@ -90,21 +90,21 @@ $ git tag
 In the following steps, you also need to log in to the user account directly through a terminal such as SecureCRT. You cannot switch it through su - user or ssh, otherwise the password input box will not be displayed and an error will be reported.
 
 ````
-git archive --format=tar 1.0.0-rc01 --prefix=apache-doris-incubating-manager-src-1.0.0-rc01/ | gzip > apache-doris-incubating-manager-src-1.0.0-rc01 .tar.gz
+git archive --format=tar 1.0.0-rc01 --prefix=apache-doris-manager-src-1.0.0-rc01/ | gzip > apache-doris-manager-src-1.0.0-rc01 .tar.gz
 
-gpg -u xxx@apache.org --armor --output apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.asc --detach-sign apache-doris-incubating-manager-src- 1.0.0-rc01.tar.gz
+gpg -u xxx@apache.org --armor --output apache-doris-manager-src-1.0.0-rc01.tar.gz.asc --detach-sign apache-doris-manager-src- 1.0.0-rc01.tar.gz
 
-gpg --verify apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.asc apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
+gpg --verify apache-doris-manager-src-1.0.0-rc01.tar.gz.asc apache-doris-manager-src-1.0.0-rc01.tar.gz
 
-sha512sum apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz > apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.sha512
+sha512sum apache-doris-manager-src-1.0.0-rc01.tar.gz > apache-doris-manager-src-1.0.0-rc01.tar.gz.sha512
 
-sha512sum --check apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.sha512
+sha512sum --check apache-doris-manager-src-1.0.0-rc01.tar.gz.sha512
 ````
 
 Then upload the packaged content to the svn repository, first download the svn library:
 
 ````
-svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/doris/
 ````
 
 Organize all the files obtained before into the following svn paths
@@ -127,24 +127,24 @@ svn commit -m "Add doris manager 1.0.0-rc01"
 
 ### Email the community dev@doris.apache.org to vote
 
-[VOTE] Release Apache Doris Manager 1.0.0-incubating-rc01
+[VOTE] Release Apache Doris Manager 1.0.0-rc01
 
 ````
 Hi All,
 
-This is a call for vote to release Doris Manager v1.0.0 for Apache Doris(Incubating).
+This is a call for vote to release Doris Manager v1.0.0 for Apache Doris.
 
-- apache-doris-incubating-manager-src-1.0.0-rc01
+- apache-doris-manager-src-1.0.0-rc01
 
 The release node:
 
 
 
 The release candidates:
-https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/
+https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/
 
 Keys to verify the Release Candidate:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 
 Look at here for how to verify this release candidate:
 http://doris.incubator.apache.org/community/release-and-verify/release-verify.html
@@ -166,7 +166,7 @@ Brs,
 xxxx
 ------------------
 DISCLAIMER:
-Apache Doris (incubating) is an effort undergoing incubation at The
+Apache Doris is an effort undergoing incubation at The
 Apache Software Foundation (ASF), sponsored by the Apache Incubator PMC.
 
 Incubation is required of all newly accepted
@@ -201,6 +201,8 @@ xxx
 ````
 
 After passing the dev mailing group, send an email to the general@incubator mailing group for IPMC voting.
+
+**If not an incubator program, please skip**
 
 ````text
 Hi all,

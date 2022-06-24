@@ -33,8 +33,8 @@ Doris Connectors currently contains:
 
 The code base is separate from the main Doris code base and is located at:
 
-- https://github.com/apache/incubator-doris-flink-connector
-- https://github.com/apache/incubator-doris-spark-connector
+- https://github.com/apache/doris-flink-connector
+- https://github.com/apache/doris-spark-connector
 
 ## Preparing for release
 
@@ -210,6 +210,8 @@ Please vote accordingly:
 ```
 
 After the dev mail group is approved, send an email to the general@incubator mail group for IPMC voting.
+
+**If not an incubator program, please skip**
 
 ```
 Hi All,
