@@ -183,7 +183,8 @@ public class InferFiltersRule implements ExprRewriteRule {
                     }
                     analyzer.registerGlobalSlotToLiteralDeDuplication(pair);
                 }
-            } else if (conjunct.getChild(0).unwrapSlotRef() instanceof SlotRef
+            } else if (((BinaryPredicate) conjunct).getOp().isEquivalence()
+                    && conjunct.getChild(0).unwrapSlotRef() instanceof SlotRef
                     && conjunct.getChild(1).unwrapSlotRef() instanceof SlotRef) {
                 Pair<Expr, Expr> pair = new Pair<>(conjunct.getChild(0).unwrapSlotRef(),
                                                    conjunct.getChild(1).unwrapSlotRef());

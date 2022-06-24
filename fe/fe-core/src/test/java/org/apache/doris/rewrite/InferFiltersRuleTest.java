@@ -77,7 +77,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //default enableInferPredicate = true;
     public void testRewritten() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -85,6 +84,16 @@ public class InferFiltersRuleTest {
         String query = "select * from tb1, tb2 where tb1.k1 = 1 and tb1.k1 = tb2.k1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
+    }
+
+    @Test
+    public void testUnequalSlotPredicate() throws Exception {
+        SessionVariable sessionVariable = dorisAssert.getSessionVariable();
+        sessionVariable.setEnableInferPredicate(true);
+        Assert.assertTrue(sessionVariable.isEnableInferPredicate());
+        String query = "select * from tb1, tb2 where tb1.k1 = 1 and tb1.k1 > tb2.k1";
+        String planString = dorisAssert.query(query).explainQuery();
+        Assert.assertFalse(planString.contains("`tb2`.`k1` = 1"));
     }
 
     @Test
@@ -99,7 +108,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testOn2TablesLeftSemiJoinEqLiteralAt2nd() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -110,7 +118,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testOn2TablesLeftSemiJoinEqLiteralAt1st() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -121,7 +128,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testOn2TablesLeftAntiJoinEqLiteralAt2nd() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -142,7 +148,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testOn3Tables1stInner2ndRightJoinEqLiteralAt2nd() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -197,7 +202,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testWhere3TablesInnerJoinRewritten() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -220,7 +224,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testWhere3Tables1stInner2ndLeftJoinEqLiteralAt3rd() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -232,7 +235,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testWhere3Tables1stInner2ndLeftJoinEqLiteralAt2nd() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
@@ -244,7 +246,6 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    //set enableInferPredicate = true;
     public void testWhere3Tables1stInner2ndRightJoinEqLiteralAt2nd() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
