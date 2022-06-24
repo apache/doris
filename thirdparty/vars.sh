@@ -32,9 +32,6 @@ export TP_SOURCE_DIR=$TP_DIR/src
 # thirdparties will be installed to here
 export TP_INSTALL_DIR=$TP_DIR/installed
 
-# libhdfs3-with-kerberos will be installed to here
-export HDFS3_KRB5_INSTALL_DIR=$TP_INSTALL_DIR/libhdfs_with_kerberos
-
 # patches for all thirdparties
 export TP_PATCH_DIR=$TP_DIR/patches
 
@@ -48,7 +45,7 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
 # source of all dependencies, default unuse it
-# export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+export REPOSITORY_URL=https://doris-thirdparty-hk-1308700295.cos.ap-hongkong.myqcloud.com/thirdparty
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -151,6 +148,18 @@ RE2_DOWNLOAD="https://github.com/google/re2/archive/2021-02-02.tar.gz"
 RE2_NAME=re2-2021-02-02.tar.gz
 RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
+
+# hyperscan
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.0
+HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+
+# ragel (dependency for hyperscan)
+RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"
+RAGEL_NAME=ragel-6.10.tar.gz
+RAGEL_SOURCE=ragel-6.10
+RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
 BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
@@ -372,11 +381,37 @@ SIMDJSON_NAME=simdjson-1.0.2.tar.gz
 SIMDJSON_SOURCE=simdjson-1.0.2
 SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
 
+# nlohmann_json
+NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
+NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
+NLOHMANN_JSON_SOURCE=json-3.10.1
+NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# opentelemetry-proto
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
+OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+
+# opentelemetry
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
+OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
+
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
 LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
+
+# sse2noen
+SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.5.1.tar.gz"
+SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
+SSE2NEON_SOURCE=sse2neon-1.5.1
+SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
+
+
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
@@ -395,6 +430,8 @@ BZIP
 LZO2
 CURL
 RE2
+HYPERSCAN
+RAGEL
 BOOST
 MYSQL
 ODBC
@@ -431,4 +468,8 @@ PDQSORT
 BENCHMARK
 XSIMD
 SIMDJSON
-LIBBACKTRACE"
+NLOHMANN_JSON
+OPENTELEMETRY_PROTO
+OPENTELEMETRY
+LIBBACKTRACE
+SSE2NEON"
