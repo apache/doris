@@ -44,6 +44,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
@@ -414,6 +415,8 @@ public class StmtExecutor implements ProfileWriter {
                 handleSetStmt();
             } else if (parsedStmt instanceof EnterStmt) {
                 handleEnterStmt();
+            } else if (parsedStmt instanceof SwitchStmt) {
+                handleSwitchStmt();
             } else if (parsedStmt instanceof UseStmt) {
                 handleUseStmt();
             } else if (parsedStmt instanceof TransactionStmt) {
@@ -1407,6 +1410,18 @@ public class StmtExecutor implements ProfileWriter {
     private void handleUnsupportedStmt() {
         context.getMysqlChannel().reset();
         // do nothing
+        context.getState().setOk();
+    }
+
+    // Process switch catalog
+    private void handleSwitchStmt() throws AnalysisException {
+        SwitchStmt switchStmt = (SwitchStmt) parsedStmt;
+        try {
+            context.getCatalog().changeCatalog(context, switchStmt.getCatalogName());
+        } catch (DdlException e) {
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            return;
+        }
         context.getState().setOk();
     }
 

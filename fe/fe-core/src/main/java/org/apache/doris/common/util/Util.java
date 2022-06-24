@@ -20,6 +20,9 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -456,5 +459,30 @@ public class Util {
             return "\\" + s;
         }
         return s;
+    }
+
+    /**
+     * Multi-catalog feature is in experiment, and should be enabled by user manually.
+     */
+    public static void checkCatalogEnabled() throws AnalysisException {
+        if (!Config.enable_multi_catalog) {
+            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
+                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
+        }
+    }
+
+    /**
+     * Check all rules of catalog.
+     */
+    public static void checkCatalogAllRules(String catalog) throws AnalysisException {
+        checkCatalogEnabled();
+
+        if (Strings.isNullOrEmpty(catalog)) {
+            throw new AnalysisException("Catalog name is empty.");
+        }
+
+        if (!catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+            FeNameFormat.checkCommonName("catalog", catalog);
+        }
     }
 }

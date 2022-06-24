@@ -353,12 +353,45 @@ public class PaloAuth implements Writable {
         return false;
     }
 
+    public boolean checkCtlPriv(ConnectContext ctx, String ctl, PrivPredicate wanted) {
+        return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted);
+    }
+
+    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        if (!Config.enable_auth_check) {
+            return true;
+        }
+        if (wanted.getPrivs().containsNodePriv()) {
+            LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
+                    currentUser, ctl);
+            return false;
+        }
+
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        if (checkGlobalInternal(currentUser, wanted, savedPrivs)
+                || checkCatalogInternal(currentUser, ctl, wanted, savedPrivs)) {
+            return true;
+        }
+
+        // if user has any privs of databases or tables in this catalog, and the wanted priv is SHOW, return true
+        if (ctl != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinCatalog(currentUser, ctl)) {
+            return true;
+        }
+
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        return false;
+    }
+
     public boolean checkDbPriv(ConnectContext ctx, String qualifiedDb, PrivPredicate wanted) {
         return checkDbPriv(ctx.getCurrentUserIdentity(), qualifiedDb, wanted);
     }
 
     public boolean checkDbPriv(UserIdentity currentUser, String db, PrivPredicate wanted) {
         return checkDbPriv(currentUser, DEFAULT_CATALOG, db, wanted);
+    }
+
+    public boolean checkDbPriv(ConnectContext ctx, String ctl, String db, PrivPredicate wanted) {
+        return checkDbPriv(ctx.getCurrentUserIdentity(), ctl, db, wanted);
     }
 
     /*
@@ -383,7 +416,7 @@ public class PaloAuth implements Writable {
         }
 
         // if user has any privs of table in this db, and the wanted priv is SHOW, return true
-        if (ctl != null && db != null && wanted == PrivPredicate.SHOW && checkTblWithDb(currentUser, ctl, db)) {
+        if (ctl != null && db != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(currentUser, ctl, db)) {
             return true;
         }
 
@@ -392,11 +425,26 @@ public class PaloAuth implements Writable {
     }
 
     /*
+     * User may not have privs on a catalog, but have privs of databases or tables in this catalog.
+     * So we have to check if user has any privs of databases or tables in this catalog.
+     * if so, the catalog should be visible to this user.
+     */
+    private boolean checkAnyPrivWithinCatalog(UserIdentity currentUser, String ctl) {
+        readLock();
+        try {
+            return dbPrivTable.hasPrivsOfCatalog(currentUser, ctl)
+                    || tablePrivTable.hasPrivsOfCatalog(currentUser, ctl);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /*
      * User may not have privs on a database, but have privs of tables in this database.
      * So we have to check if user has any privs of tables in this database.
      * if so, the database should be visible to this user.
      */
-    private boolean checkTblWithDb(UserIdentity currentUser, String ctl, String db) {
+    private boolean checkAnyPrivWithinDb(UserIdentity currentUser, String ctl, String db) {
         readLock();
         try {
             return (isLdapAuthEnabled() && LdapPrivsChecker.hasPrivsOfDb(currentUser, db))
