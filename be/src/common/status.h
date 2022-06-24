@@ -403,16 +403,16 @@ public:
                OLAP_ERR_TEST_FILE_ERROR == p_code || OLAP_ERR_ROWBLOCK_READ_INFO_ERROR == p_code;
     }
 
-    /// @return @c true iff the status indicates Uninitialized.
+    /// @return @c true if the status indicates Uninitialized.
     bool is_uninitialized() const { return code() == TStatusCode::UNINITIALIZED; }
 
-    // @return @c true iff the status indicates an Aborted error.
+    // @return @c true if the status indicates an Aborted error.
     bool is_aborted() const { return code() == TStatusCode::ABORTED; }
 
-    /// @return @c true iff the status indicates an InvalidArgument error.
+    /// @return @c true if the status indicates an InvalidArgument error.
     bool is_invalid_argument() const { return code() == TStatusCode::INVALID_ARGUMENT; }
 
-    // @return @c true iff the status indicates ServiceUnavailable.
+    // @return @c true if the status indicates ServiceUnavailable.
     bool is_service_unavailable() const { return code() == TStatusCode::SERVICE_UNAVAILABLE; }
 
     bool is_data_quality_error() const { return code() == TStatusCode::DATA_QUALITY_ERROR; }

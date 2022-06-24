@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -29,14 +30,31 @@ import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Function;
 
 /**
  * Sql parser, convert sql DSL to logical plan.
  */
-public class SqlParser {
+public class NereidsParser {
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
+
+    /**
+     * In MySQL protocol, client could send multi-statement in.
+     * a single packet.
+     * https://dev.mysql.com/doc/internals/en/com-set-option.html
+     */
+    public List<StatementBase> parseSQL(String originStr) throws Exception {
+        List<LogicalPlan> logicalPlanList = parseMultiple(originStr);
+        List<StatementBase> statementBaseList = new ArrayList<>();
+        for (LogicalPlan logicalPlan : logicalPlanList) {
+            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan);
+            statementBaseList.add(logicalPlanAdapter);
+        }
+        return statementBaseList;
+    }
 
     /**
      * parse sql DSL string.
@@ -44,11 +62,25 @@ public class SqlParser {
      * @param sql sql string
      * @return logical plan
      */
-    public LogicalPlan parse(String sql) {
+    public LogicalPlan parseSingle(String sql) {
         return (LogicalPlan) parse(sql, DorisParser::singleStatement);
     }
 
-    private TreeNode<?> parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
+    public List<LogicalPlan> parseMultiple(String sql) {
+        return (List<LogicalPlan>) parse(sql, DorisParser::multiStatements);
+    }
+
+    public Expression parseExpression(String expression) {
+        return (Expression) parse(expression, DorisParser::expression);
+    }
+
+    private Object parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
+        ParserRuleContext tree = toAst(sql, parseFunction);
+        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
+        return logicalPlanBuilder.visit(tree);
+    }
+
+    private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         DorisParser parser = new DorisParser(tokenStream);
@@ -70,12 +102,6 @@ public class SqlParser {
             parser.getInterpreter().setPredictionMode(PredictionMode.LL);
             tree = parseFunction.apply(parser);
         }
-
-        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-        return (TreeNode<?>) logicalPlanBuilder.visit(tree);
-    }
-
-    public Expression createExpression(String expression) {
-        return (Expression) parse(expression, DorisParser::expression);
+        return tree;
     }
 }

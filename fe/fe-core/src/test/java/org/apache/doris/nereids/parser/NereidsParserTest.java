@@ -24,13 +24,38 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class ParserTest {
+import java.util.List;
+
+public class NereidsParserTest {
+
+    @Test
+    public void testParseMultiple() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "SELECT b FROM test;SELECT a FROM test;";
+        List<LogicalPlan> logicalPlanList = nereidsParser.parseMultiple(sql);
+        Assertions.assertEquals(2, logicalPlanList.size());
+    }
+
+    @Test
+    public void testSingle() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "SELECT * FROM test;";
+        Exception exceptionOccurred = null;
+        try {
+            nereidsParser.parseSingle(sql);
+        } catch (Exception e) {
+            exceptionOccurred = e;
+            e.printStackTrace();
+        }
+        Assertions.assertNull(exceptionOccurred);
+    }
+
     @Test
     public void testErrorListener() {
         Exception exception = Assertions.assertThrows(ParseException.class, () -> {
             String sql = "select * from t1 where a = 1 illegal_symbol";
-            SqlParser sqlParser = new SqlParser();
-            sqlParser.parse(sql);
+            NereidsParser nereidsParser = new NereidsParser();
+            nereidsParser.parseSingle(sql);
         });
         Assertions.assertEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n",
                 exception.getMessage());
@@ -39,8 +64,8 @@ public class ParserTest {
     @Test
     public void testPostProcessor() {
         String sql = "select `AD``D` from t1 where a = 1";
-        SqlParser sqlParser = new SqlParser();
-        LogicalPlan logicalPlan = sqlParser.parse(sql);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
         LogicalProject logicalProject = (LogicalProject) logicalPlan.getOperator();
         Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
     }

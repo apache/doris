@@ -15,10 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.nereids.trees.expressions;
 
-public class VecNotImplException extends UserException {
-    public VecNotImplException(String msg) {
-        super(msg);
+import org.apache.doris.nereids.trees.NodeType;
+
+/**
+ * And predicate expression.
+ */
+public class And<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends CompoundPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    /**
+     * Desc: Constructor for CompoundPredicate.
+     *
+     * @param left  left child of comparison predicate
+     * @param right right child of comparison predicate
+     */
+    public And(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.AND, left, right);
     }
 }

@@ -24,7 +24,6 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
@@ -52,7 +51,6 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -61,7 +59,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -81,7 +78,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -684,17 +680,10 @@ public class Alter {
             // 4. data property
             // 4.1 get old data property from partition
             DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-            // 4.2 combine the old properties with new ones
-            Map<String, String> newProperties = new HashMap<>();
-            newProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, dataProperty.getStorageMedium().name());
-            DateLiteral dateLiteral = new DateLiteral(dataProperty.getCooldownTimeMs(),
-                    TimeUtils.getTimeZone(), Type.DATETIME);
-            newProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, dateLiteral.getStringValue());
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, dataProperty.getRemoteStoragePolicy());
-            newProperties.putAll(properties);
-            // 4.3 analyze new properties
-            DataProperty newDataProperty =
-                    PropertyAnalyzer.analyzeDataProperty(newProperties, DataProperty.DEFAULT_DATA_PROPERTY);
+            Map<String, String> modifiedProperties = Maps.newHashMap();
+            modifiedProperties.putAll(properties);
+            // 4.2 analyze new properties
+            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(modifiedProperties, dataProperty);
 
             // 1. date property
             if (newDataProperty != null) {

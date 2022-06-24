@@ -204,7 +204,7 @@ public class DorisAssert {
                 }
             }
             Planner planner = stmtExecutor.planner();
-            String explainString = planner.getExplainString(planner.getFragments(), new ExplainOptions(false, false));
+            String explainString = planner.getExplainString(new ExplainOptions(false, false));
             System.out.println(explainString);
             return explainString;
         }
