@@ -21,6 +21,7 @@
 #include <gperftools/nallocx.h>
 #include <gperftools/tcmalloc.h>
 
+#include "runtime/mem_tracker.h"
 #include "runtime/thread_context.h"
 
 // Notice: modify the command in New/Delete Hook should be careful enough!,
@@ -38,12 +39,16 @@
 void new_hook(const void* ptr, size_t size) {
     if (doris::tls_ctx()) {
         doris::tls_ctx()->consume_mem(tc_nallocx(size, 0));
+    } else if (doris::ExecEnv::GetInstance()->initialized()) {
+        doris::MemTracker::get_process_tracker()->consume(tc_nallocx(size, 0));
     }
 }
 
 void delete_hook(const void* ptr) {
     if (doris::tls_ctx()) {
         doris::tls_ctx()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
+    } else if (doris::ExecEnv::GetInstance()->initialized()) {
+        doris::MemTracker::get_process_tracker()->release(tc_malloc_size(const_cast<void*>(ptr)));
     }
 }
 
