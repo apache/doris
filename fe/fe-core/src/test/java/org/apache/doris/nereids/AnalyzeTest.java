@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -75,15 +76,14 @@ public class AnalyzeTest extends TestWithFeService {
     private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
         Memo memo = new Memo();
         memo.initialize(inputPlan);
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, connectContext, new PhysicalProperties());
-        optimizerContext.pushJob(
-            new RewriteBottomUpJob(memo.getRoot(), new BindSlotReference().buildRules(), plannerContext)
-        );
-        optimizerContext.pushJob(
-            new RewriteBottomUpJob(memo.getRoot(), new BindRelation().buildRules(), plannerContext)
-        );
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
+        plannerContext.pushJob(new RewriteBottomUpJob(memo.getRoot(), new BindSlotReference().buildRules(),
+                plannerContext.getCurrentJobContext()));
+        plannerContext.pushJob(new RewriteBottomUpJob(memo.getRoot(), new BindRelation().buildRules(),
+                plannerContext.getCurrentJobContext()));
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
         return (LogicalPlan) memo.copyOut();
     }
 

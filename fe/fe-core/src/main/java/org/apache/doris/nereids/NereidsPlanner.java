@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
@@ -91,14 +92,15 @@ public class NereidsPlanner extends Planner {
         Memo memo = new Memo();
         memo.initialize(plan);
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        plannerContext = new PlannerContext(optimizerContext, connectContext, outputProperties);
+        plannerContext = new PlannerContext(memo, connectContext);
+        JobContext jobContext = new JobContext(plannerContext, outputProperties, Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
 
-        plannerContext.getOptimizerContext().pushJob(
-                new RewriteBottomUpJob(getRoot(), optimizerContext.getRuleSet().getAnalysisRules(), plannerContext));
+        plannerContext.pushJob(new RewriteBottomUpJob(getRoot(), plannerContext.getRuleSet().getAnalysisRules(),
+                plannerContext.getCurrentJobContext()));
 
-        plannerContext.getOptimizerContext().pushJob(new OptimizeGroupJob(getRoot(), plannerContext));
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+        this.plannerContext.pushJob(new OptimizeGroupJob(getRoot(), plannerContext.getCurrentJobContext()));
+        this.plannerContext.getJobScheduler().executeJobPool(this.plannerContext);
 
         // Get plan directly. Just for SSB.
         return getRoot().extractPlan();
@@ -110,7 +112,7 @@ public class NereidsPlanner extends Planner {
     }
 
     public Group getRoot() {
-        return plannerContext.getOptimizerContext().getMemo().getRoot();
+        return plannerContext.getMemo().getRoot();
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)
