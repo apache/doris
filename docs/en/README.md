@@ -62,7 +62,7 @@ under the License.
         </div>
         <div class="newsboxImg">
           <div class="newsboxImgBox">
-            <img src="/blog-images/graduate.jpeg" alt="img">
+            <img src="/blog-images/graduate.jpg" alt="img">
           </div>
         </div>
       </a>
