@@ -34,6 +34,7 @@ public enum RuleType {
     // rewrite rules
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
+    REWRITE_AGG(RuleTypeClass.REWRITE),
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE(RuleTypeClass.EXPLORATION),

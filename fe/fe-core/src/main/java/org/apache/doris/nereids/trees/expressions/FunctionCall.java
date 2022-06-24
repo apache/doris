@@ -44,6 +44,14 @@ public class FunctionCall extends Expression {
         this(new FunctionName(functionName), functionParams);
     }
 
+    public FunctionName getFnName() {
+        return fnName;
+    }
+
+    public FunctionParams getFnParams() {
+        return fnParams;
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitFunctionCall(this, context);
     }

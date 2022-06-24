@@ -43,6 +43,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     private final List<Expression> groupByExpressions;
     private final List<? extends NamedExpression> outputExpressions;
+    private boolean isMerge;
 
     /**
      * Desc: Constructor for LogicalAggregation.
@@ -52,6 +53,14 @@ public class LogicalAggregation extends LogicalUnaryOperator {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExpressions = groupByExpressions;
         this.outputExpressions = outputExpressions;
+    }
+
+    public LogicalAggregation(List<Expression> groupByExpressions,
+            List<? extends NamedExpression> outputExpressions, boolean isMerge) {
+        super(OperatorType.LOGICAL_AGGREGATION);
+        this.groupByExpressions = groupByExpressions;
+        this.outputExpressions = outputExpressions;
+        this.isMerge = isMerge;
     }
 
     /**
@@ -94,5 +103,9 @@ public class LogicalAggregation extends LogicalUnaryOperator {
     @Override
     public List<Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>().addAll(groupByExpressions).addAll(outputExpressions).build();
+    }
+
+    public boolean isMerge() {
+        return isMerge;
     }
 }

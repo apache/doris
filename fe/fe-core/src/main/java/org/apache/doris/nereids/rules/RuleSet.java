@@ -37,6 +37,7 @@ import java.util.List;
 public class RuleSet {
     public static final List<Rule<Plan>> ANALYSIS_RULES = planRuleFactories()
             .add(new BindRelation())
+            .add(new )
             .build();
 
     public static final List<Rule<Plan>> EXPLORATION_RULES = planRuleFactories()
