@@ -915,10 +915,12 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             _block_rowids.resize(_opts.block_row_max);
         }
         _current_return_columns.resize(_schema.columns().size());
+        uint32_t return_column_row_length = 0;
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
+                return_column_row_length += column_desc->length();
                 _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
                         column_desc->type(), column_desc->is_nullable());
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
@@ -935,13 +937,22 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
+        //count non predicate column size
+        for (auto cid : _non_predicate_columns) {
+            return_column_row_length += _schema.column(cid)->length();
+        }
+        // the size of a block: no more than 64M
+        constexpr uint32_t max_block_size = 1024 * 64;
+        _batch_size_of_current_return_column =
+                std::max( 1u, std::min((uint32_t)_opts.block_row_max,
+                         max_block_size / std::max(1u, return_column_row_length)));
     }
 
     _init_current_block(block, _current_return_columns);
 
     uint32_t nrows_read = 0;
-    uint32_t nrows_read_limit = _opts.block_row_max;
-    _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
+    _read_columns_by_index(_batch_size_of_current_return_column, nrows_read,
+                           _lazy_materialization_read);
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += nrows_read;
