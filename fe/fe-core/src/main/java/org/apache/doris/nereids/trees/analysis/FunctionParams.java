@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.analysis;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -79,5 +80,15 @@ public class FunctionParams {
             }
         }
         return result;
+    }
+
+    @Override
+    public String toString() {
+        String str = isDistinct ? "DISTINCT " : "";
+        if (isStar) {
+            return str + "*";
+        } else {
+            return str + Joiner.on(", ").join(expression);
+        }
     }
 }

@@ -44,17 +44,12 @@ import java.util.List;
  * Used to convert expression of new optimizer to stale expr.
  */
 @SuppressWarnings("rawtypes")
-public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorContext> {
+public class ExpressionConverter extends DefaultExpressionVisitor<Expr, PlanTranslatorContext> {
 
     public static ExpressionConverter converter = new ExpressionConverter();
 
     public static Expr convert(Expression expression, PlanTranslatorContext planContext) {
         return converter.visit(expression, planContext);
-    }
-
-    @Override
-    public Expr visit(Expression expr, PlanTranslatorContext context) {
-        return expr.accept(this, context);
     }
 
     @Override
@@ -143,7 +138,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorC
     }
 
     @Override
-    public Expr visitBetweenPredicate(BetweenPredicate betweenPredicate, PlanTranslatorContext context) {
+    public Expr visitBetween(Between between, PlanTranslatorContext context) {
         throw new RuntimeException("Unexpected invocation");
     }
 
@@ -171,7 +166,7 @@ public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorC
 
     @Override
     public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
-        Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithOperator();
+        Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithmeticOperator();
         return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
                 visit(arithmetic.child(0), context),
                 arithmeticOperator.isBinary() ? visit(arithmetic.child(1), context) : null);

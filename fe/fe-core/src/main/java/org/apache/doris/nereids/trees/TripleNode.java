@@ -18,52 +18,29 @@
 package org.apache.doris.nereids.trees;
 
 /**
- * Types for all TreeNode in Nereids, include Plan and Expression.
+ * interface for all tree node that have two children.
  */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
-    // group plan
-    GROUP,
+public interface TripleNode<
+            NODE_TYPE extends TreeNode<NODE_TYPE>,
+            FIRST_CHILD_TYPE extends TreeNode,
+            SECOND_CHILD_TYPE extends TreeNode,
+            THIRD_CHILD_TYPE extends TreeNode>
+        extends TreeNode<NODE_TYPE> {
 
-    // expressions
-    EXPRESSION,
-    UNBOUND_FUNCTION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    BOUND_STAR,
-    BOUND_FUNCTION,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
-    AND,
-    OR,
-    BETWEEN,
-    MULTIPLY,
-    DIVIDE,
-    MOD,
-    INT_DIVIDE,
-    ADD,
-    SUBTRACT,
-    BITAND,
-    BITOR,
-    BITXOR,
-    BITNOT,
-    FACTORIAL,
-    FUNCTION_CALL,
+    default FIRST_CHILD_TYPE first() {
+        return (FIRST_CHILD_TYPE) child(0);
+    }
 
-    // pattern
-    PATTERN
-    ;
+    default SECOND_CHILD_TYPE second() {
+        return (SECOND_CHILD_TYPE) child(1);
+    }
+
+    default THIRD_CHILD_TYPE third() {
+        return (THIRD_CHILD_TYPE) child(2);
+    }
+
+    @Override
+    default int arity() {
+        return 3;
+    }
 }

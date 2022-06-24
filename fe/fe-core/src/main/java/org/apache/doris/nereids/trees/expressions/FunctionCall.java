@@ -21,6 +21,8 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.analysis.FunctionParams;
 
+import java.util.List;
+
 /**
  * Logical FunctionCall Expression.
  */
@@ -31,7 +33,7 @@ public class FunctionCall extends Expression {
     private FunctionParams fnParams;
 
     private FunctionCall(FunctionName functionName, FunctionParams functionParams) {
-        super(NodeType.FUNCTIONCALL, functionParams.getExpressionList().toArray(new Expression[0]));
+        super(NodeType.FUNCTION_CALL, functionParams.getExpressionList().toArray(new Expression[0]));
         this.fnName = functionName;
         this.fnParams = functionParams;
     }
@@ -54,5 +56,15 @@ public class FunctionCall extends Expression {
 
     public FunctionParams getFnParams() {
         return fnParams;
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        return new FunctionCall(fnName, new FunctionParams(fnParams.isDistinct(), children));
+    }
+
+    @Override
+    public String toString() {
+        return fnName.toString() + "(" + fnParams + ")";
     }
 }

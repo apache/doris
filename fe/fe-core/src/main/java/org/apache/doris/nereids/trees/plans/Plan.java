@@ -43,4 +43,5 @@ public interface Plan extends TreeNode<Plan>, PlanStats {
     Plan withOutput(List<Slot> output);
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
+
 }

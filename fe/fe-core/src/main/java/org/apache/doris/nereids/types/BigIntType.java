@@ -15,55 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees;
+package org.apache.doris.nereids.types;
+
+import org.apache.doris.catalog.Type;
 
 /**
- * Types for all TreeNode in Nereids, include Plan and Expression.
+ * BigInt data type in Nereids.
  */
-public enum NodeType {
-    // plan
-    LOGICAL,
-    PHYSICAL,
-    // group plan
-    GROUP,
+public class BigIntType extends IntegralType {
+    public static BigIntType INSTANCE = new BigIntType();
 
-    // expressions
-    EXPRESSION,
-    UNBOUND_FUNCTION,
-    UNBOUND_ALIAS,
-    UNBOUND_SLOT,
-    UNBOUND_STAR,
-    BOUND_STAR,
-    BOUND_FUNCTION,
-    LITERAL,
-    SLOT_REFERENCE,
-    COMPARISON_PREDICATE,
-    EQUAL_TO,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_THAN_EQUAL,
-    GREATER_THAN_EQUAL,
-    NULL_SAFE_EQUAL,
-    NOT,
-    ALIAS,
-    COMPOUND,
-    AND,
-    OR,
-    BETWEEN,
-    MULTIPLY,
-    DIVIDE,
-    MOD,
-    INT_DIVIDE,
-    ADD,
-    SUBTRACT,
-    BITAND,
-    BITOR,
-    BITXOR,
-    BITNOT,
-    FACTORIAL,
-    FUNCTION_CALL,
-
-    // pattern
-    PATTERN
-    ;
+    @Override
+    public Type toCatalogDataType() {
+        return Type.BIGINT;
+    }
 }
+
