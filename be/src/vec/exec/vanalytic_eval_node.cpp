@@ -239,7 +239,7 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
     for (size_t i = 0; i < _agg_functions_size; ++i) VExpr::close(_agg_expr_ctxs[i], state);
     for (auto* agg_function : _agg_functions) agg_function->close(state);
 
-    _destory_agg_status();
+    _destroy_agg_status();
     return ExecNode::close(state);
 }
 
@@ -635,7 +635,7 @@ Status VAnalyticEvalNode::_create_agg_status() {
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_destory_agg_status() {
+Status VAnalyticEvalNode::_destroy_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }
