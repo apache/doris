@@ -994,12 +994,12 @@ public class Analyzer {
             slotDescriptor.setIsNullable(true);
             return;
         }
-        for (Expr sourceExpr : slotDescriptor.getSourceExprs()) {
-            if (!sourceExpr.isNullable()) {
-                throw new VecNotImplException("The slot (" + slotDescriptor.toString()
-                        + ") could not be changed to nullable");
-            }
-        }
+        // for (Expr sourceExpr : slotDescriptor.getSourceExprs()) {
+        //     if (!sourceExpr.isNullable()) {
+        //         throw new VecNotImplException("The slot (" + slotDescriptor.toString()
+        //                 + ") could not be changed to nullable");
+        //     }
+        // }
     }
 
     /**
