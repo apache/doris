@@ -110,6 +110,10 @@ public final class ExprSubstitutionMap {
         }
     }
 
+    public void updateLhsExprs(List<Expr> lhsExprList) {
+        lhs = lhsExprList;
+    }
+
     /**
      * Return a map  which is equivalent to applying f followed by g,
      * i.e., g(f()).
