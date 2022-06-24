@@ -37,7 +37,7 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
@@ -174,7 +174,7 @@ public class StmtExecutorTest {
     @Test
     public void testSelect(@Mocked QueryStmt queryStmt,
                            @Mocked SqlParser parser,
-                           @Mocked Planner planner,
+                           @Mocked OriginalPlanner planner,
                            @Mocked Coordinator coordinator) throws Exception {
         Catalog catalog = Catalog.getCurrentCatalog();
         Deencapsulation.setField(catalog, "canRead", new AtomicBoolean(true));
@@ -211,7 +211,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = symbol;
 
-                planner.plan((QueryStmt) any, (Analyzer) any, (TQueryOptions) any);
+                planner.plan((QueryStmt) any, (TQueryOptions) any);
                 minTimes = 0;
 
                 // mock coordinator

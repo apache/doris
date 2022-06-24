@@ -24,19 +24,22 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanNode;
 
 import com.clearspring.analytics.util.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Context of physical plan.
  */
 public class PlanContext {
-    private List<PlanFragment> planFragmentList = Lists.newArrayList();
+    private final List<PlanFragment> planFragmentList = Lists.newArrayList();
 
-    private DescriptorTable descTable = new DescriptorTable();
+    private final DescriptorTable descTable = new DescriptorTable();
 
+    private final List<ScanNode> scanNodeList = new ArrayList<>();
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
@@ -70,4 +73,11 @@ public class PlanContext {
         this.planFragmentList.add(planFragment);
     }
 
+    public void addScanNode(ScanNode scanNode) {
+        scanNodeList.add(scanNode);
+    }
+
+    public List<ScanNode> getScanNodeList() {
+        return scanNodeList;
+    }
 }

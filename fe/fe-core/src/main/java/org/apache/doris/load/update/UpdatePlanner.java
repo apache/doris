@@ -35,10 +35,10 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 
 import com.google.common.base.Preconditions;
@@ -49,7 +49,7 @@ import java.util.List;
 import java.util.Map;
 
 
-public class UpdatePlanner extends Planner {
+public class UpdatePlanner extends OriginalPlanner {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator =
@@ -65,6 +65,7 @@ public class UpdatePlanner extends Planner {
 
     public UpdatePlanner(long dbId, OlapTable targetTable, List<Expr> setExprs,
                          TupleDescriptor srcTupleDesc, Analyzer analyzer) {
+        super(analyzer);
         this.targetDBId = dbId;
         this.targetTable = targetTable;
         this.setExprs = setExprs;

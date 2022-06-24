@@ -17,16 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.parser.SqlParser;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.TreeNode;
 
 import org.junit.Test;
 
 public class ExpressionParserTest {
-    private static final SqlParser PARSER = new SqlParser();
+    private static final NereidsParser PARSER = new NereidsParser();
 
     private void assertSql(String sql) throws Exception {
-        TreeNode treeNode = PARSER.parse(sql);
+        TreeNode treeNode = PARSER.parseSingle(sql);
         System.out.println(treeNode.toString());
     }
 
@@ -50,7 +50,7 @@ public class ExpressionParserTest {
     @Test
     public void testSqlAnd() throws Exception {
         String sql = "select * from test1 where a > 1 and b > 1";
-        TreeNode treeNode = PARSER.parse(sql);
+        TreeNode treeNode = PARSER.parseSingle(sql);
         System.out.println(treeNode);
     }
 

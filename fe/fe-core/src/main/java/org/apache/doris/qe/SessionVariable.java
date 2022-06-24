@@ -192,6 +192,8 @@ public class SessionVariable implements Serializable, Writable {
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
+    public static final String ENABLE_NEREIDS = "enable_nereids";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -470,6 +472,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
     private boolean enableArrayType = false;
+
+    /**
+     * as the new optimizer is not mature yet, use this var
+     * to control whether to use new optimizer, remove it when
+     * the new optimizer is fully developed. I hope that day
+     * would be coming soon.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
+    private boolean enableNereids = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -968,6 +979,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableArrayType(boolean enableArrayType) {
         this.enableArrayType = enableArrayType;
+    }
+
+    public boolean isEnableNereids() {
+        return enableNereids;
+    }
+
+    public void setEnableNereids(boolean enableNereids) {
+        this.enableNereids = enableNereids;
     }
 
     /**

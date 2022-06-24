@@ -37,6 +37,7 @@ import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
+import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
+import org.apache.doris.nereids.DorisParser.StatementContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
@@ -145,6 +147,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitSingleStatement(SingleStatementContext ctx) {
         Supplier<LogicalPlan> f = () -> (LogicalPlan) visit(ctx.statement());
         return ParserUtils.withOrigin(ctx, f);
+    }
+
+    /**
+     * Visit multi-statements.
+     */
+    public Object visitMultiStatements(MultiStatementsContext ctx) {
+        List<LogicalPlan> logicalPlanList = new ArrayList<>();
+        for (StatementContext stmtCtx : ctx.statement()) {
+            LogicalPlan logicalPlan = (LogicalPlan) visit(stmtCtx);
+            logicalPlanList.add(logicalPlan);
+        }
+        return logicalPlanList;
     }
 
     /* ********************************************************************************************

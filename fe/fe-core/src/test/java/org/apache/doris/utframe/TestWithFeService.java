@@ -319,7 +319,7 @@ public abstract class TestWithFeService {
         stmtExecutor.execute();
         if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), new ExplainOptions(isVerbose, false));
+            return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
             return connectContext.getState().getErrorMessage();
         }
