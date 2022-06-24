@@ -48,7 +48,7 @@ union DecimalInt128Union {
 static_assert(sizeof(DecimalV2Value) == sizeof(PackedInt128));
 static_assert(sizeof(DecimalV2Value) == sizeof(__int128_t));
 
-// we need provide a destructor becase DateTimeValue was not a pod type
+// we need provide a destructor because DateTimeValue was not a pod type
 // DateTimeValue won't alloc any extra memory, so we don't have to call
 // DateTimeValue::~DateTimeValue()
 union DateTimeInt128Union {
