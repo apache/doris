@@ -69,11 +69,7 @@ public:
             args = {col_left, block.get_by_position(arguments[1])};
         }
 
-        auto result_type = remove_nullable(
-                check_and_get_data_type<DataTypeArray>(args[0].type.get())->get_nested_type());
-
-        auto res_column = _execute_non_nullable(args, result_type, input_rows_count, src_null_map,
-                                                dst_null_map);
+        auto res_column = _execute_non_nullable(args, input_rows_count, src_null_map, dst_null_map);
         if (!res_column) {
             return Status::RuntimeError(
                     fmt::format("unsupported types for function {}({}, {})", get_name(),
@@ -182,8 +178,8 @@ private:
     }
 
     ColumnPtr _execute_non_nullable(const ColumnsWithTypeAndName& arguments,
-                                    const DataTypePtr& result_type, size_t input_rows_count,
-                                    const UInt8* src_null_map, UInt8* dst_null_map) {
+                                    size_t input_rows_count, const UInt8* src_null_map,
+                                    UInt8* dst_null_map) {
         // check array nested column type and get data
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
         const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
