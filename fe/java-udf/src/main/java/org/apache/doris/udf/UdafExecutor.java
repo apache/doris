@@ -51,7 +51,7 @@ import java.util.HashMap;
  */
 public class UdafExecutor {
     public static final String UDAF_CREATE_FUNCTION = "create";
-    public static final String UDAF_DESTORY_FUNCTION = "destroy";
+    public static final String UDAF_DESTROY_FUNCTION = "destroy";
     public static final String UDAF_ADD_FUNCTION = "add";
     public static final String UDAF_SERIALIZE_FUNCTION = "serialize";
     public static final String UDAF_DESERIALIZE_FUNCTION = "deserialize";
@@ -171,7 +171,7 @@ public class UdafExecutor {
      */
     public void destroy() throws UdfRuntimeException {
         try {
-            allMethods.get(UDAF_DESTORY_FUNCTION).invoke(udaf, stateObj);
+            allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udaf, stateObj);
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to destroy: ", e);
         }
@@ -457,7 +457,7 @@ public class UdafExecutor {
             for (idx = 0; idx < methods.length; ++idx) {
                 signatures.add(methods[idx].toGenericString());
                 switch (methods[idx].getName()) {
-                    case UDAF_DESTORY_FUNCTION:
+                    case UDAF_DESTROY_FUNCTION:
                     case UDAF_CREATE_FUNCTION:
                     case UDAF_MERGE_FUNCTION:
                     case UDAF_SERIALIZE_FUNCTION:
