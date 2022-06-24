@@ -185,7 +185,9 @@ public class TabletInvertedIndex {
                         if (!Config.disable_storage_medium_check) {
                             // check if need migration
                             TStorageMedium storageMedium = storageMediumMap.get(partitionId);
-                            if (storageMedium != null && backendTabletInfo.isSetStorageMedium()) {
+                            if (storageMedium != null && backendTabletInfo.isSetStorageMedium()
+                                    && isLocal(storageMedium) && isLocal(backendTabletInfo.getStorageMedium())
+                                    && isLocal(tabletMeta.getStorageMedium())) {
                                 if (storageMedium != backendTabletInfo.getStorageMedium()) {
                                     synchronized (tabletMigrationMap) {
                                         tabletMigrationMap.put(storageMedium, tabletId);
@@ -671,4 +673,9 @@ public class TabletInvertedIndex {
     public Map<Long, TabletMeta> getTabletMetaMap() {
         return tabletMetaMap;
     }
+
+    private boolean isLocal(TStorageMedium storageMedium) {
+        return storageMedium == TStorageMedium.HDD || storageMedium == TStorageMedium.SSD;
+    }
+
 }

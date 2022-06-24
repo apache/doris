@@ -44,6 +44,9 @@ public class DataProperty implements Writable {
     private long cooldownTimeMs;
     @SerializedName(value = "remoteStoragePolicy")
     private String remoteStoragePolicy;
+    // cooldown time for remote storage
+    @SerializedName(value = "remoteCooldownTimeMs")
+    private long remoteCooldownTimeMs;
 
     private DataProperty() {
         // for persist
@@ -58,6 +61,7 @@ public class DataProperty implements Writable {
             this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
         this.remoteStoragePolicy = "";
+        this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
     }
 
     /**
@@ -66,11 +70,17 @@ public class DataProperty implements Writable {
      * @param medium storage medium for the init storage of the table
      * @param cooldown cool down time for SSD->HDD
      * @param remoteStoragePolicy remote storage policy for remote storage
+     * @param remoteCooldownTimeMs remote storage cooldown time
      */
-    public DataProperty(TStorageMedium medium, long cooldown, String remoteStoragePolicy) {
+    public DataProperty(TStorageMedium medium, long cooldown, String remoteStoragePolicy, long remoteCooldownTimeMs) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
         this.remoteStoragePolicy = remoteStoragePolicy;
+        if (remoteCooldownTimeMs > 0) {
+            this.remoteCooldownTimeMs = remoteCooldownTimeMs;
+        } else {
+            this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+        }
     }
 
     public TStorageMedium getStorageMedium() {
@@ -83,6 +93,10 @@ public class DataProperty implements Writable {
 
     public String getRemoteStoragePolicy() {
         return remoteStoragePolicy;
+    }
+
+    public long getRemoteCooldownTimeMs() {
+        return remoteCooldownTimeMs;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -109,7 +123,7 @@ public class DataProperty implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(storageMedium, cooldownTimeMs, remoteStoragePolicy);
+        return Objects.hash(storageMedium, cooldownTimeMs, remoteStoragePolicy, remoteCooldownTimeMs);
     }
 
     @Override
@@ -126,7 +140,8 @@ public class DataProperty implements Writable {
 
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
-                && this.remoteStoragePolicy.equals(other.remoteStoragePolicy);
+                && this.remoteStoragePolicy.equals(other.remoteStoragePolicy)
+                && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs;
     }
 
     @Override
@@ -135,6 +150,7 @@ public class DataProperty implements Writable {
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
         sb.append("remote storage policy[").append(this.remoteStoragePolicy).append("]. ");
+        sb.append("remote cooldown time[").append(TimeUtils.longToTimeString(remoteCooldownTimeMs)).append("]. ");
         return sb.toString();
     }
 }

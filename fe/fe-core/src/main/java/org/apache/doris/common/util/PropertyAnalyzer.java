@@ -60,6 +60,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
+    // base time for the data in the partition
+    public static final String PROPERTIES_DATA_BASE_TIME = "data_base_time_ms";
     // for 1.x -> 2.x migration
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
@@ -129,7 +131,9 @@ public class PropertyAnalyzer {
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
         long cooldownTimeStamp = oldDataProperty.getCooldownTimeMs();
         String remoteStoragePolicy = oldDataProperty.getRemoteStoragePolicy();
+        long remoteCooldownTimeMs = oldDataProperty.getRemoteCooldownTimeMs();
 
+        long dataBaseTimeMs = 0;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -146,12 +150,18 @@ public class PropertyAnalyzer {
                 cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_POLICY)) {
                 remoteStoragePolicy = value;
+            } else if (key.equalsIgnoreCase(PROPERTIES_DATA_BASE_TIME)) {
+                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                dataBaseTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             }
         } // end for properties
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_REMOTE_STORAGE_POLICY);
+        properties.remove(PROPERTIES_DATA_BASE_TIME);
+
+        Preconditions.checkNotNull(storageMedium);
 
         if (storageMedium == TStorageMedium.HDD) {
             cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
@@ -190,11 +200,16 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("`remote_storage_cooldown_time`"
                             + " should later than `storage_cooldown_time`.");
                 }
+                remoteCooldownTimeMs = storagePolicy.getCooldownDatetime().getTime();
+            } else if (storagePolicy.getCooldownTtl() != null && dataBaseTimeMs > 0) {
+                remoteCooldownTimeMs = dataBaseTimeMs + storagePolicy.getCooldownTtlMs();
             }
         }
 
-        Preconditions.checkNotNull(storageMedium);
-        return new DataProperty(storageMedium, cooldownTimeStamp, remoteStoragePolicy);
+        if (dataBaseTimeMs <= 0) {
+            remoteCooldownTimeMs = DataProperty.MAX_COOLDOWN_TIME_MS;
+        }
+        return new DataProperty(storageMedium, cooldownTimeStamp, remoteStoragePolicy, remoteCooldownTimeMs);
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {

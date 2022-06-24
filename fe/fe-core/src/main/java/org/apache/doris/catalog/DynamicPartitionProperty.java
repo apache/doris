@@ -46,6 +46,7 @@ public class DynamicPartitionProperty {
     public static final String HISTORY_PARTITION_NUM = "dynamic_partition.history_partition_num";
     public static final String HOT_PARTITION_NUM = "dynamic_partition.hot_partition_num";
     public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
+    public static final String REMOTE_STORAGE_POLICY = "dynamic_partition.remote_storage_policy";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
@@ -72,6 +73,7 @@ public class DynamicPartitionProperty {
     // If not set, default is 0
     private int hotPartitionNum;
     private String reservedHistoryPeriods;
+    private String remoteStoragePolicy;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -91,6 +93,7 @@ public class DynamicPartitionProperty {
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
             this.reservedHistoryPeriods = properties.getOrDefault(
                     RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
+            this.remoteStoragePolicy = properties.getOrDefault(REMOTE_STORAGE_POLICY, "");
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -170,6 +173,10 @@ public class DynamicPartitionProperty {
         return hotPartitionNum;
     }
 
+    public String getRemoteStoragePolicy() {
+        return remoteStoragePolicy;
+    }
+
     public String getStartOfInfo() {
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             return startOfWeek.toDisplayInfo();
@@ -212,7 +219,8 @@ public class DynamicPartitionProperty {
                 + ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\""
                 + ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\""
                 + ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\""
-                + ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"";
+                + ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\""
+                + ",\n\"" + REMOTE_STORAGE_POLICY + "\" = \"" + remoteStoragePolicy + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
