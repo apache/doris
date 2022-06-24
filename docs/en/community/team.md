@@ -24,62 +24,60 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PMC Members & Committer
+# PMC Members & Committers
 
-## Mentors (3)
+We'd like to thank the following committers to the Apache Doris project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
 
-| Apache ID                                                    | Github Username | Public Name       |
-| ------------------------------------------------------------ | --------------- | ----------------- |
-| [wenming](https://people.apache.org/committer-index.html#wenming) | moonming        | Ming Wen          |
-| [shaofengshi](https://people.apache.org/committer-index.html#shaofengshi) | shaofengshi     | Shao Feng Shi     |
-| [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang     | Willem Ning Jiang |
+## PMC (15)
 
-We'd like to thank the following committers to the Apache Doris (incubating) project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
-
-## PPMC (22)
-
-(the listing below excludes mentors)
-
-| Apache ID                                                    | Github Username     | Public Name   |
+| Apache ID                                                    | Github Username       | Public Name        |
 | :----------------------------------------------------------- | :------------------ | :------------ |
 | [lingbin](https://people.apache.org/committer-index.html#lingbin) | lingbin             | Bin Ling      |
 | [wangbo](https://people.apache.org/committer-index.html#wangbo) | wangbo              | Bo Wang       |
-| [lichaoyong](https://people.apache.org/committer-index.html#lichaoyong) | chaoyli             | Chaoyong Li   |
-| [zhaoc](https://people.apache.org/committer-index.html#zhaoc) | imay                | Chun Zhao     |
 | [caiconghui](https://people.apache.org/committer-index.html#caiconghui) | caiconghui          | Conghui Cai   |
 | [gaodayue](https://people.apache.org/committer-index.html#gaodayue) | gaodayue            | Dayue Gao     |
 | [lide](https://people.apache.org/committer-index.html#lide)  | lide-reed, doris-ci | De Li         |
-| [liuhangyuan](https://people.apache.org/committer-index.html#liuhangyuan) | HangyuanLiu         | Hangyuan Liu  |
 | [chenhao](https://people.apache.org/committer-index.html#chenhao) | chenhao7253886      | Hao Chen      |
-| [kangkaisen](https://people.apache.org/committer-index.html#kangkaisen) | kangkaisen          | Kaisen Kang   |
 | [lihaopeng](https://people.apache.org/committer-index.html#lihaopeng) | HappenLee           | Haopeng Li    |
 | [jiafengzheng](https://people.apache.org/committer-index.html#jiafengzheng) | hf200012            | Jiafeng Zhang |
 | [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
+| [wenming](https://people.apache.org/committer-index.html#wenming) | moonming      | Ming Wen          |
 | [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
 | [maruyue](https://people.apache.org/committer-index.html#maruyue) |                     | Ruyue Ma      |
-| [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo     |
-| [zshao](https://people.apache.org/committer-index.html#zshao) | zshao               | Zheng Shao    |
+| [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang   | Willem Ning Jiang |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
 
-## Committers (33)
+## Committers (38)
 
-(the listing excludes PPMC members above)
+(the listing excludes PMC members above)
 
-| Apache ID                                                    | Github Username  | Public Name    |
+| Apache ID                                                    | Github Username    | Public Name         |
 | :----------------------------------------------------------- | :--------------- | :------------- |
+| [lichaoyong](https://people.apache.org/committer-index.html#lichaoyong) | chaoyli             | Chaoyong Li   |
+| [zhaoc](https://people.apache.org/committer-index.html#zhaoc) | imay                | Chun Zhao     |
 | [diwu](https://people.apache.org/committer-index.html#diwu)  | JNSimba          | Di Wu          |
 | [yiguolei](https://people.apache.org/committer-index.html#yiguolei) | yiguolei         | Guolei Yi      |
+| [liuhangyuan](https://people.apache.org/committer-index.html#liuhangyuan) | HangyuanLiu         | Hangyuan Liu  |
 | [huajianlan](https://people.apache.org/committer-index.html#huajianlan) | 924060929        | Huajian Lan    |
 | [huangwei](https://people.apache.org/committer-index.html#huangwei) | vagetablechicken | Huang Wei      |
 | [jianliangqi](https://people.apache.org/committer-index.html#jianliangqi) | qidaye           | Jianliang Qi   |
+| [kangkaisen](https://people.apache.org/committer-index.html#kangkaisen) | kangkaisen          | Kaisen Kang   |
 | [kangpinghuang](https://people.apache.org/committer-index.html#kangpinghuang) | kangpinghuang    | Kangping Huang |
 | [liulijia](https://people.apache.org/committer-index.html#liulijia) | liutang123       | Lijia Liu      |
+| [panxiaolei](https://people.apache.org/committer-index.html#panxiaolei) | BiteTheDDDDt       | Xiaolei Pan      |
+| [shaofengshi](https://people.apache.org/committer-index.html#shaofengshi) | shaofengshi     | Shao Feng Shi     |
+| [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo     |
+| [weixiang](https://people.apache.org/committer-index.html#weixiang) | spaces-X            | Xiang Wei     |
+| [zouxinyi](https://people.apache.org/committer-index.html#zouxinyi) | xinyiZzz               | Xinyi Zou     |
 | [wangxixu](https://people.apache.org/committer-index.html#wangxixu) | xinghuayu007     | Xixu Wang      |
 | [xuyang](https://people.apache.org/committer-index.html#xuyang) | xy720            | Yang Xu        |
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
+| [dataroaring](https://people.apache.org/committer-index.html#dataroaring) | dataroaring | Yongqiang Yang   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
+| [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    |  zenoyang       | Zeno Yang     |
+| [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao        | Zheng Shao |
 
-## Contributor
+## Contributors
 
-[All Contributors](https://github.com/apache/incubator-doris/graphs/contributors)
+[All Contributors](https://github.com/apache/doris/graphs/contributors)
