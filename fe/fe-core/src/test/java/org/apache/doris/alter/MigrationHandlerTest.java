@@ -32,8 +32,9 @@ import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.utframe.UtFrameUtils;
 
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -44,9 +45,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class MigrationHandlerTest {
 
