@@ -48,6 +48,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -775,6 +776,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     && newColumn.getDefaultValue() != null && !newColumn.getDefaultValue().equals("0")) {
                 throw new DdlException("The default value of '"
                         + newColName + "' with SUM aggregation function must be zero");
+            } else if (olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo) {
+                if (newColumn.getAggregationType() == AggregateType.REPLACE
+                        || newColumn.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
+                    throw new DdlException("Can not add value column with aggregation type "
+                                + newColumn.getAggregationType() + " for olap table with random distribution : "
+                                + newColName);
+                }
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             if (newColumn.getAggregationType() != null) {
@@ -1499,6 +1507,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         Catalog.getCurrentCatalog().modifyTableColocate(db, olapTable, colocateGroup, false, null);
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
+                        String distributionType = properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE);
+                        if (!distributionType.equalsIgnoreCase("random")) {
+                            throw new DdlException("Only support modifying distribution type of table from"
+                                + " hash to random");
+                        }
                         Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
