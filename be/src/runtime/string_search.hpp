@@ -23,7 +23,6 @@
 
 #include "common/logging.h"
 #include "runtime/string_value.h"
-#include "vec/common/volnitsky.h"
 
 namespace doris {
 
@@ -32,18 +31,18 @@ public:
     virtual ~StringSearch() {}
     StringSearch() : _pattern(nullptr) {}
 
-    StringSearch(const StringValue* pattern) { set_pattern(pattern); }
-
-    void set_pattern(const StringValue* pattern) {
-        _pattern = pattern;
-        _vol_searcher.reset(new Volnitsky(pattern->ptr, pattern->len));
-    }
+    StringSearch(const StringValue* pattern) : _pattern(pattern) {}
 
     // search for this pattern in str.
     //   Returns the offset into str if the pattern exists
     //   Returns -1 if the pattern is not found
     int search(const StringValue* str) const {
-        auto it = search(str->ptr, str->len);
+        if (!str || !_pattern || _pattern->len == 0) {
+            return -1;
+        }
+
+        auto it = std::search(str->ptr, str->ptr + str->len,
+                              std::default_searcher(_pattern->ptr, _pattern->ptr + _pattern->len));
         if (it == str->ptr + str->len) {
             return -1;
         } else {
@@ -51,22 +50,8 @@ public:
         }
     }
 
-    // search for this pattern in str.
-    //   Returns the offset into str if the pattern exists
-    //   Returns str+len if the pattern is not found
-    const char* search(char* str, size_t len) const {
-        if (!str || !_pattern || _pattern->len == 0) {
-            return str + len;
-        }
-
-        return _vol_searcher->search(str, len);
-    }
-
-    inline size_t get_pattern_length() { return _pattern ? _pattern->len : 0; }
-
 private:
     const StringValue* _pattern;
-    std::unique_ptr<Volnitsky> _vol_searcher;
 };
 
 } // namespace doris
