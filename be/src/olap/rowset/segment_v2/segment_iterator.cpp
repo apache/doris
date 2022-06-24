@@ -942,10 +942,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             return_column_row_length += _schema.column(cid)->length();
         }
         // the size of a block: no more than 64M
-        constexpr uint32_t max_block_size = 1024 * 64;
+        constexpr uint32_t max_block_size = 1024 * 1024 * 64;
         _batch_size_of_return_block =
-                std::max( 1u, std::min((uint32_t)_opts.block_row_max,
-                         max_block_size / std::max(1u, return_column_row_length)));
+                std::max(1u, std::min((uint32_t)_opts.block_row_max,
+                                      max_block_size / std::max(1u, return_column_row_length)));
     }
 
     _init_current_block(block, _current_return_columns);
