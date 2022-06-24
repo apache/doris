@@ -39,7 +39,7 @@ public class StorageMediaMigrationV2Task extends AgentTask {
                                        long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
                                        long version, long jobId) {
         super(null, backendId, TTaskType.STORAGE_MEDIUM_MIGRATE_V2, dbId, tableId, partitionId,
-              rollupIndexId, rollupTabletId);
+                rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
         this.newReplicaId = newReplicaId;

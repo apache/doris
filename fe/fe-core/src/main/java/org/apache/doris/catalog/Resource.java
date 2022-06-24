@@ -85,6 +85,7 @@ public abstract class Resource implements Writable {
                 return null;
         }
     }
+
     /**
      * Get resource instance by resource name and type
      * @param type
