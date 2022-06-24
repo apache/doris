@@ -26,7 +26,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.util.DebugUtil;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -74,7 +73,6 @@ public class TrashProcDir implements ProcDirInterface {
     }
 
     public static void getTrashInfo(List<Backend> backends, List<List<String>> infos) {
-
         for (Backend backend : backends) {
             BackendService.Client client = null;
             TNetworkAddress address = null;
@@ -116,23 +114,17 @@ public class TrashProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String backendHostAndPort) throws AnalysisException {
-        if (Strings.isNullOrEmpty(backendHostAndPort)) {
-            throw new AnalysisException("BackendHost:HeartBeatPort is null");
-        }
-        String backendHost;
-        int backendHeartBeatPort;
+    public ProcNodeInterface lookup(String backendIdStr) throws AnalysisException {
+        long backendId = -1;
         try {
-            backendHost = backendHostAndPort.split(":")[0];
-            backendHeartBeatPort = Integer.parseInt(backendHostAndPort.split(":")[1]);
+            backendId = Long.parseLong(backendIdStr);
         } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid backend format: " + backendHostAndPort);
+            throw new AnalysisException("Invalid backend id format: " + backendIdStr);
         }
-        Backend backend = Catalog.getCurrentSystemInfo().getBackendWithHeartbeatPort(backendHost, backendHeartBeatPort);
+        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
         if (backend == null) {
-            throw new AnalysisException("Backend[" + backendHostAndPort + "] does not exist.");
+            throw new AnalysisException("Backend[" + backendId + "] does not exist.");
         }
-
         return new TrashProcNode(backend);
     }
 }
