@@ -18,8 +18,13 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.analysis.FunctionParams;
+import org.apache.doris.nereids.types.DataType;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Logical FunctionCall Expression.
@@ -30,7 +35,14 @@ public class FunctionCall extends Expression {
 
     private FunctionParams fnParams;
 
-    private FunctionCall(FunctionName functionName, FunctionParams functionParams) {
+    private DataType retType;
+
+    // Used to construct output, this type may differ from above retType
+    // when the intermediate type of aggregate function is not same
+    // as its return type
+    private DataType type;
+
+    public FunctionCall(FunctionName functionName, FunctionParams functionParams) {
         super(NodeType.FUNCTIONCALL, functionParams.getExpression().toArray(new Expression[0]));
         this.fnName = functionName;
         this.fnParams = functionParams;
@@ -54,5 +66,32 @@ public class FunctionCall extends Expression {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitFunctionCall(this, context);
+    }
+
+    public DataType getRetType() {
+        return retType;
+    }
+
+    public void setRetType(DataType retType) {
+        this.retType = retType;
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return super.getDataType();
+    }
+
+    public void setType(DataType type) {
+        this.type = type;
+    }
+
+    @Override
+    public Expression clone() {
+        List<Expression> paramExprList = fnParams
+                .getExpression()
+                .stream()
+                .map(Expression::clone)
+                .collect(Collectors.toList());
+       return new FunctionCall(fnName, new FunctionParams(fnParams.isDistinct(), paramExprList));
     }
 }

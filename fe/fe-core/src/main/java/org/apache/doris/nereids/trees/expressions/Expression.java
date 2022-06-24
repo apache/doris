@@ -82,4 +82,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         return false;
     }
 
+    public Expression clone() {
+        throw new RuntimeException("Unimplemented method");
+    }
+
 }

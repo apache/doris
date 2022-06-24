@@ -42,21 +42,21 @@ import java.util.List;
 public class LogicalAggregation extends LogicalUnaryOperator {
 
     private final List<Expression> groupByExpressions;
-    private final List<? extends NamedExpression> outputExpressions;
+    private List<NamedExpression> outputExpressions;
     private boolean isMerge;
 
     /**
      * Desc: Constructor for LogicalAggregation.
      */
     public LogicalAggregation(List<Expression> groupByExpressions,
-            List<? extends NamedExpression> outputExpressions) {
+            List<NamedExpression> outputExpressions) {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExpressions = groupByExpressions;
         this.outputExpressions = outputExpressions;
     }
 
     public LogicalAggregation(List<Expression> groupByExpressions,
-            List<? extends NamedExpression> outputExpressions, boolean isMerge) {
+            List<NamedExpression> outputExpressions, boolean isMerge) {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExpressions = groupByExpressions;
         this.outputExpressions = outputExpressions;
@@ -77,8 +77,12 @@ public class LogicalAggregation extends LogicalUnaryOperator {
      *
      * @return all agg expressions.
      */
-    public List<? extends NamedExpression> getoutputExpressions() {
+    public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
+    }
+
+    public void setOutputExpressions(List<NamedExpression> outputExpressions) {
+        this.outputExpressions = outputExpressions;
     }
 
     @Override
