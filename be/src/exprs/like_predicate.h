@@ -73,7 +73,7 @@ private:
         void set_search_string(const std::string& search_string_arg) {
             search_string = search_string_arg;
             search_string_sv = StringValue(search_string);
-            substring_pattern.set_pattern(&search_string_sv);
+            substring_pattern = StringSearch(&search_string_sv);
         }
     };
 

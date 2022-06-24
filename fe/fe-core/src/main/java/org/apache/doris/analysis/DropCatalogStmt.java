@@ -19,15 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Strings;
 
 /**
  * Statement for drop a catalog.
@@ -52,21 +50,16 @@ public class DropCatalogStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
-        }
-        if (Strings.isNullOrEmpty(catalogName)) {
-            throw new AnalysisException("Datasource name is not set");
-        }
+        Util.checkCatalogAllRules(catalogName);
 
         if (catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
             throw new AnalysisException("Internal catalog can't be drop.");
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    ConnectContext.get().getQualifiedUser(), catalogName);
+        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                ConnectContext.get(), catalogName, PrivPredicate.DROP)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
+                    analyzer.getQualifiedUser(), catalogName);
         }
     }
 

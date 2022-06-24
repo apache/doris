@@ -17,27 +17,64 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.PhysicalPlanTranslator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Planner to do query plan in Nereids.
  */
-public class Planner {
+public class NereidsPlanner extends Planner {
+
     private PlannerContext plannerContext;
+    private final ConnectContext ctx;
+    private List<ScanNode> scanNodeList = null;
+
+    public NereidsPlanner(ConnectContext ctx) {
+        this.ctx = ctx;
+    }
+
+    @Override
+    public void plan(StatementBase queryStmt,
+            org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
+        if (!(queryStmt instanceof LogicalPlanAdapter)) {
+            throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
+        }
+        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
+        PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), new PhysicalProperties(), ctx);
+        PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
+        PlanContext planContext = new PlanContext();
+        physicalPlanTranslator.translatePlan(physicalPlan, planContext);
+        fragments = new ArrayList<>(planContext.getPlanFragmentList());
+        PlanFragment root = fragments.get(fragments.size() - 1);
+        root.setOutputExprs(queryStmt.getResultExprs());
+        if (VectorizedUtil.isVectorized()) {
+            root.getPlanRoot().convertToVectoriezd();
+        }
+        scanNodeList = planContext.getScanNodeList();
+    }
 
     /**
      * Do analyze and optimize for query plan.
@@ -67,6 +104,11 @@ public class Planner {
         return getRoot().extractPlan();
     }
 
+    @Override
+    public List<ScanNode> getScanNodes() {
+        return scanNodeList;
+    }
+
     public Group getRoot() {
         return plannerContext.getOptimizerContext().getMemo().getRoot();
     }
@@ -92,5 +134,10 @@ public class Planner {
         // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
 
         return physicalPlan;
+    }
+
+    @Override
+    public boolean isBlockQuery() {
+        return true;
     }
 }

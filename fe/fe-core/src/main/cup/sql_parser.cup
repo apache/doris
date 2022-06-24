@@ -278,7 +278,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
     KW_YEAR,
     KW_NOT_NULL,
-    KW_CATALOG, KW_CATALOGS;
+    KW_CATALOG, KW_CATALOGS,
+    KW_SWITCH;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -301,7 +302,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
-    link_stmt, migrate_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
+    link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
     import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt;
 
@@ -670,6 +671,8 @@ stmt ::=
     {: RESULT = query; :}
     | migrate_stmt:query
     {: RESULT = query; :}
+    | switch_stmt:stmt
+    {: RESULT = stmt; :}
     | enter_stmt:enter
     {: RESULT = enter; :}
     | query_stmt:query
@@ -3421,6 +3424,14 @@ opt_set_qualifier ::=
   | KW_ALL
   {: RESULT = Qualifier.ALL; :}
   ;
+
+// Change catalog
+switch_stmt ::=
+    KW_SWITCH ident:catalog
+    {:
+        RESULT = new SwitchStmt(catalog);
+    :}
+    ;
 
 // Change cluster
 enter_stmt ::=
