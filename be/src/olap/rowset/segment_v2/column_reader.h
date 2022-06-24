@@ -138,7 +138,9 @@ public:
 
     uint64_t num_rows() { return _num_rows; }
 
-    void set_dict_encoding_type(DictEncodingType type) { _dict_encoding_type = type; }
+    void set_dict_encoding_type(DictEncodingType type) {
+        std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
+    }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
 
@@ -202,6 +204,8 @@ private:
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
+
+    std::once_flag _set_dict_encoding_type_flag;
 };
 
 // Base iterator to read one column data
