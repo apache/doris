@@ -121,7 +121,9 @@ private:
 
 private:
     class BitmapRangeIterator;
-
+    // max_block_size / (row bytes of current_return_column)
+    // a block size should be no more than max_block_size
+    uint32_t _batch_size_of_current_return_column  = 4096;
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;
     // _column_iterators.size() == _schema.num_columns()
