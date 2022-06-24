@@ -56,6 +56,14 @@ Status VOlapTableSink::open(RuntimeState* state) {
     return OlapTableSink::open(state);
 }
 
+size_t VOlapTableSink::get_pending_bytes() const {
+    size_t mem_consumption = 0;
+    for (auto& indexChannel : _channels){
+        mem_consumption += indexChannel->get_pending_bytes();
+        
+    }
+    return mem_consumption;
+}
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
     Status status = Status::OK();
 
@@ -108,6 +116,15 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
+    
+    //if pending bytes is more than 500M, wait
+    constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
+    if ( get_pending_bytes() > MAX_PENDING_BYTES){
+        while(get_pending_bytes() < MAX_PENDING_BYTES){
+            std::this_thread::sleep_for(std::chrono::microseconds(500));
+        }
+    }
+
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;

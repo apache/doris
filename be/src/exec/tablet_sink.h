@@ -227,6 +227,10 @@ public:
                            _node_info.brpc_port);
     }
 
+    size_t get_pending_bytes() {
+        return _pending_batches_bytes;
+    }
+
 private:
     void _cancel_with_msg(const std::string& msg);
 
@@ -325,9 +329,16 @@ public:
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
+    size_t get_pending_bytes() const {
+        size_t mem_consumption = 0;
+        for (auto& kv:  _node_channels){
+            mem_consumption += kv.second->get_pending_bytes();
+        }
+        return mem_consumption;
+    }
 private:
     friend class NodeChannel;
-
+    friend class VOlapTableSink;
     OlapTableSink* _parent;
     int64_t _index_id;
 
