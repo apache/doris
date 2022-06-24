@@ -872,9 +872,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
                 _read_columns(_first_read_column_ids, _current_return_columns, rows_to_read));
         _cur_rowid += rows_to_read;
         if (set_block_rowid) {
-            for (uint32_t rid = range_from; rid < range_to; rid++) {
-                _block_rowids[nrows_read++] = rid;
-            }
+            // Here use std::iota is better performance than for-loop, maybe for-loop is not vectorized
+            auto start = _block_rowids.data() + nrows_read;
+            auto end = start + rows_to_read;
+            std::iota(start, end, range_from);
+            nrows_read += rows_to_read;
         } else {
             nrows_read += rows_to_read;
         }
