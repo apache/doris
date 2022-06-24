@@ -97,7 +97,7 @@ bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
     int digits = pos - ptr;
     bool is_interval_format = false;
 
-    // Compatible with MySQL. Shit!!!
+    // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
     if (pos == end || *pos == '.') {
         if (digits == 4 || digits == 8 || digits >= 14) {
