@@ -65,6 +65,6 @@ public class UnboundAlias<CHILD_TYPE extends Expression>
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundAlias(this, context);
+        return visitor.visit(this, context);
     }
 }

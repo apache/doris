@@ -39,7 +39,7 @@ public class NormalizeExpressionRule extends AbstractExpressionRewriteRule {
     public static NormalizeExpressionRule INSTANCE = new NormalizeExpressionRule();
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate expr, ExpressionRewriteContext context) {
+    public Expression visit(ComparisonPredicate expr, ExpressionRewriteContext context) {
 
         if (RewriteHelper.isConstant(expr.left()) && !RewriteHelper.isConstant(expr.right())) {
             NodeType exprType = expr.getType();

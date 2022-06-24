@@ -44,6 +44,24 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCompoundPredicate(this, context);
+        return visitor.visit(this, context);
+    }
+
+    /**
+     * create new ComparisonPredicate with new children.
+     *
+     * @param left left child
+     * @param right right child
+     * @return Corresponding comparisonPredicate child class.
+     */
+    public CompoundPredicate withChildren(Expression left, Expression right) {
+        switch (type) {
+            case AND:
+                return new And(left, right);
+            case OR:
+                return new Or(left, right);
+            default:
+                throw new IllegalStateException("Invalid type for ComparisonPredicate: " + type);
+        }
     }
 }

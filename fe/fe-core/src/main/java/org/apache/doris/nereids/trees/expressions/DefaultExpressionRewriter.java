@@ -30,13 +30,23 @@ import javax.ws.rs.NotSupportedException;
 public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Expression, C> {
 
     @Override
-    public Expression visit(Expression expr, C context) {
-        return expr.accept(this, context);
+    public Expression visit(FunctionCall function, C context) {
+        throw new NotSupportedException("Not supported for rewrite abstract class FunctionCall.");
     }
 
     @Override
-    public Expression visitAlias(Alias alias, C context) {
-        Expression child = visit(alias.child(), context);
+    public Expression visit(BetweenPredicate betweenPredicate, C context) {
+        throw new NotSupportedException("Not supported for rewrite abstract class betweenPredicate.");
+    }
+
+    @Override
+    public Expression visit(Arithmetic arithmetic, C context) {
+        throw new NotSupportedException("Not supported for rewrite abstract class Arithmetic.");
+    }
+
+    @Override
+    public Expression visit(Alias alias, C context) {
+        Expression child = alias.child().accept(this, context);
         if (child != alias.child()) {
             return new Alias(child, alias.getName());
         } else {
@@ -45,9 +55,9 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
     }
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate cp, C context) {
-        Expression left = visit(cp.left(), context);
-        Expression right = visit(cp.right(), context);
+    public Expression visit(ComparisonPredicate cp, C context) {
+        Expression left = cp.left().accept(this, context);
+        Expression right = cp.right().accept(this, context);
         if (left != cp.left() || right != cp.right()) {
             return cp.withChildren(left, right);
         } else {
@@ -56,43 +66,43 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
     }
 
     @Override
-    public Expression visitEqualTo(EqualTo equalTo, C context) {
-        return visitComparisonPredicate(equalTo, context);
+    public Expression visit(EqualTo equalTo, C context) {
+        return visit((ComparisonPredicate) equalTo, context);
     }
 
     @Override
-    public Expression visitGreaterThan(GreaterThan greaterThan, C context) {
-        return visitComparisonPredicate(greaterThan, context);
+    public Expression visit(GreaterThan greaterThan, C context) {
+        return visit((ComparisonPredicate) greaterThan, context);
     }
 
     @Override
-    public Expression visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, C context) {
-        return visitComparisonPredicate(greaterThanEqual, context);
+    public Expression visit(GreaterThanEqual greaterThanEqual, C context) {
+        return visit((ComparisonPredicate) greaterThanEqual, context);
     }
 
     @Override
-    public Expression visitLessThan(LessThan lessThan, C context) {
-        return visitComparisonPredicate(lessThan, context);
+    public Expression visit(LessThan lessThan, C context) {
+        return visit((ComparisonPredicate) lessThan, context);
     }
 
     @Override
-    public Expression visitLessThanEqual(LessThanEqual lessThanEqual, C context) {
-        return visitComparisonPredicate(lessThanEqual, context);
+    public Expression visit(LessThanEqual lessThanEqual, C context) {
+        return visit((ComparisonPredicate) lessThanEqual, context);
     }
 
     @Override
-    public Expression visitNullSafeEqual(NullSafeEqual nullSafeEqual, C context) {
-        return visitComparisonPredicate(nullSafeEqual, context);
+    public Expression visit(NullSafeEqual nullSafeEqual, C context) {
+        return visit((ComparisonPredicate) nullSafeEqual, context);
     }
 
     @Override
-    public Expression visitNamedExpression(NamedExpression namedExpression, C context) {
+    public Expression visit(NamedExpression namedExpression, C context) {
         throw new NotSupportedException("Not supported for rewrite abstract class NamedExpression.");
     }
 
     @Override
-    public Expression visitNot(Not not, C context) {
-        Expression child = visit(not.child(), context);
+    public Expression visit(Not not, C context) {
+        Expression child = not.child().accept(this, context);
         if (child != not.child()) {
             return new Not(child);
         } else {
@@ -101,18 +111,29 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
     }
 
     @Override
-    public Expression visitSlotReference(SlotReference slotReference, C context) {
+    public Expression visit(CompoundPredicate cp, C context) {
+        Expression left = cp.left().accept(this, context);
+        Expression right = cp.right().accept(this, context);
+        if (left != cp.left() || right != cp.right()) {
+            return cp.withChildren(left, right);
+        } else {
+            return cp;
+        }
+    }
+
+    @Override
+    public Expression visit(SlotReference slotReference, C context) {
         return slotReference;
     }
 
     @Override
-    public Expression visitLiteral(Literal literal, C context) {
+    public Expression visit(Literal literal, C context) {
         return literal;
     }
 
     @Override
-    public Expression visitUnboundAlias(UnboundAlias unboundAlias, C context) {
-        Expression child = visit(unboundAlias.child(), context);
+    public Expression visit(UnboundAlias unboundAlias, C context) {
+        Expression child = unboundAlias.child().accept(this, context);
         if (child != unboundAlias.child()) {
             return new UnboundAlias(child);
         } else {
@@ -121,12 +142,12 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
     }
 
     @Override
-    public Expression visitUnboundSlot(UnboundSlot unboundSlot, C context) {
+    public Expression visit(UnboundSlot unboundSlot, C context) {
         return unboundSlot;
     }
 
     @Override
-    public Expression visitUnboundStar(UnboundStar unboundStar, C context) {
+    public Expression visit(UnboundStar unboundStar, C context) {
         return unboundStar;
     }
 }

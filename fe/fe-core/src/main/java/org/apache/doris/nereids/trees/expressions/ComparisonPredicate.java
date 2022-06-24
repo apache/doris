@@ -53,7 +53,7 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitComparisonPredicate(this, context);
+        return visitor.visit(this, context);
     }
 
     @Override

@@ -45,6 +45,6 @@ public class FunctionCall extends Expression {
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitFunctionCall(this, context);
+        return visitor.visit(this, context);
     }
 }

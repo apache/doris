@@ -80,7 +80,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         List<Slot> boundedSlots = inputs.stream()
                 .flatMap(input -> input.getOutput().stream())
                 .collect(Collectors.toList());
-        return (E) new SlotBinder(boundedSlots).visit(expr, null);
+        return (E) expr.accept(new SlotBinder(boundedSlots), null);
     }
 
     private class SlotBinder extends DefaultExpressionRewriter<Void> {
@@ -90,14 +90,15 @@ public class BindSlotReference implements AnalysisRuleFactory {
             this.boundSlots = boundSlots;
         }
 
+
         @Override
-        public Expression visitUnboundAlias(UnboundAlias unboundAlias, Void context) {
-            Expression child = visit(unboundAlias.child(), context);
+        public Expression visit(UnboundAlias unboundAlias, Void context) {
+            Expression child = unboundAlias.child().accept(this, context);
             return new Alias(child, unboundAlias.getName());
         }
 
         @Override
-        public Slot visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
+        public Slot visit(UnboundSlot unboundSlot, Void context) {
             List<Slot> bounded = bindSlot(unboundSlot, boundSlots);
             switch (bounded.size()) {
                 case 0:
@@ -113,7 +114,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitUnboundStar(UnboundStar unboundStar, Void context) {
+        public Expression visit(UnboundStar unboundStar, Void context) {
             List<String> qualifier = unboundStar.getQualifier();
             List<Slot> boundSlots = Lists.newArrayList();
             switch (qualifier.size()) {
@@ -136,7 +137,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private void analyzeBoundSlots(List<String> qualifier, Void context) {
             this.boundSlots.stream()
                     .forEach(slot ->
-                        boundSlots.add(visitUnboundSlot(new UnboundSlot(
+                        boundSlots.add(visit(new UnboundSlot(
                             ImmutableList.<String>builder()
                                 .addAll(qualifier)
                                 .add(slot.getName())

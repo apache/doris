@@ -46,7 +46,7 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
 
 
     @Override
-    public Expression visitNot(Not expr, ExpressionRewriteContext context) {
+    public Expression visit(Not expr, ExpressionRewriteContext context) {
 
         Expression child = expr.child();
 

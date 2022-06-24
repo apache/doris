@@ -124,7 +124,7 @@ public class Arithmetic extends Expression {
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitArithmetic(this, context);
+        return visitor.visit(this, context);
     }
 
     @Override

@@ -26,87 +26,46 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
  */
 public abstract class ExpressionVisitor<R, C> {
 
-    public abstract R visit(Expression expr, C context);
+    public abstract R visit(Alias alias, C context);
 
+    public abstract R visit(ComparisonPredicate cp, C context);
 
-    public R visitAlias(Alias alias, C context) {
-        return visit(alias, context);
-    }
+    public abstract R visit(EqualTo equalTo, C context);
 
-    public R visitComparisonPredicate(ComparisonPredicate cp, C context) {
-        return visit(cp, context);
-    }
+    public abstract R visit(GreaterThan greaterThan, C context);
 
-    public R visitEqualTo(EqualTo equalTo, C context) {
-        return visit(equalTo, context);
-    }
+    public abstract R visit(GreaterThanEqual greaterThanEqual, C context);
 
-    public R visitGreaterThan(GreaterThan greaterThan, C context) {
-        return visit(greaterThan, context);
-    }
+    public abstract R visit(LessThan lessThan, C context);
 
-    public R visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, C context) {
-        return visit(greaterThanEqual, context);
-    }
+    public abstract R visit(LessThanEqual lessThanEqual, C context);
 
-    public R visitLessThan(LessThan lessThan, C context) {
-        return visit(lessThan, context);
-    }
+    public abstract R visit(NamedExpression namedExpression, C context);
 
-    public R visitLessThanEqual(LessThanEqual lessThanEqual, C context) {
-        return visit(lessThanEqual, context);
-    }
+    public abstract R visit(Not not, C context);
 
-    public R visitNamedExpression(NamedExpression namedExpression, C context) {
-        return visit(namedExpression, context);
-    }
+    public abstract R visit(NullSafeEqual nullSafeEqual, C context);
 
-    public R visitNot(Not not, C context) {
-        return visit(not, context);
-    }
+    public abstract R visit(SlotReference slotReference, C context);
 
-    public R visitNullSafeEqual(NullSafeEqual nullSafeEqual, C context) {
-        return visit(nullSafeEqual, context);
-    }
+    public abstract R visit(Literal literal, C context);
 
-    public R visitSlotReference(SlotReference slotReference, C context) {
-        return visit(slotReference, context);
-    }
+    public abstract R visit(FunctionCall function, C context);
 
-    public R visitLiteral(Literal literal, C context) {
-        return visit(literal, context);
-    }
+    public abstract R visit(BetweenPredicate betweenPredicate, C context);
 
-    public R visitFunctionCall(FunctionCall function, C context) {
-        return visit(function, context);
-    }
+    public abstract R visit(CompoundPredicate compoundPredicate, C context);
 
-    public R visitBetweenPredicate(BetweenPredicate betweenPredicate, C context) {
-        return visit(betweenPredicate, context);
-    }
-
-    public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
-        return visit(compoundPredicate, context);
-    }
-
-    public R visitArithmetic(Arithmetic arithmetic, C context) {
-        return visit(arithmetic, context);
-    }
+    public abstract R visit(Arithmetic arithmetic, C context);
 
 
     /* ********************************************************************************************
      * Unbound expressions
      * ********************************************************************************************/
 
-    public R visitUnboundAlias(UnboundAlias unboundAlias, C context) {
-        return visit(unboundAlias, context);
-    }
+    public abstract R visit(UnboundAlias unboundAlias, C context);
 
-    public R visitUnboundSlot(UnboundSlot unboundSlot, C context) {
-        return visit(unboundSlot, context);
-    }
+    public abstract R visit(UnboundSlot unboundSlot, C context);
 
-    public R visitUnboundStar(UnboundStar unboundStar, C context) {
-        return visit(unboundStar, context);
-    }
+    public abstract R visit(UnboundStar unboundStar, C context);
 }

@@ -104,7 +104,7 @@ public class Literal extends Expression implements LeafExpression {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitLiteral(this, context);
+        return visitor.visit(this, context);
     }
 
     @Override

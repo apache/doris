@@ -52,7 +52,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         logger.warn("accept() is not implemented by " + this.getClass());
-        return visitor.visit(this, context);
+        throw new RuntimeException();
+        //return null;//visitor.visit(this, context);
     }
 
     @Override

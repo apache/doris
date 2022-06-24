@@ -57,6 +57,6 @@ public class GreaterThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ex
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitGreaterThan(this, context);
+        return visitor.visit(this, context);
     }
 }

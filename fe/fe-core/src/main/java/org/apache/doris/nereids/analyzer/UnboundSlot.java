@@ -80,6 +80,6 @@ public class UnboundSlot extends Slot implements Unbound {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundSlot(this, context);
+        return visitor.visit(this, context);
     }
 }

@@ -130,6 +130,6 @@ public class SlotReference extends Slot {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitSlotReference(this, context);
+        return visitor.visit(this, context);
     }
 }

@@ -31,8 +31,4 @@ public abstract class AbstractExpressionRewriteRule extends DefaultExpressionRew
         return expr.accept(this, ctx);
     }
 
-    @Override
-    public Expression visit(Expression expr, ExpressionRewriteContext ctx) {
-        return expr;
-    }
 }

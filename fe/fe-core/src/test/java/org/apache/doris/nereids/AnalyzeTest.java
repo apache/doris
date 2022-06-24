@@ -62,7 +62,7 @@ public class AnalyzeTest extends TestWithFeService {
     @Test
     public void test() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String sql = "select a, b, e from t1 join t2 on t1.a=t2.d";
+        String sql = "select a, b, e from t1 join t2 on t1.a=t2.d where a > 1 and b = 'c' or f = 10";
         LogicalPlan analyzed = analyze(sql);
         Assertions.assertTrue(checkBound(analyzed));
     }
