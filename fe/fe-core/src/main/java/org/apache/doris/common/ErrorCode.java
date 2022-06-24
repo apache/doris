@@ -1686,7 +1686,10 @@ public enum ErrorCode {
                     + "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),
     ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE(5084, new byte[]{'4', '2', '0', '0', '0'},
             "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule."),
-    ERR_WRONG_CATALOG_NAME(5085, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect catalog name '%s'");
+    ERR_WRONG_CATALOG_NAME(5085, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect catalog name '%s'"),
+    ERR_UNKNOWN_CATALOG(5086, new byte[]{'4', '2', '0', '0', '0'}, "Unknown catalog '%s'"),
+    ERR_CATALOG_ACCESS_DENIED(5087, new byte[]{'4', '2', '0', '0', '0'},
+            "Access denied for user '%s' to catalog '%s'");
 
     // This is error code
     private final int code;
