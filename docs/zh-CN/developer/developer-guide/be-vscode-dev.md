@@ -31,6 +31,8 @@ under the License.
 
 **本教程是在 Ubuntu 20.04 下进行的**
 
+**文中的出现的BE二进制文件名称 `doris_be`，在之前的版本中为 `palo_be`。**
+
 1. 下载 doris 源代码
 
    下载地址为：[apache/doris: Apache Doris (github.com)](https://github.com/apache/doris)
@@ -97,10 +99,10 @@ cd /home/workspace/doris
 1. 给be编译结果文件授权
 
 ```
-chmod  /home/workspace/doris/output/be/lib/palo_be
+chmod  /home/workspace/doris/output/be/lib/doris_be
 ```
 
-注意： /home/workspace/doris/output/be/lib/palo_be为be的执行文件。
+注意： /home/workspace/doris/output/be/lib/doris_be为be的执行文件。
 
 2. 创建数据存放目录
 
@@ -151,7 +153,7 @@ mkdir -p /soft/be/storage
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/doris_be",
             "args": [],
             "stopAtEntry": false,
             "cwd": "/home/workspace/doris/",
@@ -174,7 +176,7 @@ mkdir -p /soft/be/storage
 }
 ```
 
-其中，environment 定义了几个环境变量 DORIS_HOME  UDF_RUNTIME_DIR LOG_DIR  PID_DIR，这是 palo_be 运行时需要的环境变量，如果没有设置，启动会失败。
+其中，environment 定义了几个环境变量 DORIS_HOME  UDF_RUNTIME_DIR LOG_DIR  PID_DIR，这是 doris_be 运行时需要的环境变量，如果没有设置，启动会失败。
 
 **注意：如果希望是attach(附加进程）调试，配置代码如下：**
 
@@ -186,7 +188,7 @@ mkdir -p /soft/be/storage
           "name": "(gdb) Launch",
           "type": "cppdbg",
           "request": "attach",
-          "program": "/home/workspace/doris/output/lib/palo_be",
+          "program": "/home/workspace/doris/output/lib/doris_be",
           "processId":,
           "MIMode": "gdb",
           "internalConsoleOptions":"openOnSessionStart",
@@ -224,7 +226,7 @@ ps -ef | grep palo*
             "name": "(gdb) Attach",
             "type": "cppdbg",
             "request": "attach",
-            "program": "/home/workspace/doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/doris_be",
             "processId": 17016,
             "MIMode": "gdb",
             "setupCommands": [
@@ -239,7 +241,7 @@ ps -ef | grep palo*
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/doris_be",
             "args": [],
             "stopAtEntry": false,
             "cwd": "/home/workspace/doris/output/be",

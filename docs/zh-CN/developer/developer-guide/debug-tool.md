@@ -28,6 +28,8 @@ under the License.
 
 在Doris的使用、开发过程中，经常会遇到需要对Doris进行调试的场景，这里介绍一些常用的调试工具。
 
+**文中的出现的BE二进制文件名称 `doris_be`，在之前的版本中为 `palo_be`。**
+
 ## FE 调试
 
 FE 是 Java 进程。这里只列举一下简单常用的 java 调试命令。
@@ -112,7 +114,7 @@ tcmalloc: large alloc 1396277248 bytes == 0x3f3488000 @  0x2af6f63 0x2c4095b 0x1
 这个表示在Doris BE在这个堆栈上尝试申请`1396277248 bytes`的内存。我们可以通过`addr2line`命令去把堆栈还原成我们能够看懂的信，具体的例子如下所示。
 
 ```
-$ addr2line -e lib/palo_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x133d1d0 0x19930ed
+$ addr2line -e lib/doris_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x133d1d0 0x19930ed
 
 /home/ssd0/zc/palo/doris/core/thirdparty/src/gperftools-gperftools-2.7/src/tcmalloc.cc:1335
 /home/ssd0/zc/palo/doris/core/thirdparty/src/gperftools-gperftools-2.7/src/tcmalloc.cc:1357
@@ -137,9 +139,9 @@ export HEAPPROFILE=/tmp/doris_be.hprof
 这样，当满足HEAPPROFILE的dump条件时，就会将内存的整体使用情况写到指定路径的文件中。后续我们就可以通过使用`pprof`工具来对输出的内容进行分析。
 
 ```
-$ pprof --text lib/palo_be /tmp/doris_be.hprof.0012.heap | head -30
+$ pprof --text lib/doris_be /tmp/doris_be.hprof.0012.heap | head -30
 
-Using local file lib/palo_be.
+Using local file lib/doris_be.
 Using local file /tmp/doris_be.hprof.0012.heap.
 Total: 668.6 MB
    610.6  91.3%  91.3%    610.6  91.3% doris::SystemAllocator::allocate_via_malloc (inline)
@@ -165,7 +167,7 @@ Total: 668.6 MB
 当然也可以生成调用关系图片，更加方便分析。比如下面的命令就能够生成SVG格式的调用关系图。
 
 ```
-pprof --svg lib/palo_be /tmp/doris_be.hprof.0012.heap > heap.svg 
+pprof --svg lib/doris_be /tmp/doris_be.hprof.0012.heap > heap.svg 
 ```
 
 **注意：开启这个选项是要影响程序的执行性能的，请慎重对线上的实例开启**
@@ -261,7 +263,7 @@ WRITE of size 1 at 0x61900008bf80 thread T0
     #0 0x129f569 in doris::StorageEngine::open(doris::EngineOptions const&, doris::StorageEngine**) /home/ssd0/zc/palo/doris/core/be/src/olap/storage_engine.cpp:106
     #1 0xe2c1e3 in main /home/ssd0/zc/palo/doris/core/be/src/service/doris_main.cpp:159
     #2 0x7fa5580fbbd4 in __libc_start_main (/opt/compiler/gcc-4.8.2/lib64/libc.so.6+0x21bd4)
-    #3 0xd30794  (/home/ssd0/zc/palo/doris/core/output3/be/lib/palo_be+0xd30794)
+    #3 0xd30794  (/home/ssd0/zc/palo/doris/core/output3/be/lib/doris_be+0xd30794)
 
 0x61900008bf80 is located 0 bytes to the right of 1024-byte region [0x61900008bb80,0x61900008bf80)
 allocated by thread T0 here:

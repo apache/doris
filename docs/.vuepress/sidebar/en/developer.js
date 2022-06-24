@@ -42,7 +42,6 @@ module.exports =  [
       "cpp-format-code",
       "cpp-diagnostic-code",
       "how-to-share-blogs",
-      "minidump",
       "bitmap-hll-file-format",
       "github-checks"
     ],

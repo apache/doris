@@ -190,7 +190,7 @@ void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
     (*output) << std::endl;
     (*output) << "    curl http://localhost:" << config::webserver_port
               << "/pprof/heap?seconds=30 > perf.data" << std::endl;
-    (*output) << "    pprof --text be/lib/palo_be perf.data" << std::endl;
+    (*output) << "    pprof --text be/lib/doris_be perf.data" << std::endl;
     (*output) << std::endl;
     (*output) << "</pre>" << std::endl;
     (*output) << "<div id=\"heap\">" << std::endl;
@@ -256,7 +256,7 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
     (*output) << std::endl;
     (*output) << "    curl http://localhost:" << config::webserver_port
               << "/pprof/profile?seconds=30 > perf.data" << std::endl;
-    (*output) << "    pprof --text be/lib/palo_be perf.data" << std::endl;
+    (*output) << "    pprof --text be/lib/doris_be perf.data" << std::endl;
     (*output) << std::endl;
     (*output) << "If you want to get the flame graph, you must first make sure that there is a "
                  "'perf' command on the host machine."

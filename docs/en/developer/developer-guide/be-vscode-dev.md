@@ -30,6 +30,8 @@ under the License.
 
 **This tutorial was conducted under Ubuntu 20.04**
 
+**The name of the BE binary that appears in this doc is `doris_be`, which was `palo_be` in previous versions.**
+
 1. Download the doris source code
 
    URL：[apache/doris: Apache Doris (github.com)](https://github.com/apache/doris)
@@ -94,10 +96,10 @@ If nothing happens, the compilation should be successful, and the final deployme
 1. Authorize be compilation result files
 
 ```
-chmod  /home/workspace/doris/output/be/lib/palo_be
+chmod  /home/workspace/doris/output/be/lib/doris_be
 ```
 
-Note: /home/workspace/doris/output/be/lib/palo_be is the executable file of be.
+Note: /home/workspace/doris/output/be/lib/doris_be is the executable file of be.
 
 2. Create a data storage directory
 
@@ -148,7 +150,7 @@ mkdir -p /soft/be/storage
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/doris_be",
             "args": [],
             "stopAtEntry": false,
             "cwd": "/home/workspace/doris/",
@@ -171,7 +173,7 @@ mkdir -p /soft/be/storage
 }
 ```
 
-Among them, environment defines several environment variables DORIS_HOME UDF_RUNTIME_DIR LOG_DIR PID_DIR, which are the environment variables needed when palo_be is running. If it is not set, the startup will fail
+Among them, environment defines several environment variables DORIS_HOME UDF_RUNTIME_DIR LOG_DIR PID_DIR, which are the environment variables needed when doris_be is running. If it is not set, the startup will fail
 
 **Note: If you want attach (additional process) debugging, the configuration code is as follows:**
 
@@ -183,7 +185,7 @@ Among them, environment defines several environment variables DORIS_HOME UDF_RUN
           "name": "(gdb) Launch",
           "type": "cppdbg",
           "request": "attach",
-          "program": "/home/workspace/doris/output/lib/palo_be",
+          "program": "/home/workspace/doris/output/lib/doris_be",
           "processId":,
           "MIMode": "gdb",
           "internalConsoleOptions":"openOnSessionStart",
@@ -221,7 +223,7 @@ An example of a complete launch.json is as follows:
             "name": "(gdb) Attach",
             "type": "cppdbg",
             "request": "attach",
-            "program": "/home/workspace/doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/doris_be",
             "processId": 17016,
             "MIMode": "gdb",
             "setupCommands": [
@@ -236,7 +238,7 @@ An example of a complete launch.json is as follows:
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/workspace/doris/output/be/lib/palo_be",
+            "program": "/home/workspace/doris/output/be/lib/doris_be",
             "args": [],
             "stopAtEntry": false,
             "cwd": "/home/workspace/doris/output/be",

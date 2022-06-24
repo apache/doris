@@ -28,6 +28,8 @@ under the License.
 
 This document is mainly used to record the common problems of operation and maintenance during the use of Doris. It will be updated from time to time.
 
+**The name of the BE binary that appears in this doc is `doris_be`, which was `palo_be` in previous versions.**
+
 ### Q1. Why is there always some tablet left when I log off the BE node through DECOMMISSION?
 
 During the offline process, use show backends to view the tabletNum of the offline node, and you will observe that the number of tabletNum is decreasing, indicating that data shards are being migrated from this node. When the number is reduced to 0, the system will automatically delete the node. But in some cases, tabletNum will not change after it drops to a certain value. This is usually possible for two reasons:
@@ -145,7 +147,7 @@ In many cases, we need to troubleshoot problems through logs. The format and vie
 
    2. dmesg
 
-      If there is no stack information in be.out, the probability is that OOM was forcibly killed by the system. At this time, you can use the dmesg -T command to view the Linux system log. If a log similar to Memory cgroup out of memory: Kill process 7187 (palo_be) score 1007 or sacrifice child appears at the end, it means that it is caused by OOM.
+      If there is no stack information in be.out, the probability is that OOM was forcibly killed by the system. At this time, you can use the dmesg -T command to view the Linux system log. If a log similar to Memory cgroup out of memory: Kill process 7187 (doris_be) score 1007 or sacrifice child appears at the end, it means that it is caused by OOM.
 
       Memory problems can have many reasons, such as large queries, imports, compactions, etc. Doris is also constantly optimizing memory usage. Welcome to the WeChat group, github discussion or dev mail group for help.
 

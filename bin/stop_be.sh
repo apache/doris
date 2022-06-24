@@ -35,7 +35,7 @@ pidfile=$PID_DIR/be.pid
 if [ -f $pidfile ]; then
     pid=`cat $pidfile`
     pidcomm=`ps -p $pid -o comm=`
-    if [ "palo_be"x != "$pidcomm"x ]; then
+    if [ "doris_be"x != "$pidcomm"x ]; then
         echo "ERROR: pid process may not be be. "
         exit 1
     fi

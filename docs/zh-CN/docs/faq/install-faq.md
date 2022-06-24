@@ -28,6 +28,8 @@ under the License.
 
 本文档主要用于记录 Doris 使用过程中的运维常见问题。会不定期更新。
 
+**文中的出现的BE二进制文件名称 `doris_be`，在之前的版本中为 `palo_be`。**
+
 ### Q1. 通过 DECOMMISSION 下线BE节点时，为什么总会有部分tablet残留？
 
 在下线过程中，通过 show backends 查看下线节点的 tabletNum ，会观察到 tabletNum 数量在减少，说明数据分片正在从这个节点迁移走。当数量减到0时，系统会自动删除这个节点。但某些情况下，tabletNum 下降到一定数值后就不变化。这通常可能有以下两种原因：
@@ -145,17 +147,13 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
    2. dmesg
 
-      如果be.out没有堆栈信息，则大概率是因为OOM被系统强制kill掉了。此时可以通过dmesg -T 这个命令查看linux系统日志，如果最后出现 Memory cgroup out of memory: Kill process 7187 (palo_be) score 1007 or sacrifice child 类似的日志，则说明是OOM导致的。
+      如果be.out没有堆栈信息，则大概率是因为OOM被系统强制kill掉了。此时可以通过dmesg -T 这个命令查看linux系统日志，如果最后出现 Memory cgroup out of memory: Kill process 7187 (doris_be) score 1007 or sacrifice child 类似的日志，则说明是OOM导致的。
 
       内存问题可能有多方面原因，如大查询、导入、compaction等。Doris也在不断优化内存使用。欢迎前往微信群、github discussion 或dev邮件组寻求帮助。
 
    3. 查看be.INFO中是否有F开头的日志。
 
       F开头的日志是 Fatal 日志。如 F0916 ，表示9月16号的Fatal日志。Fatal日志通常表示程序断言错误，断言错误会直接导致进程退出（说明程序出现了Bug）。欢迎前往微信群、github discussion 或dev邮件组寻求帮助。
-
-   4. Minidump(removed)
-
-      Mindump 是 Doris 0.15 版本之后加入的功能，具体可参阅[文档](https://doris.apache.org/zh-CN/developer-guide/minidump.html)。
 
 2. FE
 
