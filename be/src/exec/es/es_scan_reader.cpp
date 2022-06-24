@@ -77,8 +77,7 @@ ESScanReader::ESScanReader(const std::string& target,
         _exactly_once = true;
         std::stringstream scratch;
         // just send a normal search  against the elasticsearch with additional terminate_after param to achieve terminate early effect when limit take effect
-        scratch << _target << REQUEST_SEPARATOR << _index << _type
-                << "/_search?"
+        scratch << _target << REQUEST_SEPARATOR << _index << _type << "/_search?"
                 << "terminate_after=" << props.at(KEY_TERMINATE_AFTER) << REQUEST_PREFERENCE_PREFIX
                 << _shards << "&" << filter_path;
         _search_url = scratch.str();
@@ -87,8 +86,7 @@ ESScanReader::ESScanReader(const std::string& target,
         std::stringstream scratch;
         // scroll request for scanning
         // add terminate_after for the first scroll to avoid decompress all postings list
-        scratch << _target << REQUEST_SEPARATOR << _index << _type
-                << "/_search?"
+        scratch << _target << REQUEST_SEPARATOR << _index << _type << "/_search?"
                 << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards << "&"
                 << filter_path << "&terminate_after=" << batch_size_str;
         _init_scroll_url = scratch.str();
