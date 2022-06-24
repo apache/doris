@@ -31,7 +31,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -74,16 +73,21 @@ import java.util.UUID;
 public class UtFrameUtils {
 
     // Help to create a mocked ConnectContext.
-    public static ConnectContext createDefaultCtx() throws IOException {
+    public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         SocketChannel channel = SocketChannel.open();
         ConnectContext ctx = new ConnectContext(channel);
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setQualifiedUser(PaloAuth.ROOT_USER);
-        ctx.setRemoteIP("127.0.0.1");
+        ctx.setCurrentUserIdentity(userIdentity);
+        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
+        ctx.setRemoteIP(remoteIp);
         ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.setThreadLocalInfo();
         return ctx;
+    }
+
+    // Help to create a mocked ConnectContext for root.
+    public static ConnectContext createDefaultCtx() throws IOException {
+        return createDefaultCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -64,6 +65,23 @@ public class DbPrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
+    }
+
+    public boolean hasPrivsOfCatalog(UserIdentity currentUser, String ctl) {
+        for (PrivEntry entry : entries) {
+            DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
+
+            if (!dbPrivEntry.match(currentUser, true)) {
+                continue;
+            }
+
+            // check catalog
+            Preconditions.checkState(!dbPrivEntry.isAnyCtl());
+            if (dbPrivEntry.getCtlPattern().match(ctl)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean hasClusterPriv(ConnectContext ctx, String clusterName) {

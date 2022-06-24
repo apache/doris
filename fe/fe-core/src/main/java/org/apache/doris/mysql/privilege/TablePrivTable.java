@@ -69,6 +69,23 @@ public class TablePrivTable extends PrivTable {
         savedPrivs.or(matchedEntry.getPrivSet());
     }
 
+    public boolean hasPrivsOfCatalog(UserIdentity currentUser, String ctl) {
+        for (PrivEntry entry : entries) {
+            TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
+
+            if (!tblPrivEntry.match(currentUser, true)) {
+                continue;
+            }
+
+            // check catalog
+            Preconditions.checkState(!tblPrivEntry.isAnyCtl());
+            if (tblPrivEntry.getCtlPattern().match(ctl)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public boolean hasPrivsOfDb(UserIdentity currentUser, String ctl, String db) {
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;

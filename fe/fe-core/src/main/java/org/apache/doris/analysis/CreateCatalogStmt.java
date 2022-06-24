@@ -19,12 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -64,17 +64,14 @@ public class CreateCatalogStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
-        }
+        Util.checkCatalogAllRules(catalogName);
         if (catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
             throw new AnalysisException("Internal catalog name can't be create.");
         }
-        FeNameFormat.checkCommonName("catalog", catalogName);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                ConnectContext.get(), catalogName, PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
         FeNameFormat.checkCatalogProperties(properties);

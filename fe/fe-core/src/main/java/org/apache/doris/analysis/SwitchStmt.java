@@ -18,64 +18,48 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
-/**
- * Statement for alter the catalog name.
- */
-public class AlterCatalogNameStmt extends DdlStmt {
+public class SwitchStmt extends StatementBase {
     private final String catalogName;
-    private final String newCatalogName;
 
-    public AlterCatalogNameStmt(String catalogName, String newCatalogName) {
+    public SwitchStmt(String catalogName) {
         this.catalogName = catalogName;
-        this.newCatalogName = newCatalogName;
     }
 
     public String getCatalogName() {
         return catalogName;
     }
 
-    public String getNewCatalogName() {
-        return newCatalogName;
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        Util.checkCatalogAllRules(catalogName);
-
-        if (catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
-            throw new AnalysisException("Internal catalog can't be alter.");
-        }
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
-                ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                    analyzer.getQualifiedUser(), catalogName);
-        }
-
-        if (Strings.isNullOrEmpty(newCatalogName)) {
-            throw new AnalysisException("New catalog name is not set");
-        }
-        if (newCatalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
-            throw new AnalysisException("Cannot alter a catalog into a build-in name.");
-        }
-        FeNameFormat.checkCommonName("catalog", newCatalogName);
-    }
-
     @Override
     public String toSql() {
-        return "ALTER CATALOG " + catalogName + " RENAME " + newCatalogName;
+        return "SWITCH `" + catalogName + "`";
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
+
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+
+        Util.checkCatalogAllRules(catalogName);
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(
+                    ErrorCode.ERR_CATALOG_ACCESS_DENIED, analyzer.getQualifiedUser(), catalogName);
+        }
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.NO_FORWARD;
     }
 }

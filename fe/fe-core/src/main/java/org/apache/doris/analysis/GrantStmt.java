@@ -168,15 +168,21 @@ public class GrantStmt extends DdlStmt {
                 if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
+            } else if (tblPattern.getPrivLevel() == PrivLevel.CATALOG) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(ConnectContext.get(),
+                        tblPattern.getQualifiedCtl(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
             } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
-                        tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
+                        tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             } else {
                 // table level
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                        tblPattern.getQualifiedDb(), tblPattern.getTbl(), PrivPredicate.GRANT)) {
+                        tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(),
+                        tblPattern.getTbl(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             }

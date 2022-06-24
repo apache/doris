@@ -17,14 +17,17 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalDataSource;
-
-import com.google.common.base.Strings;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
@@ -51,12 +54,11 @@ public class AlterCatalogPropertyStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
-        }
-        if (Strings.isNullOrEmpty(catalogName)) {
-            throw new AnalysisException("Datasource name is not set");
+        Util.checkCatalogAllRules(catalogName);
+        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
+                    analyzer.getQualifiedUser(), catalogName);
         }
 
         if (catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
