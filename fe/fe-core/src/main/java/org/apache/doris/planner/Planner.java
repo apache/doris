@@ -20,13 +20,21 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.PlanTreeBuilder;
+import org.apache.doris.common.profile.PlanTreePrinter;
+import org.apache.doris.thrift.TQueryOptions;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public abstract class Planner {
+
+    private static final Logger LOG = LogManager.getLogger(Planner.class);
 
     protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 
@@ -35,11 +43,43 @@ public abstract class Planner {
     public abstract List<ScanNode> getScanNodes();
 
     public abstract void plan(StatementBase queryStmt,
-            org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException;
+             TQueryOptions queryOptions) throws UserException;
 
-    public String getExplainString(List<PlanFragment> fragments, ExplainOptions explainOptions) {
-        return "Not implemented yet";
+    public String getExplainString(ExplainOptions explainOptions) {
+        Preconditions.checkNotNull(explainOptions);
+        if (explainOptions.isGraph()) {
+            // print the plan graph
+            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
+            try {
+                builder.build();
+            } catch (UserException e) {
+                LOG.warn("Failed to build explain plan tree", e);
+                return e.getMessage();
+            }
+            return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
+        }
+
+        // print text plan
+        org.apache.doris.thrift.TExplainLevel
+                explainLevel = explainOptions.isVerbose()
+                ? org.apache.doris.thrift.TExplainLevel.VERBOSE : org.apache.doris.thrift.TExplainLevel.NORMAL;
+        StringBuilder str = new StringBuilder();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            if (i > 0) {
+                // a blank line between plan fragments
+                str.append("\n");
+            }
+            str.append("PLAN FRAGMENT " + i + "\n");
+            str.append(fragment.getExplainString(explainLevel));
+        }
+        if (explainLevel == org.apache.doris.thrift.TExplainLevel.VERBOSE) {
+            appendTupleInfo(str);
+        }
+        return str.toString();
     }
+
+    public void appendTupleInfo(StringBuilder stringBuilder) {}
 
     public List<PlanFragment> getFragments() {
         return fragments;

@@ -946,7 +946,7 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.getExplainOptions());
+            String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString);
             return;
         }
@@ -1262,7 +1262,7 @@ public class StmtExecutor implements ProfileWriter {
         if (insertStmt.getQueryStmt().isExplain()) {
             ExplainOptions explainOptions = insertStmt.getQueryStmt().getExplainOptions();
             insertStmt.setIsExplain(explainOptions);
-            String explainString = planner.getExplainString(planner.getFragments(), explainOptions);
+            String explainString = planner.getExplainString(explainOptions);
             handleExplainStmt(explainString);
             return;
         }

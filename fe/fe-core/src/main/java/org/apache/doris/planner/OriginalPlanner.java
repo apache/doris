@@ -21,7 +21,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
@@ -34,12 +33,9 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.profile.PlanTreeBuilder;
-import org.apache.doris.common.profile.PlanTreePrinter;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
-import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
@@ -121,36 +117,8 @@ public class OriginalPlanner extends Planner {
      * Return combined explain string for all plan fragments.
      */
     @Override
-    public String getExplainString(List<PlanFragment> fragments, ExplainOptions explainOptions) {
-        Preconditions.checkNotNull(explainOptions);
-        if (explainOptions.isGraph()) {
-            // print the plan graph
-            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
-            try {
-                builder.build();
-            } catch (UserException e) {
-                LOG.warn("Failed to build explain plan tree", e);
-                return e.getMessage();
-            }
-            return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
-        }
-
-        // print text plan
-        TExplainLevel explainLevel = explainOptions.isVerbose() ? TExplainLevel.VERBOSE : TExplainLevel.NORMAL;
-        StringBuilder str = new StringBuilder();
-        for (int i = 0; i < fragments.size(); ++i) {
-            PlanFragment fragment = fragments.get(i);
-            if (i > 0) {
-                // a blank line between plan fragments
-                str.append("\n");
-            }
-            str.append("PLAN FRAGMENT " + i + "\n");
-            str.append(fragment.getExplainString(explainLevel));
-        }
-        if (explainLevel == TExplainLevel.VERBOSE) {
-            str.append(plannerContext.getRootAnalyzer().getDescTbl().getExplainString());
-        }
-        return str.toString();
+    public void appendTupleInfo(StringBuilder str) {
+        str.append(plannerContext.getRootAnalyzer().getDescTbl().getExplainString());
     }
 
     /**
