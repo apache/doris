@@ -93,9 +93,9 @@ public:
     
     int64_t memtable_consumption() const;
     
-    int64_t save_memtable_consumption_snapshot();
+    int64_t save_mem_consumption_snapshot();
 
-    int64_t get_memtable_consumption_snapshot() const;
+    int64_t get_mem_consumption_snapshot() const;
 
 private:
     DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
@@ -131,7 +131,7 @@ private:
     std::mutex _lock;
 
     //only used for std::sort more detail see issue(#9237)
-    int64_t _memtable_consumption_snapshot = 0;
+    int64_t _mem_consumption_snapshot = 0;
 };
 
 } // namespace doris
