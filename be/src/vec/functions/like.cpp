@@ -101,8 +101,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     // result column
     auto res = ColumnUInt8::create();
     ColumnUInt8::Container& vec_res = res->get_data();
-    // set default value to 0, and match functions only need to set 1/true
-    vec_res.resize_fill(values->size());
+    vec_res.resize(values->size());
 
     auto* state = reinterpret_cast<LikeState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -130,42 +129,6 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
                                        const ColumnString::Offsets& pattern_offsets,
                                        ColumnUInt8::Container& result, const LikeFn& function,
                                        LikeSearchState* search_state) {
-    // for constant_substring_fn, use long run length search for performance
-    if (constant_substring_fn ==
-        *(function.target<doris::Status (*)(LikeSearchState * state, const StringValue&,
-                                            const StringValue&, unsigned char*)>())) {
-        // treat continous multi string data as a long string data
-        const UInt8* begin = values.data();
-        const UInt8* end = begin + values.size();
-        const UInt8* pos = begin;
-
-        /// Current index in the array of strings.
-        size_t i = 0;
-        size_t needle_size = search_state->substring_pattern.get_pattern_length();
-
-        /// We will search for the next occurrence in all strings at once.
-        while (pos < end) {
-            // search return matched substring start offset
-            pos = (UInt8*)search_state->substring_pattern.search((char*)pos, end - pos);
-            if (pos >= end) break;
-
-            /// Determine which index it refers to.
-            /// begin + value_offsets[i] is the start offset of string at i+1
-            while (begin + value_offsets[i] <= pos) ++i;
-
-            /// We check that the entry does not pass through the boundaries of strings.
-            if (pos + needle_size < begin + value_offsets[i]) {
-                result[i] = 1;
-            }
-
-            // move to next string offset
-            pos = begin + value_offsets[i];
-            ++i;
-        }
-
-        return Status::OK();
-    }
-
     const auto size = value_offsets.size();
 
     for (int i = 0; i < size; ++i) {
