@@ -17,18 +17,14 @@
 
 package org.apache.doris.analysis;
 
-
-import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalDataSource;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
-import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,21 +53,15 @@ public class AlterCatalogNameStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
-        }
-        if (Strings.isNullOrEmpty(catalogName)) {
-            throw new AnalysisException("Datasource name is not set");
-        }
+        Util.checkCatalogAllRules(catalogName);
 
         if (catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
             throw new AnalysisException("Internal catalog can't be alter.");
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV, PaloPrivilege.ALTER_PRIV), Operator.OR))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
 
