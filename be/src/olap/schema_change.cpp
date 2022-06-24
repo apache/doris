@@ -98,21 +98,26 @@ public:
 
     Status merge(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
                  RowsetWriter* rowset_writer, uint64_t* merged_rows) {
+        int rows = 0;
+        for (auto& block : blocks) {
+            rows += block->rows();
+        }
+        if (!rows) {
+            return Status::OK();
+        }
+
         std::vector<RowRef> row_refs;
+        row_refs.reserve(rows);
         for (auto& block : blocks) {
             for (uint16_t i = 0; i < block->rows(); i++) {
                 row_refs.emplace_back(block.get(), i);
             }
         }
+        // TODO: try to use pdqsort to replace std::sort
         // The block version is incremental.
         std::stable_sort(row_refs.begin(), row_refs.end(), _cmp);
 
-        if (!row_refs.size()) {
-            return Status::OK();
-        }
-
         auto finalized_block = _tablet->tablet_schema().create_block();
-        int rows = row_refs.size();
         int columns = finalized_block.columns();
         *merged_rows += rows;
 
@@ -125,7 +130,7 @@ public:
                     pushed_row_refs.push_back(row_refs[i]);
                 }
             }
-        } else {
+        } else if (_tablet->keys_type() == KeysType::AGG_KEYS) {
             auto tablet_schema = _tablet->tablet_schema();
             int key_number = _tablet->num_key_columns();
 
@@ -216,17 +221,17 @@ private:
     };
 
     struct RowRefComparator {
-        RowRefComparator(TabletSharedPtr tablet) : num_columns(tablet->num_key_columns()) {}
+        RowRefComparator(TabletSharedPtr tablet) : _num_columns(tablet->num_key_columns()) {}
 
         int compare(const RowRef& lhs, const RowRef& rhs) const {
-            return lhs.block->compare_at(lhs.position, rhs.position, num_columns, *rhs.block, -1);
+            return lhs.block->compare_at(lhs.position, rhs.position, _num_columns, *rhs.block, -1);
         }
 
         bool operator()(const RowRef& lhs, const RowRef& rhs) const {
             return compare(lhs, rhs) < 0;
         }
 
-        const size_t num_columns;
+        const size_t _num_columns;
     };
 
     TabletSharedPtr _tablet;
