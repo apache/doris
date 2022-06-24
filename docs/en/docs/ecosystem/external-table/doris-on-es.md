@@ -121,7 +121,7 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
-
+"version" = "6.8.23"
 "user" = "root",
 "password" = "root"
 );
@@ -134,6 +134,7 @@ Parameter | Description
 **hosts** | ES Cluster Connection Address, maybe one or more node, load-balance is also accepted
 **index** | the related ES index name, alias is supported, and if you use doc_value, you need to use the real name
 **type** | the type for this index, If not specified, `_doc` will be used
+**version** | the es cluster version
 **user** | username for ES
 **password** | password for the user
 
@@ -191,9 +192,9 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
+"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
-
 "enable_docvalue_scan" = "true"
 );
 ```
@@ -232,9 +233,9 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
+"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
-
 "enable_keyword_sniff" = "true"
 );
 ```
@@ -344,9 +345,9 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
+"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
-
 "nodes_discovery" = "true"
 );
 ```
@@ -373,9 +374,9 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
+"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
-
 "http_ssl_enabled" = "true"
 );
 ```
@@ -562,6 +563,7 @@ CREATE EXTERNAL TABLE `doe` (
 PROPERTIES (
 "hosts" = "http://127.0.0.1:8200",
 "user" = "root",
+"version" = "6.8.23"
 "password" = "root",
 "index" = "doe",
 "type" = "doc"
