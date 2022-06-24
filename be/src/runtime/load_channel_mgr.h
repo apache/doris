@@ -80,7 +80,7 @@ protected:
     Cache* _last_success_channel = nullptr;
 
     // check the total load channel mem consumption of this Backend
-    // TODO(zxy) no used, refactor soon
+    // TODO no used, refactor soon
     std::shared_ptr<MemTracker> _mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;

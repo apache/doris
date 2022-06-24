@@ -117,7 +117,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                                                fmt::format("LoadChannel#senderIp={}#loadID={}",
                                                            params.sender_ip(), load_id.to_string()),
                                                _mem_tracker);
-            // TODO(zxy)
+            // TODO
             // auto channel_mem_tracker_job = std::make_shared<MemTracker>(
             //         -1,
             //         fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
