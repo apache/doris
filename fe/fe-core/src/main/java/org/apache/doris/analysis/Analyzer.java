@@ -253,8 +253,9 @@ public class Analyzer {
         private final Map<TupleId, List<ExprId>> eqJoinConjuncts = Maps.newHashMap();
 
         // set of conjuncts that have been assigned to some PlanNode
-        private Set<ExprId> assignedConjuncts =
-                Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
+        private Set<ExprId> assignedConjuncts = Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
+
+        private Set<TupleId> inlineViewTupleIds = Sets.newHashSet();
 
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
@@ -784,6 +785,7 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
+        // TODO: need to remove this outer join'
         result.setIsNullable(col.isAllowNull() || isOuterJoined(d.getId()));
 
         slotRefMap.put(key, result);
@@ -881,6 +883,10 @@ public class Analyzer {
         result.setIsNullable(srcSlotDesc.getIsNullable());
         // result.setItemTupleDesc(srcSlotDesc.getItemTupleDesc());
         return result;
+    }
+
+    public void registerInlineViewTupleId(TupleId tupleId) {
+        globalState.inlineViewTupleIds.add(tupleId);
     }
 
     /**
@@ -2164,6 +2170,10 @@ public class Analyzer {
 
     public boolean isOuterJoined(TupleId tid) {
         return globalState.outerJoinedTupleIds.containsKey(tid);
+    }
+
+    public boolean isInlineView(TupleId tid) {
+        return globalState.inlineViewTupleIds.contains(tid);
     }
 
     public boolean containSubquery() {
