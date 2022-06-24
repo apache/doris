@@ -135,7 +135,7 @@ if [ $# == 1 ] ; then
     BUILD_FE=1
     BUILD_BE=1
     BUILD_BROKER=1
-    BUILD_META_TOOL=ON
+    BUILD_META_TOOL=OFF
     BUILD_SPARK_DPP=1
     BUILD_JAVA_UDF=0 # TODO: open it when ready
     BUILD_HIVE_UDF=1
@@ -371,7 +371,8 @@ if [ ${BUILD_FE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
     rm -rf ${DORIS_OUTPUT}/fe/lib/*
     cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
-    cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+    rm -f ${DORIS_OUTPUT}/fe/lib/palo-fe.jar
+    cp -r -p ${DORIS_HOME}/fe/fe-core/target/doris-fe.jar ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/webroot/static ${DORIS_OUTPUT}/fe/webroot/
 
@@ -396,7 +397,9 @@ if [ ${BUILD_BE} -eq 1 ]; then
 
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
-    cp -r -p ${DORIS_HOME}/be/output/lib/palo_be ${DORIS_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/lib/doris_be ${DORIS_OUTPUT}/be/lib/
+    # make a soft link palo_be point to doris_be, for forward compatibility
+    cd ${DORIS_OUTPUT}/be/lib && rm palo_be && ln -s doris_be palo_be && cd -
 
     if [ "${BUILD_META_TOOL}" = "ON" ]; then
         cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/
@@ -417,8 +420,6 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
     mkdir -p ${DORIS_OUTPUT}/be/log
     mkdir -p ${DORIS_OUTPUT}/be/storage
-
-
 fi
 
 if [ ${BUILD_BROKER} -eq 1 ]; then
