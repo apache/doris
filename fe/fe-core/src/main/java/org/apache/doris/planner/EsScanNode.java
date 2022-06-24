@@ -251,7 +251,8 @@ public class EsScanNode extends ScanNode {
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
                 esScanRange.setIndex(shardRouting.get(0).getIndexName());
-                if (table.majorVersion == null || table.majorVersion.notOn(EsMajorVersion.V_8_X)) {
+                // 8.x type is cancelled
+                if (table.majorVersion == null || table.majorVersion.before(EsMajorVersion.V_8_X)) {
                     esScanRange.setType(table.getMappingType());
                 }
                 esScanRange.setShardId(shardRouting.get(0).getShardId());
