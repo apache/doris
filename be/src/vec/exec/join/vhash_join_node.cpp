@@ -1172,15 +1172,15 @@ Status HashJoinNode::_extract_probe_join_column(Block& block, NullMap& null_map,
 
 Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t offset) {
     SCOPED_TIMER(_build_table_timer);
+    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+        _convert_block_to_null(block);
+    }
     size_t rows = block.rows();
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
     COUNTER_UPDATE(_build_rows_counter, rows);
 
-    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _convert_block_to_null(block);
-    }
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
     NullMap null_map_val(rows);

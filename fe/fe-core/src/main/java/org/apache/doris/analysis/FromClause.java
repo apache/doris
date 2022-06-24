@@ -147,8 +147,11 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
         }
-
         checkExternalTable(analyzer);
+
+        // Fix the problem of column nullable attribute error caused by inline view + outer join
+        changeTblRefToNullable(analyzer);
+
         // TODO: remove when query from hive table is supported
         checkFromHiveTable(analyzer);
 
@@ -179,6 +182,24 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
                 if (table.getType() == TableType.BROKER || table.getType() == TableType.HIVE
                         || table.getType() == TableType.ICEBERG) {
                     throw new VecNotImplException("Not support table type " + table.getType() + " in vec engine");
+                }
+            }
+        }
+    }
+
+    // set null-side inlinve view column
+    // For example: select * from (select a as k1 from t) tmp right join b on tmp.k1=b.k1
+    // The columns from tmp should be nullable.
+    // The table ref tmp will be used by HashJoinNode.computeOutputTuple()
+    private void changeTblRefToNullable(Analyzer analyzer) {
+        for (TableRef tableRef : tableRefs_) {
+            if (!(tableRef instanceof InlineViewRef)) {
+                continue;
+            }
+            InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
+            if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+                for (SlotDescriptor slotDescriptor : inlineViewRef.getDesc().getSlots()) {
+                    slotDescriptor.setIsNullable(true);
                 }
             }
         }

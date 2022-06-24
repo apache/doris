@@ -59,6 +59,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -66,7 +67,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1347,10 +1347,10 @@ public class SingleNodePlanner {
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
                 unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
-                unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
-                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
-                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
+                if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
+                    unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
+                    List<Expr> nullableRhs = TupleIsNullPredicate
+                            .wrapExprs(inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
                     unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
                 }
                 return unionNode;
@@ -1370,7 +1370,7 @@ public class SingleNodePlanner {
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
 
-        if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping

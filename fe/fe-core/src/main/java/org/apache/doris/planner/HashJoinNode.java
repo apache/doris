@@ -28,10 +28,10 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.TupleIsNullPredicate;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
@@ -320,7 +320,7 @@ public class HashJoinNode extends PlanNode {
         }
     }
 
-    private void computeOutputTuple(Analyzer analyzer) throws AnalysisException {
+    private void computeOutputTuple(Analyzer analyzer) throws UserException {
         // 1. create new tuple
         vOutputTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         boolean copyLeft = false;
@@ -362,6 +362,8 @@ public class HashJoinNode extends PlanNode {
                 break;
         }
         ExprSubstitutionMap srcTblRefToOutputTupleSmap = new ExprSubstitutionMap();
+        int leftNullableNumber = 0;
+        int rightNullableNumber = 0;
         if (copyLeft) {
             for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTblRefIds())) {
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
@@ -372,6 +374,7 @@ public class HashJoinNode extends PlanNode {
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
                     if (leftNullable) {
                         outputSlotDesc.setIsNullable(true);
+                        leftNullableNumber++;
                     }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
                 }
@@ -388,6 +391,7 @@ public class HashJoinNode extends PlanNode {
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
                     if (rightNullable) {
                         outputSlotDesc.setIsNullable(true);
+                        rightNullableNumber++;
                     }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
                 }
@@ -406,7 +410,37 @@ public class HashJoinNode extends PlanNode {
             }
         }
         vOutputTupleDesc.computeStatAndMemLayout();
-        // 3. change the outputSmap
+        // 3. add tupleisnull in null-side
+        Preconditions.checkState(srcTblRefToOutputTupleSmap.getLhs().size() == vSrcToOutputSMap.getLhs().size());
+        // Condition1: the left child is null-side
+        // Condition2: the left child is a inline view
+        // Then: add tuple is null in left child columns
+        if (leftNullable && getChild(0).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(0).tblRefIds.get(0))) {
+            List<Expr> tupleIsNullLhs = TupleIsNullPredicate
+                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), getChild(0).getTupleIds(),
+                            analyzer);
+            tupleIsNullLhs
+                    .addAll(vSrcToOutputSMap.getLhs().subList(leftNullableNumber, vSrcToOutputSMap.getLhs().size()));
+            vSrcToOutputSMap.updateLhsExprs(tupleIsNullLhs);
+        }
+        // Condition1: the right child is null-side
+        // Condition2: the right child is a inline view
+        // Then: add tuple is null in right child columns
+        if (rightNullable && getChild(1).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(1).tblRefIds.get(0))) {
+            if (rightNullableNumber != 0) {
+                int rightBeginIndex = vSrcToOutputSMap.size() - rightNullableNumber;
+                List<Expr> tupleIsNullLhs = TupleIsNullPredicate
+                        .wrapExprs(vSrcToOutputSMap.getLhs().subList(rightBeginIndex, vSrcToOutputSMap.size()),
+                                getChild(1).getTupleIds(), analyzer);
+                List<Expr> newLhsList = Lists.newArrayList();
+                if (rightBeginIndex > 0) {
+                    newLhsList.addAll(vSrcToOutputSMap.getLhs().subList(0, rightBeginIndex));
+                }
+                newLhsList.addAll(tupleIsNullLhs);
+                vSrcToOutputSMap.updateLhsExprs(newLhsList);
+            }
+        }
+        // 4. change the outputSmap
         outputSmap = ExprSubstitutionMap.combineAndReplace(outputSmap, srcTblRefToOutputTupleSmap);
     }
 
