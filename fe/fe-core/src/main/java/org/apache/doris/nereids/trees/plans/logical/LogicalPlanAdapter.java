@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,21 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.properties;
+package org.apache.doris.nereids.trees.plans.logical;
+
+import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.StatementBase;
 
 /**
- * Physical properties used in cascades.
+ * This class is used for the compatibility and code reuse in.
+ * @see org.apache.doris.qe.ConnectProcessor
  */
-public class PhysicalProperties {
-    private DistributionSpec distributionDesc;
+public class LogicalPlanAdapter extends StatementBase {
 
-    public PhysicalProperties() {}
+    private final LogicalPlan logicalPlan;
 
-    public DistributionSpec getDistributionDesc() {
-        return distributionDesc;
+    public LogicalPlanAdapter(LogicalPlan logicalPlan) {
+        this.logicalPlan = logicalPlan;
     }
 
-    public void setDistributionDesc(DistributionSpec distributionDesc) {
-        this.distributionDesc = distributionDesc;
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.NO_FORWARD;
     }
+
+    public LogicalPlan getLogicalPlan() {
+        return logicalPlan;
+    }
+
 }

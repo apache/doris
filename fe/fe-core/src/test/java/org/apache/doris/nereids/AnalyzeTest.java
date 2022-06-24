@@ -20,7 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.parser.SqlParser;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
@@ -37,7 +37,7 @@ import java.util.List;
 
 public class AnalyzeTest extends TestWithFeService {
 
-    private final SqlParser parser = new SqlParser();
+    private final NereidsParser parser = new NereidsParser();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -67,8 +67,8 @@ public class AnalyzeTest extends TestWithFeService {
         Assertions.assertTrue(checkBound(analyzed));
     }
 
-    private LogicalPlan analyze(String sql) {
-        LogicalPlan parsed = parser.parse(sql);
+    private LogicalPlan analyze(String sql) throws Exception {
+        LogicalPlan parsed = parser.parseSingle(sql);
         return analyze(parsed, connectContext);
     }
 
