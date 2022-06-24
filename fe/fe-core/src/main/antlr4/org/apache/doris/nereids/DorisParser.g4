@@ -99,7 +99,7 @@ aggClause
     ;
 
 groupByItem
-    : expression (',' expression)*
+    : expression (COMMA expression)*
     ;
 
 havingClause
@@ -111,7 +111,7 @@ queryOrganization
     ;
 
 sortClause
-    : (ORDER BY sortItem (',' sortItem)*)?
+    : (ORDER BY sortItem (COMMA sortItem)*)?
     ;
 
 sortItem
@@ -178,7 +178,7 @@ booleanExpression
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
-    | NOT? kind=IN '(' expression (',' expression)* ')'
+    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     ;
 
 valueExpression
@@ -198,7 +198,7 @@ primaryExpression
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
-    | '(' expression ')'                                                                       #parenthesizedExpression
+    | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     ;
 
 qualifiedName

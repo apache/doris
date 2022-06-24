@@ -63,6 +63,7 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.exceptions.ParsingException;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregation;
 import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
@@ -554,14 +555,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @return Expression
      */
     public Expression withPredicate(PredicateContext ctx, Expression e) {
+        boolean isNot = ctx.NOT() != null ? true : false;
+        Expression outExpression;
         switch (ctx.kind.getType()) {
             case DorisParser.BETWEEN:
-                return withBetween(ctx, e);
+                outExpression = withBetween(ctx, e);
+                break;
             case DorisParser.IN:
-                return withIn(ctx, e);
+                outExpression = withIn(ctx, e);
+                break;
             default:
-                return null;
+                throw new ParsingException("unsupported expression");
         }
+        return isNot ? new Not(outExpression) : outExpression;
     }
 
     /**
@@ -572,13 +578,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @return Expression
      */
     public Expression withBetween(PredicateContext ctx, Expression e) {
-        boolean isNotBetween = ctx.NOT() != null ? true : false;
         BetweenPredicate betweenPredicate = new BetweenPredicate(
                 e,
                 expression(ctx.lower),
                 expression(ctx.upper)
         );
-        return isNotBetween ? new Not(betweenPredicate) : betweenPredicate;
+        return betweenPredicate;
     }
 
     /**
@@ -589,11 +594,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @return Expression
      */
     public Expression withIn(PredicateContext ctx, Expression e) {
-        boolean isNotIn = ctx.NOT() != null ? true : false;
         List<Expression> expressions = ctx.expression().stream()
                 .map(expr -> expression(expr)).collect(ImmutableList.toImmutableList());
         InPredicate inPredicate = new InPredicate(e, expressions);
-        return isNotIn ? new Not(inPredicate) : inPredicate;
+        return inPredicate;
     }
 
     @Override
@@ -622,6 +626,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             case DorisParser.ASTERISK:
                 return new Multiply(left, right);
             case DorisParser.DIV:
+            case DorisParser.SLASH:
                 return new Divide(left, right);
             case DorisParser.PERCENT:
                 return new Mod(left, right);

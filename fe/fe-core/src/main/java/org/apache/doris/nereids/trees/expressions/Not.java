@@ -64,7 +64,7 @@ public class Not<CHILD_TYPE extends Expression> extends Expression
     }
 
     @Override
-    public String toString() {
-        return "( not " + child() + ")";
+    public String sql() {
+        return "( Not " + child().sql() + ")";
     }
 }

@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * In Predicate Expression.
@@ -36,7 +37,9 @@ public class InPredicate extends Expression {
     private List<Expression> inExpressions;
 
     public InPredicate(Expression compareExpression, List<Expression> inExpressions) {
-        super(NodeType.IN,  (new Builder<Expression>().add(compareExpression).addAll(inExpressions).build().toArray(new Expression[0])));
+        super(NodeType.IN,
+                (new Builder<Expression>().add(compareExpression).addAll(inExpressions)
+                        .build().toArray(new Expression[0])));
         this.compareExpression = compareExpression;
         this.inExpressions = ImmutableList.copyOf(Objects.requireNonNull(inExpressions, "in list can not be null"));
     }
@@ -48,15 +51,20 @@ public class InPredicate extends Expression {
 
     @Override
     public String sql() {
-        String sql = "";
-        for (Expression expression : inExpressions) {
-            sql += expression.sql();
-            sql += ", ";
-        }
-        return compareExpression.sql() + " IN " + sql;
+        return compareExpression.sql() + " IN " + inExpressions.stream()
+                .map(Expression::sql)
+                .collect(Collectors.joining(", ", "(", ")"));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitInPredicate(this, context);
+    }
+
+    public Expression getCompareExpression() {
+        return  compareExpression;
+    }
+
+    public List<Expression> getInExpressions() {
+        return inExpressions;
     }
 }

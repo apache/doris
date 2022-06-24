@@ -21,18 +21,19 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.TreeNode;
 
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 public class ExpressionParserTest {
     private static final NereidsParser PARSER = new NereidsParser();
 
     private void assertSql(String sql) throws Exception {
         TreeNode treeNode = PARSER.parseSingle(sql);
-        System.out.println(treeNode.toString());
+        Assertions.assertTrue(treeNode != null);
     }
 
     private void assertExpr(String expr) {
         Expression expression = PARSER.createExpression(expr);
-        System.out.println(expression.sql());
+        Assertions.assertTrue(expression != null);
     }
 
     @Test
@@ -50,8 +51,7 @@ public class ExpressionParserTest {
     @Test
     public void testSqlAnd() throws Exception {
         String sql = "select * from test1 where a > 1 and b > 1";
-        TreeNode treeNode = PARSER.parseSingle(sql);
-        System.out.println(treeNode);
+        assertSql(sql);
     }
 
     @Test
@@ -139,5 +139,14 @@ public class ExpressionParserTest {
     public void testBrackets() throws Exception {
         String brackets = "select * from t1 where (a = 1) and (b = 1)";
         assertSql(brackets);
+    }
+
+    @Test
+    public void testInPredicate() {
+        String in = "a in (10, 12)";
+        assertExpr(in);
+
+        String notIn = "b not in (20, 30)";
+        assertExpr(notIn);
     }
 }

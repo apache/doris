@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.nereids.parser.SqlParser;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SsbTest extends TestWithFeService {
-    private static final SqlParser PARSER = new SqlParser();
+    private static final NereidsParser PARSER = new NereidsParser();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -39,7 +39,7 @@ public class SsbTest extends TestWithFeService {
     }
 
     @Test
-    public void testMultiJoinSqlPlan() {
+    public void testMultiJoinSqlPlan() throws Exception {
         List<String> sqlList = SsbText.getAllMultiJoinSql();
         for (String sql : sqlList) {
             plan(sql);
@@ -48,15 +48,16 @@ public class SsbTest extends TestWithFeService {
 
     @Test
     // TODO: Subsequent implementation of weekofyear parser
-    public void testSingleSqlPlan() {
+    public void testSingleSqlPlan() throws Exception {
         List<String> sqlList = SsbText.getSelectFlatSql();
         for (String sql : sqlList) {
             plan(sql);
         }
     }
 
-    private void plan(String sql) {
-        LogicalPlan parsed = PARSER.parse(sql);
+    //TODO: Complete phase of supplemental plan
+    private void plan(String sql) throws Exception {
+        LogicalPlan parsed = PARSER.parseSingle(sql);
         System.out.println(parsed.toString());
         //LogicalPlan analyze = AnalyzeTest.TestAnalyzer.analyze(parsed, connectContext);
     }

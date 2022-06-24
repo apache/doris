@@ -67,7 +67,7 @@ public class AnalyzeTest extends TestWithFeService {
         Assertions.assertTrue(checkBound(analyzed));
     }
 
-    private LogicalPlan analyze(String sql) {
+    private LogicalPlan analyze(String sql) throws Exception {
         LogicalPlan parsed = parser.parseSingle(sql);
         return TestAnalyzer.analyze(parsed, connectContext);
     }
