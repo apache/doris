@@ -69,12 +69,12 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 
+/**
+ * One thread used to create migrationJobs by remote storage policy of the partition.
+ */
 public class MigrationHandler extends AlterHandler {
-    private static final Logger LOG = LogManager.getLogger(MigrationHandler.class);
-
     // all shadow indexes should have this prefix in name
     public static final String SHADOW_NAME_PRFIX = "__doris_shadow_";
 
@@ -82,14 +82,16 @@ public class MigrationHandler extends AlterHandler {
 
     public static final int CYCLE_COUNT_TO_CHECK_EXPIRE_MIGRATION_JOB = 20;
 
+    private static final Logger LOG = LogManager.getLogger(MigrationHandler.class);
+
     public final ThreadPoolExecutor migrationThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
-        MAX_ACTIVE_MIGRATION_JOB_SIZE, "migration-pool", true);
+            MAX_ACTIVE_MIGRATION_JOB_SIZE, "migration-pool", true);
 
     public final Map<Long, AlterJobV2> activeMigrationJob = Maps.newConcurrentMap();
 
     public final Map<Long, AlterJobV2> runnableMigrationJob = Maps.newConcurrentMap();
 
-    public int cycle_count = 0;
+    public int cycleCount = 0;
 
     public MigrationHandler() {
         super("migration", Config.default_migration_scheduler_interval_millisecond);
@@ -105,7 +107,7 @@ public class MigrationHandler extends AlterHandler {
         long jobId = catalog.getNextId();
         long tableId = olapTable.getId();
         MigrationJob migrationJob = new MigrationJob(
-            jobId, dbId, tableId, olapTable.getName(), Config.migration_timeout_second * 1000);
+                jobId, dbId, tableId, olapTable.getName(), Config.migration_timeout_second * 1000);
 
         migrationJob.setStorageFormat(olapTable.getStorageFormat());
         migrationJob.setDestStorageParam(destStorageParam);
@@ -135,14 +137,14 @@ public class MigrationHandler extends AlterHandler {
                 }
                 DataProperty dataProperty = olapTable.getPartitionInfo().getDataProperty(partitionId);
                 if (dataProperty.getMigrationState() != DataProperty.MigrationState.RUNNING) {
-                    throw new DdlException("partition " + partitionId + " migration state is invalid: " +
-                        dataProperty.getMigrationState().name());
+                    throw new DdlException("partition " + partitionId + " migration state is invalid: "
+                            + dataProperty.getMigrationState().name());
                 }
                 // index state is SHADOW
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 TabletMeta shadowTabletMeta = new TabletMeta(
-                    dbId, tableId, partitionId, shadowIndexId, newSchemaHash, destStorageParam.getStorageMedium());
+                        dbId, tableId, partitionId, shadowIndexId, newSchemaHash, destStorageParam.getStorageMedium());
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
@@ -162,16 +164,19 @@ public class MigrationHandler extends AlterHandler {
                         long backendId = originReplica.getBackendId();
 
                         if (originReplica.getState() == ReplicaState.CLONE
-                            || originReplica.getState() == ReplicaState.DECOMMISSION
-                            || originReplica.getLastFailedVersion() > 0) {
-                            LOG.info("origin replica {} of tablet {} state is {}, and last failed version is {}, skip creating shadow replica",
-                                originReplica.getId(), originReplica, originReplica.getState(), originReplica.getLastFailedVersion());
+                                || originReplica.getState() == ReplicaState.DECOMMISSION
+                                || originReplica.getLastFailedVersion() > 0) {
+                            LOG.info("origin replica {} of tablet {} state is {}, and last failed version is {},"
+                                    + " skip creating shadow replica",
+                                    originReplica.getId(), originReplica, originReplica.getState(),
+                                    originReplica.getLastFailedVersion());
                             continue;
                         }
-                        Preconditions.checkState(originReplica.getState() == ReplicaState.NORMAL, originReplica.getState());
+                        Preconditions.checkState(originReplica.getState()
+                                == ReplicaState.NORMAL, originReplica.getState());
                         // replica's init state is ALTER, so that tablet report process will ignore its report
                         Replica shadowReplica = new Replica(shadowReplicaId, backendId, ReplicaState.ALTER,
-                            Partition.PARTITION_INIT_VERSION, newSchemaHash);
+                                Partition.PARTITION_INIT_VERSION, newSchemaHash);
                         shadowTablet.addReplica(shadowReplica);
                         healthyReplicaNum++;
                     }
@@ -179,7 +184,8 @@ public class MigrationHandler extends AlterHandler {
                     if (healthyReplicaNum < totalReplicaNum / 2 + 1) {
                         /*
                          * TODO(cmy): This is a bad design.
-                         * Because in the migration job, we will only send tasks to the shadow replicas that have been created,
+                         * Because in the migration job, we will only send tasks to
+                         * the shadow replicas that have been created,
                          * without checking whether the quorum of replica number are satisfied.
                          * This will cause the job to fail until we find that the quorum of replica number
                          * is not satisfied until the entire job is done.
@@ -190,14 +196,14 @@ public class MigrationHandler extends AlterHandler {
                             Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                         }
                         throw new DdlException(
-                            "tablet " + originTabletId + " has few healthy replica: " + healthyReplicaNum);
+                                "tablet " + originTabletId + " has few healthy replica: " + healthyReplicaNum);
                     }
                 }
 
                 migrationJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
             migrationJob.addIndexSchema(shadowIndexId, originIndexId, newIndexName, newSchemaVersion,
-                newSchemaHash, shortKeyColumnCount, new LinkedList<>(entry.getValue()));
+                    newSchemaHash, shortKeyColumnCount, new LinkedList<>(entry.getValue()));
         } // end for index
 
         // set table state
@@ -213,38 +219,41 @@ public class MigrationHandler extends AlterHandler {
 
     @Override
     protected void runAfterCatalogReady() {
-        if (cycle_count >= CYCLE_COUNT_TO_CHECK_EXPIRE_MIGRATION_JOB) {
+        if (cycleCount >= CYCLE_COUNT_TO_CHECK_EXPIRE_MIGRATION_JOB) {
             clearFinishedOrCancelledMigrationJob();
             super.runAfterCatalogReady();
-            cycle_count = 0;
+            cycleCount = 0;
         }
         createMigrationJobs();
         runMigrationJob();
-        cycle_count++;
+        cycleCount++;
     }
 
     private void runMigrationJob() {
         runnableMigrationJob.values().forEach(
-            migrationJob -> {
-                if (!migrationJob.isDone() && !activeMigrationJob.containsKey(migrationJob.getJobId()) &&
-                    activeMigrationJob.size() < MAX_ACTIVE_MIGRATION_JOB_SIZE) {
-                    if (FeConstants.runningUnitTest) {
-                        migrationJob.run();
-                    } else {
-                        migrationThreadPool.submit(() -> {
-                            if (activeMigrationJob.putIfAbsent(migrationJob.getJobId(), migrationJob) == null) {
-                                try {
-                                    migrationJob.run();
-                                } finally {
-                                    activeMigrationJob.remove(migrationJob.getJobId());
+                migrationJob -> {
+                    if (!migrationJob.isDone() && !activeMigrationJob.containsKey(migrationJob.getJobId())
+                            && activeMigrationJob.size() < MAX_ACTIVE_MIGRATION_JOB_SIZE) {
+                        if (FeConstants.runningUnitTest) {
+                            migrationJob.run();
+                        } else {
+                            migrationThreadPool.submit(() -> {
+                                if (activeMigrationJob.putIfAbsent(migrationJob.getJobId(), migrationJob) == null) {
+                                    try {
+                                        migrationJob.run();
+                                    } finally {
+                                        activeMigrationJob.remove(migrationJob.getJobId());
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
-                }
-            });
+                });
     }
 
+    /**
+     * create migration jobs by get partitions.
+     */
     public void createMigrationJobs() {
         HashMap<Long, HashMap<Long, Multimap<String, Long>>> changedPartitionsMap = new HashMap<>();
         long currentTimeMs = System.currentTimeMillis();
@@ -263,7 +272,7 @@ public class MigrationHandler extends AlterHandler {
                 }
 
                 long tableId = table.getId();
-                OlapTable olapTable = (OlapTable) table;
+                OlapTable olapTable = ( OlapTable ) table;
                 olapTable.readLock();
                 try {
                     PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -271,13 +280,13 @@ public class MigrationHandler extends AlterHandler {
                         long partitionId = partition.getId();
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
                         Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:"
-                            + partitionId + ", db: " + dbId + ", tbl: " + tableId);
+                                + partitionId + ", db: " + dbId + ", tbl: " + tableId);
                         if (dataProperty.getRemoteCooldownTimeMs() < currentTimeMs
-                            && dataProperty.getMigrationState() == DataProperty.MigrationState.NONE
-                            && Catalog.getCurrentCatalog().getResourceMgr().containsResource(
-                            dataProperty.getRemoteStorageResourceName())) {
+                                && dataProperty.getMigrationState() == DataProperty.MigrationState.NONE
+                                && Catalog.getCurrentCatalog().getResourceMgr().containsResource(
+                                dataProperty.getRemoteStorageResourceName())) {
                             Resource remoteStorage = Catalog.getCurrentCatalog().getResourceMgr()
-                                .getResource(dataProperty.getRemoteStorageResourceName());
+                                    .getResource(dataProperty.getRemoteStorageResourceName());
                             TStorageMedium coldStorageMedium = Resource.getStorageMedium(remoteStorage.getType());
                             if (coldStorageMedium != null && dataProperty.getStorageMedium() != coldStorageMedium) {
                                 if (!changedPartitionsMap.containsKey(dbId)) {
@@ -312,7 +321,7 @@ public class MigrationHandler extends AlterHandler {
                 if (table == null) {
                     continue;
                 }
-                OlapTable olapTable = (OlapTable) table;
+                OlapTable olapTable = ( OlapTable ) table;
                 olapTable.writeLock();
                 try {
                     Multimap<String, Long> storageNameToPartitions = tableIdToStorageMedium.get(tableId);
@@ -321,8 +330,9 @@ public class MigrationHandler extends AlterHandler {
                         Collection<Long> partitionIds = storageNameToPartitions.get(storageName);
                         try {
                             Resource remoteStorageResource = Catalog.getCurrentCatalog().getResourceMgr()
-                                .getResource(storageName);
-                            TStorageMedium coldStorageMedium = Resource.getStorageMedium(remoteStorageResource.getType());
+                                    .getResource(storageName);
+                            TStorageMedium coldStorageMedium = Resource.getStorageMedium(
+                                    remoteStorageResource.getType());
                             for (Long partitionId : partitionIds) {
                                 Partition partition = olapTable.getPartition(partitionId);
                                 DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
@@ -331,7 +341,7 @@ public class MigrationHandler extends AlterHandler {
                                 }
                                 dataProperty.setMigrationState(DataProperty.MigrationState.RUNNING);
                                 LOG.info("partition[{}-{}-{}] storage medium changed from {} to {}",
-                                    dbId, tableId, partitionId, dataProperty.getStorageMedium(), coldStorageMedium);
+                                        dbId, tableId, partitionId, dataProperty.getStorageMedium(), coldStorageMedium);
                             } // end for partitions
                             TStorageParam storageParam = getStorageParam(remoteStorageResource);
                             createJob(db.getId(), olapTable, partitionIds, storageParam);
@@ -354,6 +364,12 @@ public class MigrationHandler extends AlterHandler {
         } // end for dbs
     }
 
+    /**
+     * get alter job infos by database.
+     *
+     * @param db database to be used
+     * @return alter jobs in the database
+     */
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
         List<List<Comparable>> migrationJobInfos = new LinkedList<>();
         getAlterJobV2Infos(db, migrationJobInfos);
@@ -364,14 +380,16 @@ public class MigrationHandler extends AlterHandler {
         return migrationJobInfos;
     }
 
-    private void getAlterJobV2Infos(Database db, List<AlterJobV2> alterJobsV2, List<List<Comparable>> migrationJobInfos) {
+    private void getAlterJobV2Infos(Database db, List<AlterJobV2> alterJobsV2,
+                                    List<List<Comparable>> migrationJobInfos) {
         ConnectContext ctx = ConnectContext.get();
         for (AlterJobV2 alterJob : alterJobsV2) {
             if (alterJob.getDbId() != db.getId()) {
                 continue;
             }
             if (ctx != null) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, db.getFullName(), alterJob.getTableName(), PrivPredicate.ALTER)) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+                        ctx, db.getFullName(), alterJob.getTableName(), PrivPredicate.ALTER)) {
                     continue;
                 }
             }
@@ -384,7 +402,8 @@ public class MigrationHandler extends AlterHandler {
     }
 
     @Override
-    public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable) throws UserException {
+    public void process(List<AlterClause> alterClauses, String clusterName,
+                        Database db, OlapTable olapTable) throws UserException {
         throw new DdlException("Table[" + olapTable.getName() + "]'s migration process is not implement");
     }
 
@@ -424,10 +443,16 @@ public class MigrationHandler extends AlterHandler {
         super.replayAlterJobV2(alterJob);
     }
 
+    /**
+     * Do something when task is finished.
+     *
+     * @param task StorageMediaMigrationV2Task
+     * @throws MetaNotFoundException when the meta of the partition can't be found
+     */
     public void handleFinishAlterTask(StorageMediaMigrationV2Task task) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
 
-        OlapTable tbl = (OlapTable) db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
+        OlapTable tbl = ( OlapTable ) db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLockOrMetaException();
         try {
             Partition partition = tbl.getPartition(task.getPartitionId());
@@ -446,7 +471,7 @@ public class MigrationHandler extends AlterHandler {
             }
 
             LOG.info("before handle alter task tablet {}, replica: {}, task version: {}",
-                task.getSignature(), replica, task.getVersion());
+                    task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
                 replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRowCount());
@@ -455,10 +480,10 @@ public class MigrationHandler extends AlterHandler {
 
             if (versionChanged) {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
-                    task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                    replica.getId(), replica.getVersion(), -1,
-                    replica.getDataSize(), replica.getRowCount(),
-                    replica.getLastFailedVersion(), replica.getLastSuccessVersion());
+                        task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                        replica.getId(), replica.getVersion(), -1,
+                        replica.getDataSize(), replica.getRowCount(),
+                        replica.getLastFailedVersion(), replica.getLastSuccessVersion());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
 
@@ -470,7 +495,7 @@ public class MigrationHandler extends AlterHandler {
 
     private TStorageParam getStorageParam(Resource storageParamResource) {
         if (storageParamResource instanceof S3Resource) {
-            S3Resource s3StorageParamResource = (S3Resource) storageParamResource;
+            S3Resource s3StorageParamResource = ( S3Resource ) storageParamResource;
             return s3StorageParamResource.getStorageParam();
         } else {
             return null;
