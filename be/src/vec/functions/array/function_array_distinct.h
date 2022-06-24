@@ -46,9 +46,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
-                << "first argument for function: " << name << " should be DataTypeArray";
-        return make_nullable(
-                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+                << "first argument for function: " << name << " should be DataTypeArray"
+                << " and arguments[0] is " << arguments[0].get()->get_name();
+        return check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -62,35 +62,36 @@ public:
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
         const auto& src_offsets = src_column_array->get_offsets();
-        const auto& src_column_data = src_column_array->get_data();
+        const auto& src_nested_column = src_column_array->get_data();
 
         DataTypePtr src_column_type = remove_nullable(block.get_by_position(arguments[0]).type);
         auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
         auto dest_column_ptr = ColumnArray::create(nested_type->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
-        IColumn& dest_column = dest_column_ptr->get_data();
+        IColumn& dest_nested_column = dest_column_ptr->get_data();
         ColumnArray::Offsets& dest_offsets = dest_column_ptr->get_offsets();
 
         const IColumn* src_inner_column = nullptr;
-        const ColumnNullable* src_nullable_column =
-                check_and_get_column<ColumnNullable>(src_column_data);
-        if (src_nullable_column) {
-            src_inner_column = src_nullable_column->get_nested_column_ptr();
+        const ColumnNullable* src_nested_nullable_col =
+                check_and_get_column<ColumnNullable>(src_nested_column);
+        if (src_nested_nullable_col) {
+            src_inner_column = src_nested_nullable_col->get_nested_column_ptr();
         } else {
             src_inner_column = src_column_array->get_data_ptr();
         }
 
-        IColumn* dest_nested_column = nullptr;
-        ColumnNullable* dest_nullable_column = reinterpret_cast<ColumnNullable*>(&dest_column);
-        if (dest_nullable_column) {
-            dest_nested_column = dest_nullable_column->get_nested_column_ptr();
+        IColumn* dest_inner_column = nullptr;
+        ColumnNullable* dest_nested_nullable_col =
+                reinterpret_cast<ColumnNullable*>(&dest_nested_column);
+        if (dest_nested_nullable_col) {
+            dest_inner_column = dest_nested_nullable_col->get_nested_column_ptr();
         } else {
-            dest_nested_column = &dest_column;
+            dest_inner_column = &dest_nested_column;
         }
 
         auto res_val =
-                _execute_by_type(*src_inner_column, src_offsets, *dest_nested_column, dest_offsets,
-                                 src_nullable_column, dest_nullable_column, nested_type);
+                _execute_by_type(*src_inner_column, src_offsets, *dest_inner_column, dest_offsets,
+                                 src_nested_nullable_col, dest_nested_nullable_col, nested_type);
         if (!res_val) {
             return Status::RuntimeError(
                     fmt::format("execute failed or unsupported types for function {}({})",
@@ -105,20 +106,19 @@ private:
     // Note: Here initially allocate a piece of memory for 2^5 = 32 elements.
     static constexpr size_t INITIAL_SIZE_DEGREE = 5;
 
-    template <typename T>
+    template <typename ColumnType, typename NestType>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets& dest_offsets,
                          const ColumnNullable* src_nullable_col,
                          ColumnNullable* dest_nullable_col) {
-        const ColumnVector<T>* src_data_concrete =
-                check_and_get_column<ColumnVector<T>>(&src_column);
+        const ColumnType* src_data_concrete = check_and_get_column<ColumnType>(&src_column);
         if (!src_data_concrete) {
             return false;
         }
-        const PaddedPODArray<T>& src_datas = src_data_concrete->get_data();
+        const PaddedPODArray<NestType>& src_datas = src_data_concrete->get_data();
 
-        ColumnVector<T>& dest_data_concrete = reinterpret_cast<ColumnVector<T>&>(dest_column);
-        PaddedPODArray<T>& dest_datas = dest_data_concrete.get_data();
+        ColumnType& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
+        PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
 
         const PaddedPODArray<UInt8>* src_null_map = nullptr;
         if (src_nullable_col) {
@@ -242,47 +242,49 @@ private:
         bool res = false;
         WhichDataType which(remove_nullable(nested_type)->get_type_id());
         if (which.idx == TypeIndex::UInt8) {
-            res = _execute_number<UInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                         src_nullable_col, dest_nullable_col);
-        } else if (which.idx == TypeIndex::UInt16) {
-            res = _execute_number<UInt16>(src_column, src_offsets, dest_column, dest_offsets,
-                                          src_nullable_col, dest_nullable_col);
-        } else if (which.idx == TypeIndex::UInt32) {
-            res = _execute_number<UInt32>(src_column, src_offsets, dest_column, dest_offsets,
-                                          src_nullable_col, dest_nullable_col);
-        } else if (which.idx == TypeIndex::UInt64) {
-            res = _execute_number<UInt64>(src_column, src_offsets, dest_column, dest_offsets,
-                                          src_nullable_col, dest_nullable_col);
-        } else if (which.idx == TypeIndex::UInt128) {
-            res = _execute_number<UInt128>(src_column, src_offsets, dest_column, dest_offsets,
-                                           src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnUInt8, UInt8>(src_column, src_offsets, dest_column,
+                                                      dest_offsets, src_nullable_col,
+                                                      dest_nullable_col);
         } else if (which.idx == TypeIndex::Int8) {
-            res = _execute_number<Int8>(src_column, src_offsets, dest_column, dest_offsets,
-                                        src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnInt8, Int8>(src_column, src_offsets, dest_column,
+                                                    dest_offsets, src_nullable_col,
+                                                    dest_nullable_col);
         } else if (which.idx == TypeIndex::Int16) {
-            res = _execute_number<Int16>(src_column, src_offsets, dest_column, dest_offsets,
-                                         src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnInt16, Int16>(src_column, src_offsets, dest_column,
+                                                      dest_offsets, src_nullable_col,
+                                                      dest_nullable_col);
         } else if (which.idx == TypeIndex::Int32) {
-            res = _execute_number<Int32>(src_column, src_offsets, dest_column, dest_offsets,
-                                         src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnInt32, Int32>(src_column, src_offsets, dest_column,
+                                                      dest_offsets, src_nullable_col,
+                                                      dest_nullable_col);
         } else if (which.idx == TypeIndex::Int64) {
-            res = _execute_number<Int64>(src_column, src_offsets, dest_column, dest_offsets,
-                                         src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnInt64, Int64>(src_column, src_offsets, dest_column,
+                                                      dest_offsets, src_nullable_col,
+                                                      dest_nullable_col);
         } else if (which.idx == TypeIndex::Int128) {
-            res = _execute_number<Int128>(src_column, src_offsets, dest_column, dest_offsets,
-                                          src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnInt128, Int128>(src_column, src_offsets, dest_column,
+                                                        dest_offsets, src_nullable_col,
+                                                        dest_nullable_col);
         } else if (which.idx == TypeIndex::Float32) {
-            res = _execute_number<Float32>(src_column, src_offsets, dest_column, dest_offsets,
-                                           src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnFloat32, Float32>(src_column, src_offsets, dest_column,
+                                                          dest_offsets, src_nullable_col,
+                                                          dest_nullable_col);
         } else if (which.idx == TypeIndex::Float64) {
-            res = _execute_number<Float64>(src_column, src_offsets, dest_column, dest_offsets,
-                                           src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnFloat64, Float64>(src_column, src_offsets, dest_column,
+                                                          dest_offsets, src_nullable_col,
+                                                          dest_nullable_col);
         } else if (which.idx == TypeIndex::Date) {
-            res = _execute_number<Date>(src_column, src_offsets, dest_column, dest_offsets,
-                                        src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnDate, Date>(src_column, src_offsets, dest_column,
+                                                    dest_offsets, src_nullable_col,
+                                                    dest_nullable_col);
         } else if (which.idx == TypeIndex::DateTime) {
-            res = _execute_number<DateTime>(src_column, src_offsets, dest_column, dest_offsets,
-                                            src_nullable_col, dest_nullable_col);
+            res = _execute_number<ColumnDateTime, DateTime>(src_column, src_offsets, dest_column,
+                                                            dest_offsets, src_nullable_col,
+                                                            dest_nullable_col);
+        } else if (which.idx == TypeIndex::Decimal128) {
+            res = _execute_number<ColumnDecimal128, Decimal128>(
+                    src_column, src_offsets, dest_column, dest_offsets, src_nullable_col,
+                    dest_nullable_col);
         } else if (which.idx == TypeIndex::String) {
             res = _execute_string(src_column, src_offsets, dest_column, dest_offsets,
                                   src_nullable_col, dest_nullable_col);
