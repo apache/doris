@@ -102,6 +102,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setMaxBatchSize(routineLoadJob.getMaxBatchSizeBytes());
         if (!routineLoadJob.getFormat().isEmpty() && routineLoadJob.getFormat().equalsIgnoreCase("json")) {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_JSON);
+        } else if (!routineLoadJob.getFormat().isEmpty() && routineLoadJob.getFormat().equalsIgnoreCase("avro")) {
+            tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_AVRO);
         } else {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_CSV_PLAIN);
         }

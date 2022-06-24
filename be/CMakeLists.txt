@@ -394,6 +394,9 @@ set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}
 add_library(hdfs3 STATIC IMPORTED)
 set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
 
+add_library(avro STATIC IMPORTED)
+set_target_properties(avro PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libavrocpp_s.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -705,6 +708,7 @@ set(COMMON_THIRDPARTY
     xml2
     lzma
     simdjson
+    avro
 )
 
 if (${MAKE_TEST} STREQUAL "ON")

@@ -98,6 +98,10 @@ static TFileFormatType::type parse_format(const std::string& format_str,
         if (compress_type.empty()) {
             format_type = TFileFormatType::FORMAT_JSON;
         }
+    } else if (iequal(format_str, "AVRO")) {
+        if (compress_type.empty()) {
+            format_type = TFileFormatType::FORMAT_AVRO;
+        }
     } else if (iequal(format_str, "PARQUET")) {
         format_type = TFileFormatType::FORMAT_PARQUET;
     } else if (iequal(format_str, "ORC")) {
@@ -116,6 +120,7 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
     case TFileFormatType::FORMAT_CSV_LZO:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_AVRO:
         return true;
     default:
         return false;

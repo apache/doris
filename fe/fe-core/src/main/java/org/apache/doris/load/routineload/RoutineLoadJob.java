@@ -306,6 +306,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_FORMAT, "csv");
         } else if (stmt.getFormat().equals("json")) {
             jobProperties.put(PROPS_FORMAT, "json");
+        } else if (stmt.getFormat().equals("avro")) {
+            jobProperties.put(PROPS_FORMAT, "avro");
         } else {
             throw new UserException("Invalid format type.");
         }
@@ -457,6 +459,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         TFileFormatType fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
         if (getFormat().equals("json")) {
             fileFormatType = TFileFormatType.FORMAT_JSON;
+        } else if (getFormat().equals("avro")) {
+            fileFormatType = TFileFormatType.FORMAT_AVRO;
         }
         return fileFormatType;
     }

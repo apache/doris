@@ -1332,6 +1332,16 @@ build_sse2neon() {
     cp sse2neon.h "${TP_INSTALL_DIR}/include/"
 }
 
+# avro
+build_avro(){
+    check_if_source_exist $AVRO_SOURCE
+    cd $TP_SOURCE_DIR/$AVRO_SOURCE
+    #sed -i "121ilink_libraries(z)" CMakeLists.txt
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBoost_USE_STATIC_RUNTIME=ON
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1384,5 +1394,6 @@ build_nlohmann_json
 build_opentelemetry
 build_libbacktrace
 build_sse2neon
+build_avro
 
 echo "Finished to build all thirdparties"

@@ -467,6 +467,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
                 numAsString = Boolean.valueOf(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
                 fuzzyParse = Boolean.valueOf(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
+            } else if (format.equalsIgnoreCase("avro")) {
+                format = "avro";
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
             }

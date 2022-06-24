@@ -21,6 +21,7 @@
 #include <sstream>
 
 #include "common/object_pool.h"
+#include "exec/avro_scanner.h"
 #include "exec/json_scanner.h"
 #include "exec/orc_scanner.h"
 #include "exec/parquet_scanner.h"
@@ -257,6 +258,11 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
                                    scan_range.ranges, scan_range.broker_addresses,
                                    _pre_filter_texprs, counter);
         }
+        break;
+    case TFileFormatType::FORMAT_AVRO:
+        scan = new AvroScanner(_runtime_state, runtime_profile(), scan_range.params,
+                               scan_range.ranges, scan_range.broker_addresses,
+                               _pre_filter_texprs, counter);
         break;
     default:
         if (_vectorized) {
