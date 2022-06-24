@@ -84,7 +84,10 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
@@ -729,10 +732,14 @@ public class StmtExecutor implements ProfileWriter {
         }
         plannerProfile.setQueryAnalysisFinishTime();
 
-        // create plan
-        planner = new Planner();
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            // create plan
+            planner = new NereidsPlanner(context);
+        } else {
+            planner = new OriginalPlanner(analyzer);
+        }
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-            planner.plan(parsedStmt, analyzer, tQueryOptions);
+            planner.plan(parsedStmt, tQueryOptions);
         }
         // TODO(zc):
         // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
@@ -874,8 +881,12 @@ public class StmtExecutor implements ProfileWriter {
                 newSelectStmt.reset();
                 analyzer = new Analyzer(context.getCatalog(), context);
                 newSelectStmt.analyze(analyzer);
-                planner = new Planner();
-                planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
+                if (parsedStmt instanceof LogicalPlanAdapter) {
+                    planner = new NereidsPlanner(context);
+                } else {
+                    planner = new OriginalPlanner(analyzer);
+                }
+                planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
         sendResult(false, isSendFields, newSelectStmt, channel, cacheAnalyzer, cacheResult);
@@ -929,7 +940,7 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.getExplainOptions());
+            String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString);
             return;
         }
@@ -1245,7 +1256,7 @@ public class StmtExecutor implements ProfileWriter {
         if (insertStmt.getQueryStmt().isExplain()) {
             ExplainOptions explainOptions = insertStmt.getQueryStmt().getExplainOptions();
             insertStmt.setIsExplain(explainOptions);
-            String explainString = planner.getExplainString(planner.getFragments(), explainOptions);
+            String explainString = planner.getExplainString(explainOptions);
             handleExplainStmt(explainString);
             return;
         }
