@@ -20,11 +20,14 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.VecNotImplException;
+import org.apache.doris.common.util.VectorizedUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -145,15 +148,47 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             leftTblRef = tblRef;
         }
 
+        checkExternalTable(analyzer);
         // TODO: remove when query from hive table is supported
         checkFromHiveTable(analyzer);
 
         analyzed_ = true;
     }
 
+    private void checkExternalTable(Analyzer analyzer) throws UserException {
+        for (TableRef tblRef : tableRefs_) {
+            if (!(tblRef instanceof BaseTableRef)) {
+                continue;
+            }
+
+            TableName tableName = tblRef.getName();
+            String dbName = tableName.getDb();
+            if (Strings.isNullOrEmpty(dbName)) {
+                dbName = analyzer.getDefaultDb();
+            } else {
+                dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
+            }
+            if (Strings.isNullOrEmpty(dbName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+
+            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            String tblName = tableName.getTbl();
+            Table table = db.getTableOrAnalysisException(tblName);
+            if (VectorizedUtil.isVectorized()) {
+                if (table.getType() == TableType.BROKER || table.getType() == TableType.HIVE
+                        || table.getType() == TableType.ICEBERG) {
+                    throw new VecNotImplException("Not support table type " + table.getType() + " in vec engine");
+                }
+            }
+        }
+    }
+
     public FromClause clone() {
         ArrayList<TableRef> clone = Lists.newArrayList();
-        for (TableRef tblRef: tableRefs_) clone.add(tblRef.clone());
+        for (TableRef tblRef : tableRefs_) {
+            clone.add(tblRef.clone());
+        }
         return new FromClause(clone);
     }
 
