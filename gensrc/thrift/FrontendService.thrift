@@ -289,8 +289,8 @@ struct TGetDbsParams {
 
 // getDbNames returns a list of database names and catalog names
 struct TGetDbsResult {
-  1: list<string> dbs
-  2: list<string> catalogs
+  1: optional list<string> dbs
+  2: optional list<string> catalogs
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an 

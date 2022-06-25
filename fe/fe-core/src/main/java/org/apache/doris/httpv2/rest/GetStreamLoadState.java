@@ -54,7 +54,7 @@ public class GetStreamLoadState extends RestBaseController {
 
         Database db;
         try {
-            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }

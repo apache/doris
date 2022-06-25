@@ -59,7 +59,7 @@ public class LockTablesStmt extends StatementBase {
             if (Strings.isNullOrEmpty(tableName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
             db.getTableOrAnalysisException(tableName);
 
             // check auth

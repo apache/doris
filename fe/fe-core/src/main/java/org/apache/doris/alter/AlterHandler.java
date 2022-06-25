@@ -198,7 +198,7 @@ public abstract class AlterHandler extends MasterDaemon {
      * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(task.getDbId());
 
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLockOrMetaException();

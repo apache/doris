@@ -60,7 +60,7 @@ public class Diagnoser {
         results.add(Lists.newArrayList("TabletExist", "Yes", ""));
         results.add(Lists.newArrayList("TabletId", String.valueOf(tabletId), ""));
         // database
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             results.add(Lists.newArrayList("Database", "Not exist", ""));
             return results;

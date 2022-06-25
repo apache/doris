@@ -61,7 +61,7 @@ public class BatchRollupJobTest {
         String createDbStmtStr = "create database if not exists db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
     }
 
     @Test
@@ -79,7 +79,7 @@ public class BatchRollupJobTest {
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(3, alterJobs.size());
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         Assert.assertNotNull(tbl);
@@ -130,7 +130,7 @@ public class BatchRollupJobTest {
         Assert.assertEquals(3, alterJobs.size());
         List<Long> jobIds = Lists.newArrayList(alterJobs.keySet());
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
         Assert.assertNotNull(tbl);

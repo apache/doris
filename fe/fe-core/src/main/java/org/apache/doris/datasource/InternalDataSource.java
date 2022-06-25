@@ -99,6 +99,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.Tablet;
@@ -197,8 +198,8 @@ import java.util.function.Function;
  * Such as Database, tables, etc.
  * There is only one internal data source in a cluster. And its id is always 0.
  */
-public class InternalDataSource implements DataSourceIf {
-    public static final String INTERNAL_DS_NAME = "__internal";
+public class InternalDataSource implements DataSourceIf<Database> {
+    public static final String INTERNAL_DS_NAME = "internal_catalog";
     public static final long INTERNAL_DS_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
@@ -217,7 +218,7 @@ public class InternalDataSource implements DataSourceIf {
 
     @Override
     public long getId() {
-        return 0;
+        return INTERNAL_DS_ID;
     }
 
     @Override
@@ -238,7 +239,7 @@ public class InternalDataSource implements DataSourceIf {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(String dbName) {
+    public Database getDbNullable(String dbName) {
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -258,23 +259,23 @@ public class InternalDataSource implements DataSourceIf {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(long dbId) {
+    public Database getDbNullable(long dbId) {
         return idToDb.get(dbId);
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(String dbName) {
+    public Optional<Database> getDb(String dbName) {
         return Optional.ofNullable(getDbNullable(dbName));
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(long dbId) {
+    public Optional<Database> getDb(long dbId) {
         return Optional.ofNullable(getDbNullable(dbId));
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbName);
+    public <E extends Exception> Database getDbOrException(String dbName, Function<String, E> e) throws E {
+        Database db = getDbNullable(dbName);
         if (db == null) {
             throw e.apply(dbName);
         }
@@ -282,8 +283,8 @@ public class InternalDataSource implements DataSourceIf {
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbId);
+    public <E extends Exception> Database getDbOrException(long dbId, Function<Long, E> e) throws E {
+        Database db = getDbNullable(dbId);
         if (db == null) {
             throw e.apply(dbId);
         }
@@ -291,37 +292,37 @@ public class InternalDataSource implements DataSourceIf {
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
+    public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
         return getDbOrException(dbName,
                 s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
+    public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
         return getDbOrException(dbId,
                 s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
+    public Database getDbOrDdlException(String dbName) throws DdlException {
         return getDbOrException(dbName,
                 s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
+    public Database getDbOrDdlException(long dbId) throws DdlException {
         return getDbOrException(dbId,
                 s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
+    public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
         return getDbOrException(dbName,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
+    public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
         return getDbOrException(dbId,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
@@ -1124,8 +1125,8 @@ public class InternalDataSource implements DataSourceIf {
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getExistedDbName());
-            Table table = db.getTableOrDdlException(stmt.getExistedTableName());
+            DatabaseIf db = getDbOrDdlException(stmt.getExistedDbName());
+            TableIf table = db.getTableOrDdlException(stmt.getExistedTableName());
 
             if (table.getType() == TableType.VIEW) {
                 throw new DdlException("Not support create table from a View");
@@ -3097,7 +3098,7 @@ public class InternalDataSource implements DataSourceIf {
             String dbName = InfoSchemaDb.getFullInfoSchemaDbName(cluster.getName());
             // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
             // when checkpoint thread load image.
-            InfoSchemaDb db = (InfoSchemaDb) Catalog.getServingCatalog().getDbNullable(dbName);
+            InfoSchemaDb db = (InfoSchemaDb) Catalog.getServingCatalog().getInternalDataSource().getDbNullable(dbName);
             if (db == null) {
                 db = new InfoSchemaDb(cluster.getName());
                 db.setClusterName(cluster.getName());

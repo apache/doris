@@ -18,11 +18,11 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -47,9 +47,9 @@ public class TablesProcDir implements ProcDirInterface {
             .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime").add("ReplicaCount")
             .build();
 
-    private Database db;
+    private DatabaseIf db;
 
-    public TablesProcDir(Database db) {
+    public TablesProcDir(DatabaseIf db) {
         this.db = db;
     }
 
@@ -72,8 +72,7 @@ public class TablesProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid table id format: " + tableIdStr);
         }
 
-        Table table = db.getTableOrAnalysisException(tableId);
-
+        TableIf table = db.getTableOrAnalysisException(tableId);
         return new TableProcDir(db, table);
     }
 
@@ -83,8 +82,8 @@ public class TablesProcDir implements ProcDirInterface {
 
         // get info
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
-        List<Table> tableList = db.getTables();
-        for (Table table : tableList) {
+        List<TableIf> tableList = db.getTables();
+        for (TableIf table : tableList) {
             List<Comparable> tableInfo = new ArrayList<Comparable>();
             int partitionNum = 1;
             long replicaCount = 0;
@@ -114,6 +113,9 @@ public class TablesProcDir implements ProcDirInterface {
                     tableInfo.add(partitionNum);
                     tableInfo.add(olapTable.getState());
                     tableInfo.add(table.getType());
+                    // last check time
+                    tableInfo.add(TimeUtils.longToTimeString(olapTable.getLastCheckTime()));
+                    tableInfo.add(replicaCount);
                 } else {
                     tableInfo.add(table.getId());
                     tableInfo.add(table.getName());
@@ -122,11 +124,12 @@ public class TablesProcDir implements ProcDirInterface {
                     tableInfo.add(partitionNum);
                     tableInfo.add(FeConstants.null_string);
                     tableInfo.add(table.getType());
+                    // last check time
+                    tableInfo.add(FeConstants.null_string);
+                    tableInfo.add(replicaCount);
                 }
 
-                // last check time
-                tableInfo.add(TimeUtils.longToTimeString(table.getLastCheckTime()));
-                tableInfo.add(replicaCount);
+
                 tableInfos.add(tableInfo);
             } finally {
                 table.readUnlock();

@@ -291,7 +291,7 @@ public class AlterTest {
 
     @Test
     public void alterTableModifyComment() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         Table tbl = db.getTableOrMetaException("tbl5");
 
         // table comment
@@ -371,7 +371,7 @@ public class AlterTest {
                 + "'dynamic_partition.buckets' = '3'\n"
                 + " );";
         alterTable(stmt, false);
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertTrue(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals(4, tbl.getIndexIdToSchema().size());
@@ -428,7 +428,7 @@ public class AlterTest {
     // test batch update range partitions' properties
     @Test
     public void testBatchUpdatePartitionProperties() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl4 = (OlapTable) db.getTableOrMetaException("tbl4");
         Partition p1 = tbl4.getPartition("p1");
         Partition p2 = tbl4.getPartition("p2");
@@ -502,7 +502,7 @@ public class AlterTest {
 
     @Test
     public void testAlterRemoteStorageTableDataProperties() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tblRemote = (OlapTable) db.getTableOrMetaException("tbl_remote");
         Partition p1 = tblRemote.getPartition("p1");
         Partition p2 = tblRemote.getPartition("p2");
@@ -570,7 +570,7 @@ public class AlterTest {
         alterTable(stmt, false);
         Thread.sleep(5000); // sleep to wait dynamic partition scheduler run
 
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl3");
         Assert.assertEquals(4, tbl.getPartitionNames().size());
         Assert.assertNull(tbl.getPartition("p1"));
@@ -589,7 +589,8 @@ public class AlterTest {
             }
             System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(alterJobV2.getDbId());
+            Database db =
+                    Catalog.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId());
             while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
                 Thread.sleep(1000);
@@ -729,7 +730,7 @@ public class AlterTest {
         createTable(stmt2);
         createTable(stmt3);
         createTable(stmt4);
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
 
         // table name -> tabletIds
         Map<String, List<Long>> tblNameToTabletIds = Maps.newHashMap();
@@ -841,7 +842,7 @@ public class AlterTest {
                 + "PROPERTIES(\"replication_num\" = \"1\");";
 
         createTable(stmt);
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
 
         String modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 1;";
         alterTable(modifyBucketNumStmt, false);
@@ -938,7 +939,7 @@ public class AlterTest {
         // external table support add column
         stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
         alterTable(stmt, false);
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         Table odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().size(), 7);
         Assert.assertEquals(odbcTable.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
@@ -947,20 +948,20 @@ public class AlterTest {
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k7";
         alterTable(stmt, false);
-        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
 
         // external table support modify column
         stmt = "alter table test.odbc_table modify column k6 bigint after k5";
         alterTable(stmt, false);
-        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
         Assert.assertEquals(odbcTable.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
 
         // external table support reorder column
-        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertTrue(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
@@ -991,7 +992,7 @@ public class AlterTest {
         // external table support rename operation
         stmt = "alter table test.odbc_table rename oracle_table";
         alterTable(stmt, false);
-        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableNullable("oracle_table");
         Assert.assertNotNull(odbcTable);
         odbcTable = db.getTableNullable("odbc_table");
@@ -1017,7 +1018,7 @@ public class AlterTest {
                 + ");";
         createTable(createOlapTblStmt);
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         MysqlTable mysqlTable = (MysqlTable) db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
 
         String alterEngineStmt = "alter table test.mysql_table modify engine to odbc";

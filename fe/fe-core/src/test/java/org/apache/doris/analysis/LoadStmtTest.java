@@ -91,6 +91,9 @@ public class LoadStmtTest {
                 desc.toSql();
                 minTimes = 0;
                 result = "XXX";
+                desc.getTableName();
+                minTimes = 0;
+                result = "testTbl";
                 catalog.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);

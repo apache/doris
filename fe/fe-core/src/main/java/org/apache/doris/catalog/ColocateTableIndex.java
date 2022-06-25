@@ -521,7 +521,7 @@ public class ColocateTableIndex implements Writable {
     }
 
     public void replayAddTableToGroup(ColocatePersistInfo info) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getGroupId().dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getGroupId().dbId);
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(info.getTableId(),
                 org.apache.doris.catalog.Table.TableType.OLAP);
         writeLock();

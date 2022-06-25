@@ -1077,7 +1077,7 @@ public class QueryPlanTest extends TestWithFeService {
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle1");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1091,7 +1091,7 @@ public class QueryPlanTest extends TestWithFeService {
             }
         }
 
-        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle2");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1169,7 +1169,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1219,7 +1219,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);

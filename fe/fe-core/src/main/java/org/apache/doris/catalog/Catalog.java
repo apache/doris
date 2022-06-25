@@ -115,6 +115,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.datasource.DataSourceMgr;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.deploy.DeployManager;
@@ -249,7 +250,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -258,7 +258,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -478,8 +477,18 @@ public class Catalog {
         return dataSourceMgr;
     }
 
+    public DataSourceIf getCurrentDataSource() {
+        // TODO: this should be got from connect context.
+        // Will be fixed later.
+        return dataSourceMgr.getInternalDataSource();
+    }
+
     public InternalDataSource getInternalDataSource() {
         return dataSourceMgr.getInternalDataSource();
+    }
+
+    public static InternalDataSource getCurrentInternalCatalog() {
+        return getCurrentCatalog().getInternalDataSource();
     }
 
     private static class SingletonHolder {
@@ -2647,10 +2656,10 @@ public class Catalog {
         getInternalDataSource().replayRecoverPartition(info);
     }
 
-    public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
-        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt,
-                separatePartition, hidePassword, false);
+    public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
+                hidePassword, false);
     }
 
     /**
@@ -2658,9 +2667,9 @@ public class Catalog {
      *
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
-    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt,
-                                  List<String> addPartitionStmt, List<String> createRollupStmt,
-                                  boolean separatePartition, boolean hidePassword, boolean getDdlForLike) {
+    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
+            List<String> addPartitionStmt, List<String> createRollupStmt, boolean separatePartition,
+            boolean hidePassword, boolean getDdlForLike) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3160,71 +3169,6 @@ public class Catalog {
         return token;
     }
 
-    @Nullable
-    public Database getDbNullable(String dbName) {
-        return (Database) getInternalDataSource().getDbNullable(dbName);
-    }
-
-    @Nullable
-    public Database getDbNullable(long dbId) {
-        return (Database) getInternalDataSource().getDbNullable(dbId);
-    }
-
-    public Optional<Database> getDb(String dbName) {
-        return Optional.ofNullable(getDbNullable(dbName));
-    }
-
-    public Optional<Database> getDb(long dbId) {
-        return Optional.ofNullable(getDbNullable(dbId));
-    }
-
-    public <E extends Exception> Database getDbOrException(
-            String dbName, java.util.function.Function<String, E> e) throws E {
-        Database db = getDbNullable(dbName);
-        if (db == null) {
-            throw e.apply(dbName);
-        }
-        return db;
-    }
-
-    public <E extends Exception> Database getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E {
-        Database db = getDbNullable(dbId);
-        if (db == null) {
-            throw e.apply(dbId);
-        }
-        return db;
-    }
-
-    public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return getDbOrException(dbName,
-                s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return getDbOrException(dbId,
-                s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    public Database getDbOrDdlException(String dbName) throws DdlException {
-        return getDbOrException(dbName,
-                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    public Database getDbOrDdlException(long dbId) throws DdlException {
-        return getDbOrException(dbId,
-                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return getDbOrException(dbName,
-                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return getDbOrException(dbId,
-                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
     public EditLog getEditLog() {
         return editLog;
     }
@@ -3234,18 +3178,6 @@ public class Catalog {
         return idGenerator.getNextId();
     }
 
-    public List<String> getDbNames() {
-        return getInternalDataSource().getDbNames();
-    }
-
-    public List<String> getClusterDbNames(String clusterName) throws AnalysisException {
-        return getInternalDataSource().getClusterDbNames(clusterName);
-    }
-
-    public List<Long> getDbIds() {
-        return getInternalDataSource().getDbIds();
-    }
-
     public HashMap<Long, TStorageMedium> getPartitionIdToStorageMediumMap() {
         HashMap<Long, TStorageMedium> storageMediumMap = new HashMap<Long, TStorageMedium>();
 
@@ -3253,10 +3185,10 @@ public class Catalog {
         // dbId -> (tableId -> partitionId)
         HashMap<Long, Multimap<Long, Long>> changedPartitionsMap = new HashMap<Long, Multimap<Long, Long>>();
         long currentTimeMs = System.currentTimeMillis();
-        List<Long> dbIds = getDbIds();
+        List<Long> dbIds = getInternalDataSource().getDbIds();
 
         for (long dbId : dbIds) {
-            Database db = this.getDbNullable(dbId);
+            Database db = getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("db {} does not exist while doing backend report", dbId);
                 continue;
@@ -3299,7 +3231,7 @@ public class Catalog {
 
         // handle data property changed
         for (Long dbId : changedPartitionsMap.keySet()) {
-            Database db = getDbNullable(dbId);
+            Database db = getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("db {} does not exist while checking backend storage medium", dbId);
                 continue;
@@ -3307,7 +3239,7 @@ public class Catalog {
             Multimap<Long, Long> tableIdToPartitionIds = changedPartitionsMap.get(dbId);
 
             for (Long tableId : tableIdToPartitionIds.keySet()) {
-                Table table = db.getTableNullable(tableId);
+                TableIf table = db.getTableNullable(tableId);
                 if (table == null) {
                     continue;
                 }
@@ -3731,7 +3663,7 @@ public class Catalog {
         long tableId = tableInfo.getTableId();
         String newTableName = tableInfo.getNewTableName();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getInternalDataSource().getDbOrMetaException(dbId);
         db.writeLock();
         try {
             Table table = db.getTableOrMetaException(tableId);
@@ -3845,7 +3777,7 @@ public class Catalog {
         long tableId = info.getTableId();
         Map<String, String> properties = info.getPropertyMap();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -3905,7 +3837,7 @@ public class Catalog {
         long indexId = tableInfo.getIndexId();
         String newRollupName = tableInfo.getNewRollupName();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -3967,7 +3899,7 @@ public class Catalog {
         long partitionId = tableInfo.getPartitionId();
         String newPartitionName = tableInfo.getNewPartitionName();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4114,7 +4046,7 @@ public class Catalog {
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4195,7 +4127,7 @@ public class Catalog {
         long tableId = info.getTableId();
         int bucketNum = info.getBucketNum();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4233,7 +4165,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
-        this.getDbOrDdlException(qualifiedDb);
+        getInternalDataSource().getDbOrDdlException(qualifiedDb);
         ctx.setDatabase(qualifiedDb);
     }
 
@@ -4252,7 +4184,7 @@ public class Catalog {
         String tableName = stmt.getTable();
 
         // check if db exists
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getInternalDataSource().getDbOrDdlException(dbName);
 
         // check if table exists in db
         if (db.getTable(tableName).isPresent()) {
@@ -4278,7 +4210,7 @@ public class Catalog {
             throw new DdlException("failed to init view stmt", e);
         }
 
-        if (!db.createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
+        if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
             throw new DdlException("Failed to create view[" + tableName + "].");
         }
         LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
@@ -4476,23 +4408,23 @@ public class Catalog {
     public String dumpImage() {
         LOG.info("begin to dump meta data");
         String dumpFilePath;
-        List<Database> databases = Lists.newArrayList();
-        List<List<Table>> tableLists = Lists.newArrayList();
+        List<DatabaseIf> databases = Lists.newArrayList();
+        List<List<TableIf>> tableLists = Lists.newArrayList();
         tryLock(true);
         try {
             // sort all dbs to avoid potential dead lock
-            for (long dbId : getDbIds()) {
-                Database db = this.getDbNullable(dbId);
+            for (long dbId : getInternalDataSource().getDbIds()) {
+                Database db = getInternalDataSource().getDbNullable(dbId);
                 databases.add(db);
             }
-            databases.sort(Comparator.comparing(Database::getId));
+            databases.sort(Comparator.comparing(DatabaseIf::getId));
 
             // lock all dbs
             MetaLockUtils.readLockDatabases(databases);
             LOG.info("acquired all the dbs' read lock.");
             // lock all tables
-            for (Database db : databases) {
-                List<Table> tableList = db.getTablesOnIdOrder();
+            for (DatabaseIf db : databases) {
+                List<TableIf> tableList = db.getTablesOnIdOrder();
                 MetaLockUtils.readLockTables(tableList);
                 tableLists.add(tableList);
             }
@@ -4544,25 +4476,25 @@ public class Catalog {
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
-        Database db = this.getDbOrDdlException(name.getDb());
+        Database db = getInternalDataSource().getDbOrDdlException(name.getDb());
         db.addFunction(stmt.getFunction());
     }
 
     public void replayCreateFunction(Function function) throws MetaNotFoundException {
         String dbName = function.getFunctionName().getDb();
-        Database db = this.getDbOrMetaException(dbName);
+        Database db = getInternalDataSource().getDbOrMetaException(dbName);
         db.replayAddFunction(function);
     }
 
     public void dropFunction(DropFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
-        Database db = this.getDbOrDdlException(name.getDb());
+        Database db = getInternalDataSource().getDbOrDdlException(name.getDb());
         db.dropFunction(stmt.getFunction());
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
         String dbName = functionSearchDesc.getName().getDb();
-        Database db = this.getDbOrMetaException(dbName);
+        Database db = getInternalDataSource().getDbOrMetaException(dbName);
         db.replayDropFunction(functionSearchDesc);
     }
 
@@ -4630,9 +4562,8 @@ public class Catalog {
         // but we need to get replica from db->tbl->partition->...
         List<ReplicaPersistInfo> replicaPersistInfos = backendTabletsInfo.getReplicaPersistInfos();
         for (ReplicaPersistInfo info : replicaPersistInfos) {
-            OlapTable olapTable = (OlapTable) this.getDb(info.getDbId())
-                    .flatMap(db -> db.getTable(info.getTableId()))
-                    .filter(t -> t.getType() == TableType.OLAP)
+            OlapTable olapTable = (OlapTable) getInternalDataSource().getDb(info.getDbId())
+                    .flatMap(db -> db.getTable(info.getTableId())).filter(t -> t.getType() == TableType.OLAP)
                     .orElse(null);
             if (olapTable == null) {
                 continue;
@@ -4680,7 +4611,7 @@ public class Catalog {
     }
 
     public void replayConvertDistributionType(TableInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getInternalDataSource().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4726,7 +4657,7 @@ public class Catalog {
             throws MetaNotFoundException {
         long dbId = replaceTempPartitionLog.getDbId();
         long tableId = replaceTempPartitionLog.getTblId();
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4815,7 +4746,7 @@ public class Catalog {
             if (meta == null) {
                 throw new MetaNotFoundException("tablet does not exist");
             }
-            Database db = this.getDbOrMetaException(meta.getDbId());
+            Database db = getInternalDataSource().getDbOrMetaException(meta.getDbId());
             Table table = db.getTableOrMetaException(meta.getTableId());
             table.writeLockOrMetaException();
             try {
@@ -4939,8 +4870,7 @@ public class Catalog {
         String tableName = stmt.getTblName();
         String type = stmt.getCompactionType();
 
-
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
 
         AgentBatchTask batchTask = new AgentBatchTask();

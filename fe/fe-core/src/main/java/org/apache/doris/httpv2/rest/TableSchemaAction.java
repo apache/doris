@@ -65,7 +65,7 @@ public class TableSchemaAction extends RestBaseController {
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             OlapTable table;
             try {
-                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
                 table = (OlapTable) db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());

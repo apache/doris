@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -419,19 +420,16 @@ public class SparkLoadJob extends BulkLoadJob {
         try {
             db = getDb();
         } catch (MetaNotFoundException e) {
-            String errMsg = new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("label", label)
-                    .add("error_msg", "db has been deleted when job is loading")
-                    .build();
+            String errMsg = new LogBuilder(LogKey.LOAD_JOB, id).add("database_id", dbId).add("label", label)
+                    .add("error_msg", "db has been deleted when job is loading").build();
             throw new MetaNotFoundException(errMsg);
         }
 
         AgentBatchTask batchTask = new AgentBatchTask();
         boolean hasLoadPartitions = false;
         Set<Long> totalTablets = Sets.newHashSet();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
-                Lists.newArrayList(tableToLoadPartitions.keySet()));
+        List<? extends TableIf> tableList =
+                db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(tableToLoadPartitions.keySet()));
         MetaLockUtils.readLockTables(tableList);
         try {
             writeLock();
@@ -445,7 +443,7 @@ public class SparkLoadJob extends BulkLoadJob {
                     return totalTablets;
                 }
 
-                for (Table table : tableList) {
+                for (TableIf table : tableList) {
                     Set<Long> partitionIds = tableToLoadPartitions.get(table.getId());
                     OlapTable olapTable = (OlapTable) table;
                     for (long partitionId : partitionIds) {
