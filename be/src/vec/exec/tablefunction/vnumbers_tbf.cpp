@@ -52,12 +52,13 @@ Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool
                 // what if batch_size < _total_numbers, should we set *eos？
                 break;
             }
-            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(columns[0].get())
-                    ->insert_value(_cur_offset++);
+            // if _total_numbers == 0, so we can break loop at now.
             if (_cur_offset >= _total_numbers) {
                 *eos = true;
                 break;
             }
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(columns[0].get())
+                    ->insert_value(_cur_offset++);
         }
         auto n_columns = 0;
         if (!mem_reuse) {
