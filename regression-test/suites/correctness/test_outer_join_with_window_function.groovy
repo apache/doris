@@ -226,12 +226,12 @@ suite("test_outer_join_with_with_window_function") {
     """
 
     sql """
-        insert into ods_logout(day, game, plat, playerid, dt) values('2019-07-05', 'mus', '37wan', '1136638398824557', '2019-07-05 00:00:00');
+        insert into ods_logout(day, game, plat, playerid, dt) values('2019-07-05', 'abc', 'xyz', '1136638398824557', '2019-07-05 00:00:00');
     """
 
     sql """
         insert into dwd_online_detail(game_code, plat_code, playerid, account, org_sid, ct_sid, login_time, logout_time, pid_code,gid_code)
-        values('mus', '37wan', '1577946288488507', '1492704224', '421001', '421001', '2020-01-19 11:15:21', '9999-12-30 00:00:00', '-', '-');
+        values('abc', 'xyz', '1577946288488507', '1492704224', '421001', '421001', '2020-01-19 11:15:21', '9999-12-30 00:00:00', '-', '-');
     """
 
     qt_select """
@@ -247,17 +247,17 @@ suite("test_outer_join_with_with_window_function") {
                         (select * from dim_account_userid_mapping
                         where   start_time < convert_tz(date_add('2019-07-05 00:00:00',INTERVAL 1 day),'Asia/Shanghai','Asia/Shanghai')
                         and end_time >= convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
-                        and game_code ='mus'  and plat_code='37wan'
+                        and game_code ='abc'  and plat_code='xyz'
                         ) mp
                 right join
                     (
                     select *,concat_ws('_',pid_code,gid_code,account) userkey from
                     (select game_code,plat_code,playerid,account,org_sid,ct_sid,login_time,logout_time,pid_code,gid_code
-                    from dwd_online_detail where logout_time='9999-12-30 00:00:00' and game_code='mus' and plat_code ='37wan'
+                    from dwd_online_detail where logout_time='9999-12-30 00:00:00' and game_code='abc' and plat_code ='xyz'
                     union all
                     select game game_code,plat plat_code,playerid,account,sid org_sid,cast(p08 as int) ct_sid,dt login_time,'9999-12-30 00:00:00' logout_time,pid pid_code,gid gid_code
                     from ods_login
-                    where game='mus' and `plat` = '37wan'
+                    where game='abc' and `plat` = 'xyz'
                     AND  dt BETWEEN convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
                         and convert_tz('2019-07-05 23:59:59','Asia/Shanghai','Asia/Shanghai')
                         and day BETWEEN date_sub('2019-07-05',INTERVAL 1 DAY ) and date_add('2019-07-05',INTERVAL 1 DAY )
@@ -270,7 +270,7 @@ suite("test_outer_join_with_with_window_function") {
                 left JOIN
                         (select  day,game game_code,plat plat_code,playerid, dt
                         from  ods_logout dlt
-                        where game='mus' and `plat` = '37wan'
+                        where game='abc' and `plat` = 'xyz'
                         and dt BETWEEN convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
                                 and convert_tz('2019-07-05 23:59:59','Asia/Shanghai','Asia/Shanghai')
                                 and day BETWEEN date_sub('2019-07-05',INTERVAL 1 DAY ) and date_add('2019-07-05',INTERVAL 1 DAY )
@@ -284,6 +284,6 @@ suite("test_outer_join_with_with_window_function") {
                 from dwd_online_detail
                 where logout_time BETWEEN convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
                                 and convert_tz('2019-07-05 23:59:59','Asia/Shanghai','Asia/Shanghai')
-                        and not (game_code='mus' and `plat_code` = '37wan'  );
+                        and not (game_code='abc' and `plat_code` = 'xyz'  );
     """
 }

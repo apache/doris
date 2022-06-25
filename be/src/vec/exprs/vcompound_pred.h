@@ -47,7 +47,6 @@ public:
             out << ", " << _children[1]->debug_string();
         }
         out << ")}";
-
         return out.str();
     }
 };
