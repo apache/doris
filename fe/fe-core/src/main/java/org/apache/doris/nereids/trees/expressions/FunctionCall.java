@@ -31,7 +31,7 @@ public class FunctionCall extends Expression {
     private FunctionParams fnParams;
 
     private FunctionCall(FunctionName functionName, FunctionParams functionParams) {
-        super(NodeType.FUNCTIONCALL, functionParams.getExpression().toArray(new Expression[0]));
+        super(NodeType.FUNCTIONCALL, functionParams.getExpressionList().toArray(new Expression[0]));
         this.fnName = functionName;
         this.fnParams = functionParams;
     }
@@ -46,5 +46,13 @@ public class FunctionCall extends Expression {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitFunctionCall(this, context);
+    }
+
+    public FunctionName getFnName() {
+        return fnName;
+    }
+
+    public FunctionParams getFnParams() {
+        return fnParams;
     }
 }
