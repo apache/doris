@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;

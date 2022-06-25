@@ -30,8 +30,7 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /** sum agg function. */
-public class Sum<CHILD_TYPE extends Expression>
-        extends BoundFunction implements UnaryExpression<CHILD_TYPE> {
+public class Sum extends AggregateFunction implements UnaryExpression<Expression> {
 
     public Sum(Expression child) {
         super("sum", child);
@@ -58,6 +57,6 @@ public class Sum<CHILD_TYPE extends Expression>
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum<>(children.get(0));
+        return new Sum(children.get(0));
     }
 }
