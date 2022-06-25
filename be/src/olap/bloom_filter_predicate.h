@@ -68,6 +68,65 @@ public:
     uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override;
 
 private:
+    template <bool is_nullable, typename file_type = void>
+    uint16_t evaluate(vectorized::IColumn& column, uint8_t* null_map, uint16_t* sel,
+                      uint16_t size) const {
+        if constexpr (is_nullable) DCHECK(null_map);
+
+        uint16_t new_size = 0;
+        if (column.is_column_dictionary()) {
+            auto* dict_col = reinterpret_cast<vectorized::ColumnDictI32*>(&column);
+            dict_col->generate_hash_values_for_runtime_filter();
+            for (uint16_t i = 0; i < size; i++) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+                if constexpr (is_nullable) {
+                    new_size += !null_map[idx] &&
+                                _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+                } else {
+                    new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+                }
+            }
+        } else {
+            uint24_t tmp_uint24_value;
+            auto get_column_data = [](vectorized::IColumn& column) {
+                if constexpr (std::is_same_v<file_type, uint24_t>) {
+                    return reinterpret_cast<vectorized::PredicateColumnType<uint32_t>*>(&column)
+                            ->get_data()
+                            .data();
+                } else {
+                    return reinterpret_cast<vectorized::PredicateColumnType<file_type>*>(&column)
+                            ->get_data()
+                            .data();
+                }
+            };
+
+            auto get_cell_value = [&tmp_uint24_value](auto& data) {
+                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t>) {
+                    memcpy((char*)(&tmp_uint24_value), (char*)(&data), sizeof(uint24_t));
+                    return (const char*)&tmp_uint24_value;
+                } else {
+                    return (const char*)&data;
+                }
+            };
+
+            auto pred_col_data = get_column_data(column);
+            for (uint16_t i = 0; i < size; i++) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+
+                if constexpr (is_nullable) {
+                    new_size += !null_map[idx] && _specific_filter->find_olap_engine(
+                                                          get_cell_value(pred_col_data[idx]));
+                } else {
+                    new_size +=
+                            _specific_filter->find_olap_engine(get_cell_value(pred_col_data[idx]));
+                }
+            }
+        }
+        return new_size;
+    }
+
     std::shared_ptr<IBloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
     mutable uint64_t _evaluated_rows = 1;
@@ -119,49 +178,12 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, ui
         return size;
     }
     if (column.is_nullable()) {
-        auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+        auto* nullable_col = reinterpret_cast<vectorized::ColumnNullable*>(&column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
-        // deal ColumnDict
-        if (nullable_col->get_nested_column().is_column_dictionary()) {
-            auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(
-                    nullable_col->get_nested_column());
-            const_cast<vectorized::ColumnDictI32*>(dict_col)
-                    ->generate_hash_values_for_runtime_filter();
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                new_size += (!null_map_data[idx]) &&
-                            _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-            }
-        } else {
-            auto* pred_col = vectorized::check_and_get_column<vectorized::PredicateColumnType<FT>>(
-                    nullable_col->get_nested_column());
-            auto& pred_col_data = pred_col->get_data();
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
-                new_size += (!null_map_data[idx]) && _specific_filter->find_olap_engine(cell_value);
-            }
-        }
-    } else if (column.is_column_dictionary()) {
-        auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-        const_cast<vectorized::ColumnDictI32*>(dict_col)->generate_hash_values_for_runtime_filter();
-        for (uint16_t i = 0; i < size; i++) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-        }
+        new_size = evaluate<true, FT>(nullable_col->get_nested_column(), null_map_data.data(), sel,
+                                      size);
     } else {
-        auto* pred_col =
-                vectorized::check_and_get_column<vectorized::PredicateColumnType<FT>>(column);
-        auto& pred_col_data = pred_col->get_data();
-        for (uint16_t i = 0; i < size; i++) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
-            new_size += _specific_filter->find_olap_engine(cell_value);
-        }
+        new_size = evaluate<false, FT>(column, nullptr, sel, size);
     }
     // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
     // Some bloomfilter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
