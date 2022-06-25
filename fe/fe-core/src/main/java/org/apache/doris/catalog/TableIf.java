@@ -88,6 +88,10 @@ public interface TableIf {
 
     long getAvgRowLength();
 
+    long getLastCheckTime();
+
+    String getComment(boolean escapeQuota);
+
     /**
      * Doris table type.
      */
@@ -142,24 +146,4 @@ public interface TableIf {
             }
         }
     }
-
-    String getEngine();
-
-    String getMysqlType();
-
-    long getRowCount();
-
-    long getAvgRowLength();
-
-    long getDataLength();
-
-    long getCreateTime();
-
-    long getUpdateTime();
-
-    long getLastCheckTime();
-
-    String getComment();
-
-    String getComment(boolean escapeQuota);
 }

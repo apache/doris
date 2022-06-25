@@ -42,6 +42,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
@@ -262,7 +263,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
 
-        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(params.catalog);
+        String catalogName = InternalDataSource.INTERNAL_DS_NAME;
+        if (params.isSetCatalog()) {
+            catalogName = params.catalog;
+        }
+        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(catalogName);
         if (ds != null) {
             DatabaseIf db = ds.getDbNullable(params.db);
             if (db != null) {
