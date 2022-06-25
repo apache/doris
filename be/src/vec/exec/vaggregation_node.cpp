@@ -925,7 +925,8 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         if (value_columns[i]->is_nullable() xor temp_value_columns[i]->is_nullable()) {
             DCHECK(value_columns[i]->is_nullable() && !temp_value_columns[i]->is_nullable());
-            value_columns[i] = (*std::move(make_nullable(std::move(temp_value_columns[i])))).mutate();
+            value_columns[i] =
+                    (*std::move(make_nullable(std::move(temp_value_columns[i])))).mutate();
         } else {
             value_columns[i] = std::move(temp_value_columns[i]);
         }

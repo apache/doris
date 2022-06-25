@@ -192,7 +192,8 @@ struct ProcessHashTableProbe {
                     if (output_slot_flags[i]) {
                         auto column = _build_blocks[0].get_by_position(i).column;
                         if (mcol[i + column_offset]->is_nullable() xor column->is_nullable()) {
-                            DCHECK(mcol[i + column_offset]->is_nullable() && !column->is_nullable());
+                            DCHECK(mcol[i + column_offset]->is_nullable() &&
+                                   !column->is_nullable());
                             column = make_nullable(column);
                         }
                         mcol[i + column_offset]->insert_indices_from(
@@ -212,8 +213,8 @@ struct ProcessHashTableProbe {
                                             ->insert_join_null_data();
                                 } else {
                                     auto column = _build_blocks[_build_block_offsets[j]]
-                                                            .get_by_position(i)
-                                                            .column;
+                                                          .get_by_position(i)
+                                                          .column;
                                     if (mcol[i + column_offset]->is_nullable() xor
                                         column->is_nullable()) {
                                         DCHECK(mcol[i + column_offset]->is_nullable() &&
@@ -225,8 +226,8 @@ struct ProcessHashTableProbe {
                                 }
                             } else {
                                 auto column = _build_blocks[_build_block_offsets[j]]
-                                                       .get_by_position(i)
-                                                       .column;
+                                                      .get_by_position(i)
+                                                      .column;
                                 if (mcol[i + column_offset]->is_nullable() xor
                                     column->is_nullable()) {
                                     DCHECK(mcol[i + column_offset]->is_nullable() &&
@@ -997,9 +998,9 @@ Status HashJoinNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
 
-        std::promise<Status> thread_status;
-        std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
-                .detach();
+    std::promise<Status> thread_status;
+    std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
+            .detach();
 
     // Open the probe-side child so that it may perform any initialisation in parallel.
     // Don't exit even if we see an error, we still need to wait for the build thread
