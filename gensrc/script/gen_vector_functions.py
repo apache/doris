@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # encoding: utf-8
 
 # Licensed to the Apache Software Foundation (ASF) under one
@@ -430,7 +430,7 @@ h_epilogue = '\
 #endif\n'
 
 python_preamble = '\
-#!/usr/bin/env python3\n\
+#!/usr/bin/env python\n\
 # Licensed to the Apache Software Foundation (ASF) under one \n\
 # or more contributor license agreements.  See the NOTICE file \n\
 # distributed with this work for additional information \n\
