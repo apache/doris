@@ -36,6 +36,7 @@
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "exprs/expr_context.h"
 
 namespace doris {
 
@@ -73,6 +74,7 @@ public:
     virtual ~ArrowReaderWrap();
 
     virtual Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                               const std::vector<ExprContext*>& conjunct_ctxs,
                                const std::string& timezone) = 0;
     // for row
     virtual Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,

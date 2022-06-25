@@ -41,6 +41,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/arrow/arrow_reader.h"
+#include "exec/arrow/parquet_row_group_reader.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -55,6 +56,7 @@ class Tuple;
 class SlotDescriptor;
 class MemPool;
 class FileReader;
+class RowGroupReader;
 
 // Reader of parquet file
 class ParquetReaderWrap final : public ArrowReaderWrap {
@@ -69,6 +71,7 @@ public:
                 MemPool* mem_pool, bool* eof) override;
     Status size(int64_t* size) override;
     Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                       const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
     void close() override;
@@ -106,6 +109,7 @@ private:
     std::condition_variable _queue_reader_cond;
     std::condition_variable _queue_writer_cond;
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
+    std::unique_ptr<doris::RowGroupReader> _row_group_reader;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
 };
 

@@ -64,6 +64,9 @@ public:
         }
     }
 
+    // Register conjuncts for push down
+    virtual void reg_conjunct_ctxs(std::vector<ExprContext*> conjunct_ctxs);
+
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
     virtual Status open();
@@ -141,6 +144,9 @@ protected:
     std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
     vectorized::Block _src_block;
     int _num_of_columns_from_file;
+
+    // File formats based push down predicate
+    std::vector<ExprContext*> _conjunct_ctxs;
 
 private:
     Status _filter_src_block();
