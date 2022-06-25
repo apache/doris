@@ -27,7 +27,6 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.external.elasticsearch.EsMajorVersion;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
@@ -251,8 +250,7 @@ public class EsScanNode extends ScanNode {
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
                 esScanRange.setIndex(shardRouting.get(0).getIndexName());
-                // 8.x type is cancelled
-                if (table.majorVersion == null || table.majorVersion.before(EsMajorVersion.V_8_X)) {
+                if (table.getType() != null) {
                     esScanRange.setType(table.getMappingType());
                 }
                 esScanRange.setShardId(shardRouting.get(0).getShardId());

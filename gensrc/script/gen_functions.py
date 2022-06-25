@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # encoding: utf-8
 
 # Licensed to the Apache Software Foundation (ASF) under one
@@ -621,7 +621,7 @@ h_epilogue = '\
 #endif\n'
 
 python_preamble = '\
-#!/usr/bin/env python\n\
+#!/usr/bin/env python3\n\
 \n\
 # This is a generated file, DO NOT EDIT IT.\n\
 # To add new functions, see impala/common/function-registry/gen_opcodes.py\n\

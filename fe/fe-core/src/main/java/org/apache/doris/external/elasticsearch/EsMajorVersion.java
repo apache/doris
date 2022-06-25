@@ -32,7 +32,6 @@ public class EsMajorVersion {
     public static final EsMajorVersion V_6_X = new EsMajorVersion((byte) 6, "6.x");
     public static final EsMajorVersion V_7_X = new EsMajorVersion((byte) 7, "7.x");
     public static final EsMajorVersion V_8_X = new EsMajorVersion((byte) 8, "8.x");
-    public static final EsMajorVersion V_9_X = new EsMajorVersion((byte) 9, "9.x");
     public static final EsMajorVersion LATEST = V_8_X;
 
     public final byte major;
@@ -86,15 +85,13 @@ public class EsMajorVersion {
         if (version.startsWith("7.")) {
             return new EsMajorVersion((byte) 7, version);
         }
+        // used for the next released ES version
         if (version.startsWith("8.")) {
             return new EsMajorVersion((byte) 8, version);
         }
-        // used for the next released ES version
-        if (version.startsWith("9.")) {
-            return new EsMajorVersion((byte) 9, version);
-        }
-        throw new DorisEsException("Unsupported/Unknown ES Cluster version [" + version + "]."
-                + "Highest supported version is [" + LATEST.version + "].");
+        throw new DorisEsException(
+                "Unsupported/Unknown ES Cluster version [" + version + "]." + "Highest supported version is ["
+                        + LATEST.version + "].");
     }
 
     @Override

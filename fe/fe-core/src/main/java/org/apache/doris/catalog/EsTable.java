@@ -73,7 +73,7 @@ public class EsTable extends Table {
     private String indexName;
 
     // which type used for `indexName`, default to `_doc`
-    private String mappingType = "_doc";
+    private String mappingType = null;
     private String transport = "http";
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState

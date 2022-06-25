@@ -37,22 +37,13 @@ public class MappingPhase implements SearchPhase {
     // json response for `{index}/_mapping` API
     private String jsonMapping;
 
-    private boolean includeTypeName = false;
-
     public MappingPhase(EsRestClient client) {
         this.client = client;
     }
 
     @Override
-    public void preProcess(SearchContext context) {
-        if (context.version() != null && context.version().on(EsMajorVersion.V_7_X)) {
-            includeTypeName = true;
-        }
-    }
-
-    @Override
     public void execute(SearchContext context) throws DorisEsException {
-        jsonMapping = client.getMapping(context.sourceIndex(), includeTypeName);
+        jsonMapping = client.getMapping(context.sourceIndex());
     }
 
     @Override
@@ -81,12 +72,6 @@ public class MappingPhase implements SearchPhase {
         // After (include) 7.x, type was removed from ES mapping, default type is `_doc`
         // https://www.elastic.co/guide/en/elasticsearch/reference/7.0/removal-of-types.html
         if (rootSchema == null) {
-            if (searchContext.type().equals("_doc") == false) {
-                throw new DorisEsException("index[" + searchContext.sourceIndex() + "]'s type must be exists, "
-                        + " and after ES7.x type must be `_doc`, but found ["
-                        + searchContext.type() + "], for table ["
-                        + searchContext.esTable().getName() + "]");
-            }
             properties = (JSONObject) mappings.get("properties");
         } else {
             properties = (JSONObject) rootSchema.get("properties");
