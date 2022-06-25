@@ -45,6 +45,7 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size
           _current_line_of_batch(0) {}
 
 Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                                      const std::vector<ExprContext*>& conjunct_ctxs,
                                       const std::string& timezone) {
     try {
         parquet::ArrowReaderProperties arrow_reader_properties =
@@ -91,6 +92,9 @@ Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_
         _timezone = timezone;
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+
+        _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata));
+        _row_group_reader->init_filter_groups(tuple_slot_descs, conjunct_ctxs)
 
         std::thread thread(&ParquetReaderWrap::prefetch_batch, this);
         thread.detach();
@@ -534,6 +538,17 @@ void ParquetReaderWrap::prefetch_batch() {
     while (true) {
         if (_closed || current_group >= _total_groups) {
             return;
+        }
+        if (config::parquet_predicate_push_down) {
+            if (!_row_group_reader->has_filter_groups()) {
+                continue;
+            }
+            auto filter_group_set = _row_group_reader->filter_groups();
+            if (filter_group_set.end() != filter_group_set.find(current_group)) {
+                // find filter group, skip
+                // LOG(INFO) << ""
+                continue;
+            }
         }
         _status = _reader->GetRecordBatchReader({current_group}, _include_column_ids, &_rb_reader);
         if (!_status.ok()) {

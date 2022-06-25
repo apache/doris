@@ -36,6 +36,7 @@ public:
     ~ORCReaderWrap() override = default;
 
     Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                       const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
