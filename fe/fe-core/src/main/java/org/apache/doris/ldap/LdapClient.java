@@ -100,13 +100,13 @@ public class LdapClient {
         }
 
         public boolean checkUpdate(String ldapPassword) {
-            return !this.ldapPassword.equals(ldapPassword);
+            return this.ldapPassword == null || !this.ldapPassword.equals(ldapPassword);
         }
     }
 
     private static void init() {
         LdapInfo ldapInfo = Catalog.getCurrentCatalog().getAuth().getLdapInfo();
-        if (ldapInfo == null) {
+        if (ldapInfo == null || !ldapInfo.isValid()) {
             LOG.error("info is null, maybe no ldap admin password is set.");
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
             throw new RuntimeException("ldapTemplate is not initialized");

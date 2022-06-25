@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -49,6 +50,10 @@ public class DropTableStmtTest {
 
         new Expectations() {
             {
+                noDbAnalyzer.getDefaultCatalog();
+                minTimes = 0;
+                result = InternalDataSource.INTERNAL_DS_NAME;
+
                 noDbAnalyzer.getDefaultDb();
                 minTimes = 0;
                 result = "";

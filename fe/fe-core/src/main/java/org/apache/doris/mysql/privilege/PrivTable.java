@@ -46,6 +46,27 @@ public abstract class PrivTable implements Writable {
     protected boolean isClassNameWrote = false;
 
     /*
+     * Check if user@host has specified privilege
+     */
+    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
+        for (PrivEntry entry : entries) {
+            // check host
+            if (!entry.isAnyHost() && !entry.getHostPattern().match(host)) {
+                continue;
+            }
+            // check user
+            if (!entry.isAnyUser() && !entry.getUserPattern().match(user)) {
+                continue;
+            }
+            // check priv
+            if (entry.privSet.satisfy(wanted)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /*
      * Add an entry to priv table.
      * If entry already exists and errOnExist is false, we try to reset or merge the new priv entry with existing one.
      * NOTICE, this method does not set password for the newly added entry if this is a user priv table, the caller

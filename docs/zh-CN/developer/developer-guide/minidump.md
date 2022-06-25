@@ -123,39 +123,39 @@ Minidump 的生成有两种方式：
     之后我们可以使用 gdb 工具来分析这个 coredump 文件了：
     
     ```
-    gdb lib/palo_be -c 1.coredump
+    gdb lib/doris_be -c 1.coredump
     ```
 
 2. 生成可读调用栈
 
-    Minidump 文件中只包含调用栈的地址，我们需要把这些地址对应到实际的函数文件位置。因此，我们首先需要通过 `dump_syms ` 生成 BE 二进制文件的符号表 `palo_be.sym`：
+    Minidump 文件中只包含调用栈的地址，我们需要把这些地址对应到实际的函数文件位置。因此，我们首先需要通过 `dump_syms ` 生成 BE 二进制文件的符号表 `doris_be.sym`：
     
     ```
-    ./dump_syms ./lib/palo_be > palo_be.sym
+    ./dump_syms ./lib/doris_be > doris_be.sym
     ```
 
     接下来，我们需要符号表第一行的信息，构建一个对应的符号表目录。
     
     ```
-    head -n1 palo_be.sym
+    head -n1 doris_be.sym
     ```
     
-    以上命令会打印 palo_be.sym 的第一行内容如下：
+    以上命令会打印 doris_be.sym 的第一行内容如下：
     
     ```
-    MODULE Linux x86_64 137706CC745F5EC3EABBF730D4B229370 palo_be
+    MODULE Linux x86_64 137706CC745F5EC3EABBF730D4B229370 doris_be
     ```
     
     之后我们创建一个目录结构：
     
     ```
-    mkdir -p ./symbols/palo_be/137706CC745F5EC3EABBF730D4B229370
+    mkdir -p ./symbols/doris_be/137706CC745F5EC3EABBF730D4B229370
     ```
     
-    目录路径中的 `palo_be` 和 `137706CC745F5EC3EABBF730D4B229370` 需和 palo_be.sym 文件的第一行内容一致。然后我们将 palo_be.sym 文件移动到该目录中：
+    目录路径中的 `doris_be` 和 `137706CC745F5EC3EABBF730D4B229370` 需和 doris_be.sym 文件的第一行内容一致。然后我们将 doris_be.sym 文件移动到该目录中：
     
     ```
-    cp palo_be.sym ./symbols/palo_be/137706CC745F5EC3EABBF730D4B229370
+    cp doris_be.sym ./symbols/doris_be/137706CC745F5EC3EABBF730D4B229370
     ```
     
     最后，我们可以使用 `minidump_stackwalk` 来产出可读的调用栈信息：
@@ -164,7 +164,7 @@ Minidump 的生成有两种方式：
     minidump_stackwalk 4f8d4fe5-15f8-40a3-843109b3-d49993f3.dmp ./symbols/ > readable.stack
     ```
     
-    其中 `4f8d4fe5-15f8-40a3-843109b3-d49993f3.dmp` 为 minidump 文件。`./symbols/` 为之前创建的包含 palo_be.sym 的目录。`readable.stack` 是将生成的结果重定向到这个文件中。同时，在执行这个命令时，屏幕上也会刷一些程序运行日志，可以不用理会。
+    其中 `4f8d4fe5-15f8-40a3-843109b3-d49993f3.dmp` 为 minidump 文件。`./symbols/` 为之前创建的包含 doris_be.sym 的目录。`readable.stack` 是将生成的结果重定向到这个文件中。同时，在执行这个命令时，屏幕上也会刷一些程序运行日志，可以不用理会。
     
     至此，我们就获取了一个可读的线程调用栈文件：readable.stack。其中包含了 BE 程序在写 Minidump 文件时的所有线程的调用栈信息，以及对应的寄存器信息。
     
