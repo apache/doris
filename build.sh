@@ -206,7 +206,7 @@ if [[ -z ${USE_LIBCPP} ]]; then
     USE_LIBCPP=OFF
 fi
 if [[ -z ${BUILD_META_TOOL} ]]; then
-    BUILD_META_TOOL=ON
+    BUILD_META_TOOL=OFF
 fi
 if [[ -z ${USE_LLD} ]]; then
     USE_LLD=OFF
@@ -347,7 +347,8 @@ if [ ${BUILD_FE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
     rm -rf ${DORIS_OUTPUT}/fe/lib/*
     cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
-    cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+    rm -f ${DORIS_OUTPUT}/fe/lib/palo-fe.jar
+    cp -r -p ${DORIS_HOME}/fe/fe-core/target/doris-fe.jar ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/webroot/static ${DORIS_OUTPUT}/fe/webroot/
 
@@ -373,6 +374,8 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
+    # make a soft link palo_be point to doris_be, for forward compatibility
+    cd ${DORIS_OUTPUT}/be/lib && rm palo_be && ln -s doris_be palo_be && cd -
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
