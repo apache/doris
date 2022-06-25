@@ -72,7 +72,14 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
 
     // catalog
-    { tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset()); }
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        std::string catalog_name = _db_result.catalogs[_db_index];
+        str_slot->ptr = (char*)pool->allocate(catalog_name.size());
+        str_slot->len = catalog_name.size();
+        memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+    }
     // schema
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
