@@ -177,6 +177,7 @@ private:
     phmap::flat_hash_map<int64_t, std::string> _mem_tracker_labels;
     // If true, call memtracker try_consume, otherwise call consume.
     bool _check_limit;
+    bool _stop_consume = false;
 
     int64_t _tracker_id;
     // Avoid memory allocation in functions.
@@ -256,25 +257,27 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
-    if (_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
-        _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) {
+    //
+    // Temporary memory may be allocated during the consumption of the mem tracker (in the processing logic of
+    // the exceeded limit), which will lead to entering the TCMalloc Hook again, so suspend consumption to avoid
+    // falling into an infinite loop.
+    if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
+         _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
+        !_stop_consume) {
+        _stop_consume = true;
         DCHECK(_untracked_mems.find(_tracker_id) != _untracked_mems.end()) << print_debug_string();
         // When switching to the current tracker last time, the remaining untracked memory.
         if (_untracked_mems[_tracker_id] != 0) {
             _untracked_mem += _untracked_mems[_tracker_id];
             _untracked_mems[_tracker_id] = 0;
         }
-        // Allocating memory in the Hook command causes the TCMalloc Hook to be entered again,
-        // will enter infinite recursion. So the temporary memory allocated in mem_tracker.try_consume
-        // and mem_limit_exceeded will directly call consume.
         if (_check_limit) {
-            _check_limit = false;
             noncache_try_consume(_untracked_mem);
-            _check_limit = true;
         } else {
             mem_tracker()->consume(_untracked_mem);
         }
         _untracked_mem = 0;
+        _stop_consume = false;
     }
 }
 

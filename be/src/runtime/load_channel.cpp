@@ -25,19 +25,15 @@
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, int64_t load_mem_limit, int64_t channel_mem_limit,
+LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTracker>& mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                          bool is_vec)
         : _load_id(load_id),
+          _mem_tracker(mem_tracker),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
           _is_vec(is_vec) {
-    _mem_tracker = MemTracker::create_tracker(
-            channel_mem_limit, "LoadChannel#senderIp=" + sender_ip,
-            ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->register_load_mem_tracker(
-                    _load_id.to_string(), load_mem_limit),
-            MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -52,7 +48,6 @@ LoadChannel::~LoadChannel() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
@@ -138,7 +133,6 @@ bool LoadChannel::is_finished() {
 }
 
 Status LoadChannel::cancel() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     for (auto& it : _tablets_channels) {
         it.second->cancel();

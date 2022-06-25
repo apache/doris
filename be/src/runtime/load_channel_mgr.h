@@ -61,11 +61,6 @@ public:
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
 
 private:
-    static LoadChannel* _create_load_channel(const UniqueId& load_id, int64_t load_mem_limit,
-                                             int64_t channel_mem_limit, int64_t timeout_s,
-                                             bool is_high_priority, const std::string& sender_ip,
-                                             bool is_vec);
-
     template <typename Request>
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const Request& request);
@@ -84,7 +79,8 @@ protected:
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     Cache* _last_success_channel = nullptr;
 
-    // check the total load mem consumption of this Backend
+    // check the total load channel mem consumption of this Backend
+    // TODO no used, refactor soon
     std::shared_ptr<MemTracker> _mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;

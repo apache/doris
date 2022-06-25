@@ -84,10 +84,9 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mgr_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _mem_tracker = MemTracker::create_tracker(load_mgr_mem_limit, "LoadChannelMgr",
-                                              MemTracker::get_process_tracker(),
-                                              MemTrackerLevel::OVERVIEW);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    _mem_tracker = MemTracker::create_virtual_tracker(load_mgr_mem_limit, "LoadChannelMgr",
+                                                      MemTracker::get_process_tracker(),
+                                                      MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
@@ -95,16 +94,7 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-LoadChannel* LoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t load_mem_limit,
-                                                  int64_t channel_mem_limit, int64_t timeout_s,
-                                                  bool is_high_priority,
-                                                  const std::string& sender_ip, bool is_vec) {
-    return new LoadChannel(load_id, load_mem_limit, channel_mem_limit, timeout_s, is_high_priority,
-                           sender_ip, is_vec);
-}
-
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
     {
@@ -114,18 +104,31 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             channel = it->second;
         } else {
             // create a new load channel
-            int64_t load_mem_limit = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
-            int64_t channel_mem_limit =
-                    calc_channel_max_load_memory(load_mem_limit, _mem_tracker->limit());
-
             int64_t timeout_in_req_s =
                     params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1;
             int64_t channel_timeout_s = calc_channel_timeout_s(timeout_in_req_s);
-
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
-            channel.reset(_create_load_channel(load_id, load_mem_limit, channel_mem_limit,
-                                               channel_timeout_s, is_high_priority,
-                                               params.sender_ip(), params.is_vectorized()));
+
+            int64_t load_mem_limit = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
+            int64_t channel_mem_limit =
+                    calc_channel_max_load_memory(load_mem_limit, _mem_tracker->limit());
+            auto channel_mem_tracker =
+                    MemTracker::create_tracker(channel_mem_limit,
+                                               fmt::format("LoadChannel#senderIp={}#loadID={}",
+                                                           params.sender_ip(), load_id.to_string()),
+                                               _mem_tracker);
+            // TODO
+            // auto channel_mem_tracker_job = std::make_shared<MemTracker>(
+            //         -1,
+            //         fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
+            //                     load_id.to_string()),
+            //         ExecEnv::GetInstance()
+            //                 ->task_pool_mem_tracker_registry()
+            //                 ->register_load_mem_tracker(load_id.to_string(), load_mem_limit),
+            //         MemTrackerLevel::TASK);
+            channel.reset(new LoadChannel(load_id, channel_mem_tracker, channel_timeout_s,
+                                          is_high_priority, params.sender_ip(),
+                                          params.is_vectorized()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -181,7 +184,6 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
 }
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> cancelled_channel;
     {
