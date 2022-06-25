@@ -659,7 +659,7 @@ public class BackupJob extends AbstractJob {
                 Files.walk(localJobDirPath, FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder())
                         .map(Path::toFile).forEach(File::delete);
             }
-            if (!jobDir.mkdir()) {
+            if (!jobDir.mkdirs()) {
                 status = new Status(ErrCode.COMMON_ERROR, "Failed to create tmp dir: " + localJobDirPath);
                 return;
             }
