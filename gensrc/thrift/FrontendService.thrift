@@ -287,9 +287,10 @@ struct TGetDbsParams {
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
-// getDbNames returns a list of database names
+// getDbNames returns a list of database names and catalog names
 struct TGetDbsResult {
   1: list<string> dbs
+  2: list<string> catalogs
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an 
@@ -304,6 +305,7 @@ struct TGetTablesParams {
   4: optional string user_ip    // deprecated
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional string type
+  7: optional string catalog
 }
 
 struct TTableStatus {

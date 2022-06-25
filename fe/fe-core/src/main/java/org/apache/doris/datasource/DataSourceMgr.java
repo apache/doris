@@ -47,6 +47,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * DataSourceMgr will load all data sources at FE startup,
@@ -76,6 +77,10 @@ public class DataSourceMgr implements Writable {
 
     public InternalDataSource getInternalDataSource() {
         return internalDataSource;
+    }
+
+    public DataSourceIf getCatalog(String name) {
+        return nameToCatalogs.get(name);
     }
 
     private void writeLock() {
@@ -239,6 +244,10 @@ public class DataSourceMgr implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public List<DataSourceIf> listCatalogs() {
+        return nameToCatalogs.values().stream().collect(Collectors.toList());
     }
 
     /**
