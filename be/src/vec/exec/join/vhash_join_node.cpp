@@ -1361,13 +1361,13 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
-            DCHECK(mutable_columns.size() == origin_block->columns());
+            DCHECK(mutable_columns.size() == _output_row_desc.num_materialized_slots());
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 mutable_columns[i]->insert_range_from(*origin_block->get_by_position(i).column, 0,
                                                       rows);
             }
         } else {
-            DCHECK(mutable_columns.size() == _output_expr_ctxs.size());
+            DCHECK(mutable_columns.size() == _output_row_desc.num_materialized_slots());
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
