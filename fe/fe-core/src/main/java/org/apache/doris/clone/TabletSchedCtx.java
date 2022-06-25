@@ -743,7 +743,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
 
             // clear all CLONE replicas
-            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db != null) {
                 Table table = db.getTableNullable(tblId);
                 if (table != null && table.writeLockIfExist()) {
@@ -924,7 +924,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         // 1. check the tablet status first
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId,
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrException(dbId,
                 s -> new SchedException(Status.UNRECOVERABLE, "db " + dbId + " does not exist"));
         OlapTable olapTable = (OlapTable) db.getTableOrException(tblId,
                 s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletId + " does not exist"));

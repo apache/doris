@@ -1191,7 +1191,7 @@ public class StmtRewriter {
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
             }
-            Database db = currentCatalog.getDbOrAnalysisException(dbName);
+            Database db = currentCatalog.getInternalDataSource().getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
             RowPolicy matchPolicy = currentCatalog.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);

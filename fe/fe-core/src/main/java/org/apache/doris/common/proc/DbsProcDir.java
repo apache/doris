@@ -19,7 +19,9 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
@@ -51,7 +53,6 @@ public class DbsProcDir implements ProcDirInterface {
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
-        // 不支持静态注册，全部都是动态的查看
         return false;
     }
 
@@ -68,7 +69,10 @@ public class DbsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        Database db = catalog.getDbOrAnalysisException(dbId);
+        DatabaseIf db = catalog.getInternalDataSource().getDbNullable(dbId);
+        if (db == null) {
+            throw new AnalysisException("Database " + dbId + " does not exist");
+        }
 
         return new TablesProcDir(db);
     }
@@ -79,7 +83,7 @@ public class DbsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<String> dbNames = catalog.getDbNames();
+        List<String> dbNames = catalog.getInternalDataSource().getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {
             // empty
             return result;
@@ -88,7 +92,7 @@ public class DbsProcDir implements ProcDirInterface {
         // get info
         List<List<Comparable>> dbInfos = new ArrayList<List<Comparable>>();
         for (String dbName : dbNames) {
-            Database db = catalog.getDbNullable(dbName);
+            DatabaseIf db = catalog.getInternalDataSource().getDbNullable(dbName);
             if (db == null) {
                 continue;
             }
@@ -100,15 +104,19 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(dbName);
                 dbInfo.add(tableNum);
 
-                long dataQuota = db.getDataQuota();
-                Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuota);
-                String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
-                        + quotaUnitPair.second;
+                String readableQuota = FeConstants.null_string;
+                String lastCheckTime = FeConstants.null_string;
+                long replicaQuota = 0;
+                if (db instanceof Database) {
+                    long dataQuota = ((Database) db).getDataQuota();
+                    Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuota);
+                    readableQuota =
+                            DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " " + quotaUnitPair.second;
+                    lastCheckTime = TimeUtils.longToTimeString(((Database) db).getLastCheckTime());
+                    replicaQuota = ((Database) db).getReplicaQuota();
+                }
                 dbInfo.add(readableQuota);
-
-                dbInfo.add(TimeUtils.longToTimeString(db.getLastCheckTime()));
-
-                long replicaQuota = db.getReplicaQuota();
+                dbInfo.add(lastCheckTime);
                 dbInfo.add(replicaQuota);
 
             } finally {

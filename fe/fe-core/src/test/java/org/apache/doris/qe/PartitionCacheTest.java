@@ -47,6 +47,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -112,6 +113,8 @@ public class PartitionCacheTest {
     @Mocked
     private Catalog catalog;
     @Mocked
+    private InternalDataSource ds;
+    @Mocked
     private ConnectContext ctx;
     @Mocked
     MysqlChannel channel;
@@ -168,27 +171,39 @@ public class PartitionCacheTest {
         db.createTable(view3);
         db.createTable(view4);
 
+        new Expectations(ds) {
+            {
+                ds.getDbNullable(fullDbName);
+                minTimes = 0;
+                result = db;
+
+                ds.getDbNullable(dbName);
+                minTimes = 0;
+                result = db;
+
+                ds.getDbNullable(db.getId());
+                minTimes = 0;
+                result = db;
+
+                ds.getDbNames();
+                minTimes = 0;
+                result = Lists.newArrayList(fullDbName);
+            }
+        };
+
         new Expectations(catalog) {
             {
                 catalog.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getDbNullable(fullDbName);
+                catalog.getCurrentDataSource();
                 minTimes = 0;
-                result = db;
+                result = ds;
 
-                catalog.getDbNullable(dbName);
+                catalog.getInternalDataSource();
                 minTimes = 0;
-                result = db;
-
-                catalog.getDbNullable(db.getId());
-                minTimes = 0;
-                result = db;
-
-                catalog.getDbNames();
-                minTimes = 0;
-                result = Lists.newArrayList(fullDbName);
+                result = ds;
             }
         };
         FunctionSet fs = new FunctionSet();

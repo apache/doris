@@ -345,7 +345,7 @@ public class BackupJob extends AbstractJob {
     }
 
     private void prepareAndSendSnapshotTask() {
-        Database db = catalog.getDbNullable(dbId);
+        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;

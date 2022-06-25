@@ -19,13 +19,14 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.AnalysisException;
@@ -78,7 +79,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
     public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
         try {
             long dbId = Long.parseLong(dbIdStr);
-            return catalog.getDb(dbId).map(IncompleteTabletsProcNode::new).orElse(null);
+            return catalog.getInternalDataSource().getDb(dbId).map(IncompleteTabletsProcNode::new).orElse(null);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
@@ -86,13 +87,12 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBTabletStatistic> statistics = catalog.getDbIds().parallelStream()
+        List<DBTabletStatistic> statistics = catalog.getInternalDataSource().getDbIds().parallelStream()
                 // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDbNullable(id)))
+                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getInternalDataSource().getDbNullable(id)))
                 .filter(Objects::nonNull).map(DBTabletStatistic::new)
                 // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName()))
-                .collect(Collectors.toList());
+                .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
 
         List<List<String>> rows = new ArrayList<>(statistics.size() + 1);
         for (DBTabletStatistic statistic : statistics) {
@@ -104,7 +104,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
     static class DBTabletStatistic {
         boolean summary;
-        Database db;
+        DatabaseIf<TableIf> db;
         int dbNum;
         int tabletNum;
         int healthyNum;
@@ -144,7 +144,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
             this.summary = true;
         }
 
-        DBTabletStatistic(Database db) {
+        DBTabletStatistic(DatabaseIf db) {
             Preconditions.checkNotNull(db);
             this.summary = false;
             this.db = db;
@@ -167,11 +167,11 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
             SystemInfoService infoService = Catalog.getCurrentSystemInfo();
             ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(SystemInfoService.DEFAULT_CLUSTER, true);
             this.cloningTabletIds = AgentTaskQueue.getTask(db.getId(), TTaskType.CLONE)
                     .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
             this.cloningNum = cloningTabletIds.size();
-            db.getTables().stream().filter(t -> t != null && t.getType() == Table.TableType.OLAP).forEach(t -> {
+            this.db.getTables().stream().filter(t -> t != null && t.getType() == Table.TableType.OLAP).forEach(t -> {
                 OlapTable olapTable = (OlapTable) t;
                 ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId())
                         ? colocateTableIndex.getGroup(olapTable.getId()) : null;
@@ -180,8 +180,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
                                 .getReplicaAllocation(partition.getId());
-                        for (MaterializedIndex materializedIndex : partition
-                                .getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
+                                MaterializedIndex.IndexExtState.VISIBLE)) {
                             List<Tablet> tablets = materializedIndex.getTablets();
                             for (int i = 0; i < tablets.size(); ++i) {
                                 Tablet tablet = tablets.get(i);
@@ -189,12 +189,13 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                 Tablet.TabletStatus res = null;
                                 if (groupId != null) {
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
-                                    res = tablet.getColocateHealthStatus(
-                                            partition.getVisibleVersion(), replicaAlloc, backendsSet);
+                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc,
+                                            backendsSet);
                                 } else {
-                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair
-                                            = tablet.getHealthStatusWithPriority(infoService, db.getClusterName(),
-                                            partition.getVisibleVersion(), replicaAlloc, aliveBeIdsInCluster);
+                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair =
+                                            tablet.getHealthStatusWithPriority(infoService,
+                                                    SystemInfoService.DEFAULT_CLUSTER, partition.getVisibleVersion(),
+                                                    replicaAlloc, aliveBeIdsInCluster);
                                     res = pair.first;
                                 }
                                 switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default

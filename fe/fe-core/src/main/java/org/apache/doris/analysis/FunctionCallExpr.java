@@ -25,6 +25,7 @@ import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
@@ -931,15 +932,16 @@ public class FunctionCallExpr extends Expr {
                     String dbName = fnName.analyzeDb(analyzer);
                     if (!Strings.isNullOrEmpty(dbName)) {
                         // check operation privilege
-                        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(
-                                ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+                        if (!Catalog.getCurrentCatalog().getAuth()
+                                .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
-                        Database db = Catalog.getCurrentCatalog().getDbNullable(dbName);
-                        if (db != null) {
-                            Function searchDesc = new Function(
-                                    fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-                            fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                        DatabaseIf db = Catalog.getCurrentCatalog().getCurrentDataSource().getDbNullable(dbName);
+                        if (db != null && (db instanceof Database)) {
+                            Function searchDesc =
+                                    new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+                            fn = ((Database) db).getFunction(searchDesc,
+                                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                         }
                     }
                 }

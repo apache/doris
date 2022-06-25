@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.UnitTestUtil;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.persist.EditLog;
@@ -62,6 +63,8 @@ public class LoadCheckerTest {
     @Mocked
     private Catalog catalog;
     @Mocked
+    private InternalDataSource ds;
+    @Mocked
     private EditLog editLog;
     @Mocked
     private Load load;
@@ -82,11 +85,15 @@ public class LoadCheckerTest {
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
         new Expectations() {
             {
-                catalog.getDbNullable(dbId);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDbNullable(db.getFullName());
+                ds.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 

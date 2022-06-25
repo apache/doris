@@ -70,7 +70,7 @@ public class DropPolicyLog implements Writable {
                 if (curDb == null) {
                     curDb = ConnectContext.get().getDatabase();
                 }
-                Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(curDb);
+                Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(curDb);
                 Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
                 return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(),
                                          stmt.getPolicyName(), stmt.getUser());

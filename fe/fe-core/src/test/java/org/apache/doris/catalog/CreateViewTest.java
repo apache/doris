@@ -87,7 +87,7 @@ public class CreateViewTest {
                 () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3"
                         + " and curdate() > '2021-06-26';"));
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
 
         View view1 = (View) db.getTableOrDdlException("view1");
         Assert.assertEquals(4, view1.getFullSchema().size());
@@ -136,7 +136,7 @@ public class CreateViewTest {
         String originStmt = "select k1 as kc1, sum(k2) as kc2 from test.tbl1 group by kc1";
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.alter1 as " + originStmt));
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals("SELECT `k1` AS `kc1`, sum(`k2`) AS `kc2` FROM `default_cluster:test`.`tbl1` GROUP BY `kc1`", alter1.getInlineViewDef());
 

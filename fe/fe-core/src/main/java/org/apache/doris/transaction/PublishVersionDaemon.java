@@ -190,7 +190,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                             continue;
                         }
 
-                        Database db = Catalog.getCurrentCatalog().getDbNullable(transactionState.getDbId());
+                        Database db = Catalog.getCurrentInternalCatalog()
+                                .getDbNullable(transactionState.getDbId());
                         if (db == null) {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
                             continue;

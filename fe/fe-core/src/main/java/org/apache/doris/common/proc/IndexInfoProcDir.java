@@ -18,10 +18,10 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 
@@ -38,15 +38,14 @@ import java.util.Set;
  * show indexNames(to schema)
  */
 public class IndexInfoProcDir implements ProcDirInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
-            .add("ShortKeyColumnCount").add("StorageType").add("Keys")
-            .build();
+    public static final ImmutableList<String> TITLE_NAMES =
+            new ImmutableList.Builder<String>().add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
+                    .add("ShortKeyColumnCount").add("StorageType").add("Keys").build();
 
-    private Database db;
-    private Table table;
+    private DatabaseIf db;
+    private TableIf table;
 
-    public IndexInfoProcDir(Database db, Table table) {
+    public IndexInfoProcDir(DatabaseIf db, TableIf table) {
         this.db = db;
         this.table = table;
     }
@@ -137,5 +136,4 @@ public class IndexInfoProcDir implements ProcDirInterface {
             table.readUnlock();
         }
     }
-
 }

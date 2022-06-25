@@ -88,20 +88,62 @@ public interface TableIf {
 
     long getAvgRowLength();
 
+    long getLastCheckTime();
+
+    String getComment(boolean escapeQuota);
+
     /**
      * Doris table type.
      */
     public enum TableType {
-        MYSQL,
-        ODBC,
-        OLAP,
-        SCHEMA,
-        INLINE_VIEW,
-        VIEW,
-        BROKER,
-        ELASTICSEARCH,
-        HIVE,
-        ICEBERG,
-        HUDI
+        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI;
+
+        public String toEngineName() {
+            switch (this) {
+                case MYSQL:
+                    return "MySQL";
+                case ODBC:
+                    return "Odbc";
+                case OLAP:
+                    return "Doris";
+                case SCHEMA:
+                    return "MEMORY";
+                case INLINE_VIEW:
+                    return "InlineView";
+                case VIEW:
+                    return "View";
+                case BROKER:
+                    return "Broker";
+                case ELASTICSEARCH:
+                    return "ElasticSearch";
+                case HIVE:
+                    return "Hive";
+                case HUDI:
+                    return "Hudi";
+                default:
+                    return null;
+            }
+        }
+
+        public String toMysqlType() {
+            switch (this) {
+                case OLAP:
+                    return "BASE TABLE";
+                case SCHEMA:
+                    return "SYSTEM VIEW";
+                case INLINE_VIEW:
+                case VIEW:
+                    return "VIEW";
+                case MYSQL:
+                case ODBC:
+                case BROKER:
+                case ELASTICSEARCH:
+                case HIVE:
+                case HUDI:
+                    return "EXTERNAL TABLE";
+                default:
+                    return null;
+            }
+        }
     }
 }

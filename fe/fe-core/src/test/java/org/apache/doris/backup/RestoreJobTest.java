@@ -36,6 +36,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -71,6 +72,8 @@ public class RestoreJobTest {
 
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
 
     private MockBackupHandler backupHandler;
 
@@ -121,7 +124,11 @@ public class RestoreJobTest {
 
         new Expectations() {
             {
-                catalog.getDbNullable(anyLong);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 

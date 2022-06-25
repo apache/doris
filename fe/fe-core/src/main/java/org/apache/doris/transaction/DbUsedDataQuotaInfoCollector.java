@@ -42,10 +42,10 @@ public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
 
     private void updateAllDatabaseUsedDataQuota() {
         Catalog catalog = Catalog.getCurrentCatalog();
-        List<Long> dbIdList = catalog.getDbIds();
+        List<Long> dbIdList = catalog.getInternalDataSource().getDbIds();
         GlobalTransactionMgr globalTransactionMgr = catalog.getGlobalTransactionMgr();
         for (Long dbId : dbIdList) {
-            Database db = catalog.getDbNullable(dbId);
+            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;

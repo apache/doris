@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 
 import org.apache.logging.log4j.LogManager;
@@ -30,9 +30,9 @@ import org.apache.logging.log4j.Logger;
 public class BaseTableRef extends TableRef {
     private static final Logger LOG = LogManager.getLogger(BaseTableRef.class);
 
-    private Table table;
+    private TableIf table;
 
-    public BaseTableRef(TableRef ref, Table table, TableName tableName) {
+    public BaseTableRef(TableRef ref, TableIf table, TableName tableName) {
         super(ref);
         this.table = table;
         this.name = tableName;
@@ -40,7 +40,7 @@ public class BaseTableRef extends TableRef {
         if (hasExplicitAlias()) {
             return;
         }
-        aliases = new String[] { name.toString(), tableName.getNoClusterString(), tableName.getTbl() };
+        aliases = new String[] {name.toString(), tableName.getNoClusterString(), tableName.getTbl()};
     }
 
     protected BaseTableRef(BaseTableRef other) {

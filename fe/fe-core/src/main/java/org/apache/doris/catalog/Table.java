@@ -239,6 +239,7 @@ public class Table extends MetaObject implements Writable, TableIf {
         return id;
     }
 
+    @Override
     public String getName() {
         return name;
     }
@@ -402,58 +403,22 @@ public class Table extends MetaObject implements Writable, TableIf {
         return null;
     }
 
+    @Override
     public String getEngine() {
-        switch (type) {
-            case MYSQL:
-                return "MySQL";
-            case ODBC:
-                return "Odbc";
-            case OLAP:
-                return "Doris";
-            case SCHEMA:
-                return "MEMORY";
-            case INLINE_VIEW:
-                return "InlineView";
-            case VIEW:
-                return "View";
-            case BROKER:
-                return "Broker";
-            case ELASTICSEARCH:
-                return "ElasticSearch";
-            case HIVE:
-                return "Hive";
-            case HUDI:
-                return "Hudi";
-            default:
-                return null;
-        }
+        return type.toEngineName();
     }
 
+    @Override
     public String getMysqlType() {
-        switch (type) {
-            case OLAP:
-                return "BASE TABLE";
-            case SCHEMA:
-                return "SYSTEM VIEW";
-            case INLINE_VIEW:
-            case VIEW:
-                return "VIEW";
-            case MYSQL:
-            case ODBC:
-            case BROKER:
-            case ELASTICSEARCH:
-            case HIVE:
-            case HUDI:
-                return "EXTERNAL TABLE";
-            default:
-                return null;
-        }
+        return type.toMysqlType();
     }
 
+    @Override
     public String getComment() {
         return getComment(false);
     }
 
+    @Override
     public String getComment(boolean escapeQuota) {
         if (!Strings.isNullOrEmpty(comment)) {
             if (!escapeQuota) {

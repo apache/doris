@@ -116,7 +116,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     // remove already created tables or failed tables
     private void removeDuplicateTables() {
         for (Map.Entry<Long, Map<Long, IcebergTableCreationRecord>> entry : dbToTableToCreationRecord.entrySet()) {
-            Catalog.getCurrentCatalog().getDb(entry.getKey()).ifPresent(db -> {
+            Catalog.getCurrentInternalCatalog().getDb(entry.getKey()).ifPresent(db -> {
                 if (dbToTableIdentifiers.containsKey(db)) {
                     for (Map.Entry<Long, IcebergTableCreationRecord> innerEntry : entry.getValue().entrySet()) {
                         String tableName = innerEntry.getValue().getTable();

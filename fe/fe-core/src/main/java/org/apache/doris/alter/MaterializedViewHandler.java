@@ -837,7 +837,7 @@ public class MaterializedViewHandler extends AlterHandler {
         long rollupIndexId = dropInfo.getIndexId();
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        Database db = catalog.getDbOrMetaException(dbId);
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -884,7 +884,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     private void changeTableStatus(long dbId, long tableId, OlapTableState olapTableState) {
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
             OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
             olapTable.writeLockOrMetaException();
             try {
@@ -1038,7 +1038,7 @@ public class MaterializedViewHandler extends AlterHandler {
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         List<AlterJobV2> rollupJobV2List = new ArrayList<>();
         OlapTable olapTable;

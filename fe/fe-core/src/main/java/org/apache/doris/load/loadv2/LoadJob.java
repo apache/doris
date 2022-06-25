@@ -267,7 +267,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public Database getDb() throws MetaNotFoundException {
-        return Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        return Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
     }
 
     public long getDbId() {
@@ -595,7 +595,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws DdlException
      */
     private void checkAuthWithoutAuthInfo(String command) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbId);
 
         // check auth
         try {

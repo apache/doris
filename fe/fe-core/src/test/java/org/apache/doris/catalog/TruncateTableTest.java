@@ -84,7 +84,7 @@ public class TruncateTableTest {
 
     @Test
     public void testTruncateWithCaseInsensitivePartitionName() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = db.getOlapTableOrDdlException("case_sensitive_table");
         long p20211006Id = tbl.getPartition("P20211006").getId();
         long p20211007Id = tbl.getPartition("P20211007").getId();

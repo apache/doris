@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -139,7 +139,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(String dbName) {
+    public ExternalDatabase getDbNullable(String dbName) {
         try {
             client.getDatabase(dbName);
         } catch (TException e) {
@@ -155,7 +155,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(long dbId) {
+    public ExternalDatabase getDbNullable(long dbId) {
         for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
             if (entry.getValue() == dbId) {
                 return new HMSExternalDatabase(this, dbId, entry.getKey(), hiveMetastoreUris);
@@ -165,18 +165,18 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(String dbName) {
+    public Optional<ExternalDatabase> getDb(String dbName) {
         return Optional.ofNullable(getDbNullable(dbName));
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(long dbId) {
+    public Optional<ExternalDatabase> getDb(long dbId) {
         return Optional.ofNullable(getDbNullable(dbId));
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbName);
+    public <E extends Exception> ExternalDatabase getDbOrException(String dbName, Function<String, E> e) throws E {
+        ExternalDatabase db = getDbNullable(dbName);
         if (db == null) {
             throw e.apply(dbName);
         }
@@ -184,8 +184,8 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbId);
+    public <E extends Exception> ExternalDatabase getDbOrException(long dbId, Function<Long, E> e) throws E {
+        ExternalDatabase db = getDbNullable(dbId);
         if (db == null) {
             throw e.apply(dbId);
         }
@@ -193,38 +193,43 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
+    public ExternalDatabase getDbOrMetaException(String dbName) throws MetaNotFoundException {
         return getDbOrException(dbName,
                 s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
+    public ExternalDatabase getDbOrMetaException(long dbId) throws MetaNotFoundException {
         return getDbOrException(dbId,
                 s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
+    public ExternalDatabase getDbOrDdlException(String dbName) throws DdlException {
         return getDbOrException(dbName,
                 s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
+    public ExternalDatabase getDbOrDdlException(long dbId) throws DdlException {
         return getDbOrException(dbId,
                 s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
+    public ExternalDatabase getDbOrAnalysisException(String dbName) throws AnalysisException {
         return getDbOrException(dbName,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
+    public ExternalDatabase getDbOrAnalysisException(long dbId) throws AnalysisException {
         return getDbOrException(dbId,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    @Override
+    public List<Long> getDbIds() {
+        return Lists.newArrayList(dbNameToId.values());
     }
 }

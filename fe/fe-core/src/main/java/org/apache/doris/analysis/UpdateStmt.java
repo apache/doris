@@ -103,7 +103,7 @@ public class UpdateStmt extends DdlStmt {
         String targetTableName = tableName.getTbl();
         Preconditions.checkNotNull(dbName);
         Preconditions.checkNotNull(targetTableName);
-        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         targetTable = database.getTableOrAnalysisException(tableName.getTbl());
         if (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {

@@ -131,7 +131,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
     private void divide(StatisticsJob statisticsJob) throws DdlException {
         long jobId = statisticsJob.getId();
         long dbId = statisticsJob.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         Set<Long> tblIds = statisticsJob.getTblIds();
         Map<Long, List<String>> tableIdToColumnName = statisticsJob.getTableIdToColumnName();
         List<StatisticsTask> tasks = statisticsJob.getTasks();

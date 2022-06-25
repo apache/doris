@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -38,6 +39,8 @@ public class DbsProcDirTest {
     private Database db2;
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
 
     // construct test case
     //  catalog
@@ -65,29 +68,33 @@ public class DbsProcDirTest {
 
     @Test(expected = AnalysisException.class)
     public void testLookupNormal() throws AnalysisException {
-        new Expectations(catalog) {
+        new Expectations(catalog, ds) {
             {
-                catalog.getDbNullable("db1");
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDbNullable("db2");
+                ds.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDbNullable("db3");
+                ds.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                catalog.getDbNullable(db1.getId());
+                ds.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDbNullable(db2.getId());
+                ds.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDbNullable(anyLong);
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -104,7 +111,6 @@ public class DbsProcDirTest {
         } catch (AnalysisException e) {
             Assert.fail();
         }
-
 
         dir = new DbsProcDir(catalog);
         try {
@@ -142,33 +148,37 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultNormal() throws AnalysisException {
-        new Expectations(catalog) {
+        new Expectations(catalog, ds) {
             {
-                catalog.getDbNames();
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNames();
                 minTimes = 0;
                 result = Lists.newArrayList("db1", "db2");
 
-                catalog.getDbNullable("db1");
+                ds.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDbNullable("db2");
+                ds.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDbNullable("db3");
+                ds.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                catalog.getDbNullable(db1.getId());
+                ds.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDbNullable(db2.getId());
+                ds.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDbNullable(anyLong);
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -192,9 +202,13 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultInvalid() throws AnalysisException {
-        new Expectations(catalog) {
+        new Expectations(catalog, ds) {
             {
-                catalog.getDbNames();
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNames();
                 minTimes = 0;
                 result = null;
             }

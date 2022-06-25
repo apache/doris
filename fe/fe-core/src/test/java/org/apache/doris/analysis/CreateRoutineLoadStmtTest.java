@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.qe.ConnectContext;
@@ -52,6 +53,8 @@ public class CreateRoutineLoadStmtTest {
 
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
 
     @Mocked
     private ConnectContext ctx;
@@ -69,7 +72,11 @@ public class CreateRoutineLoadStmtTest {
         };
         new Expectations() {
             {
-                catalog.getDbNullable(anyString);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
 

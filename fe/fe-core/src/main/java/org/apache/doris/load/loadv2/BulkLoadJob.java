@@ -27,6 +27,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -110,19 +111,19 @@ public abstract class BulkLoadJob extends LoadJob {
     public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
         BulkLoadJob bulkLoadJob;
         try {
             switch (stmt.getEtlJobType()) {
                 case BROKER:
-                    bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                            stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
+                    bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getBrokerDesc(),
+                            stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case SPARK:
-                    bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                            stmt.getResourceDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
+                    bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getResourceDesc(),
+                            stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case MINI:
                 case DELETE:
@@ -133,7 +134,7 @@ public abstract class BulkLoadJob extends LoadJob {
                     throw new DdlException("Unknown load job type.");
             }
             bulkLoadJob.setJobProperties(stmt.getProperties());
-            bulkLoadJob.checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
+            bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
@@ -162,23 +163,23 @@ public abstract class BulkLoadJob extends LoadJob {
     }
 
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override
     public Set<String> getTableNamesForShow() {
-        Optional<Database> db = Catalog.getCurrentCatalog().getDb(dbId);
+        Optional<Database> db = Catalog.getCurrentInternalCatalog().getDb(dbId);
         return fileGroupAggInfo.getAllTableIds().stream()
-                .map(tableId -> db.flatMap(d -> d.getTable(tableId))
-                        .map(Table::getName).orElse(String.valueOf(tableId)))
+                .map(tableId -> db.flatMap(d -> d.getTable(tableId)).map(TableIf::getName)
+                        .orElse(String.valueOf(tableId)))
                 .collect(Collectors.toSet());
     }
 
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
-        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         // The database will not be locked in here.
         // The getTable is a thread-safe method called without read lock of database
         for (long tableId : fileGroupAggInfo.getAllTableIds()) {
@@ -259,7 +260,7 @@ public abstract class BulkLoadJob extends LoadJob {
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt;
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             stmt = (LoadStmt) SqlParserUtils.getStmt(parser, originStmt.idx);
             for (DataDescription dataDescription : stmt.getDataDescriptions()) {
                 dataDescription.analyzeWithoutCheckPriv(db.getFullName());

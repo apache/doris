@@ -18,11 +18,12 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -51,13 +52,13 @@ public class StatisticProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBStatistic> statistics = catalog.getDbIds().parallelStream()
+        List<DBStatistic> statistics = catalog.getDataSourceMgr().getDbIds().parallelStream()
                 // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDbNullable(id)))
-                .filter(Objects::nonNull).map(DBStatistic::new)
+                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDataSourceMgr().getDbNullable(id)))
+                .filter(Objects::nonNull)
+                .map(DBStatistic::new)
                 // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName()))
-                .collect(Collectors.toList());
+                .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
 
         List<List<String>> rows = new ArrayList<>(statistics.size() + 1);
         for (DBStatistic statistic : statistics) {
@@ -70,7 +71,7 @@ public class StatisticProcNode implements ProcNodeInterface {
 
     static class DBStatistic {
         boolean summary;
-        Database db;
+        DatabaseIf<TableIf> db;
         int dbNum;
         int tableNum;
         int partitionNum;
@@ -82,32 +83,34 @@ public class StatisticProcNode implements ProcNodeInterface {
             this.summary = true;
         }
 
-        DBStatistic(Database db) {
+        DBStatistic(DatabaseIf db) {
             Preconditions.checkNotNull(db);
             this.summary = false;
             this.db = db;
             this.dbNum = 1;
 
-            db.getTables().stream().filter(t -> t != null && t.getType() == TableType.OLAP).forEach(t -> {
+            this.db.getTables().stream().filter(t -> t != null).forEach(t -> {
                 ++tableNum;
-                OlapTable olapTable = (OlapTable) t;
-                olapTable.readLock();
-                try {
-                    for (Partition partition : olapTable.getAllPartitions()) {
-                        ++partitionNum;
-                        for (MaterializedIndex materializedIndex
-                                : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                            ++indexNum;
-                            List<Tablet> tablets = materializedIndex.getTablets();
-                            for (int i = 0; i < tablets.size(); ++i) {
-                                Tablet tablet = tablets.get(i);
-                                ++tabletNum;
-                                replicaNum += tablet.getReplicas().size();
-                            } // end for tablets
-                        } // end for indices
-                    } // end for partitions
-                } finally {
-                    olapTable.readUnlock();
+                if (t.getType() == TableType.OLAP) {
+                    OlapTable olapTable = (OlapTable) t;
+                    olapTable.readLock();
+                    try {
+                        for (Partition partition : olapTable.getAllPartitions()) {
+                            ++partitionNum;
+                            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
+                                    IndexExtState.VISIBLE)) {
+                                ++indexNum;
+                                List<Tablet> tablets = materializedIndex.getTablets();
+                                for (int i = 0; i < tablets.size(); ++i) {
+                                    Tablet tablet = tablets.get(i);
+                                    ++tabletNum;
+                                    replicaNum += tablet.getReplicas().size();
+                                } // end for tablets
+                            } // end for indices
+                        } // end for partitions
+                    } finally {
+                        olapTable.readUnlock();
+                    }
                 }
             });
         }

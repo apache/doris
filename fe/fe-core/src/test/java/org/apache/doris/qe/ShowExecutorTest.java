@@ -50,6 +50,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.system.SystemInfoService;
@@ -73,6 +74,7 @@ import java.util.List;
 public class ShowExecutorTest {
     private ConnectContext ctx;
     private Catalog catalog;
+    private InternalDataSource ds;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -165,25 +167,39 @@ public class ShowExecutorTest {
         // mock auth
         PaloAuth auth = AccessTestUtil.fetchAdminAccess();
 
+        // mock ds
+        ds = Deencapsulation.newInstance(InternalDataSource.class);
+        new Expectations(ds) {
+            {
+                ds.getDbNullable("testCluster:testDb");
+                minTimes = 0;
+                result = db;
+
+                ds.getDbNullable("testCluster:emptyDb");
+                minTimes = 0;
+                result = null;
+
+                ds.getClusterDbNames("testCluster");
+                minTimes = 0;
+                result = Lists.newArrayList("testCluster:testDb");
+
+                ds.getClusterDbNames("");
+                minTimes = 0;
+                result = Lists.newArrayList("");
+            }
+        };
+
         // mock catalog.
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
             {
-                catalog.getDbNullable("testCluster:testDb");
+                catalog.getInternalDataSource();
                 minTimes = 0;
-                result = db;
+                result = ds;
 
-                catalog.getDbNullable("testCluster:emptyDb");
+                catalog.getCurrentDataSource();
                 minTimes = 0;
-                result = null;
-
-                catalog.getClusterDbNames("testCluster");
-                minTimes = 0;
-                result = Lists.newArrayList("testCluster:testDb");
-
-                catalog.getClusterDbNames("");
-                minTimes = 0;
-                result = Lists.newArrayList("");
+                result = ds;
 
                 catalog.getAuth();
                 minTimes = 0;

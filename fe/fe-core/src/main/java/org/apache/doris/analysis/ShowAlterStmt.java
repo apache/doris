@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -189,9 +189,8 @@ public class ShowAlterStmt extends ShowStmt {
         }
     }
 
-
     public void handleShowAlterTable(Analyzer analyzer) throws UserException {
-        Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
 
         // build proc path
         StringBuilder sb = new StringBuilder();

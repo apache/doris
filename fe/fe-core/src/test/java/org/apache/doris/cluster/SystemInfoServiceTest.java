@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -54,6 +55,8 @@ public class SystemInfoServiceTest {
     private EditLog editLog;
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
     private SystemInfoService systemInfoService;
     private TabletInvertedIndex invertedIndex;
     @Mocked
@@ -94,7 +97,11 @@ public class SystemInfoServiceTest {
                 minTimes = 0;
                 result = editLog;
 
-                catalog.getDbNullable(anyLong);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 

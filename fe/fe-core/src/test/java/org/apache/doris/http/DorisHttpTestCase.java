@@ -42,6 +42,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.load.Load;
@@ -214,35 +215,45 @@ public abstract class DorisHttpTestCase {
             db.createTable(table1);
             EsTable esTable = newEsTable("es_table");
             db.createTable(esTable);
+
+            InternalDataSource internalDataSource = Deencapsulation.newInstance(InternalDataSource.class);
+            new Expectations(internalDataSource) {
+                {
+                    internalDataSource.getDbNullable(db.getId());
+                    minTimes = 0;
+                    result = db;
+
+                    internalDataSource.getDbNullable("default_cluster:" + DB_NAME);
+                    minTimes = 0;
+                    result = db;
+
+                    internalDataSource.getDbNullable("default_cluster:emptyDb");
+                    minTimes = 0;
+                    result = null;
+
+                    internalDataSource.getDbNullable(anyString);
+                    minTimes = 0;
+                    result = new Database();
+
+                    internalDataSource.getDbNames();
+                    minTimes = 0;
+                    result = Lists.newArrayList("default_cluster:testDb");
+
+                    internalDataSource.getClusterDbNames("default_cluster");
+                    minTimes = 0;
+                    result = Lists.newArrayList("default_cluster:testDb");
+                }
+            };
+
             new Expectations(catalog) {
                 {
                     catalog.getAuth();
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDbNullable(db.getId());
-                    minTimes = 0;
-                    result = db;
-
-                    catalog.getDbNullable("default_cluster:" + DB_NAME);
-                    minTimes = 0;
-                    result = db;
-
                     catalog.isMaster();
                     minTimes = 0;
                     result = true;
-
-                    catalog.getDbNullable("default_cluster:emptyDb");
-                    minTimes = 0;
-                    result = null;
-
-                    catalog.getDbNullable(anyString);
-                    minTimes = 0;
-                    result = new Database();
-
-                    catalog.getDbNames();
-                    minTimes = 0;
-                    result = Lists.newArrayList("default_cluster:testDb");
 
                     catalog.getLoadInstance();
                     minTimes = 0;
@@ -252,9 +263,13 @@ public abstract class DorisHttpTestCase {
                     minTimes = 0;
                     result = editLog;
 
-                    catalog.getClusterDbNames("default_cluster");
+                    catalog.getInternalDataSource();
                     minTimes = 0;
-                    result = Lists.newArrayList("default_cluster:testDb");
+                    result = internalDataSource;
+
+                    catalog.getCurrentDataSource();
+                    minTimes = 0;
+                    result = internalDataSource;
 
                     catalog.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
@@ -266,8 +281,6 @@ public abstract class DorisHttpTestCase {
                     minTimes = 0;
                 }
             };
-
-
             return catalog;
         } catch (DdlException e) {
             return null;

@@ -17,7 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Joiner;
@@ -36,9 +37,9 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
             .build();
     private static final Joiner JOINER = Joiner.on(",");
 
-    final Database db;
+    final DatabaseIf<TableIf> db;
 
-    public IncompleteTabletsProcNode(Database db) {
+    public IncompleteTabletsProcNode(DatabaseIf db) {
         this.db = db;
     }
 

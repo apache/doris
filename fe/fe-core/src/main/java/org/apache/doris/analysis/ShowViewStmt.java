@@ -97,7 +97,7 @@ public class ShowViewStmt extends ShowStmt {
                     dbName + ": " + getTbl());
         }
 
-        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         database.getOlapTableOrAnalysisException(tbl.getTbl());
         for (Table table : database.getViews()) {
             View view = (View) table;

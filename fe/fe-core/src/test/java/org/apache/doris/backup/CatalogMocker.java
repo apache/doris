@@ -50,6 +50,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -395,33 +396,42 @@ public class CatalogMocker {
             FakeEditLog fakeEditLog = new FakeEditLog(); // CHECKSTYLE IGNORE THIS LINE
 
             Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
 
             Database db = new Database();
             PaloAuth paloAuth = fetchAdminAccess();
 
-            new Expectations(catalog) {
+            new Expectations(catalog, ds) {
                 {
                     catalog.getAuth();
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDbNullable(TEST_DB_NAME);
+                    catalog.getInternalDataSource();
+                    minTimes = 0;
+                    result = ds;
+
+                    catalog.getCurrentDataSource();
+                    minTimes = 0;
+                    result = ds;
+
+                    ds.getDbNullable(TEST_DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDbNullable(WRONG_DB);
+                    ds.getDbNullable(WRONG_DB);
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDbNullable(TEST_DB_ID);
+                    ds.getDbNullable(TEST_DB_ID);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDbNullable(anyString);
+                    ds.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
-                    catalog.getDbNames();
+                    ds.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList(TEST_DB_NAME);
 

@@ -112,7 +112,7 @@ public class CheckConsistencyJob {
             return false;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
@@ -253,7 +253,7 @@ public class CheckConsistencyJob {
             return -1;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;

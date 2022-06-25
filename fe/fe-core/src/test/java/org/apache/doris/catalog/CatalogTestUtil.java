@@ -120,8 +120,8 @@ public class CatalogTestUtil {
 
     public static boolean compareCatalog(Catalog masterCatalog, Catalog slaveCatalog) {
         try {
-            Database masterDb = masterCatalog.getDbOrMetaException(testDb1);
-            Database slaveDb = slaveCatalog.getDbOrMetaException(testDb1);
+            Database masterDb = masterCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
+            Database slaveDb = slaveCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
             List<Table> tables = masterDb.getTables();
             for (Table table : tables) {
                 Table slaveTable = slaveDb.getTableOrMetaException(table.getId());

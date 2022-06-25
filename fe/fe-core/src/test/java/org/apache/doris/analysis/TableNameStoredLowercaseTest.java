@@ -81,8 +81,8 @@ public class TableNameStoredLowercaseTest {
 
     @Test
     public void testTableNameLowerCase() {
-        Set<String> tableNames = Catalog.getCurrentCatalog()
-                .getDbNullable("default_cluster:db1").getTableNamesWithLock();
+        Set<String> tableNames = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1")
+                .getTableNamesWithLock();
         Assert.assertEquals(2, tableNames.size());
         Assert.assertTrue(tableNames.contains("table1"));
         Assert.assertTrue(tableNames.contains("table2"));

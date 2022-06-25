@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -42,7 +42,7 @@ import java.util.function.Function;
  * The abstract class for all types of external data sources.
  */
 @Data
-public abstract class ExternalDataSource implements DataSourceIf, Writable {
+public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabase>, Writable {
     // Unique id of this data source, will be assigned after data source is loaded.
     @SerializedName(value = "id")
     protected long id;
@@ -96,63 +96,63 @@ public abstract class ExternalDataSource implements DataSourceIf, Writable {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(String dbName) {
+    public ExternalDatabase getDbNullable(String dbName) {
         throw new NotImplementedException();
     }
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(long dbId) {
+    public ExternalDatabase getDbNullable(long dbId) {
         throw new NotImplementedException();
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(String dbName) {
+    public Optional<ExternalDatabase> getDb(String dbName) {
         throw new NotImplementedException();
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(long dbId) {
+    public Optional<ExternalDatabase> getDb(long dbId) {
         throw new NotImplementedException();
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
+    public <E extends Exception> ExternalDatabase getDbOrException(String dbName, Function<String, E> e) throws E {
         throw new NotImplementedException();
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
+    public <E extends Exception> ExternalDatabase getDbOrException(long dbId, Function<Long, E> e) throws E {
         throw new NotImplementedException();
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
+    public ExternalDatabase getDbOrMetaException(String dbName) throws MetaNotFoundException {
         throw new NotImplementedException();
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
+    public ExternalDatabase getDbOrMetaException(long dbId) throws MetaNotFoundException {
         throw new NotImplementedException();
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
+    public ExternalDatabase getDbOrDdlException(String dbName) throws DdlException {
         throw new NotImplementedException();
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
+    public ExternalDatabase getDbOrDdlException(long dbId) throws DdlException {
         throw new NotImplementedException();
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
+    public ExternalDatabase getDbOrAnalysisException(String dbName) throws AnalysisException {
         throw new NotImplementedException();
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
+    public ExternalDatabase getDbOrAnalysisException(long dbId) throws AnalysisException {
         throw new NotImplementedException();
     }
 

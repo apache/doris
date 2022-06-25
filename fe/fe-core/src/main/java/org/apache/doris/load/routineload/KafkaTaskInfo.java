@@ -79,7 +79,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setId(queryId);
         tRoutineLoadTask.setJobId(jobId);
         tRoutineLoadTask.setTxnId(txnId);
-        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        Database database =
+                Catalog.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
         Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
         tRoutineLoadTask.setDb(database.getFullName());
         tRoutineLoadTask.setTbl(tbl.getName());

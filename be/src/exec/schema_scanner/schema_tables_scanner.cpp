@@ -90,12 +90,16 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     const TTableStatus& tbl_status = _table_result.tables[_table_index];
     // catalog
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string catalog_name = _db_result.catalogs[_db_index - 1];
-        str_slot->ptr = (char*)pool->allocate(catalog_name.size());
-        str_slot->len = catalog_name.size();
-        memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+        if (!_db_result.__isset.catalogs) {
+            tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
+        } else {
+            void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
+            StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+            std::string catalog_name = _db_result.catalogs[_db_index - 1];
+            str_slot->ptr = (char*)pool->allocate(catalog_name.size());
+            str_slot->len = catalog_name.size();
+            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+        }
     }
     // schema
     {
@@ -253,7 +257,9 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
 Status SchemaTablesScanner::get_new_table() {
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
-    table_params.__set_catalog(_db_result.catalogs[_db_index]);
+    if (_db_result.__isset.catalogs) {
+        table_params.__set_catalog(_db_result.catalogs[_db_index]);
+    }
     _db_index++;
     if (nullptr != _param->wild) {
         table_params.__set_pattern(*(_param->wild));

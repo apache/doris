@@ -37,6 +37,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
@@ -127,13 +128,22 @@ public class DeleteHandlerTest {
             }
         };
 
+        InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
         new Expectations() {
             {
-                catalog.getDbNullable(anyString);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                catalog.getCurrentDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDbNullable(anyLong);
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
