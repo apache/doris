@@ -1222,9 +1222,6 @@ public class QueryPlanTest {
             }
         }
 
-        // disable bucket shuffle join
-        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
-
         String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
@@ -1272,8 +1269,6 @@ public class QueryPlanTest {
             }
         }
 
-        // disable bucket shuffle join
-        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
         String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
@@ -1369,9 +1364,7 @@ public class QueryPlanTest {
     @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String queryStr = "explain select * from (select k2 from jointest)t2, jointest t1 where t1.k1 = t2.k2";
-        // disable bucket shuffle join
-        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
+        String queryStr = "explain select * from (select k2 from jointest group by k2)t2, jointest t1 where t1.k1 = t2.k2";
 
         // default set PreferBroadcastJoin true
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);

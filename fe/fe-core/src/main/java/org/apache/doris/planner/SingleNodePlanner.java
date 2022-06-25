@@ -1156,7 +1156,7 @@ public class SingleNodePlanner {
      * Returns a MergeNode that materializes the exprs of the constant selectStmt. Replaces the resultExprs of the
      * selectStmt with SlotRefs into the materialized tuple.
      */
-    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer) throws UserException {
+    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer) {
         Preconditions.checkState(selectStmt.getTableRefs().isEmpty());
         ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
         // Create tuple descriptor for materialized tuple.
@@ -1345,14 +1345,9 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                //set outputSmap to substitute literal in outputExpr 
+                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
-                //set outputSmap to substitute literal in outputExpr
-                unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
-                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
-                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
-                    unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
-                }
                 return unionNode;
             }
         }
@@ -1380,6 +1375,15 @@ public class SingleNodePlanner {
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
                     outputSmap.getRhs(), rootNode.getTupleIds(), analyzer);
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
+            // When we process outer join with inline views, we set slot descriptor of inline view to nullable firstly.
+            // When we generate plan, we remove inline view, so the upper node's input is inline view's child.
+            // So we need to set slot descriptor of inline view's child to nullable to ensure consistent behavior
+            // with BaseTable.
+            for (TupleId tupleId : rootNode.getTupleIds()) {
+                for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getMaterializedSlots()) {
+                    slotDescriptor.setIsNullable(true);
+                }
+            }
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap);

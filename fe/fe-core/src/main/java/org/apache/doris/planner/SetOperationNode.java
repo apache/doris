@@ -329,9 +329,8 @@ public abstract class SetOperationNode extends PlanNode {
      * been evaluated during registration to set analyzer.hasEmptyResultSet_.
      */
     @Override
-    public void init(Analyzer analyzer) throws UserException {
+    public void init(Analyzer analyzer) {
         Preconditions.checkState(conjuncts.isEmpty());
-        createDefaultSmap(analyzer);
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
     }
