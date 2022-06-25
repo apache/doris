@@ -29,7 +29,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.PhysicalPlanTranslator;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanContext;
+import org.apache.doris.nereids.trees.plans.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -65,7 +65,7 @@ public class NereidsPlanner extends Planner {
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), new PhysicalProperties(), ctx);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
-        PlanContext planContext = new PlanContext();
+        PlanTranslatorContext planContext = new PlanTranslatorContext();
         physicalPlanTranslator.translatePlan(physicalPlan, planContext);
         fragments = new ArrayList<>(planContext.getPlanFragmentList());
         PlanFragment root = fragments.get(fragments.size() - 1);
