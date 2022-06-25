@@ -132,7 +132,7 @@ Parameter | Description
 ---|---
 **hosts** | ES Cluster Connection Address, maybe one or more node, load-balance is also accepted
 **index** | the related ES index name, alias is supported, and if you use doc_value, you need to use the real name
-**type** | the type for this index, in es7 or later can not pass.
+**type** | the type for this index, ES 7.x and later versions do not pass this parameter
 **user** | username for ES
 **password** | password for the user
 

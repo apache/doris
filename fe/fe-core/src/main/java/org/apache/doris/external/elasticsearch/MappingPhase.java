@@ -69,8 +69,9 @@ public class MappingPhase implements SearchPhase {
         JSONObject mappings = (JSONObject) docData.get("mappings");
         JSONObject rootSchema = (JSONObject) mappings.get(searchContext.type());
         JSONObject properties;
-        // After (include) 7.x, type was removed from ES mapping, default type is `_doc`
+        // Elasticsearch 7.x, type was removed from ES mapping, default type is `_doc`
         // https://www.elastic.co/guide/en/elasticsearch/reference/7.0/removal-of-types.html
+        // Elasticsearch 8.x, include_type_name parameter is removed
         if (rootSchema == null) {
             properties = (JSONObject) mappings.get("properties");
         } else {
