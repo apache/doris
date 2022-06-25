@@ -29,6 +29,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.plans.PlanTranslatorContext;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -129,12 +130,12 @@ public class ExpressionConverter extends DefaultExpressionVisitor<Expr, PlanTran
 
     // TODO: Supports for `distinct`
     @Override
-    public Expr visitFunctionCall(FunctionCall function, PlanTranslatorContext context) {
+    public Expr visitBoundFunction(BoundFunction function, PlanTranslatorContext context) {
         List<Expr> paramList = new ArrayList<>();
-        for (Expression expr : function.getFnParams().getExpressionList()) {
+        for (Expression expr : function.getArguments()) {
             paramList.add(visit(expr, context));
         }
-        return new FunctionCallExpr(function.getFnName().toString(), paramList);
+        return new FunctionCallExpr(function.getName(), paramList);
     }
 
     @Override

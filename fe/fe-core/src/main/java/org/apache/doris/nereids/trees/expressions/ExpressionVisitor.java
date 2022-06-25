@@ -82,10 +82,6 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(literal, context);
     }
 
-    public R visitFunctionCall(FunctionCall function, C context) {
-        return visit(function, context);
-    }
-
     public R visitBetween(Between between, C context) {
         return visit(between, context);
     }
