@@ -318,14 +318,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         tblRefIds = ids;
     }
 
-    public ArrayList<TupleId> getOutputTblRefIds() {
-        return tblRefIds;
-    }
-
-    public ArrayList<TupleId> getOutputTupleIds() {
-        return tupleIds;
-    }
-
     public Set<TupleId> getNullableTupleIds() {
         Preconditions.checkState(nullableTupleIds != null);
         return nullableTupleIds;
@@ -961,11 +953,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
-    public void projectOutputTuple() throws NotImplementedException {
-        throw new NotImplementedException("The `projectOutputTuple` hasn't been implemented in " + planNodeName + ". "
-        + "But it does not affect the project optimizer");
-    }
-
     /**
      * If an plan node implements this method, its child plan node has the ability to implement the project.
      * The return value of this method will be used as
@@ -985,7 +972,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      *         agg node
      *    (required slots: a.k1)
      */
-    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
         throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
