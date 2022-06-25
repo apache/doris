@@ -129,7 +129,7 @@ public class SchemaChangeJobV2Test {
         SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
@@ -148,7 +148,7 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
@@ -224,7 +224,7 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
@@ -426,7 +426,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterCatalog.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
         Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
         Assert.assertTrue(olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);

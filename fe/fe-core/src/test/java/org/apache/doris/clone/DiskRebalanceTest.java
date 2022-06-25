@@ -34,6 +34,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -69,6 +70,8 @@ public class DiskRebalanceTest {
 
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
 
     private long id = 10086;
 
@@ -85,15 +88,19 @@ public class DiskRebalanceTest {
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
             {
-                catalog.getDbIds();
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbIds();
                 minTimes = 0;
                 result = db.getId();
 
-                catalog.getDbNullable(anyLong);
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDbOrException(anyLong, (Function<Long, SchedException>) any);
+                ds.getDbOrException(anyLong, (Function<Long, SchedException>) any);
                 minTimes = 0;
                 result = db;
 

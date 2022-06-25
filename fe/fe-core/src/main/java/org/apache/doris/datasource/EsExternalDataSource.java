@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource;
 
+
+import com.google.common.collect.Lists;
+
 import java.util.List;
 import java.util.Map;
 
@@ -24,7 +27,6 @@ import java.util.Map;
  * External data source for elasticsearch
  */
 public class EsExternalDataSource extends ExternalDataSource {
-
     /**
      * Default constructor for EsExternalDataSource.
      */
@@ -47,5 +49,11 @@ public class EsExternalDataSource extends ExternalDataSource {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return false;
+    }
+
+    @Override
+    public List<Long> getDbIds() {
+        // TODO: implement it
+        return Lists.newArrayList();
     }
 }

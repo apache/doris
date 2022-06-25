@@ -367,7 +367,7 @@ public class Load {
     public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
         // get db
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
         LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
@@ -1607,7 +1607,7 @@ public class Load {
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1634,7 +1634,7 @@ public class Load {
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -2078,7 +2078,7 @@ public class Load {
         }
 
         long dbId = loadJob.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }
@@ -2250,7 +2250,7 @@ public class Load {
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
@@ -2367,7 +2367,7 @@ public class Load {
 
     public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDbOrMetaException(job.getDbId());
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(job.getDbId());
 
         List<Long> tableIds = Lists.newArrayList();
         long tblId = job.getTableId();
@@ -2445,7 +2445,7 @@ public class Load {
 
     public void replayFinishLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDbOrMetaException(job.getDbId());
+        Database db = catalog.getCurrentInternalCatalog().getDbOrMetaException(job.getDbId());
         // After finish, the idToTableLoadInfo in load job will be set to null.
         // We lost table info. So we have to use db lock here.
         db.writeLock();
@@ -2462,7 +2462,7 @@ public class Load {
     }
 
     public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) throws MetaNotFoundException {
-        Database db = catalog.getDbOrMetaException(info.getDbId());
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -2650,7 +2650,7 @@ public class Load {
                     }
 
                     long dbId = job.getDbId();
-                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+                    Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
                     if (db == null) {
                         LOG.warn("db does not exist. id: {}", dbId);
                         break;
@@ -2683,7 +2683,7 @@ public class Load {
 
         long jobId = job.getId();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled

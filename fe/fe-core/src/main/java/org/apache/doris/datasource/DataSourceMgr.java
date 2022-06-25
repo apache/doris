@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -81,6 +82,39 @@ public class DataSourceMgr implements Writable {
 
     public DataSourceIf getCatalog(String name) {
         return nameToCatalogs.get(name);
+    }
+
+    public DatabaseIf getDbNullable(long dbId) {
+        DatabaseIf db = internalDataSource.getDbNullable(dbId);
+        if (db != null) {
+            return db;
+        }
+        for (DataSourceIf ds : nameToCatalogs.values()) {
+            if (ds == internalDataSource) {
+                continue;
+            }
+            db = ds.getDbNullable(dbId);
+            if (db != null) {
+                return db;
+            }
+        }
+        return null;
+    }
+
+    public List<Long> getDbIds() {
+        List<Long> dbIds = Lists.newArrayList();
+        for (DataSourceIf ds : nameToCatalogs.values()) {
+            dbIds.addAll(ds.getDbIds());
+        }
+        return dbIds;
+    }
+
+    public List<String> getDbNames() {
+        List<String> dbNames = Lists.newArrayList();
+        for (DataSourceIf ds : nameToCatalogs.values()) {
+            dbNames.addAll(ds.getDbNames());
+        }
+        return dbNames;
     }
 
     private void writeLock() {
@@ -187,13 +221,13 @@ public class DataSourceMgr implements Writable {
                 if (!nameToCatalogs.containsKey(showStmt.getCatalogName())) {
                     throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
                 }
-                DataSourceIf ds = nameToCatalogs.get(showStmt.getCatalogName());
+                DataSourceIf<DatabaseIf> ds = nameToCatalogs.get(showStmt.getCatalogName());
                 if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
                         ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), ds.getName());
                 }
-                for (Map.Entry<String, String>  elem : ds.getProperties().entrySet()) {
+                for (Map.Entry<String, String> elem : ds.getProperties().entrySet()) {
                     List<String> row = Lists.newArrayList();
                     row.add(elem.getKey());
                     row.add(elem.getValue());

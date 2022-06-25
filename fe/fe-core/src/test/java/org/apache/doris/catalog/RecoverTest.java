@@ -102,17 +102,18 @@ public class RecoverTest {
     }
 
     private static boolean checkDbExist(String dbName) {
-        return Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)).isPresent();
+        return Catalog.getCurrentInternalCatalog()
+                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)).isPresent();
     }
 
     private static boolean checkTableExist(String dbName, String tblName) {
-        return Catalog.getCurrentCatalog()
+        return Catalog.getCurrentInternalCatalog()
                 .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
                 .flatMap(db -> db.getTable(tblName)).isPresent();
     }
 
     private static boolean checkPartitionExist(String dbName, String tblName, String partName) {
-        return Catalog.getCurrentCatalog()
+        return Catalog.getCurrentInternalCatalog()
                 .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
                 .flatMap(db -> db.getTable(tblName)).map(table -> table.getPartition(partName)).isPresent();
     }

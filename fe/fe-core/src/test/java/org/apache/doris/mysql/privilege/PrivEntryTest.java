@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.datasource.InternalDataSource;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -25,9 +26,8 @@ import org.junit.Test;
 public class PrivEntryTest {
     @Test
     public void testNameWithUnderscores() throws Exception {
-        TablePrivEntry tablePrivEntry = TablePrivEntry.create(
-                "user1", "127.%", "__internal", "db_db1", "tbl_tbl1", false,
-                PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.DROP_PRIV));
+        TablePrivEntry tablePrivEntry = TablePrivEntry.create("user1", "127.%", InternalDataSource.INTERNAL_DS_NAME,
+                "db_db1", "tbl_tbl1", false, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.DROP_PRIV));
         // pattern match
         Assert.assertFalse(tablePrivEntry.getDbPattern().match("db-db1"));
         Assert.assertFalse(tablePrivEntry.getTblPattern().match("tbl-tbl1"));
@@ -42,7 +42,7 @@ public class PrivEntryTest {
         Assert.assertFalse(PaloPrivilege.satisfy(privs1, PrivPredicate.DROP));
 
         PrivBitSet privs2 = PrivBitSet.of();
-        tablePrivTable.getPrivs(userIdentity, "__internal", "db_db1", "tbl_tbl1", privs2);
+        tablePrivTable.getPrivs(userIdentity, InternalDataSource.INTERNAL_DS_NAME, "db_db1", "tbl_tbl1", privs2);
         Assert.assertTrue(PaloPrivilege.satisfy(privs2, PrivPredicate.DROP));
     }
 }

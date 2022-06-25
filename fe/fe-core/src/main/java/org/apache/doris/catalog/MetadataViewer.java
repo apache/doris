@@ -51,7 +51,7 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();
@@ -169,7 +169,7 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
         olapTable.readLock();
         try {
@@ -267,7 +267,7 @@ public class MetadataViewer {
             throw new DdlException("Should specify one and only one partitions");
         }
 
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();

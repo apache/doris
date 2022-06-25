@@ -194,7 +194,8 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
+                    Database db =
+                            Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = "
                             + db.getFullName() + " table = " + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());

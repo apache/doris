@@ -111,7 +111,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -142,7 +142,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -173,7 +173,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // List of sync jobs waiting to be cancelled
         List<SyncJob> syncJobs = Lists.newArrayList();
@@ -251,7 +251,7 @@ public class SyncJobManager implements Writable {
     }
 
     public boolean isJobNameExist(String dbName, String jobName) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         boolean result = false;
         readLock();
         try {
