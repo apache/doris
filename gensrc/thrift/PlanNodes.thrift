@@ -409,10 +409,6 @@ struct THashJoinNode {
 
   // hash output column
   6: optional list<Types.TSlotId> hash_output_slot_ids
-
-  7: optional list<Exprs.TExpr> srcExprList
-
-  8: optional Types.TTupleId voutput_tuple_id
 }
 
 struct TMergeJoinNode {
