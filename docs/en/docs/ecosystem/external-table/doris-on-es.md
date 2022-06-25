@@ -121,7 +121,6 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
-"version" = "6.8.23"
 "user" = "root",
 "password" = "root"
 );
@@ -134,7 +133,6 @@ Parameter | Description
 **hosts** | ES Cluster Connection Address, maybe one or more node, load-balance is also accepted
 **index** | the related ES index name, alias is supported, and if you use doc_value, you need to use the real name
 **type** | the type for this index, in es7 or later can not pass.
-**version** | the es cluster version(optional)
 **user** | username for ES
 **password** | password for the user
 

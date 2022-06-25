@@ -72,7 +72,7 @@ public class EsTable extends Table {
     // index name can be specific index、wildcard matched or alias.
     private String indexName;
 
-    // which type used for `indexName`, default to `_doc`
+    // which type used for `indexName`
     private String mappingType = null;
     private String transport = "http";
     // only save the partition definition, save the partition key,
@@ -277,7 +277,9 @@ public class EsTable extends Table {
             sb.append(userName);
             sb.append(passwd);
             sb.append(indexName);
-            sb.append(mappingType);
+            if (mappingType != null) {
+                sb.append(mappingType);
+            }
             sb.append(transport);
         } else {
             for (Map.Entry<String, String> entry : tableContext.entrySet()) {
