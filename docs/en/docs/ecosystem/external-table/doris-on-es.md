@@ -191,8 +191,6 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
-"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
 "enable_docvalue_scan" = "true"
@@ -232,8 +230,6 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
-"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
 "enable_keyword_sniff" = "true"
@@ -344,8 +340,6 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
-"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
 "nodes_discovery" = "true"
@@ -373,8 +367,6 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
-"version" = "6.8.23"
 "user" = "root",
 "password" = "root",
 "http_ssl_enabled" = "true"
@@ -563,10 +555,8 @@ CREATE EXTERNAL TABLE `doe` (
 PROPERTIES (
 "hosts" = "http://127.0.0.1:8200",
 "user" = "root",
-"version" = "6.8.23"
 "password" = "root",
-"index" = "doe",
-"type" = "doc"
+"index" = "doe"
 }
 ```
 `Notice`:
