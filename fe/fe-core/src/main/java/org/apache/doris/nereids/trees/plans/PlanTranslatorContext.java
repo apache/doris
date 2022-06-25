@@ -30,8 +30,8 @@ import org.apache.doris.planner.ScanNode;
 
 import com.clearspring.analytics.util.Lists;
 
-import java.util.HashMap;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
