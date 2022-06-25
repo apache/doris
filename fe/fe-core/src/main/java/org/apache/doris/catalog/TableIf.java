@@ -72,6 +72,22 @@ public interface TableIf {
 
     Column getColumn(String name);
 
+    String getMysqlType();
+
+    String getEngine();
+
+    String getComment();
+
+    long getCreateTime();
+
+    long getUpdateTime();
+
+    long getRowCount();
+
+    long getDataLength();
+
+    long getAvgRowLength();
+
     /**
      * Doris table type.
      */
