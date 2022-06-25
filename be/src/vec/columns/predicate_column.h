@@ -63,6 +63,20 @@ private:
         }
     }
 
+    void insert_date32_to_res_column(const uint16_t* sel, size_t sel_size,
+                                     vectorized::ColumnVector<Int64>* res_ptr) {
+        res_ptr->reserve(sel_size);
+        auto& res_data = res_ptr->get_data();
+
+        for (size_t i = 0; i < sel_size; i++) {
+            uint64_t val = data[sel[i]];
+            VecDateTimeValue date;
+            date.set_olap_date(val);
+            res_data.push_back_without_reserve(
+                    unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+        }
+    }
+
     void insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size,
                                        vectorized::ColumnVector<Int64>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
@@ -205,6 +219,21 @@ public:
         }
     }
 
+    void insert_many_date(const char* data_ptr, size_t num) {
+        size_t intput_type_size = sizeof(uint24_t);
+        size_t res_type_size = sizeof(uint32_t);
+        char* input_data_ptr = const_cast<char*>(data_ptr);
+
+        char* res_ptr = (char*)data.get_end_ptr();
+        memset(res_ptr, 0, res_type_size * num);
+        for (int i = 0; i < num; i++) {
+            memcpy(res_ptr, input_data_ptr, intput_type_size);
+            res_ptr += res_type_size;
+            input_data_ptr += intput_type_size;
+        }
+        data.set_end_ptr(res_ptr);
+    }
+
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
         if constexpr (std::is_same_v<T, decimal12_t>) {
             insert_many_in_copy_way(data_ptr, num);
@@ -212,6 +241,10 @@ public:
             insert_many_in_copy_way(data_ptr, num);
         } else if constexpr (std::is_same_v<T, StringValue>) {
             // here is unreachable, just for compilation to be able to pass
+        } else if constexpr (std::is_same_v<
+                                     T,
+                                     uint32_t>) { // todo(wb) a trick type judge here,need refactor
+            insert_many_date(data_ptr, num);
         } else {
             insert_many_default_type(data_ptr, num);
         }
@@ -405,6 +438,9 @@ public:
         } else if constexpr (std::is_same_v<T, uint24_t>) {
             insert_date_to_res_column(sel, sel_size,
                                       reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, uint32_t>) { // a trick type judge, need refactor it.
+            insert_date32_to_res_column(
+                    sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
             insert_default_value_res_column(
                     sel, sel_size,

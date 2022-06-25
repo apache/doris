@@ -25,9 +25,11 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -65,7 +67,7 @@ public class AggregationNode extends PlanNode {
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
      */
     public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo) {
-        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", NodeType.AGG_NODE);
+        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", StatisticalType.AGG_NODE);
         this.aggInfo = aggInfo;
         this.children.add(input);
         this.needsFinalize = true;
@@ -76,7 +78,7 @@ public class AggregationNode extends PlanNode {
      * Copy c'tor used in clone().
      */
     private AggregationNode(PlanNodeId id, AggregationNode src) {
-        super(id, src, "AGGREGATE", NodeType.AGG_NODE);
+        super(id, src, "AGGREGATE", StatisticalType.AGG_NODE);
         aggInfo = src.aggInfo;
         needsFinalize = src.needsFinalize;
     }
@@ -310,7 +312,7 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         Set<SlotId> result = Sets.newHashSet();
         // compute group by slot
         ArrayList<Expr> groupingExprs = aggInfo.getGroupingExprs();
@@ -323,6 +325,19 @@ public class AggregationNode extends PlanNode {
         List<SlotId> aggregateSlotIds = Lists.newArrayList();
         Expr.getIds(aggregateExprs, null, aggregateSlotIds);
         result.addAll(aggregateSlotIds);
+
+        // case: select count(*) from test
+        // result is empty
+        // Actually need to take a column as the input column of the agg operator
+        if (result.isEmpty()) {
+            TupleDescriptor tupleDesc = analyzer.getTupleDesc(getChild(0).getOutputTupleIds().get(0));
+            // If the query result is empty set such as: select count(*) from table where 1=2
+            // then the materialized slot will be empty
+            // So the result should be empty also.
+            if (!tupleDesc.getMaterializedSlots().isEmpty()) {
+                result.add(tupleDesc.getMaterializedSlots().get(0).getId());
+            }
+        }
         return result;
     }
 }

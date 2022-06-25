@@ -18,13 +18,15 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
-import com.clearspring.analytics.util.Lists;
-import com.clearspring.analytics.util.Preconditions;
-import org.springframework.util.CollectionUtils;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,8 @@ public class Group {
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
     private LogicalProperties logicalProperties;
 
+    // Map of cost lower bounds
+    // Map required plan props to cost lower bound of corresponding plan
     private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans;
     private double costLowerBound = -1;
     private boolean isExplored = false;
@@ -103,11 +107,13 @@ public class Group {
      * @return old logical group expression
      */
     public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
-                                                    LogicalProperties logicalProperties) {
+            LogicalProperties logicalProperties) {
+        newExpression.setParent(this);
+        this.logicalProperties = logicalProperties;
+        GroupExpression oldExpression = getLogicalExpression();
         logicalExpressions.clear();
         logicalExpressions.add(newExpression);
-        this.logicalProperties = logicalProperties;
-        return getLogicalExpression();
+        return oldExpression;
     }
 
     public double getCostLowerBound() {
@@ -120,6 +126,10 @@ public class Group {
 
     public List<GroupExpression> getLogicalExpressions() {
         return logicalExpressions;
+    }
+
+    public GroupExpression logicalExpressionsAt(int index) {
+        return logicalExpressions.get(index);
     }
 
     /**
@@ -164,10 +174,31 @@ public class Group {
      * @return {@link Optional} of cost and {@link GroupExpression} of physical plan pair.
      */
     public Optional<Pair<Double, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
-        if (physicalProperties == null || CollectionUtils.isEmpty(lowestCostPlans)) {
+        if (physicalProperties == null || lowestCostPlans.isEmpty()) {
             return Optional.empty();
         }
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
+    }
+
+    /**
+     * Get the first Plan from Memo.
+     */
+    public PhysicalPlan extractPlan() throws AnalysisException {
+        GroupExpression groupExpression = this.logicalExpressionsAt(0);
+
+        List<Plan> planChildren = com.google.common.collect.Lists.newArrayList();
+        for (int i = 0; i < groupExpression.arity(); i++) {
+            planChildren.add(groupExpression.child(i).extractPlan());
+        }
+
+        Plan plan = ((PhysicalPlan) groupExpression.getOperator().toTreeNode(groupExpression)).withChildren(
+                planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("generate logical plan");
+        }
+        PhysicalPlan physicalPlan = (PhysicalPlan) plan;
+
+        return physicalPlan;
     }
 
     @Override
@@ -185,5 +216,10 @@ public class Group {
     @Override
     public int hashCode() {
         return Objects.hash(groupId);
+    }
+
+    @Override
+    public String toString() {
+        return "Group{" + getLogicalExpression().getOperator() + "}";
     }
 }

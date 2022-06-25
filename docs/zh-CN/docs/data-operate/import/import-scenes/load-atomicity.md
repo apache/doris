@@ -1,6 +1,6 @@
 ---
 {
-    "title": "数据导入事物及原子性",
+    "title": "数据导入事务及原子性",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 数据导入事物及原子性
+# 数据导入事务及原子性
 
 Doris 中的所有导入操作都有原子性保证，即一个导入作业中的数据要么全部成功，要么全部失败。不会出现仅部分数据导入成功的情况。
 

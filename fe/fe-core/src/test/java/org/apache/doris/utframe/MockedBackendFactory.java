@@ -164,7 +164,6 @@ public class MockedBackendFactory {
                             TTaskType taskType = request.getTaskType();
                             switch (taskType) {
                                 case CREATE:
-                                case PUSH:
                                 case ALTER:
                                     ++reportVersion;
                                     break;

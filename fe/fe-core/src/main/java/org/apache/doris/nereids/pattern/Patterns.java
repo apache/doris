@@ -30,6 +30,7 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
@@ -59,12 +60,12 @@ public interface Patterns {
         return new PatternDescriptor<>(Pattern.MULTI, defaultPromise());
     }
 
-    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> PatternDescriptor<T, RULE_TYPE> fixed() {
-        return new PatternDescriptor<>(Pattern.FIXED, defaultPromise());
+    default PatternDescriptor<GroupPlan, Plan> group() {
+        return new PatternDescriptor<>(Pattern.GROUP, defaultPromise());
     }
 
-    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> PatternDescriptor<T, RULE_TYPE> multiFixed() {
-        return new PatternDescriptor<>(Pattern.MULTI_FIXED, defaultPromise());
+    default PatternDescriptor<GroupPlan, Plan> multiGroup() {
+        return new PatternDescriptor<>(Pattern.MULTI_GROUP, defaultPromise());
     }
 
     /* abstract plan operator patterns */
@@ -80,7 +81,7 @@ public interface Patterns {
      * create a unaryPlan pattern.
      */
     default PatternDescriptor<UnaryPlan<Plan>, Plan> unaryPlan() {
-        return new PatternDescriptor(new TypePattern(UnaryPlanOperator.class, Pattern.FIXED), defaultPromise());
+        return new PatternDescriptor(new TypePattern(UnaryPlanOperator.class, Pattern.GROUP), defaultPromise());
     }
 
     /**
@@ -96,7 +97,7 @@ public interface Patterns {
      */
     default PatternDescriptor<BinaryPlan<Plan, Plan>, Plan> binaryPlan() {
         return new PatternDescriptor(
-                new TypePattern(BinaryPlanOperator.class, Pattern.FIXED, Pattern.FIXED),
+                new TypePattern(BinaryPlanOperator.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
         );
     }
@@ -127,7 +128,7 @@ public interface Patterns {
      * create a logicalUnary pattern.
      */
     default PatternDescriptor<LogicalUnaryPlan<LogicalUnaryOperator, Plan>, Plan> logicalUnary() {
-        return new PatternDescriptor(new TypePattern(LogicalUnaryPlan.class, Pattern.FIXED), defaultPromise());
+        return new PatternDescriptor(new TypePattern(LogicalUnaryPlan.class, Pattern.GROUP), defaultPromise());
     }
 
     /**
@@ -143,7 +144,7 @@ public interface Patterns {
      */
     default PatternDescriptor<LogicalBinaryPlan<LogicalBinaryOperator, Plan, Plan>, Plan> logicalBinary() {
         return new PatternDescriptor(
-                new TypePattern(LogicalBinaryPlan.class, Pattern.FIXED, Pattern.FIXED),
+                new TypePattern(LogicalBinaryPlan.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
         );
     }
@@ -175,7 +176,7 @@ public interface Patterns {
      * create a physicalUnary pattern.
      */
     default PatternDescriptor<PhysicalUnaryPlan<PhysicalUnaryOperator, Plan>, Plan> physicalUnary() {
-        return new PatternDescriptor(new TypePattern(PhysicalUnaryPlan.class, Pattern.FIXED), defaultPromise());
+        return new PatternDescriptor(new TypePattern(PhysicalUnaryPlan.class, Pattern.GROUP), defaultPromise());
     }
 
     /**
@@ -191,7 +192,7 @@ public interface Patterns {
      */
     default PatternDescriptor<PhysicalBinaryPlan<PhysicalBinaryOperator, Plan, Plan>, Plan> physicalBinary() {
         return new PatternDescriptor(
-                new TypePattern(PhysicalBinaryPlan.class, Pattern.FIXED, Pattern.FIXED),
+                new TypePattern(PhysicalBinaryPlan.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
         );
     }

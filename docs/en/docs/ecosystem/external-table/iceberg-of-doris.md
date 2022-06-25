@@ -181,7 +181,7 @@ The supported Iceberg column types correspond to Doris in the following table.
 
 **Note:** 
 - Iceberg table Schema changes **are not automatically synchronized** and require synchronization of Iceberg external tables or databases in Doris via the `REFRESH` command.
-- The current default supported version of Iceberg is 0.12.0 and has not been tested in other versions. More versions will be supported in the future.
+- The current default supported version of Iceberg is 0.12.0,0.13.2 and has not been tested in other versions. More versions will be supported in the future.
 
 ### Query Usage
 

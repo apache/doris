@@ -28,6 +28,8 @@ under the License.
 
 In the process of using and developing Doris, we often encounter scenarios that need to debug Doris. Here are some common debugging tools.
 
+**The name of the BE binary that appears in this doc is `doris_be`, which was `palo_be` in previous versions.**
+
 ## FE debugging
 
 Fe is a java process. Here are just a few simple and commonly used java debugging commands.
@@ -111,7 +113,7 @@ tcmalloc: large alloc 1396277248 bytes == 0x3f3488000 @  0x2af6f63 0x2c4095b 0x1
 This indicates that Doris be is trying to apply memory of '1396277248 bytes' on this stack. We can use the 'addr2line' command to restore the stack to a letter that we can understand. The specific example is shown below.
 
 ```
-$ addr2line -e lib/palo_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x133d1d0 0x19930ed
+$ addr2line -e lib/doris_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x133d1d0 0x19930ed
 
 /home/ssd0/zc/palo/doris/core/thirdparty/src/gperftools-gperftools-2.7/src/tcmalloc.cc:1335
 /home/ssd0/zc/palo/doris/core/thirdparty/src/gperftools-gperftools-2.7/src/tcmalloc.cc:1357
@@ -136,9 +138,9 @@ export HEAPPROFILE=/tmp/doris_be.hprof
 In this way, when the dump condition of the heapprofile is met, the overall memory usage will be written to the file in the specified path. Later, we can use the 'pprof' tool to analyze the output content.
 
 ```
-$ pprof --text lib/palo_be /tmp/doris_be.hprof.0012.heap | head -30
+$ pprof --text lib/doris_be /tmp/doris_be.hprof.0012.heap | head -30
 
-Using local file lib/palo_be.
+Using local file lib/doris_be.
 Using local file /tmp/doris_be.hprof.0012.heap.
 Total: 668.6 MB
    610.6  91.3%  91.3%    610.6  91.3% doris::SystemAllocator::allocate_via_malloc (inline)
@@ -164,7 +166,7 @@ Contents of each column of the above documents:
 Of course, it can also generate call relation pictures, which is more convenient for analysis. For example, the following command can generate a call graph in SVG format.
 
 ```
-pprof --svg lib/palo_be /tmp/doris_be.hprof.0012.heap > heap.svg 
+pprof --svg lib/doris_be /tmp/doris_be.hprof.0012.heap > heap.svg 
 ```
 
 **NOTE: turning on this option will affect the execution performance of the program. Please be careful to turn on the online instance.**
@@ -260,7 +262,7 @@ WRITE of size 1 at 0x61900008bf80 thread T0
     #0 0x129f569 in doris::StorageEngine::open(doris::EngineOptions const&, doris::StorageEngine**) /home/ssd0/zc/palo/doris/core/be/src/olap/storage_engine.cpp:106
     #1 0xe2c1e3 in main /home/ssd0/zc/palo/doris/core/be/src/service/doris_main.cpp:159
     #2 0x7fa5580fbbd4 in __libc_start_main (/opt/compiler/gcc-4.8.2/lib64/libc.so.6+0x21bd4)
-    #3 0xd30794  (/home/ssd0/zc/palo/doris/core/output3/be/lib/palo_be+0xd30794)
+    #3 0xd30794  (/home/ssd0/zc/palo/doris/core/output3/be/lib/doris_be+0xd30794)
 
 0x61900008bf80 is located 0 bytes to the right of 1024-byte region [0x61900008bb80,0x61900008bf80)
 allocated by thread T0 here:

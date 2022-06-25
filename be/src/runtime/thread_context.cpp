@@ -26,6 +26,7 @@ DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, thread_local_ctx);
 
 ThreadContextPtr::ThreadContextPtr() {
     INIT_STATIC_THREAD_LOCAL(ThreadContext, thread_local_ctx);
+    _init = true;
 }
 
 ThreadContext* ThreadContextPtr::get() {

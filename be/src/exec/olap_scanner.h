@@ -90,12 +90,12 @@ public:
 
     const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
-private:
-    Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
-                        const std::vector<TCondition>& filters,
-                        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
-                        const std::vector<FunctionFilter>& function_filters);
-    Status _init_return_columns();
+protected:
+    Status _init_tablet_reader_params(
+            const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
+            const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+            const std::vector<FunctionFilter>& function_filters);
+    Status _init_return_columns(bool need_seq_col);
     void _convert_row_to_tuple(Tuple* tuple);
 
     // Update profile that need to be reported in realtime.

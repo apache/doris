@@ -117,7 +117,7 @@ public abstract class AggregateInfoBase {
      * Also updates the appropriate substitution map, and creates and registers auxiliary
      * equality predicates between the grouping slots and the grouping exprs.
      */
-    private TupleDescriptor createTupleDesc(Analyzer analyzer, boolean isOutputTuple) {
+    protected TupleDescriptor createTupleDesc(Analyzer analyzer, boolean isOutputTuple) {
         TupleDescriptor result =
                 analyzer.getDescTbl().createTupleDescriptor(
                         tupleDebugName() + (isOutputTuple ? "-out" : "-intermed"));

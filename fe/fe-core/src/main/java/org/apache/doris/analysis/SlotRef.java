@@ -373,7 +373,7 @@ public class SlotRef extends Expr {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);
             }
         } else {
-            Table table = desc.getParent().getTable();
+            Table table = (Table) desc.getParent().getTable();
             if (table == null) {
                 // Maybe this column comes from inline view.
                 return;
@@ -390,8 +390,7 @@ public class SlotRef extends Expr {
 
     public Table getTable() {
         Preconditions.checkState(desc != null);
-        Table table = desc.getParent().getTable();
-        return table;
+        return (Table) desc.getParent().getTable();
     }
 
     public void setLabel(String label) {

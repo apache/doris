@@ -44,7 +44,7 @@ public:
     virtual Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
                             uint32_t num_rows, roaring::Roaring* roaring) const override;
 
-    void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
+    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override;
 
     void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
                      bool* flags) const override;

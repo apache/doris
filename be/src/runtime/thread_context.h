@@ -157,12 +157,16 @@ public:
     void consume_mem(int64_t size) {
         if (start_thread_mem_tracker) {
             _thread_mem_tracker_mgr->cache_consume(size);
+        } else {
+            MemTracker::get_process_tracker()->consume(size);
         }
     }
 
     void release_mem(int64_t size) {
         if (start_thread_mem_tracker) {
             _thread_mem_tracker_mgr->cache_consume(-size);
+        } else {
+            MemTracker::get_process_tracker()->release(size);
         }
     }
 
@@ -210,6 +214,8 @@ public:
 
     ThreadContext* get();
 
+    bool _init = false;
+
 private:
     DECLARE_STATIC_THREAD_LOCAL(ThreadContext, thread_local_ctx);
 };
@@ -221,7 +227,12 @@ static ThreadContext* tls_ctx() {
     if (tls != nullptr) {
         return tls;
     } else {
-        return thread_local_ctx.get();
+        if (thread_local_ctx._init) {
+            return thread_local_ctx.get();
+        } else {
+            // TCMalloc hook is triggered during ThreadContext construction, which may lead to deadlock.
+            return nullptr;
+        }
     }
 }
 

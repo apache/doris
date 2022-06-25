@@ -482,26 +482,22 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
         return Status::OK();
     }
 
-    VLOG_CRITICAL << "BuildOlapFilters";
+    VLOG_CRITICAL << "BuildKeyRangesAndFilters";
     // 3.1 Using ColumnValueRange to Build StorageEngine filters
-    RETURN_IF_ERROR(build_olap_filters());
+    RETURN_IF_ERROR(build_key_ranges_and_filters());
     // 3.2 Function pushdown
     if (config::enable_function_pushdown)
         RETURN_IF_ERROR(build_function_filters());
 
-    VLOG_CRITICAL << "BuildScanKey";
-    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
-    RETURN_IF_ERROR(build_scan_key());
-
     VLOG_CRITICAL << "Filter idle conjuncts";
-    // 5.1 Filter idle conjunct which already trans to olap filters
+    // 4. Filter idle conjunct which already trans to olap filters
     // this must be after build_scan_key, it will free the StringValue memory
     remove_pushed_conjuncts(state);
     // 5.2 move the pushed function context
     move_pushed_func_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
-    // 6. Start multi thread to read several `Sub Sub ScanRange`
+    // 5. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();
@@ -710,21 +706,6 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     return filters_string;
 }
 
-Status OlapScanNode::build_olap_filters() {
-    for (auto& iter : _column_value_ranges) {
-        std::vector<TCondition> filters;
-        std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
-
-        for (const auto& filter : filters) {
-            _olap_filter.push_back(std::move(filter));
-        }
-    }
-
-    _runtime_profile->add_info_string("PushdownPredicate", olap_filters_to_string(_olap_filter));
-
-    return Status::OK();
-}
-
 Status OlapScanNode::build_function_filters() {
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         ExprContext* ex_ctx = _conjunct_ctxs[conj_idx];
@@ -792,8 +773,7 @@ Status OlapScanNode::build_function_filters() {
     return Status::OK();
 }
 
-
-Status OlapScanNode::build_scan_key() {
+Status OlapScanNode::build_key_ranges_and_filters() {
     const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
     const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
     DCHECK(column_types.size() == column_names.size());
@@ -801,6 +781,9 @@ Status OlapScanNode::build_scan_key() {
     // 1. construct scan key except last olap engine short key
     _scan_keys.set_is_convertible(limit() == -1);
 
+    // we use `exact_range` to identify a key range is an exact range or not when we convert
+    // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filter`.
+    bool exact_range = true;
     for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
          ++column_index) {
         auto iter = _column_value_ranges.find(column_names[column_index]);
@@ -809,9 +792,28 @@ Status OlapScanNode::build_scan_key() {
         }
 
         RETURN_IF_ERROR(std::visit(
-                [&](auto&& range) { return _scan_keys.extend_scan_key(range, _max_scan_key_num); },
+                [&](auto&& range) {
+                    RETURN_IF_ERROR(
+                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    if (exact_range) {
+                        _column_value_ranges.erase(iter->first);
+                    }
+                    return Status::OK();
+                },
                 iter->second));
     }
+    for (auto& iter : _column_value_ranges) {
+        std::vector<TCondition> filters;
+        std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
+
+        for (const auto& filter : filters) {
+            _olap_filter.push_back(std::move(filter));
+        }
+    }
+
+    _runtime_profile->add_info_string("PushdownPredicate", olap_filters_to_string(_olap_filter));
+
+    _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
 
     VLOG_CRITICAL << _scan_keys.debug_string();
 
