@@ -730,61 +730,56 @@ Status VOlapScanNode::build_function_filters() {
         Expr* fn_expr = ex_ctx->root();
         bool opposite = false;
 
-        if (TExprNodeType::COMPOUND_PRED == fn_expr->node_type())
+        if (TExprNodeType::COMPOUND_PRED == fn_expr->node_type() && TExprOpcode::COMPOUND_NOT == fn_expr->op())
         {
-            if (TExprOpcode::COMPOUND_NOT == fn_expr->op())
-            {
-                fn_expr = fn_expr->get_child(0);
-                opposite = true;
-            }
+            fn_expr = fn_expr->get_child(0);
+            opposite = true;
         }
 
-        if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type())
+        // currently only support like / not like
+        if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type() && "like" == fn_expr->fn().name.function_name)
         {
-            // currently only support like / not like
-            if ("like" == fn_expr->fn().name.function_name)
-            {
-                doris_udf::FunctionContext *func_cxt = ex_ctx->fn_context(fn_expr->get_fn_context_index());
-                if (!func_cxt) {
-                    continue;
-                }
-                if (fn_expr->children().size() != 2) {
-                    continue;
-                }
+            doris_udf::FunctionContext *func_cxt = ex_ctx->fn_context(fn_expr->get_fn_context_index());
 
-                SlotRef* slot_ref = nullptr;
-                Expr* expr = nullptr;
-                if (TExprNodeType::SLOT_REF == fn_expr->get_child(0)->node_type()) {
-                    expr = fn_expr->get_child(1);
-                    slot_ref = (SlotRef*)(fn_expr->get_child(0));
-                } else if (TExprNodeType::SLOT_REF == fn_expr->get_child(1)->node_type()) {
-                    expr = fn_expr->get_child(0);
-                    slot_ref = (SlotRef*)(fn_expr->get_child(1));
-                } else {
-                    continue;
-                }
-
-                if (TExprNodeType::STRING_LITERAL != expr->node_type())
-                    continue;
-
-                const SlotDescriptor* slot_desc = nullptr;
-                std::vector<SlotId> slot_ids;
-                slot_ref->get_slot_ids(&slot_ids);
-                for (SlotDescriptor* slot : _tuple_desc->slots()) {
-                    if (slot->id() == slot_ids[0]) {
-                        slot_desc = slot;
-                        break;
-                    }
-                }
-
-                if (!slot_desc) {
-                    continue;
-                }
-                std::string col = slot_desc->col_name();
-                StringVal val = expr->get_string_val(ex_ctx, nullptr);
-                _push_down_functions.emplace_back(opposite, col, func_cxt, val);
-                _pushed_func_conjuncts_index.insert(conj_idx);
+            if (!func_cxt) {
+                continue;
             }
+            if (fn_expr->children().size() != 2) {
+                continue;
+            }
+            SlotRef* slot_ref = nullptr;
+            Expr* literal_expr = nullptr;
+
+            if (TExprNodeType::SLOT_REF == fn_expr->get_child(0)->node_type()) {
+                literal_expr = fn_expr->get_child(1);
+                slot_ref = (SlotRef*)(fn_expr->get_child(0));
+            } else if (TExprNodeType::SLOT_REF == fn_expr->get_child(1)->node_type()) {
+                literal_expr = fn_expr->get_child(0);
+                slot_ref = (SlotRef*)(fn_expr->get_child(1));
+            } else {
+                continue;
+            }
+
+            if (TExprNodeType::STRING_LITERAL != literal_expr->node_type())
+                continue;
+
+            const SlotDescriptor* slot_desc = nullptr;
+            std::vector<SlotId> slot_ids;
+            slot_ref->get_slot_ids(&slot_ids);
+            for (SlotDescriptor* slot : _tuple_desc->slots()) {
+                if (slot->id() == slot_ids[0]) {
+                    slot_desc = slot;
+                    break;
+                }
+            }
+
+            if (!slot_desc) {
+                continue;
+            }
+            std::string col = slot_desc->col_name();
+            StringVal val = literal_expr->get_string_val(ex_ctx, nullptr);
+            _push_down_functions.emplace_back(opposite, col, func_cxt, val);
+            _pushed_func_conjuncts_index.insert(conj_idx);
         }
     }
     return Status::OK();
