@@ -484,8 +484,8 @@ private:
 
     void release_tracker();
 
-    MutableColumns _create_temp_key_columns();
-    MutableColumns _create_temp_value_columns();
+    MutableColumns _create_key_columns();
+    MutableColumns _create_value_columns();
 
     using vectorized_execute = std::function<Status(Block* block)>;
     using vectorized_pre_agg = std::function<Status(Block* in_block, Block* out_block)>;
