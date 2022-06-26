@@ -89,7 +89,7 @@ public class MappingPhaseTest extends EsTestCase {
         String jsonMapping = loadJsonFromFile("data/es/test_index_mapping.json");
         new Expectations(client) {
             {
-                client.getMapping(anyString, anyBoolean);
+                client.getMapping(anyString);
                 minTimes = 0;
                 result = jsonMapping;
             }
