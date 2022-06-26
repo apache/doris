@@ -479,7 +479,7 @@ public class AlterTest {
                 + "'dynamic_partition.buckets' = '3'\n"
                 + " );";
         alterTable(stmt, false);
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl6");
         Assert.assertTrue(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals(4, tbl.getIndexIdToSchema().size());
