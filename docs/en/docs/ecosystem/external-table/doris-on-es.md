@@ -121,7 +121,6 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
-
 "user" = "root",
 "password" = "root"
 );
@@ -133,7 +132,7 @@ Parameter | Description
 ---|---
 **hosts** | ES Cluster Connection Address, maybe one or more node, load-balance is also accepted
 **index** | the related ES index name, alias is supported, and if you use doc_value, you need to use the real name
-**type** | the type for this index, If not specified, `_doc` will be used
+**type** | the type for this index, ES 7.x and later versions do not pass this parameter
 **user** | username for ES
 **password** | password for the user
 
@@ -190,10 +189,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "enable_docvalue_scan" = "true"
 );
 ```
@@ -231,10 +228,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "enable_keyword_sniff" = "true"
 );
 ```
@@ -343,10 +338,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "nodes_discovery" = "true"
 );
 ```
@@ -372,10 +365,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "http_ssl_enabled" = "true"
 );
 ```
@@ -563,8 +554,7 @@ PROPERTIES (
 "hosts" = "http://127.0.0.1:8200",
 "user" = "root",
 "password" = "root",
-"index" = "doe",
-"type" = "doc"
+"index" = "doe"
 }
 ```
 `Notice`:
