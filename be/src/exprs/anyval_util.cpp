@@ -142,6 +142,9 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_DATETIME:
         out.type = FunctionContext::TYPE_DATETIME;
         break;
+    case TYPE_DATEV2:
+        out.type = FunctionContext::TYPE_DATEV2;
+        break;
     case TYPE_VARCHAR:
         out.type = FunctionContext::TYPE_VARCHAR;
         out.len = type.len;
