@@ -482,6 +482,7 @@ public class SchemaChangeJobV2Test {
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
         Database db = masterCatalog.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
+        
         new Expectations() {
             {
                 table.isColocateTable();
