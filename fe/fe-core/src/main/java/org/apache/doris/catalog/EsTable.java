@@ -73,8 +73,8 @@ public class EsTable extends Table {
     // index name can be specific index、wildcard matched or alias.
     private String indexName;
 
-    // which type used for `indexName`, default to `_doc`
-    private String mappingType = "_doc";
+    // which type used for `indexName`
+    private String mappingType = null;
     private String transport = "http";
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
@@ -116,8 +116,8 @@ public class EsTable extends Table {
         super(TableType.ELASTICSEARCH);
     }
 
-    public EsTable(long id, String name, List<Column> schema,
-                   Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
+    public EsTable(long id, String name, List<Column> schema, Map<String, String> properties,
+            PartitionInfo partitionInfo) throws DdlException {
         super(id, name, TableType.ELASTICSEARCH, schema);
         this.partitionInfo = partitionInfo;
         validate(properties);
@@ -154,32 +154,29 @@ public class EsTable extends Table {
 
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
-            throw new DdlException("Please set properties of elasticsearch table, "
-                    + "they are: hosts, user, password, index");
+            throw new DdlException(
+                    "Please set properties of elasticsearch table, " + "they are: hosts, user, password, index");
         }
 
-        if (Strings.isNullOrEmpty(properties.get(HOSTS))
-                || Strings.isNullOrEmpty(properties.get(HOSTS).trim())) {
+        if (Strings.isNullOrEmpty(properties.get(HOSTS)) || Strings.isNullOrEmpty(properties.get(HOSTS).trim())) {
             throw new DdlException("Hosts of ES table is null. "
                     + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
         }
         hosts = properties.get(HOSTS).trim();
         seeds = hosts.split(",");
 
-        if (!Strings.isNullOrEmpty(properties.get(USER))
-                && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
+        if (!Strings.isNullOrEmpty(properties.get(USER)) && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
             userName = properties.get(USER).trim();
         }
 
-        if (!Strings.isNullOrEmpty(properties.get(PASSWORD))
-                && !Strings.isNullOrEmpty(properties.get(PASSWORD).trim())) {
+        if (!Strings.isNullOrEmpty(properties.get(PASSWORD)) && !Strings.isNullOrEmpty(
+                properties.get(PASSWORD).trim())) {
             passwd = properties.get(PASSWORD).trim();
         }
 
-        if (Strings.isNullOrEmpty(properties.get(INDEX))
-                || Strings.isNullOrEmpty(properties.get(INDEX).trim())) {
-            throw new DdlException("Index of ES table is null. "
-                    + "Please add properties('index'='xxxx') when create table");
+        if (Strings.isNullOrEmpty(properties.get(INDEX)) || Strings.isNullOrEmpty(properties.get(INDEX).trim())) {
+            throw new DdlException(
+                    "Index of ES table is null. " + "Please add properties('index'='xxxx') when create table");
         }
         indexName = properties.get(INDEX).trim();
 
@@ -191,8 +188,8 @@ public class EsTable extends Table {
                     throw new DdlException("Unsupported/Unknown ES Cluster version [" + properties.get(VERSION) + "] ");
                 }
             } catch (Exception e) {
-                throw new DdlException("fail to parse ES major version, version= "
-                        + properties.get(VERSION).trim() + ", should be like '6.5.3' ");
+                throw new DdlException("fail to parse ES major version, version= " + properties.get(VERSION).trim()
+                        + ", should be like '6.5.3' ");
             }
         }
 
@@ -222,13 +219,12 @@ public class EsTable extends Table {
             }
         }
 
-        if (!Strings.isNullOrEmpty(properties.get(TYPE))
-                && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
+        if (!Strings.isNullOrEmpty(properties.get(TYPE)) && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
             mappingType = properties.get(TYPE).trim();
         }
 
-        if (!Strings.isNullOrEmpty(properties.get(TRANSPORT))
-                && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
+        if (!Strings.isNullOrEmpty(properties.get(TRANSPORT)) && !Strings.isNullOrEmpty(
+                properties.get(TRANSPORT).trim())) {
             transport = properties.get(TRANSPORT).trim();
             if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
                 throw new DdlException("transport of ES table must be http/https(recommend) or thrift(reserved inner usage),"
@@ -250,7 +246,9 @@ public class EsTable extends Table {
         tableContext.put("userName", userName);
         tableContext.put("passwd", passwd);
         tableContext.put("indexName", indexName);
-        tableContext.put("mappingType", mappingType);
+        if (mappingType != null) {
+            tableContext.put("mappingType", mappingType);
+        }
         tableContext.put("transport", transport);
         if (majorVersion != null) {
             tableContext.put("majorVersion", majorVersion.toString());
@@ -264,8 +262,8 @@ public class EsTable extends Table {
 
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE,
-                fullSchema.size(), 0, getName(), "");
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, fullSchema.size(), 0,
+                getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
     }
@@ -280,7 +278,9 @@ public class EsTable extends Table {
             sb.append(userName);
             sb.append(passwd);
             sb.append(indexName);
-            sb.append(mappingType);
+            if (mappingType != null) {
+                sb.append(mappingType);
+            }
             sb.append(transport);
         } else {
             for (Map.Entry<String, String> entry : tableContext.entrySet()) {
@@ -305,6 +305,7 @@ public class EsTable extends Table {
         partitionInfo.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int size = in.readInt();
