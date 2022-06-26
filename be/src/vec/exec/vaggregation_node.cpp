@@ -224,7 +224,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
             DCHECK(nullable_output);
-            _make_nullable_output.emplace_back(i);
+            _make_nullable_output_column_pos.emplace_back(i);
         }
     }
     for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
@@ -237,7 +237,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         auto nullable_agg_output = _aggregate_evaluators[i]->data_type()->is_nullable();
         if (nullable_output != nullable_agg_output) {
             DCHECK(nullable_output);
-            _make_nullable_output.emplace_back(i + j);
+            _make_nullable_output_column_pos.emplace_back(i + j);
         }
     }
 
@@ -390,11 +390,11 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         }
         // pre stream agg need use _num_row_return to decide whether to do pre stream agg
         _num_rows_returned += block->rows();
-        _make_nullable_output_key(block);
+        _make_nullable_output_column(block);
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     } else {
         RETURN_IF_ERROR(_executor.get_result(state, block, eos));
-        _make_nullable_output_key(block);
+        _make_nullable_output_column(block);
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
         reached_limit(block, eos);
@@ -575,9 +575,9 @@ void AggregationNode::_close_without_key() {
     release_tracker();
 }
 
-void AggregationNode::_make_nullable_output_key(Block* block) {
+void AggregationNode::_make_nullable_output_column(Block* block) {
     if (block->rows() != 0) {
-        for (auto cid : _make_nullable_output) {
+        for (auto cid : _make_nullable_output_column_pos) {
             block->get_by_position(cid).column =
                     make_nullable(block->get_by_position(cid).column);
             block->get_by_position(cid).type =
@@ -845,7 +845,7 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
 
 Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Block* block,
                                                         bool* eos) {
-    bool mem_reuse = block->mem_reuse();
+    bool mem_reuse = block->mem_reuse() && _make_nullable_output_column_pos.empty();
     auto column_withschema = VectorizedUtils::create_columns_with_type_and_name(row_desc());
     int key_size = _probe_expr_ctxs.size();
 
@@ -861,7 +861,8 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
     MutableColumns value_columns;
     for (int i = key_size; i < column_withschema.size(); ++i) {
         if (!mem_reuse) {
-            value_columns.emplace_back(_aggregate_evaluators[i-key_size]->data_type()->create_column());
+            value_columns.emplace_back(
+                    _aggregate_evaluators[i - key_size]->data_type()->create_column());
         } else {
             value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
         }
@@ -879,8 +880,7 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
                     agg_method.insert_key_into_columns(key, key_columns, _probe_key_sz);
                     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i)
                         _aggregate_evaluators[i]->insert_result_info(
-                                mapped + _offsets_of_aggregate_states[i],
-                                value_columns[i].get());
+                                mapped + _offsets_of_aggregate_states[i], value_columns[i].get());
 
                     ++iter;
                 }

@@ -419,7 +419,7 @@ private:
     std::vector<VExprContext*> _probe_expr_ctxs;
     // left / full join will change the output nullable make output/input solt
     // nullable diff. so we need make nullable of it.
-    std::vector<size_t> _make_nullable_output;
+    std::vector<size_t> _make_nullable_output_column_pos;
     std::vector<size_t> _probe_key_sz;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
@@ -461,7 +461,7 @@ private:
     /// the preagg should pass through any rows it can't fit in its tables.
     bool _should_expand_preagg_hash_tables();
 
-    void _make_nullable_output_key(Block* block);
+    void _make_nullable_output_column(Block* block);
 
     Status _create_agg_status(AggregateDataPtr data);
     Status _destory_agg_status(AggregateDataPtr data);
