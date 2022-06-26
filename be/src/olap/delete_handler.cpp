@@ -146,6 +146,7 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
         return value_str.size() <= config::string_type_length_soft_limit_bytes;
     case OLAP_FIELD_TYPE_DATE:
     case OLAP_FIELD_TYPE_DATETIME:
+    case OLAP_FIELD_TYPE_DATEV2:
         return valid_datetime(value_str);
     case OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);

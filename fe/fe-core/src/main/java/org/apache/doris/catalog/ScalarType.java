@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumnType;
@@ -47,7 +48,8 @@ import java.util.Objects;
  *   indicating that any decimal type is a subtype of the decimal type.
  */
 public class ScalarType extends Type {
-    private static final Logger LOG = LogManager.getLogger(ScalarType.class);
+    // We use a fixed-length decimal type to represent a date time.
+    public static final int DATETIME_PRECISION = 18;
 
     // SQL allows the engine to pick the default precision. We pick the largest
     // precision that is supported by the smallest decimal type in the BE (4 bytes).
@@ -74,6 +76,7 @@ public class ScalarType extends Type {
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
 
+    private static final Logger LOG = LogManager.getLogger(ScalarType.class);
     @SerializedName(value = "type")
     private final PrimitiveType type;
 
@@ -157,6 +160,12 @@ public class ScalarType extends Type {
                 return DATE;
             case DATETIME:
                 return DATETIME;
+            case DATEV2:
+                return DATEV2;
+            case DATETIMEV2:
+                return DEFAULT_DATETIMEV2;
+            case TIMEV2:
+                return TIMEV2;
             case TIME:
                 return TIME;
             case DECIMALV2:
@@ -209,6 +218,10 @@ public class ScalarType extends Type {
                 return DATE;
             case "DATETIME":
                 return DATETIME;
+            case "DATEV2":
+                return DATEV2;
+            case "DATETIMEV2":
+                return DATETIMEV2;
             case "TIME":
                 return TIME;
             case "DECIMAL":
@@ -279,6 +292,53 @@ public class ScalarType extends Type {
         return type;
     }
 
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDatetimeV2Type(int scale) {
+        ScalarType type = new ScalarType(PrimitiveType.DATETIMEV2);
+        type.precision = DATETIME_PRECISION;
+        type.scale = scale;
+        return type;
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createTimeV2Type(int scale) {
+        ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
+        type.precision = DATETIME_PRECISION;
+        type.scale = scale;
+        return type;
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDatetimeType() {
+        if (!Config.use_date_v2_by_default) {
+            return new ScalarType(PrimitiveType.DATETIME);
+        }
+        ScalarType type = new ScalarType(PrimitiveType.DATETIMEV2);
+        type.precision = DATETIME_PRECISION;
+        type.scale = 0;
+        return type;
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDateType() {
+        if (Config.use_date_v2_by_default) {
+            return new ScalarType(PrimitiveType.DATEV2);
+        } else {
+            return new ScalarType(PrimitiveType.DATE);
+        }
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createTimeType() {
+        if (!Config.use_date_v2_by_default) {
+            return new ScalarType(PrimitiveType.TIME);
+        }
+        ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
+        type.precision = DATETIME_PRECISION;
+        type.scale = 0;
+        return type;
+    }
+
     public static ScalarType createVarcharType(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -329,6 +389,10 @@ public class ScalarType extends Type {
                 return "DECIMAL(*,*)";
             }
             return "DECIMAL(" + precision + "," + scale + ")";
+        } else  if (type == PrimitiveType.DATETIMEV2) {
+            return "Datetime(" + scale + ")";
+        } else  if (type == PrimitiveType.TIMEV2) {
+            return "Time(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
                 return "VARCHAR(*)";
@@ -369,6 +433,12 @@ public class ScalarType extends Type {
                     stringBuilder.append("decimal").append("(`").append(precisionStr).append("`)");
                 }
                 break;
+            case DATETIMEV2:
+                stringBuilder.append("datetime").append("(").append(scale).append(")");
+                break;
+            case TIMEV2:
+                stringBuilder.append("time").append("(").append(scale).append(")");
+                break;
             case BOOLEAN:
                 return "boolean";
             case TINYINT:
@@ -385,6 +455,7 @@ public class ScalarType extends Type {
             case DOUBLE:
             case DATE:
             case DATETIME:
+            case DATEV2:
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
@@ -436,12 +507,14 @@ public class ScalarType extends Type {
     }
 
     public int decimalPrecision() {
-        Preconditions.checkState(type == PrimitiveType.DECIMALV2);
+        Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
+                || type == PrimitiveType.TIMEV2);
         return precision;
     }
 
     public int decimalScale() {
-        Preconditions.checkState(type == PrimitiveType.DECIMALV2);
+        Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
+                || type == PrimitiveType.TIMEV2);
         return scale;
     }
 
@@ -515,7 +588,8 @@ public class ScalarType extends Type {
                 || type == PrimitiveType.BIGINT || type == PrimitiveType.FLOAT
                 || type == PrimitiveType.DOUBLE || type == PrimitiveType.DATE
                 || type == PrimitiveType.DATETIME || type == PrimitiveType.DECIMALV2
-                || type == PrimitiveType.CHAR;
+                || type == PrimitiveType.CHAR || type == PrimitiveType.DATEV2 || type == PrimitiveType.DATETIMEV2
+                || type == PrimitiveType.TIMEV2;
     }
 
     @Override
@@ -585,6 +659,18 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
+        if ((this.isDate() && other.isDateV2()) || (this.isDateV2() && other.isDate())) {
+            return true;
+        }
+        if ((this.isDatetime() && other.isDatetimeV2()) || (this.isTime() && other.isTimeV2())) {
+            return other.decimalScale() == 0;
+        }
+        if ((this.isDatetimeV2() && other.isDatetime()) || (this.isTimeV2() && other.isTime())) {
+            return this.decimalScale() == 0;
+        }
+        if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
+            return this.decimalScale() == other.decimalScale();
+        }
         if (type != other.type) {
             return false;
         }
@@ -594,7 +680,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if (type == PrimitiveType.DECIMALV2) {
+        if (type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
         }
         return true;
@@ -612,6 +698,10 @@ public class ScalarType extends Type {
             return createDecimalV2TypeInternal(MAX_PRECISION, scale);
         } else if (isLargeIntType()) {
             return ScalarType.LARGEINT;
+        } else if (isDatetimeV2()) {
+            return createDatetimeV2Type(6);
+        } else if (isTimeV2()) {
+            return createTimeV2Type(6);
         } else {
             return ScalarType.INVALID;
         }
@@ -623,6 +713,10 @@ public class ScalarType extends Type {
             return this;
         } else if (type == PrimitiveType.DECIMALV2) {
             return createDecimalV2TypeInternal(MAX_PRECISION, scale);
+        } else if (type == PrimitiveType.DATETIMEV2) {
+            return createDatetimeV2Type(6);
+        } else if (type == PrimitiveType.TIMEV2) {
+            return createTimeV2Type(6);
         }
         return createType(PrimitiveType.values()[type.ordinal() + 1]);
     }
@@ -774,12 +868,16 @@ public class ScalarType extends Type {
             case BIGINT:
             case TIME:
             case DATETIME:
+            // TODO(Gabriel): unify execution engine and storage engine
+            case TIMEV2:
+            case DATETIMEV2:
                 return 8;
             case LARGEINT:
             case DECIMALV2:
                 return 16;
             case DOUBLE:
                 return 12;
+            case DATEV2:
             case DATE:
                 return 3;
             case CHAR:
@@ -805,7 +903,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) {
             thrift.setLen(len);
         }
-        if (type == PrimitiveType.DECIMALV2) {
+        if (type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             thrift.setPrecision(precision);
             thrift.setScale(scale);
         }

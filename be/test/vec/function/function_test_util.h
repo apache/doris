@@ -45,6 +45,7 @@ using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<std::any>;
 
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
+uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 
 namespace ut_type {
 using TINYINT = int8_t;
@@ -220,6 +221,8 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIME;
+    } else if (std::is_same_v<ReturnType, DateV2>) {
+        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATEV2;
     } else {
         fn_ctx_return.type = doris_udf::FunctionContext::INVALID_TYPE;
     }

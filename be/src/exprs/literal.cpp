@@ -81,6 +81,8 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         break;
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
         _value.datetime_val.from_date_str(node.date_literal.value.c_str(),
                                           node.date_literal.value.size());
         break;

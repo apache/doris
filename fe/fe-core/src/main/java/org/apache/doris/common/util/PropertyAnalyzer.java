@@ -146,7 +146,7 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                DateLiteral dateLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATETIME));
                 cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_POLICY)) {
                 remoteStoragePolicy = value;

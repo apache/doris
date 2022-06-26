@@ -256,7 +256,9 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.string_val;
     }
     case TYPE_DATE:
-    case TYPE_DATETIME: {
+    case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
         if (v.is_null) {
             return nullptr;

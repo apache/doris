@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -166,6 +167,10 @@ public class ExprTest {
         Expr r2 = new DateLiteral(2020, 10, 21);
         Expr r3 = new DateLiteral(2020, 10, 22);
         Expr r4 = new DateLiteral(2020, 10, 23);
+        Expr r5 = new DateLiteral(2020, 10, 23, Type.DATEV2);
+        Expr r6 = new DateLiteral(2020, 10, 23, 0, 0, 0, Type.DATETIME);
+        Expr r7 = new DateLiteral(2020, 10, 23, 0, 0, 0, Type.DATETIMEV2);
+        Expr r8 = new DateLiteral(2020, 10, 23, 0, 0, 0, ScalarType.createDatetimeV2Type(3));
 
         //list1 equal list2
         List<Expr> list1 = new ArrayList<>();
@@ -173,9 +178,17 @@ public class ExprTest {
         list1.add(r1);
         list1.add(r2);
         list1.add(r3);
+        list1.add(r5);
+        list1.add(r6);
+        list1.add(r7);
+        list1.add(r8);
         list2.add(r1);
         list2.add(r2);
         list2.add(r3);
+        list2.add(r5);
+        list2.add(r6);
+        list2.add(r7);
+        list2.add(r8);
         Assert.assertTrue(Expr.equalSets(list1, list2));
 
         //list3 not equal list4

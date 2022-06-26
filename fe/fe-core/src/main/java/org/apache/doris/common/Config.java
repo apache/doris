@@ -1664,4 +1664,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static boolean be_rebalancer_fuzzy_test = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean use_date_v2_by_default = false;
 }

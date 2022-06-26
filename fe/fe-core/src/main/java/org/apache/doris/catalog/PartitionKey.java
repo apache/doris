@@ -310,6 +310,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         break;
                     case DATE:
                     case DATETIME:
+                    case DATEV2:
+                    case DATETIMEV2:
                         literal = DateLiteral.read(in);
                         break;
                     case CHAR:

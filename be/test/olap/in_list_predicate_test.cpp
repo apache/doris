@@ -41,6 +41,15 @@ static uint24_t timestamp_from_date(const char* date_string) {
     return uint24_t(value);
 }
 
+static uint32_t timestamp_from_date_v2(const char* date_string) {
+    tm time_tm;
+    strptime(date_string, "%Y-%m-%d", &time_tm);
+
+    doris::vectorized::DateV2Value value;
+    value.set_time(time_tm.tm_year, time_tm.tm_mon, time_tm.tm_mday);
+    return binary_cast<doris::vectorized::DateV2Value, uint32_t>(value);
+}
+
 static uint64_t timestamp_from_datetime(const std::string& value_string) {
     tm time_tm;
     strptime(value_string.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
@@ -60,6 +69,18 @@ static std::string to_date_string(uint24_t& date_value) {
     time_tm.tm_mday = static_cast<int>(value & 31);
     time_tm.tm_mon = static_cast<int>(value >> 5 & 15) - 1;
     time_tm.tm_year = static_cast<int>(value >> 9) - 1900;
+    char buf[20] = {'\0'};
+    strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
+    return std::string(buf);
+}
+
+static std::string to_date_v2_string(uint32_t& date_value) {
+    tm time_tm;
+    uint32_t value = date_value;
+    memset(&time_tm, 0, sizeof(time_tm));
+    time_tm.tm_mday = static_cast<int>(value & 0x000000FF);
+    time_tm.tm_mon = static_cast<int>((value & 0x0000FF00) >> 8);
+    time_tm.tm_year = static_cast<int>((value & 0xFFFF0000) >> 16);
     char buf[20] = {'\0'};
     strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
     return std::string(buf);
@@ -879,6 +900,115 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     EXPECT_EQ(select_size, 1);
     EXPECT_EQ(datetime::to_date_string(
                       *(uint24_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
+              "2017-09-10");
+
+    delete pred;
+}
+
+TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DATE_V2_COLUMN"), "DATEV2", "REPLACE", 1, true, true,
+                    &tablet_schema);
+    int size = 6;
+    std::vector<uint32_t> return_columns;
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+        return_columns.push_back(i);
+    }
+    phmap::flat_hash_set<uint32_t> values;
+    uint32_t value1 = datetime::timestamp_from_date_v2("2017-09-09");
+    values.insert(value1);
+
+    uint32_t value2 = datetime::timestamp_from_date_v2("2017-09-10");
+    values.insert(value2);
+
+    uint32_t value3 = datetime::timestamp_from_date_v2("2017-09-11");
+    values.insert(value3);
+    ColumnPredicate* pred = new InListPredicate<uint32_t>(0, std::move(values));
+
+    // for VectorizedBatch no nulls
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
+    ColumnVector* col_vector = _vectorized_batch->column(0);
+    col_vector->set_no_nulls(true);
+    uint32_t* col_data = reinterpret_cast<uint32_t*>(_mem_pool->allocate(size * sizeof(uint32_t)));
+    col_vector->set_col_data(col_data);
+
+    std::vector<std::string> date_array;
+    date_array.push_back("2017-09-07");
+    date_array.push_back("2017-09-08");
+    date_array.push_back("2017-09-09");
+    date_array.push_back("2017-09-10");
+    date_array.push_back("2017-09-11");
+    date_array.push_back("2017-09-12");
+    for (int i = 0; i < size; ++i) {
+        uint32_t timestamp = datetime::timestamp_from_date_v2(date_array[i].c_str());
+        *(col_data + i) = timestamp;
+    }
+    pred->evaluate(_vectorized_batch);
+    EXPECT_EQ(_vectorized_batch->size(), 3);
+    uint16_t* sel = _vectorized_batch->selected();
+    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[0])), "2017-09-09");
+    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[1])), "2017-09-10");
+    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[2])), "2017-09-11");
+
+    // for ColumnBlock no nulls
+    init_row_block(&tablet_schema, size);
+    ColumnBlock col_block = _row_block->column_block(0);
+    auto select_size = _row_block->selected_size();
+    ColumnBlockView col_block_view(&col_block);
+    for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
+        col_block_view.set_null_bits(1, false);
+        uint32_t timestamp = datetime::timestamp_from_date_v2(date_array[i].c_str());
+        *reinterpret_cast<uint32_t*>(col_block_view.data()) = timestamp;
+    }
+    pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    EXPECT_EQ(select_size, 3);
+    EXPECT_EQ(datetime::to_date_v2_string(
+                      *(uint32_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
+              "2017-09-09");
+    EXPECT_EQ(datetime::to_date_v2_string(
+                      *(uint32_t*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr()),
+              "2017-09-10");
+    EXPECT_EQ(datetime::to_date_v2_string(
+                      *(uint32_t*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr()),
+              "2017-09-11");
+
+    // for VectorizedBatch has nulls
+    col_vector->set_no_nulls(false);
+    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
+    memset(is_null, 0, size);
+    col_vector->set_is_null(is_null);
+    for (int i = 0; i < size; ++i) {
+        if (i % 2 == 0) {
+            is_null[i] = true;
+        } else {
+            uint32_t timestamp = datetime::timestamp_from_date_v2(date_array[i].c_str());
+            *(col_data + i) = timestamp;
+        }
+    }
+    _vectorized_batch->set_size(size);
+    _vectorized_batch->set_selected_in_use(false);
+    pred->evaluate(_vectorized_batch);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
+    sel = _vectorized_batch->selected();
+    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[0])), "2017-09-10");
+
+    // for ColumnBlock has nulls
+    col_block_view = ColumnBlockView(&col_block);
+    for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
+        if (i % 2 == 0) {
+            col_block_view.set_null_bits(1, true);
+        } else {
+            col_block_view.set_null_bits(1, false);
+            uint32_t timestamp = datetime::timestamp_from_date_v2(date_array[i].c_str());
+            *reinterpret_cast<uint32_t*>(col_block_view.data()) = timestamp;
+        }
+    }
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(datetime::to_date_v2_string(
+                      *(uint32_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-10");
 
     delete pred;

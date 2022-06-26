@@ -175,11 +175,11 @@ public class StringLiteral extends LiteralExpr {
     public LiteralExpr convertToDate(Type targetType) throws AnalysisException {
         LiteralExpr newLiteral = null;
         try {
-            newLiteral = new DateLiteral(value, targetType);
+            newLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(targetType));
         } catch (AnalysisException e) {
             if (targetType.isScalarType(PrimitiveType.DATETIME)) {
-                newLiteral = new DateLiteral(value, Type.DATE);
-                newLiteral.setType(Type.DATETIME);
+                newLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATE));
+                newLiteral.setType(DateLiteral.getDefaultDateType(Type.DATETIME));
             } else {
                 throw e;
             }

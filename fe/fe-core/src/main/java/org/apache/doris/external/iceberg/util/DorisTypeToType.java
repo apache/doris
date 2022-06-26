@@ -93,16 +93,18 @@ public class DorisTypeToType extends DorisTypeVisitor<Type> {
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.CHAR)
                 || atomic.getPrimitiveType().equals(PrimitiveType.VARCHAR)) {
             return Types.StringType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATE)) {
+        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATE)
+                || atomic.getPrimitiveType().equals(PrimitiveType.DATEV2)) {
             return Types.DateType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.TIME)) {
+        } else if (atomic.getPrimitiveType().equals(PrimitiveType.TIME)
+                || atomic.getPrimitiveType().equals(PrimitiveType.TIMEV2)) {
             return Types.TimeType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)
-                || atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)) {
+        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)) {
             return Types.DecimalType.of(
                     ((ScalarType) atomic).getScalarPrecision(),
                     ((ScalarType) atomic).getScalarScale());
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATETIME)) {
+        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATETIME)
+                || atomic.getPrimitiveType().equals(PrimitiveType.DATETIMEV2)) {
             return Types.TimestampType.withZone();
         }
         // unsupported type: PrimitiveType.HLL BITMAP BINARY

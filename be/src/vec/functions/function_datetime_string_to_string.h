@@ -32,12 +32,19 @@ template <typename Transform>
 class FunctionDateTimeStringToString : public IFunction {
 public:
     static constexpr auto name = Transform::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeStringToString>(); }
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -95,6 +102,37 @@ public:
                                          " of first argument of function " + name);
         }
         return Status::OK();
+    }
+};
+
+class FromUnixTimeFunctionBuilder : public FunctionBuilderImpl {
+public:
+    explicit FromUnixTimeFunctionBuilder() = default;
+
+    String get_name() const override { return "from_unixtime"; }
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+
+protected:
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
+                               const DataTypePtr& return_type) const override {
+        DataTypes data_types(arguments.size());
+        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
+        // TODO: we still use VecDateTimeValue to convert unix timestamp to string
+        auto function =
+                FunctionDateTimeStringToString<FromUnixTimeImpl<VecDateTimeValue>>::create();
+        return std::make_shared<DefaultFunction>(function, data_types, return_type);
     }
 };
 

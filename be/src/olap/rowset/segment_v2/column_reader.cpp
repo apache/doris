@@ -888,6 +888,13 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
         insert_column_data();
         break;
     }
+    case OLAP_FIELD_TYPE_DATEV2: {
+        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType)); //uint32_t
+
+        int128 = *((FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType*)_mem_value);
+        insert_column_data();
+        break;
+    }
     case OLAP_FIELD_TYPE_DECIMAL: {
         assert(_type_size ==
                sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t

@@ -1042,12 +1042,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue();
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(((StringLiteral) child1Result).getStringValue())) {
-                    this.type = Type.DATETIME;
+                    this.type = DateLiteral.getDefaultDateType(Type.DATETIME);
                 } else {
-                    this.type = Type.DATE;
+                    this.type = DateLiteral.getDefaultDateType(Type.DATE);
                 }
             } else {
-                this.type = Type.DATETIME;
+                this.type = DateLiteral.getDefaultDateType(Type.DATETIME);
             }
         } else {
             this.type = fn.getReturnType();

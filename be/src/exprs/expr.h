@@ -516,6 +516,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node) {
         } else if (origin_value->type() == TimeType::TIME_TIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
         }
+    } else if constexpr (std::is_same_v<doris::vectorized::DateV2Value, T>) {
+        auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
     } else if constexpr (std::is_same_v<DecimalV2Value, T>) {
         auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);

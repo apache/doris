@@ -28,7 +28,7 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
                                                              const DataTypes& argument_types,
                                                              const Array& parameters,
                                                              const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionWindowFunnel>(argument_types);
+    return std::make_shared<AggregateFunctionWindowFunnel<VecDateTimeValue, Int64>>(argument_types);
 }
 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory) {

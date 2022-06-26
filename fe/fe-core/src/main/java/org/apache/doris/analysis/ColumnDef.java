@@ -338,11 +338,13 @@ public class ColumnDef {
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
-                new DateLiteral(defaultValue, type);
+            case DATEV2:
+                new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
                 break;
             case DATETIME:
+            case DATETIMEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, type);
+                    new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         break;
@@ -360,11 +362,8 @@ public class ColumnDef {
                 }
                 break;
             case BITMAP:
-                break;
             case ARRAY:
-                break;
             case MAP:
-                break;
             case STRUCT:
                 break;
             case BOOLEAN:

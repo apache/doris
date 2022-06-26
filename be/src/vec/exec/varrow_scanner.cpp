@@ -254,9 +254,9 @@ Status VArrowScanner::_append_batch_to_src_block(Block* block) {
         }
         auto* array = _batch->column(column_pos++).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
-        RETURN_IF_ERROR(arrow_column_to_doris_column(array, _arrow_batch_cur_idx,
-                                                     column_with_type_and_name.column, num_elements,
-                                                     _state->timezone()));
+        RETURN_IF_ERROR(arrow_column_to_doris_column(
+                array, _arrow_batch_cur_idx, column_with_type_and_name.column,
+                column_with_type_and_name.type, num_elements, _state->timezone()));
     }
 
     _arrow_batch_cur_idx += num_elements;

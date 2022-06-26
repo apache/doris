@@ -777,6 +777,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_VARCHAR:
         case TYPE_DATE:
         case TYPE_DATETIME:
+        case TYPE_DATEV2:
         case TYPE_HLL:
         case TYPE_OBJECT:
         case TYPE_STRING:

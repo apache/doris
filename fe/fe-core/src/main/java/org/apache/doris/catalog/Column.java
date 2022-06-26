@@ -455,14 +455,6 @@ public class Column implements Writable {
                 || other.getDataType() == PrimitiveType.STRING)) {
             return;
         }
-
-        if (this.getPrecision() != other.getPrecision()) {
-            throw new DdlException("Cannot change precision");
-        }
-
-        if (this.getScale() != other.getScale()) {
-            throw new DdlException("Cannot change scale");
-        }
     }
 
     public boolean nameEquals(String otherColName, boolean ignorePrefix) {

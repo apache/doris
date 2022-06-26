@@ -174,6 +174,9 @@ private:
         } else if (right_column.is_date_type()) {
             return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_null_map,
                                                                  nested_column, right_column);
+        } else if (right_column.is_date_v2_type()) {
+            return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_null_map,
+                                                                   nested_column, right_column);
         } else if (right_column.is_datetime_type()) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_null_map,
                                                                      nested_column, right_column);
@@ -245,10 +248,15 @@ private:
                 return_column = _execute_number_expanded<ColumnDecimal128>(
                         offsets, nested_null_map, *nested_column, *right_column);
             }
-        } else if (is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)) {
+        } else if ((is_date_or_datetime(right_type) || is_date_v2_or_datetime_v2(right_type)) &&
+                   (is_date_or_datetime(left_element_type) ||
+                    is_date_v2_or_datetime_v2(left_element_type))) {
             if (nested_column->is_date_type()) {
                 return_column = _execute_number_expanded<ColumnDate>(offsets, nested_null_map,
                                                                      *nested_column, *right_column);
+            } else if (nested_column->is_date_v2_type()) {
+                return_column = _execute_number_expanded<ColumnDateV2>(
+                        offsets, nested_null_map, *nested_column, *right_column);
             } else if (nested_column->is_datetime_type()) {
                 return_column = _execute_number_expanded<ColumnDateTime>(
                         offsets, nested_null_map, *nested_column, *right_column);

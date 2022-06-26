@@ -96,6 +96,11 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id, const TabletSchema& schem
                 DateColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
+    case OLAP_FIELD_TYPE_DATEV2: {
+        column_writer = new (std::nothrow) DateV2ColumnWriter(column_id, stream_factory, column,
+                                                              num_rows_per_row_block, bf_fpp);
+        break;
+    }
     case OLAP_FIELD_TYPE_DECIMAL: {
         column_writer = new (std::nothrow) DecimalColumnWriter(column_id, stream_factory, column,
                                                                num_rows_per_row_block, bf_fpp);

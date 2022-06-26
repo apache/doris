@@ -489,6 +489,9 @@ typedef IntegerColumnWriterWrapper<uint24_t, false> DateColumnWriter;
 // DateTime is implemented with int64
 typedef IntegerColumnWriterWrapper<uint64_t, false> DateTimeColumnWriter;
 
+// DateTime is implemented with int64
+typedef IntegerColumnWriterWrapper<uint32_t, false> DateV2ColumnWriter;
+
 class DecimalColumnWriter : public ColumnWriter {
 public:
     DecimalColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,

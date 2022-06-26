@@ -47,4 +47,16 @@ struct type_limit<DateTimeValue> {
     static DateTimeValue max() { return DateTimeValue::datetime_max_value(); }
 };
 
+template <>
+struct type_limit<doris::vectorized::DateV2Value> {
+    static doris::vectorized::DateV2Value min() {
+        uint32_t min = doris::vectorized::MIN_DATE_V2;
+        return binary_cast<uint32_t, doris::vectorized::DateV2Value>(min);
+    }
+    static doris::vectorized::DateV2Value max() {
+        uint32_t max = doris::vectorized::MAX_DATE_V2;
+        return binary_cast<uint32_t, doris::vectorized::DateV2Value>(max);
+    }
+};
+
 } // namespace doris

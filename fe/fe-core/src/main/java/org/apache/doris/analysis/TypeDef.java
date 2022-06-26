@@ -29,8 +29,6 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import com.google.common.base.Preconditions;
-
 import java.util.ArrayList;
 
 /**
@@ -52,6 +50,14 @@ public class TypeDef implements ParseNode {
         return new TypeDef(ScalarType.createDecimalV2Type(precision, scale));
     }
 
+    public static TypeDef createDatetimeV2(int scale) {
+        return new TypeDef(ScalarType.createDatetimeV2Type(scale));
+    }
+
+    public static TypeDef createTimeV2(int scale) {
+        return new TypeDef(ScalarType.createTimeV2Type(scale));
+    }
+
     public static TypeDef createVarchar(int len) {
         return new TypeDef(ScalarType.createVarchar(len));
     }
@@ -68,9 +74,9 @@ public class TypeDef implements ParseNode {
         // Check the max nesting depth before calling the recursive analyze() to avoid
         // a stack overflow.
         if (parsedType.exceedsMaxNestingDepth()) {
-            throw new AnalysisException(
-                    String.format("Type exceeds the maximum nesting depth of %s:\n%s", Type.MAX_NESTING_DEPTH,
-                            parsedType.toSql()));
+            throw new AnalysisException(String.format(
+                    "Type exceeds the maximum nesting depth of %s:\n%s",
+                    Type.MAX_NESTING_DEPTH, parsedType.toSql()));
         }
         analyze(parsedType);
         isAnalyzed = true;
@@ -111,6 +117,10 @@ public class TypeDef implements ParseNode {
         if (type.isNull()) {
             throw new AnalysisException("Unsupported data type: " + type.toSql());
         }
+        if (!type.getPrimitiveType().isIntegerType()
+                && !type.getPrimitiveType().isCharFamily()) {
+            throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
+        }
         if (type.getPrimitiveType().isStringType()
                 && !type.isAssignedStrLenInColDefinition()) {
             type.setLength(1);
@@ -129,11 +139,9 @@ public class TypeDef implements ParseNode {
                 if (type == PrimitiveType.VARCHAR) {
                     name = "VARCHAR";
                     maxLen = ScalarType.MAX_VARCHAR_LENGTH;
-                } else if (type == PrimitiveType.CHAR) {
+                } else {
                     name = "CHAR";
                     maxLen = ScalarType.MAX_CHAR_LENGTH;
-                } else {
-                    Preconditions.checkState(false);
                     return;
                 }
                 int len = scalarType.getLength();
@@ -168,10 +176,25 @@ public class TypeDef implements ParseNode {
                 }
                 break;
             }
+            case TIMEV2:
+            case DATETIMEV2: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                // precision: [1, 27]
+                if (precision != ScalarType.DATETIME_PRECISION) {
+                    throw new AnalysisException("Precision of Datetime/Time must be " + ScalarType.DATETIME_PRECISION
+                            + "." + " Precision was set to: " + precision + ".");
+                }
+                // scale: [0, 9]
+                if (scale < 0 || scale > 6) {
+                    throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
+                            + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
             case INVALID_TYPE:
                 throw new AnalysisException("Invalid type.");
-            default:
-                break;
+            default: break;
         }
     }
 

@@ -47,6 +47,10 @@ static IAggregateFunction* create_aggregate_function_min_max_by_impl(
         return new AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int64>>, false>(
                 value_arg_type, key_arg_type);
     }
+    if (which.idx == TypeIndex::DateV2) {
+        return new AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>, false>(
+                value_arg_type, key_arg_type);
+    }
     if (which.idx == TypeIndex::Decimal128) {
         return new AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<DecimalV2Value>>, false>(
                 value_arg_type, key_arg_type);
@@ -80,6 +84,11 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
     if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          SingleValueDataFixed<Int64>>(
+                argument_types);
+    }
+    if (which.idx == TypeIndex::DateV2) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<UInt32>>(
                 argument_types);
     }
     if (which.idx == TypeIndex::Decimal128) {

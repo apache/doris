@@ -74,6 +74,9 @@ TExprNodeType::type get_expr_node_type(PrimitiveType type) {
     case TYPE_DATETIME:
         return TExprNodeType::DATE_LITERAL;
 
+    case TYPE_DATEV2:
+        return TExprNodeType::DATE_LITERAL;
+
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
@@ -109,6 +112,8 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_DOUBLE;
     case TYPE_DATE:
         return PColumnType::COLUMN_TYPE_DATE;
+    case TYPE_DATEV2:
+        return PColumnType::COLUMN_TYPE_DATEV2;
     case TYPE_DATETIME:
         return PColumnType::COLUMN_TYPE_DATETIME;
     case TYPE_DECIMALV2:
@@ -148,6 +153,8 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_DOUBLE;
     case PColumnType::COLUMN_TYPE_DATE:
         return TYPE_DATE;
+    case PColumnType::COLUMN_TYPE_DATEV2:
+        return TYPE_DATEV2;
     case PColumnType::COLUMN_TYPE_DATETIME:
         return TYPE_DATETIME;
     case PColumnType::COLUMN_TYPE_DECIMALV2:
@@ -231,6 +238,10 @@ Status create_literal(ObjectPool* pool, PrimitiveType type, const void* data, vo
     }
     case TYPE_DOUBLE: {
         create_texpr_literal_node<double_t>(data, &node);
+        break;
+    }
+    case TYPE_DATEV2: {
+        create_texpr_literal_node<doris::vectorized::DateV2Value>(data, &node);
         break;
     }
     case TYPE_DATE:
@@ -669,6 +680,14 @@ public:
             });
             break;
         }
+        case TYPE_DATEV2: {
+            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                auto date_v2_val = column.intval();
+                set->insert(&date_v2_val);
+            });
+            break;
+        }
         case TYPE_DATETIME:
         case TYPE_DATE: {
             batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
@@ -771,6 +790,11 @@ public:
         case TYPE_DOUBLE: {
             double min_val = static_cast<double>(minmax_filter->min_val().doubleval());
             double max_val = static_cast<double>(minmax_filter->max_val().doubleval());
+            return _minmax_func->assign(&min_val, &max_val);
+        }
+        case TYPE_DATEV2: {
+            int32_t min_val = minmax_filter->min_val().intval();
+            int32_t max_val = minmax_filter->max_val().intval();
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DATETIME:
@@ -1246,6 +1270,13 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         });
         return;
     }
+    case TYPE_DATEV2: {
+        batch_copy<doris::vectorized::DateV2Value>(
+                filter, it, [](PColumnValue* column, const doris::vectorized::DateV2Value* value) {
+                    column->set_intval(*reinterpret_cast<const int32_t*>(value));
+                });
+        return;
+    }
     case TYPE_DATE:
     case TYPE_DATETIME: {
         batch_copy<DateTimeValue>(filter, it, [](PColumnValue* column, const DateTimeValue* value) {
@@ -1326,6 +1357,11 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_DOUBLE: {
         filter->mutable_min_val()->set_doubleval(*reinterpret_cast<const double*>(min_data));
         filter->mutable_max_val()->set_doubleval(*reinterpret_cast<const double*>(max_data));
+        return;
+    }
+    case TYPE_DATEV2: {
+        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
+        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
         return;
     }
     case TYPE_DATE:

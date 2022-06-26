@@ -41,7 +41,7 @@ import java.util.UUID;
 
 public class RecoverTest {
 
-    private static String runningDir = "fe/mocked/RecoverTest/" + UUID.randomUUID().toString() + "/";
+    private static String runningDir = "fe/mocked/RecoverTest/" + UUID.randomUUID() + "/";
 
     private static ConnectContext connectContext;
 
@@ -60,7 +60,8 @@ public class RecoverTest {
     }
 
     private static void createDb(String db) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database " + db, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "create database " + db, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
     }
 
@@ -75,7 +76,8 @@ public class RecoverTest {
     }
 
     private static void dropTable(String db, String tbl) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop table " + db + "." + tbl, connectContext);
+        DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "drop table " + db + "." + tbl, connectContext);
         Catalog.getCurrentCatalog().dropTable(dropTableStmt);
     }
 
@@ -86,12 +88,14 @@ public class RecoverTest {
     }
 
     private static void recoverDb(String db) throws Exception {
-        RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt("recover database " + db, connectContext);
+        RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "recover database " + db, connectContext);
         Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt);
     }
 
     private static void recoverTable(String db, String tbl) throws Exception {
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt("recover table " + db + "." + tbl, connectContext);
+        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "recover table " + db + "." + tbl, connectContext);
         Catalog.getCurrentCatalog().recoverTable(recoverTableStmt);
     }
 
@@ -136,15 +140,13 @@ public class RecoverTest {
                 + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
                 + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
-                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`,"
-                + " `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
-                + "COMMENT \"OLAP\"\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + " `model`, `brand`, `hours`) COMMENT \"OLAP\"\n"
                 + "PARTITION BY RANGE(`event_date`)\n"
                 + "(PARTITION p1 VALUES [('2020-02-27'), ('2020-03-02')),\n"
                 + "PARTITION p2 VALUES [('2020-03-02'), ('2020-03-07')))\n"
-                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`,"
-                + " `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
-                + "PROPERTIES (\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + " `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
 
@@ -186,15 +188,13 @@ public class RecoverTest {
                 + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
                 + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
-                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`,"
-                + " `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
-                + "COMMENT \"OLAP\"\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, \n"
+                + " `city`, `model`, `brand`, `hours`) COMMENT \"OLAP\"\n"
                 + "PARTITION BY RANGE(`event_date`)\n"
                 + "(PARTITION p1 VALUES [('2020-02-27'), ('2020-03-02')),\n"
                 + "PARTITION p2 VALUES [('2020-03-02'), ('2020-03-07')))\n"
-                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`,"
-                + " `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
-                + "PROPERTIES (\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + " `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
         Assert.assertTrue(checkDbExist("test"));
@@ -215,4 +215,96 @@ public class RecoverTest {
         Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
     }
 
+    @Test
+    public void testRecover2() throws Exception {
+        createDb("test2");
+        createTable("CREATE TABLE test2.`table2` (\n"
+                + "  `event_date` datetime(3) NOT NULL COMMENT \"\",\n"
+                + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `age` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `gender` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `level` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `city` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `model` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `brand` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `hours` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n"
+                + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
+                + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, \n"
+                + "`city`, `model`, `brand`, `hours`) COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`event_date`)\n"
+                + "(PARTITION p1 VALUES [('2020-02-27 00:00:00'), ('2020-03-02 00:00:00')),\n"
+                + "PARTITION p2 VALUES [('2020-03-02 00:00:00'), ('2020-03-07 00:00:00')))\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, \n"
+                + " `city`, `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
+
+        Assert.assertTrue(checkDbExist("test2"));
+        Assert.assertTrue(checkTableExist("test2", "table2"));
+
+        dropDb("test2");
+        Assert.assertFalse(checkDbExist("test2"));
+        Assert.assertFalse(checkTableExist("test2", "table2"));
+
+        recoverDb("test2");
+        Assert.assertTrue(checkDbExist("test2"));
+        Assert.assertTrue(checkTableExist("test2", "table2"));
+
+        dropTable("test2", "table2");
+        Assert.assertTrue(checkDbExist("test2"));
+        Assert.assertFalse(checkTableExist("test2", "table2"));
+
+        recoverTable("test2", "table2");
+        Assert.assertTrue(checkDbExist("test2"));
+        Assert.assertTrue(checkTableExist("test2", "table2"));
+
+        dropTable("test2", "table2");
+        Assert.assertTrue(checkDbExist("test2"));
+        Assert.assertFalse(checkTableExist("test2", "table2"));
+
+        createTable("CREATE TABLE test2.`table2` (\n"
+                + "  `event_date` datetime(3) NOT NULL COMMENT \"\",\n"
+                + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `age` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `gender` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `level` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `city` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `model` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `brand` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `hours` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n"
+                + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
+                + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + "  `model`, `brand`, `hours`) COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`event_date`)\n"
+                + "(PARTITION p1 VALUES [('2020-02-27 00:00:00'), ('2020-03-02 00:00:00')),\n"
+                + "PARTITION p2 VALUES [('2020-03-02 00:00:00'), ('2020-03-07 00:00:00')))\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + " `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
+        Assert.assertTrue(checkDbExist("test2"));
+        Assert.assertTrue(checkTableExist("test2", "table2"));
+
+        try {
+            recoverTable("test2", "table2");
+            Assert.fail("should not recover succeed");
+        } catch (DdlException e) {
+            e.printStackTrace();
+        }
+
+        Assert.assertTrue(checkPartitionExist("test2", "table2", "p1"));
+        dropPartition("test2", "table2", "p1");
+        Assert.assertFalse(checkPartitionExist("test2", "table2", "p1"));
+
+        recoverPartition("test2", "table2", "p1");
+        Assert.assertTrue(checkPartitionExist("test2", "table2", "p1"));
+    }
 }

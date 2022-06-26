@@ -69,7 +69,7 @@ public class QueryPlanTest extends TestWithFeService {
         createTable("create table test.test1\n"
                 + "(\n"
                 + "    query_id varchar(48) comment \"Unique query id\",\n"
-                + "    time datetime not null comment \"Query start time\",\n"
+                + "    time_col datetime not null comment \"Query start time\",\n"
                 + "    client_ip varchar(32) comment \"Client IP\",\n"
                 + "    user varchar(64) comment \"User name\",\n"
                 + "    db varchar(96) comment \"Database of this query\",\n"
@@ -83,7 +83,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n"
                 + "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n"
                 + ")\n"
-                + "partition by range(time) ()\n"
+                + "partition by range(time_col) ()\n"
                 + "distributed by hash(query_id) buckets 1\n"
                 + "properties(\n"
                 + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
@@ -239,15 +239,14 @@ public class QueryPlanTest extends TestWithFeService {
                 + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
                 + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
-                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
-                +
-                "COMMENT \"OLAP\"\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, "
+                + "`city`, `model`, `brand`, `hours`) COMMENT \"OLAP\"\n"
                 + "PARTITION BY RANGE(`event_date`)\n"
                 + "(PARTITION p_20200301 VALUES [('2020-02-27'), ('2020-03-02')),\n"
                 + "PARTITION p_20200306 VALUES [('2020-03-02'), ('2020-03-07')))\n"
-                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
-                +
-                "PROPERTIES (\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, "
+                + "`city`, `model`, `brand`, `hours`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
 
@@ -391,7 +390,8 @@ public class QueryPlanTest extends TestWithFeService {
 
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
-        createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as concat FROM test.test1;");
+        createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as"
+                + " concat FROM test.test1;");
 
         createTable("create table test.tbl_using_a\n"
                 + "(\n"
@@ -418,7 +418,8 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Test
     public void testFunctionViewGroupingSet() throws Exception {
-        String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup(query_id, client_ip, concat);";
+        String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup("
+                + "query_id, client_ip, concat);";
         assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]");
     }
 
@@ -698,8 +699,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "(app_name,package_name,age,gender,level,city,model,brand,hours,use_num,use_time,start_times)\n"
                 + "SET\n"
                 + "(event_date = default_value('2020-03-06'))) \n"
-                + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n"
-                + "";
+                + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n";
         LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
         Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
                 System.currentTimeMillis());
@@ -868,81 +868,102 @@ public class QueryPlanTest extends TestWithFeService {
         String caseWhenSql = "select "
                 + "case when date_format(now(),'%H%i')  < 123 then 1 else 0 end as col "
                 + "from test.test1 "
-                + "where time = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub(now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
-        Assert.assertTrue(!StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql), "CASE WHEN"));
+                + "where time_col = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub("
+                + "now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
+        Assert.assertTrue(!StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql),
+                "CASE WHEN"));
 
         // test 1: case when then
         // 1.1 multi when in on `case when` and can be converted to constants
         String sql11 = "select case when false then 2 when true then 3 else 0 end as col11;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql11), "constant exprs: \n         3"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql11),
+                "constant exprs: \n         3"));
 
         // 1.2 multi `when expr` in on `case when` ,`when expr` can not be converted to constants
-        String sql121 = "select case when false then 2 when substr(k7,2,1) then 3 else 0 end as col121 from test.baseall";
+        String sql121 = "select case when false then 2 when substr(k7,2,1) then 3 else 0 end as col121 from"
+                + " test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql121),
                 "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END"));
 
         // 1.2.2 when expr which can not be converted to constants in the first
-        String sql122 = "select case when substr(k7,2,1) then 2 when false then 3 else 0 end as col122 from test.baseall";
+        String sql122 = "select case when substr(k7,2,1) then 2 when false then 3 else 0 end as col122"
+                + " from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql122),
                 "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.2.3 test return `then expr` in the middle
         String sql124 = "select case when false then 1 when true then 2 when false then 3 else 'other' end as col124";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql124), "constant exprs: \n         '2'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql124),
+                "constant exprs: \n         '2'"));
 
         // 1.3 test return null
         String sql3 = "select case when false then 2 end as col3";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql3), "constant exprs: \n         NULL"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql3),
+                "constant exprs: \n         NULL"));
 
         // 1.3.1 test return else expr
         String sql131 = "select case when false then 2 when false then 3 else 4 end as col131";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql131), "constant exprs: \n         4"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql131),
+                "constant exprs: \n         4"));
 
         // 1.4 nest `case when` and can be converted to constants
         String sql14 = "select case when (case when true then true else false end) then 2 when false then 3 else 0 end as col";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql14), "constant exprs: \n         2"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql14),
+                "constant exprs: \n         2"));
 
         // 1.5 nest `case when` and can not be converted to constants
-        String sql15 = "select case when case when substr(k7,2,1) then true else false end then 2 when false then 3 else 0 end as col from test.baseall";
+        String sql15 = "select case when case when substr(k7,2,1) then true else false end then 2 when false then 3"
+                + " else 0 end as col from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql15),
-                "OUTPUT EXPRS:CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
+                "OUTPUT EXPRS:CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2"
+                        + " WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.6 test when expr is null
         String sql16 = "select case when null then 1 else 2 end as col16;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql16), "constant exprs: \n         2"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql16),
+                "constant exprs: \n         2"));
 
         // test 2: case xxx when then
         // 2.1 test equal
         String sql2 = "select case 1 when 1 then 'a' when 2 then 'b' else 'other' end as col2;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql2), "constant exprs: \n         'a'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql2),
+                "constant exprs: \n         'a'"));
 
         // 2.1.2 test not equal
         String sql212 = "select case 'a' when 1 then 'a' when 'a' then 'b' else 'other' end as col212;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql212), "constant exprs: \n         'b'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql212),
+                "constant exprs: \n         'b'"));
 
         // 2.2 test return null
         String sql22 = "select case 'a' when 1 then 'a' when 'b' then 'b' end as col22;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql22), "constant exprs: \n         NULL"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql22),
+                "constant exprs: \n         NULL"));
 
         // 2.2.2 test return else
         String sql222 = "select case 1 when 2 then 'a' when 3 then 'b' else 'other' end as col222;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql222), "constant exprs: \n         'other'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql222),
+                "constant exprs: \n         'other'"));
 
         // 2.3 test can not convert to constant,middle when expr is not constant
-        String sql23 = "select case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3 else 0 end as col23 from test.baseall";
+        String sql23 = "select case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3"
+                + " else 0 end as col23 from test.baseall";
         String a = getSQLPlanOrErrorMsg("explain " + sql23);
         Assert.assertTrue(StringUtils.containsIgnoreCase(a,
                 "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
-        String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col231 from test.baseall";
+        String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
+                + " as col231 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql231),
-                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0'"
+                        + " THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
-        String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col232 from test.baseall";
+        String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
+                + " as col232 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql232),
-                "OUTPUT EXPRS:CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' "
+                        + "WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
         String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
@@ -951,15 +972,18 @@ public class QueryPlanTest extends TestWithFeService {
 
         // 4.1 test null in case expr return else
         String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql41), "constant exprs: \n         'other'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql41),
+                "constant exprs: \n         'other'"));
 
         // 4.1.2 test null in case expr return null
         String sql412 = "select case null when 1 then 'a' when 2 then 'b' end as col41";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql412), "constant exprs: \n         NULL"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql412),
+                "constant exprs: \n         NULL"));
 
         // 4.2.1 test null in when expr
         String sql421 = "select case 'a' when null then 'a' else 'other' end as col421";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql421), "constant exprs: \n         'other'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql421),
+                "constant exprs: \n         'other'"));
 
         // 5.1 test same type in then expr and else expr
         String sql51 = "select case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
@@ -977,12 +1001,14 @@ public class QueryPlanTest extends TestWithFeService {
                 "OUTPUT EXPRS: `k1`"));
 
         // 5.4 test return CastExpr<SlotRef> with other SlotRef in selectListItem
-        String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall group by k2, col54, k7";
+        String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall"
+                + " group by k2, col54, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql54),
                 "OUTPUT EXPRS:<slot 3> `k2` | <slot 4> `k1` | <slot 5> `k7`"));
 
         // 5.5 test return CastExpr<CastExpr<SlotRef>> with other SlotRef in selectListItem
-        String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from test.baseall group by col55, k7";
+        String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from"
+                + " test.baseall group by col55, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql55),
                 "OUTPUT EXPRS:<slot 2> CAST(`k1` AS INT) | <slot 3> `k7`"));
     }
@@ -1012,7 +1038,8 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testConstInParitionPrune() throws Exception {
         FeConstants.runningUnitTest = true;
-        String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9 group by kk1)tt where kk1 in ('aa');";
+        String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9"
+                + " group by kk1)tt where kk1 in ('aa');";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         FeConstants.runningUnitTest = false;
         Assert.assertTrue(explainString.contains("partitions=1/1"));
@@ -1037,7 +1064,8 @@ public class QueryPlanTest extends TestWithFeService {
     public void testColocateJoin() throws Exception {
         FeConstants.runningUnitTest = true;
 
-        String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and t1.k2 = t2.k2 and t1.k3 = t2.k3";
+        String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and"
+                + " t1.k2 = t2.k2 and t1.k3 = t2.k3";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
@@ -1106,15 +1134,15 @@ public class QueryPlanTest extends TestWithFeService {
         }
 
         // single partition
-        String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2"
-                + " where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1"
+                + " and t1.k1 = t2.k2";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
 
         // not bucket shuffle join do not support different type
-        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2"
-                + " where cast (t1.k1 as tinyint) = t2.k1 and t1.k1 = t2.k2";
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint)"
+                + " = t2.k1 and t1.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
@@ -1124,37 +1152,37 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // multi partition, should not be bucket shuffle join
-        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle2 t2"
-                + " where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1"
+                + " and t1.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // left table is colocate table, should be bucket shuffle
-        queryStr = "explain select * from test.colocate1 t1, test.bucket_shuffle2 t2"
-                + " where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        queryStr = "explain select * from test.colocate1 t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1"
+                + " and t1.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // support recurse of bucket shuffle join
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2"
-                + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
-                + " on t2.k1 = t3.k1 and t2.k2 = t3.k2";
+        // TODO: support the UT in the future
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and"
+                + " t1.k1 = t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 and t2.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
 
         // support recurse of bucket shuffle because t4 join t2 and join column name is same as t2 distribute column name
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2"
-                + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
-                + " on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and t4.k1 = t2.k2";
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and"
+                + " t1.k1 = t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and"
+                + " t4.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
         // some column name in join expr t3 join t4 and t1 distribute column name, so should not be bucket shuffle join
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2"
-                + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
-                + " on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and t4.k2 = t3.k2";
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 ="
+                + " t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and"
+                + " t4.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
@@ -1362,7 +1390,8 @@ public class QueryPlanTest extends TestWithFeService {
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
 
-        queryStr = "explain select * from jointest as a where k1 = (select count(1) from jointest as b where a.k1 = b.k1);";
+        queryStr = "explain select * from jointest as a where k1 = (select count(1) from jointest as b"
+                + " where a.k1 = b.k1);";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1411,8 +1440,10 @@ public class QueryPlanTest extends TestWithFeService {
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[min_max] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`,"
+                + " RF002[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`,"
+                + " RF002[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 8);
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1535,19 +1566,19 @@ public class QueryPlanTest extends TestWithFeService {
     public void testLeadAndLagFunction() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
-        String queryStr = "explain select time, lead(query_time, 1, NULL) over () as time2 from test.test1";
+        String queryStr = "explain select time_col, lead(query_time, 1, NULL) over () as time2 from test.test1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`query_time`, 1, NULL)"));
 
-        queryStr = "explain select time, lead(query_time, 1, 2) over () as time2 from test.test1";
+        queryStr = "explain select time_col, lead(query_time, 1, 2) over () as time2 from test.test1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`query_time`, 1, 2)"));
 
-        queryStr = "explain select time, lead(time, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
+        queryStr = "explain select time_col, lead(time_col, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("lead(`time`, 1, '2020-01-01 00:00:00')"));
+        Assert.assertTrue(explainString.contains("lead(`time_col`, 1, '2020-01-01 00:00:00')"));
 
-        queryStr = "explain select time, lag(query_time, 1, 2) over () as time2 from test.test1";
+        queryStr = "explain select time_col, lag(query_time, 1, 2) over () as time2 from test.test1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
     }
@@ -1974,6 +2005,10 @@ public class QueryPlanTest extends TestWithFeService {
         rewriteDateLiteralRuleTest.testWithIntFormatDate();
         rewriteDateLiteralRuleTest.testWithInvalidFormatDate();
         rewriteDateLiteralRuleTest.testWithStringFormatDate();
+        rewriteDateLiteralRuleTest.testWithDoubleFormatDateV2();
+        rewriteDateLiteralRuleTest.testWithIntFormatDateV2();
+        rewriteDateLiteralRuleTest.testWithInvalidFormatDateV2();
+        rewriteDateLiteralRuleTest.testWithStringFormatDateV2();
         rewriteDateLiteralRuleTest.after();
     }
     // --end--

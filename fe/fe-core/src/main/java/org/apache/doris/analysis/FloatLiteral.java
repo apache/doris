@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -129,10 +130,25 @@ public class FloatLiteral extends LiteralExpr {
     public String getStringValue() {
         // TODO: Here is weird use float to represent TIME type
         // rethink whether it is reasonable to use this way
-        if (type.equals(Type.TIME)) {
+        if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
         return Double.toString(value);
+    }
+
+    public static Type getDefaultTimeType(Type type) throws AnalysisException {
+        switch (type.getPrimitiveType()) {
+            case TIME:
+                if (Config.use_date_v2_by_default) {
+                    return Type.TIMEV2;
+                } else {
+                    return Type.TIME;
+                }
+            case TIMEV2:
+                return type;
+            default:
+                throw new AnalysisException("Invalid time type: " + type);
+        }
     }
 
     @Override

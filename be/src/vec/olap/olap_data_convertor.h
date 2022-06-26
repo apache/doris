@@ -192,7 +192,12 @@ private:
 
     class OlapColumnDataConvertorDate : public OlapColumnDataConvertorPaddedPODArray<uint24_t> {
     public:
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
         Status convert_to_olap() override;
+
+    private:
+        bool from_date_v2_;
     };
 
     class OlapColumnDataConvertorDateTime : public OlapColumnDataConvertorPaddedPODArray<uint64_t> {
@@ -243,6 +248,96 @@ private:
 
     private:
         const T* _values = nullptr;
+    };
+
+    class OlapColumnDataConvertorDateV2 : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorDateV2() = default;
+        ~OlapColumnDataConvertorDateV2() override = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override {
+            OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos, num_rows);
+            if (is_date(typed_column.type)) {
+                from_date_to_date_v2_ = true;
+            } else {
+                from_date_to_date_v2_ = false;
+            }
+        }
+
+        const void* get_data() const override { return values_; }
+
+        const void* get_data_at(size_t offset) const override {
+            assert(offset < _num_rows);
+            UInt8 null_flag = 0;
+            if (_nullmap) {
+                null_flag = _nullmap[offset];
+            }
+            return null_flag ? nullptr : values_ + offset;
+        }
+
+        Status convert_to_olap() override {
+            if (UNLIKELY(from_date_to_date_v2_)) {
+                const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
+                if (_nullmap) {
+                    auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
+                            _typed_column.column.get());
+                    column_datetime =
+                            assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
+                                    nullable_column->get_nested_column_ptr().get());
+                } else {
+                    column_datetime =
+                            assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
+                                    _typed_column.column.get());
+                }
+
+                assert(column_datetime);
+
+                const VecDateTimeValue* datetime_cur =
+                        (const VecDateTimeValue*)(column_datetime->get_data().data()) + _row_pos;
+                const VecDateTimeValue* datetime_end = datetime_cur + _num_rows;
+                uint32_t* value = const_cast<uint32_t*>(values_);
+                if (_nullmap) {
+                    const UInt8* nullmap_cur = _nullmap + _row_pos;
+                    while (datetime_cur != datetime_end) {
+                        if (!*nullmap_cur) {
+                            *value = datetime_cur->to_date_v2();
+                        } else {
+                            // do nothing
+                        }
+                        ++value;
+                        ++datetime_cur;
+                        ++nullmap_cur;
+                    }
+                } else {
+                    while (datetime_cur != datetime_end) {
+                        *value = datetime_cur->to_olap_date();
+                        ++value;
+                        ++datetime_cur;
+                    }
+                }
+                return Status::OK();
+            } else {
+                const vectorized::ColumnVector<uint32>* column_data = nullptr;
+                if (_nullmap) {
+                    auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
+                            _typed_column.column.get());
+                    column_data = assert_cast<const vectorized::ColumnVector<uint32>*>(
+                            nullable_column->get_nested_column_ptr().get());
+                } else {
+                    column_data = assert_cast<const vectorized::ColumnVector<uint32>*>(
+                            _typed_column.column.get());
+                }
+
+                assert(column_data);
+                values_ = (const uint32*)(column_data->get_data().data()) + _row_pos;
+                return Status::OK();
+            }
+        }
+
+    private:
+        const uint32_t* values_ = nullptr;
+        bool from_date_to_date_v2_;
     };
 
     class OlapColumnDataConvertorArray

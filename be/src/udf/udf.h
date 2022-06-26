@@ -87,7 +87,10 @@ public:
         TYPE_DECIMALV2,
         TYPE_OBJECT,
         TYPE_ARRAY,
-        TYPE_QUANTILE_STATE
+        TYPE_QUANTILE_STATE,
+        TYPE_DATEV2,
+        TYPE_DATETIMEV2,
+        TYPE_TIMEV2
     };
 
     struct TypeDesc {

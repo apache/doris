@@ -84,7 +84,7 @@ public class RangePartitionInfo extends PartitionInfo {
 
         // generate partitionItemEntryList
         List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType
-                ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
+                        ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
 
         if (isFixedPartitionKeyValueType) {
             return createNewRangeForFixedPartitionValueType(partKeyDesc, partitionItemEntryList);
@@ -139,8 +139,8 @@ public class RangePartitionInfo extends PartitionInfo {
 
     private Range<PartitionKey> createNewRangeForLessThanPartitionValueType(PartitionKey newRangeUpper,
             Range<PartitionKey> lastRange, Range<PartitionKey> currentRange) throws AnalysisException, DdlException {
-        PartitionKey lowKey = lastRange == null ? PartitionKey.createInfinityPartitionKey(partitionColumns, false)
-                : lastRange.upperEndpoint();
+        PartitionKey lowKey = lastRange == null
+                ? PartitionKey.createInfinityPartitionKey(partitionColumns, false) : lastRange.upperEndpoint();
 
         // check: [left, right), error if left equal right
         if (lowKey.compareTo(newRangeUpper) >= 0) {

@@ -91,6 +91,10 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType>(
                     type_info, is_nullable));
             break;
+        case OLAP_FIELD_TYPE_DATEV2:
+            local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType>(
+                    type_info, is_nullable));
+            break;
         case OLAP_FIELD_TYPE_DATETIME:
             local.reset(
                     new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType>(

@@ -175,7 +175,9 @@ public class PartitionRange {
             switch (type.getPrimitiveType()) {
                 case BOOLEAN:
                 case TIME:
+                case TIMEV2:
                 case DATETIME:
+                case DATETIMEV2:
                 case FLOAT:
                 case DOUBLE:
                 case DECIMALV2:
@@ -186,6 +188,7 @@ public class PartitionRange {
                     LOG.info("PartitionCache not support such key type {}", type.toSql());
                     return false;
                 case DATE:
+                case DATEV2:
                     date = getDateValue(expr);
                     keyType = KeyType.DATE;
                     break;

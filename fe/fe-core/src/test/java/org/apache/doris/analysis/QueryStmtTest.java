@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.FoldConstantsRule;
@@ -62,6 +61,7 @@ public class QueryStmtTest {
                 + "  `citycode` smallint(6) NULL COMMENT \"\",\n"
                 + "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n"
                 + "  `workDateTime` datetime NOT NULL COMMENT \"\",\n"
+                + "  `workDateTimeV2` datetime NOT NULL COMMENT \"\",\n"
                 + "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
                 + "UNIQUE KEY(`siteid`, `citycode`, `username`)\n"
@@ -220,16 +220,33 @@ public class QueryStmtTest {
         Assert.assertEquals(1, constMap.size());
 
         // expr in subquery associate with column in grandparent level
-        sql = "WITH aa AS\n" + "        (SELECT DATE_FORMAT(workDateTime, '%Y-%m') mon,\n" + "                siteid\n"
+        sql = "WITH aa AS\n"
+                + "        (SELECT DATE_FORMAT(workDateTime, '%Y-%m') mon,\n"
+                + "                DATE_FORMAT(workDateTimeV2, '%Y-%m') mon1,\n"
+                + "                siteid\n"
                 + "                FROM db1.table1\n"
                 + "                WHERE workDateTime >= concat(year(now())-1, '-01-01 00:00:00')\n"
-                + "                AND workDateTime < now()\n" + "                GROUP BY siteid,\n"
-                + "                DATE_FORMAT(workDateTime, '%Y-%m')),\n" + "        bb AS\n"
-                + "        (SELECT mon,\n" + "                count(DISTINCT siteid) total\n"
-                + "                FROM aa\n" + "                GROUP BY mon),\n" + "        cc AS\n"
-                + "        (SELECT mon,\n" + "                count(DISTINCT siteid) num\n"
-                + "                FROM aa\n" + "                GROUP BY mon)\n" + "SELECT bb.mon,\n"
-                + "        round(cc.num / bb.total, 4) rate\n" + "FROM bb\n" + "LEFT JOIN cc ON cc.mon = bb.mon\n"
+                + "                AND workDateTimeV2 >= concat(year(now())-1, '-01-01 00:00:00')\n"
+                + "                AND workDateTimeV2 >= concat(year(now())-1, '-01-01 00:00:00.000000')\n"
+                + "                AND workDateTime < now()\n"
+                + "                AND workDateTimeV2 < now()\n"
+                + "                GROUP BY siteid,\n"
+                + "                DATE_FORMAT(workDateTime, '%Y-%m'),\n"
+                + "                DATE_FORMAT(workDateTimeV2, '%Y-%m')),\n"
+                + "        bb AS\n"
+                + "        (SELECT mon,\n"
+                + "                count(DISTINCT siteid) total\n"
+                + "                FROM aa\n"
+                + "                GROUP BY mon),\n"
+                + "        cc AS\n"
+                + "        (SELECT mon,\n"
+                + "                 count(DISTINCT siteid) num\n"
+                + "                FROM aa\n"
+                + "                GROUP BY mon)\n"
+                + "SELECT bb.mon,\n"
+                + "        round(cc.num / bb.total, 4) rate\n"
+                + "FROM bb\n"
+                + "LEFT JOIN cc ON cc.mon = bb.mon\n"
                 + "ORDER BY mon;";
 
         // When disable vec engine, this sql can be analyzed successfully.
@@ -241,17 +258,10 @@ public class QueryStmtTest {
             stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
             exprsMap.clear();
             stmt.collectExprs(exprsMap);
-            Assert.assertEquals(18, exprsMap.size());
+            Assert.assertEquals(24, exprsMap.size());
             constMap.clear();
             constMap = getConstantExprMap(exprsMap, analyzer);
-            Assert.assertEquals(4, constMap.size());
-        } else {
-            try {
-                UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-                Assert.fail();
-            } catch (VecNotImplException e) {
-                Assert.assertTrue(e.getMessage().contains("could not be changed to nullable"));
-            }
+            Assert.assertEquals(10, constMap.size());
         }
     }
 
