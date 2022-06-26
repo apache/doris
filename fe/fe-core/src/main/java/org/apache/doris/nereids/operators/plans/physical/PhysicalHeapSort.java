@@ -36,29 +36,23 @@ public class PhysicalHeapSort extends PhysicalUnaryOperator {
     // Default offset is 0.
     private final int offset;
 
-    private final List<OrderKey> orderList;
-    private final boolean useTopN;
+    private final List<OrderKey> orderKeys;
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalHeapSort(List<OrderKey> orderList, long limit, int offset, boolean useTopN) {
+    public PhysicalHeapSort(List<OrderKey> orderKeys, long limit, int offset) {
         super(OperatorType.PHYSICAL_SORT, limit);
         this.offset = offset;
-        this.orderList = orderList;
-        this.useTopN = useTopN;
+        this.orderKeys = orderKeys;
     }
 
     public int getOffset() {
         return offset;
     }
 
-    public List<OrderKey> getOrderList() {
-        return orderList;
-    }
-
-    public boolean isUseTopN() {
-        return useTopN;
+    public List<OrderKey> getOrderKeys() {
+        return orderKeys;
     }
 
     public boolean hasLimit() {
@@ -73,6 +67,6 @@ public class PhysicalHeapSort extends PhysicalUnaryOperator {
     @Override
     public List<Expression> getExpressions() {
         return ImmutableList.<Expression>builder()
-                .addAll(orderList.stream().map(o -> o.getExpr()).collect(Collectors.toList())).build();
+                .addAll(orderKeys.stream().map(o -> o.getExpr()).collect(Collectors.toList())).build();
     }
 }

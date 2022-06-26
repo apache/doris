@@ -36,6 +36,7 @@ import java.util.List;
  * eg:select a, sum(b), c from table group by a, c;
  * groupByExpressions: Column field after group by. eg: a, c;
  * outputExpressions: Column field after select. eg: a, sum(b), c;
+ * partitionExprList: Column field after partition by.
  * <p>
  * Each agg node only contains the select statement field of the same layer,
  * and other agg nodes in the subquery contain.
@@ -58,7 +59,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
     }
 
     public List<Expression> getPartitionExprList() {
-        return partitionExprList;
+        return partitionExprList == null ? groupByExprList : partitionExprList;
     }
 
     public void setPartitionExprList(List<Expression> partitionExprList) {
@@ -79,8 +80,8 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Aggregation (" + "aggExprList: " + StringUtils.join(outputExpressionList, ", ") + ", groupByExprList: "
-                + StringUtils.join(groupByExprList, ", ") + ")";
+        return "Aggregation (" + "outputExpressionList: " + StringUtils.join(outputExpressionList, ", ")
+                + ", groupByExprList: " + StringUtils.join(groupByExprList, ", ") + ")";
     }
 
     @Override
@@ -96,6 +97,6 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(aggExprList).build();
+        return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(outputExpressionList).build();
     }
 }

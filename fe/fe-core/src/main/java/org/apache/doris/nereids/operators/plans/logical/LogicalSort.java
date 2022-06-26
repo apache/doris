@@ -34,10 +34,10 @@ import java.util.stream.Collectors;
  * Logical Sort plan operator.
  * <p>
  * eg: select * from table order by a, b desc;
- * sortItems: list of column information after order by. eg:[a, asc],[b, desc].
- * SortItems: Contains order expression information and sorting method. Default is ascending.
+ * orderKeys: list of column information after order by. eg:[a, asc],[b, desc].
+ * OrderKey: Contains order expression information and sorting method. Default is ascending.
  */
-public class LogicalHeapSort extends LogicalUnaryOperator {
+public class LogicalSort extends LogicalUnaryOperator {
 
     // Default offset is 0.
     private int offset = 0;
@@ -45,9 +45,9 @@ public class LogicalHeapSort extends LogicalUnaryOperator {
     private final List<OrderKey> orderKeys;
 
     /**
-     * Constructor for SortItems.
+     * Constructor for LogicalSort.
      */
-    public LogicalHeapSort(List<OrderKey> orderKeys) {
+    public LogicalSort(List<OrderKey> orderKeys) {
         super(OperatorType.LOGICAL_SORT);
         this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
     }

@@ -96,9 +96,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 .map(e -> ExpressionConverter.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
 
-        List<NamedExpression> aggExpressionList = physicalAggregation.getAggExprList();
+        List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         // TODO: agg function could be other expr type either
-        ArrayList<FunctionCallExpr> execAggExpressions = aggExpressionList.stream()
+        ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
                 .map(e -> (FunctionCallExpr) ExpressionConverter.convert(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
@@ -151,6 +151,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     public PlanFragment visitPhysicalSort(PhysicalUnaryPlan<PhysicalHeapSort, Plan> sort,
             PlanTranslatorContext context) {
         PlanFragment childFragment = visit(sort.child(0), context);
+        // TODO: Why doesn't the sort node translate if the childfragment is a single instance?
         PhysicalHeapSort physicalHeapSort = sort.getOperator();
         if (!childFragment.isPartitioned()) {
             return childFragment;
@@ -161,7 +162,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<Boolean> ascOrderList = Lists.newArrayList();
         List<Boolean> nullsFirstParamList = Lists.newArrayList();
 
-        List<OrderKey> orderKeyList = physicalHeapSort.getOrderList();
+        List<OrderKey> orderKeyList = physicalHeapSort.getOrderKeys();
         orderKeyList.forEach(k -> {
             execOrderingExprList.add(ExpressionConverter.convert(k.getExpr(), context));
             ascOrderList.add(k.isAsc());
@@ -173,7 +174,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         SortInfo sortInfo = new SortInfo(execOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
 
         PlanNode childNode = childFragment.getPlanRoot();
-        SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, physicalHeapSort.isUseTopN(),
+        // TODO: notice topN
+        SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, true,
                 physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
 
         PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);

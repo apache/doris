@@ -25,11 +25,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * Implementation rule that convert logical aggregation to physical hash aggregation.
  */
-public class LogicalAggToHashAgg extends OneImplementationRuleFactory {
+public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return logicalAggregation().then(agg -> plan(
             new PhysicalAggregation(
+                // TODO: for use a function to judge whether use stream
                 agg.getOperator().getGroupByExprList(),
                 agg.getOperator().getOutputExpressionList(),
                 agg.getOperator().getPartitionExprList(),
@@ -37,6 +38,6 @@ public class LogicalAggToHashAgg extends OneImplementationRuleFactory {
                 false),
             agg.getLogicalProperties(),
             agg.child()
-        )).toRule(RuleType.LOGICAL_AGG_TO_HASH_AGG_RULE);
+        )).toRule(RuleType.LOGICAL_AGG_TO_PHYSICAL_HASH_AGG_RULE);
     }
 }

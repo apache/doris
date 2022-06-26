@@ -36,7 +36,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
 
-    private final List<NamedExpression> aggExprList;
+    private final List<NamedExpression> outputExpressionList;
 
     private final List<Expression> partitionExprList;
 
@@ -48,15 +48,15 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
      * Constructor of PhysicalAggNode.
      *
      * @param groupByExprList group by expr list.
-     * @param aggExprList agg expr list.
+     * @param outputExpressionList agg expr list.
      * @param partitionExprList partition expr list, used for analytic agg.
      * @param usingStream whether it's stream agg.
      */
-    public PhysicalAggregation(List<Expression> groupByExprList, List<NamedExpression> aggExprList,
+    public PhysicalAggregation(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList,
             List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
         super(OperatorType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
-        this.aggExprList = aggExprList;
+        this.outputExpressionList = outputExpressionList;
         this.aggPhase = aggPhase;
         this.partitionExprList = partitionExprList;
         this.usingStream = usingStream;
@@ -70,8 +70,8 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
         return groupByExprList;
     }
 
-    public List<NamedExpression> getAggExprList() {
-        return aggExprList;
+    public List<NamedExpression> getOutputExpressionList() {
+        return outputExpressionList;
     }
 
     public boolean isUsingStream() {
@@ -89,7 +89,8 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(aggExprList)
+        // TODO: partitionExprList maybe null.
+        return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(outputExpressionList)
                 .addAll(partitionExprList).build();
     }
 }

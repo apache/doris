@@ -45,6 +45,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case 1: {
                     List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
                     Table table = getTable(qualifier, connectContext.getCatalog());
+                    // TODO: should generate different Scan sub class according to table's type
                     LogicalOlapScan olapScan = new LogicalOlapScan(table, qualifier);
                     return new LogicalLeafPlan<>(olapScan);
                 }
