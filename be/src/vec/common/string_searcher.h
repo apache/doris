@@ -620,7 +620,7 @@ public:
     ALWAYS_INLINE bool compare(const CharT* /*haystack*/, const CharT* /*haystack_end*/,
                                const CharT* pos) const {
 #ifdef __SSE4_1__
-        if (page_safe(pos)) {
+        if (needle_end - needle > n && page_safe(pos)) {
             const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
             const auto v_against_cache = _mm_cmpeq_epi8(v_haystack, cache);
             const auto mask = _mm_movemask_epi8(v_against_cache);
