@@ -28,7 +28,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -38,7 +37,6 @@ import com.google.common.collect.Maps;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -322,18 +320,6 @@ public class CatalogTestUtil {
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
         Backend backend = new Backend(id, host, heartPort);
         // backend.updateOnce(bePort, httpPort, 10000);
-        backend.setAlive(true);
-        return backend;
-    }
-
-    public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort,
-            long totalCapacityB, long avaiLabelCapacityB) {
-        Backend backend = createBackend(id, host, heartPort, bePort, httpPort);
-        Map<String, TDisk> backendDisks = new HashMap<String, TDisk>();
-        String rootPath = "root_path";
-        TDisk disk = new TDisk(rootPath, totalCapacityB, avaiLabelCapacityB, true);
-        backendDisks.put(rootPath, disk);
-        backend.updateDisks(backendDisks);
         backend.setAlive(true);
         return backend;
     }

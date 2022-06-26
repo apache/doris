@@ -4597,6 +4597,21 @@ public class Catalog {
     public void convertDistributionType(Database db, OlapTable tbl) throws DdlException {
         tbl.writeLockOrDdlException();
         try {
+            if (tbl.isColocateTable()) {
+                throw new DdlException("Cannot change distribution type of colocate table.");
+            }
+            if (tbl.getKeysType() == KeysType.UNIQUE_KEYS) {
+                throw new DdlException("Cannot change distribution type of unique keys table.");
+            }
+            if (tbl.getKeysType() == KeysType.AGG_KEYS) {
+                for (Column column : tbl.getBaseSchema()) {
+                    if (column.getAggregationType() == AggregateType.REPLACE
+                            || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
+                        throw new DdlException("Cannot change distribution type of aggregate keys table which has value"
+                            + " columns with " + column.getAggregationType() + " type.");
+                    }
+                }
+            }
             if (!tbl.convertHashDistributionToRandomDistribution()) {
                 throw new DdlException("Table " + tbl.getName() + " is not hash distributed");
             }

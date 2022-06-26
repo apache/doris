@@ -31,11 +31,13 @@ import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -47,6 +49,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -62,7 +65,10 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -353,7 +359,7 @@ public class SchemaChangeJobV2Test {
         Assert.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
     }
 
-    public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue, String missPropertyKey)
+    public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue)
             throws UserException {
         fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(masterCatalog);
@@ -375,11 +381,11 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testModifyDynamicPartitionWithoutTableProperty() throws UserException {
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.ENABLE, "false", DynamicPartitionProperty.TIME_UNIT);
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.TIME_UNIT, "day", DynamicPartitionProperty.ENABLE);
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.END, "3", DynamicPartitionProperty.ENABLE);
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.PREFIX, "p", DynamicPartitionProperty.ENABLE);
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.BUCKETS, "30", DynamicPartitionProperty.ENABLE);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.ENABLE, "false");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.TIME_UNIT, "day");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.END, "3");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.PREFIX, "p");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.BUCKETS, "30");
     }
 
     @Test
@@ -432,5 +438,65 @@ public class SchemaChangeJobV2Test {
         Assert.assertTrue(olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
         Partition partition1 = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         Assert.assertTrue(partition1.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
+    }
+
+    @Test
+    public void testAbnormalModifyTableDistributionType1(@Injectable OlapTable table) throws UserException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+        FakeCatalog.setCatalog(masterCatalog);
+        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        new Expectations() {
+            {
+                table.isColocateTable();
+                result = true;
+            }
+        };
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change distribution type of colocate table.");
+        Catalog.getCurrentCatalog().convertDistributionType(db, table);
+    }
+
+    @Test
+    public void testAbnormalModifyTableDistributionType2(@Injectable OlapTable table) throws UserException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+        FakeCatalog.setCatalog(masterCatalog);
+        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        new Expectations() {
+            {
+                table.isColocateTable();
+                result = false;
+                table.getKeysType();
+                result = KeysType.UNIQUE_KEYS;
+            }
+        };
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change distribution type of unique keys table.");
+        Catalog.getCurrentCatalog().convertDistributionType(db, table);
+    }
+
+    @Test
+    public void testAbnormalModifyTableDistributionType3(@Injectable OlapTable table) throws UserException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+        FakeCatalog.setCatalog(masterCatalog);
+        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        new Expectations() {
+            {
+                table.isColocateTable();
+                result = false;
+                table.getKeysType();
+                result = KeysType.AGG_KEYS;
+                table.getBaseSchema();
+                result = Lists.newArrayList(
+                    new Column("k1", Type.INT, true, null, "0", ""),
+                    new Column("v1", Type.INT, false, AggregateType.REPLACE, "0", ""));
+            }
+        };
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change "
+                + "distribution type of aggregate keys table which has value columns with REPLACE type.");
+        Catalog.getCurrentCatalog().convertDistributionType(db, table);
     }
 }
