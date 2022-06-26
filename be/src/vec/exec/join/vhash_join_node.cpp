@@ -1358,13 +1358,25 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
                          : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(
                                    _output_row_desc));
     auto rows = origin_block->rows();
+    // TODO: After FE plan support same nullable of output expr and origin block and mutable column
+    // we should repalce `insert_column_datas` by `insert_range_from`
+
+    auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
+        if (to->is_nullable() && !from.is_nullable()) {
+            auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
+            null_column.get_nested_column().insert_range_from(from, 0, rows);
+            null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+        } else {
+            to->insert_range_from(from, 0, rows);
+        }
+    };
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
             DCHECK(mutable_columns.size() == origin_block->columns());
             for (int i = 0; i < mutable_columns.size(); ++i) {
-                mutable_columns[i]->insert_range_from(*origin_block->get_by_position(i).column, 0,
-                                                      rows);
+                insert_column_datas(mutable_columns[i], *origin_block->get_by_position(i).column,
+                                    rows);
             }
         } else {
             DCHECK(mutable_columns.size() == _output_expr_ctxs.size());
@@ -1373,7 +1385,7 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
                 auto column_ptr = origin_block->get_by_position(result_column_id)
                                           .column->convert_to_full_column_if_const();
-                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+                insert_column_datas(mutable_columns[i], *column_ptr, rows);
             }
         }
 
