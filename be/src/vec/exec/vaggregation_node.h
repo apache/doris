@@ -433,6 +433,7 @@ private:
 
     bool _needs_finalize;
     bool _is_merge;
+    bool _is_update_stage;
     std::unique_ptr<MemPool> _mem_pool;
 
     size_t _align_aggregate_states = 1;

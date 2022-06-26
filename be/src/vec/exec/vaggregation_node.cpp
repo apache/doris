@@ -119,6 +119,11 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
                             [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });
+
+    // only corner case in query : https://github.com/apache/doris/issues/10302
+    // agg will do merge in update stage. in this case the merge function should use probe expr (slotref) column
+    // id to do merge like update function
+    _is_update_stage = tnode.agg_node.is_update_stage;
     return Status::OK();
 }
 
@@ -526,12 +531,14 @@ Status AggregationNode::_merge_without_key(Block* block) {
     std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
     int rows = block->rows();
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-        int col_id =
-                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
         if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(col_id).column;
+            auto column =
+                    block->get_by_position(_is_update_stage ? ((VSlotRef*)_aggregate_evaluators[i]
+                                                                       ->input_exprs_ctxs()[0]
+                                                                       ->root())
+                                                                      ->column_id()
+                                                            : i)
+                            .column;
             if (column->is_nullable()) {
                 column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
             }
@@ -1050,12 +1057,14 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
     std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-        int col_id =
-                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
         if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(col_id).column;
+            auto column =
+                    block->get_by_position(_is_update_stage ? ((VSlotRef*)_aggregate_evaluators[i]
+                                                                       ->input_exprs_ctxs()[0]
+                                                                       ->root())
+                                                                      ->column_id()
+                                                            : i + key_size)
+                            .column;
             if (column->is_nullable()) {
                 column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
             }

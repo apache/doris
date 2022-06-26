@@ -277,6 +277,7 @@ public class AggregationNode extends PlanNode {
                   aggInfo.getIntermediateTupleId().asInt(),
                   aggInfo.getOutputTupleId().asInt(), needsFinalize);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
+        msg.agg_node.setIsUpdateStage(!aggInfo.isMerge());
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));

@@ -204,7 +204,7 @@ class AssociativeGenericApplierImpl {
 public:
     /// Remembers the last N columns from `in`.
     AssociativeGenericApplierImpl(const ColumnRawPtrs& in)
-            : val_getter{ValueGetterBuilder::build(in[in.size() - N])}, next{in} {}
+            : val_getter {ValueGetterBuilder::build(in[in.size() - N])}, next {in} {}
 
     /// Returns a combination of values in the i-th row of all columns stored in the constructor.
     inline ResultValueType apply(const size_t i) const {
@@ -227,7 +227,7 @@ class AssociativeGenericApplierImpl<Op, 1> {
 public:
     /// Remembers the last N columns from `in`.
     AssociativeGenericApplierImpl(const ColumnRawPtrs& in)
-            : val_getter{ValueGetterBuilder::build(in[in.size() - 1])} {}
+            : val_getter {ValueGetterBuilder::build(in[in.size() - 1])} {}
 
     inline ResultValueType apply(const size_t i) const { return val_getter(i); }
 
@@ -449,14 +449,20 @@ Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* contex
                                                          size_t result_index,
                                                          size_t input_rows_count) {
     ColumnRawPtrs args_in;
-    for (const auto arg_index : arguments)
-        args_in.push_back(block.get_by_position(arg_index).column.get());
+    bool is_nullable = false;
+    for (const auto arg_index : arguments) {
+        auto& data = block.get_by_position(arg_index);
+        args_in.push_back(data.column.get());
+        is_nullable |= data.column->is_nullable();
+    }
 
     auto& result_info = block.get_by_position(result_index);
-    if (result_info.type->is_nullable())
+    if (is_nullable) {
+        result_info.type = make_nullable(result_info.type);
         execute_for_ternary_logic_impl<Impl>(std::move(args_in), result_info, input_rows_count);
-    else
+    } else {
         basic_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
+    }
     return Status::OK();
 }
 
