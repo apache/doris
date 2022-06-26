@@ -79,7 +79,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
 
     @Override
     public Alias<CHILD_TYPE> clone() {
-        CHILD_TYPE child_type = (CHILD_TYPE) children.get(0).clone();
-        return new Alias<>(child_type, name);
+        CHILD_TYPE childType = (CHILD_TYPE) children.get(0).clone();
+        return new Alias<>(childType, name);
     }
 }

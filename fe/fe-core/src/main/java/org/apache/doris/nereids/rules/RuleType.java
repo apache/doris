@@ -32,9 +32,9 @@ public enum RuleType {
     BINDING_SENTINEL(RuleTypeClass.REWRITE),
 
     // rewrite rules
+    REWRITE_AGG(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
-    REWRITE_AGG(RuleTypeClass.REWRITE),
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE(RuleTypeClass.EXPLORATION),

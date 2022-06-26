@@ -37,11 +37,6 @@ public class FunctionCall extends Expression {
 
     private DataType retType;
 
-    // Used to construct output, this type may differ from above retType
-    // when the intermediate type of aggregate function is not same
-    // as its return type
-    private DataType type;
-
     public FunctionCall(FunctionName functionName, FunctionParams functionParams) {
         super(NodeType.FUNCTIONCALL, functionParams.getExpression().toArray(new Expression[0]));
         this.fnName = functionName;
@@ -78,11 +73,7 @@ public class FunctionCall extends Expression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return super.getDataType();
-    }
-
-    public void setType(DataType type) {
-        this.type = type;
+        return retType;
     }
 
     @Override
@@ -92,6 +83,6 @@ public class FunctionCall extends Expression {
                 .stream()
                 .map(Expression::clone)
                 .collect(Collectors.toList());
-       return new FunctionCall(fnName, new FunctionParams(fnParams.isDistinct(), paramExprList));
+        return new FunctionCall(fnName, new FunctionParams(fnParams.isDistinct(), paramExprList));
     }
 }

@@ -50,9 +50,9 @@ public class AggregateRewrite extends OneRewriteRuleFactory {
             Plan plan = ctx.root;
             Operator operator = plan.getOperator();
             LogicalAggregation agg = (LogicalAggregation) operator;
-            List<NamedExpression> namedExpressionList = agg.getOutputExpressions();
+            List<NamedExpression> outputExpressionList = agg.getOutputExpressions();
             List<NamedExpression> intermediateAggExpressionList = agg.getOutputExpressions();
-            for (NamedExpression namedExpression : namedExpressionList) {
+            for (NamedExpression namedExpression : outputExpressionList) {
                 namedExpression = (NamedExpression) namedExpression.clone();
                 List<Expression> children = namedExpression.children();
                 for (Expression child : children) {
@@ -76,7 +76,7 @@ public class AggregateRewrite extends OneRewriteRuleFactory {
                     Type staleIntermediateType = staleAggFunc.getIntermediateType();
                     Type staleRetType = staleAggFunc.getReturnType();
                     if (staleIntermediateType != null && !staleIntermediateType.equals(staleRetType)) {
-                        functionCall.setType(DataType.convertFromCatalogDataType(staleIntermediateType));
+                        functionCall.setRetType(DataType.convertFromCatalogDataType(staleIntermediateType));
                     }
                 }
                 intermediateAggExpressionList.add(namedExpression);
@@ -86,8 +86,11 @@ public class AggregateRewrite extends OneRewriteRuleFactory {
                     agg.getOutputExpressions(),
                     true
             );
-            agg.setOutputExpressions(intermediateAggExpressionList);
-            return plan(mergeAgg, plan);
+            LogicalAggregation localAgg = new LogicalAggregation(
+                    agg.getGroupByExpressions(),
+                    intermediateAggExpressionList
+            );
+            return plan(mergeAgg, plan(localAgg, plan.child(0)));
         }).toRule(RuleType.REWRITE_AGG);
     }
 }
