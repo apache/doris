@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -90,9 +91,6 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("hive");
         engineNames.add("iceberg");
     }
-
-    // for backup. set to -1 for normal use
-    private int tableSignature;
 
     public CreateTableStmt() {
         // for persist
@@ -164,7 +162,6 @@ public class CreateTableStmt extends DdlStmt {
         this.ifNotExists = ifNotExists;
         this.comment = Strings.nullToEmpty(comment);
 
-        this.tableSignature = -1;
         this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
     }
 
@@ -238,14 +235,6 @@ public class CreateTableStmt extends DdlStmt {
 
     public String getDbName() {
         return tableName.getDb();
-    }
-
-    public void setTableSignature(int tableSignature) {
-        this.tableSignature = tableSignature;
-    }
-
-    public int getTableSignature() {
-        return tableSignature;
     }
 
     public void setTableName(String newTableName) {
@@ -427,6 +416,20 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
             distributionDesc.analyze(columnSet, columnDefs);
+            if (distributionDesc.type == DistributionInfo.DistributionInfoType.RANDOM) {
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+                    throw new AnalysisException("Create unique keys table should not contain random distribution desc");
+                } else if (keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+                    for (ColumnDef columnDef : columnDefs) {
+                        if (columnDef.getAggregateType() == AggregateType.REPLACE
+                                || columnDef.getAggregateType() == AggregateType.REPLACE_IF_NOT_NULL) {
+                            throw new AnalysisException("Create aggregate keys table with value columns of which"
+                                + " aggregate type is " + columnDef.getAggregateType() + " should not contain random"
+                                + " distribution desc");
+                        }
+                    }
+                }
+            }
         } else if (engineName.equalsIgnoreCase("elasticsearch")) {
             EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {
