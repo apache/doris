@@ -49,7 +49,7 @@ public class LogicalHeapSort extends LogicalUnaryOperator {
      */
     public LogicalHeapSort(List<OrderKey> orderKeys) {
         super(OperatorType.LOGICAL_SORT);
-        this.orderKeys = Objects.requireNonNull(orderKeys, "sorItems can not be null");
+        this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
     }
 
     @Override

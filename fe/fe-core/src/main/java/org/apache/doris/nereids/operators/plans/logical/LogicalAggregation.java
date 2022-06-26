@@ -43,7 +43,7 @@ import java.util.List;
 public class LogicalAggregation extends LogicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
-    private final List<NamedExpression> aggExprList;
+    private final List<NamedExpression> outputExpressionList;
     private List<Expression> partitionExprList;
 
     private AggPhase aggPhase;
@@ -51,10 +51,10 @@ public class LogicalAggregation extends LogicalUnaryOperator {
     /**
      * Desc: Constructor for LogicalAggregation.
      */
-    public LogicalAggregation(List<Expression> groupByExprList, List<NamedExpression> aggExprList) {
+    public LogicalAggregation(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList) {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
-        this.aggExprList = aggExprList;
+        this.outputExpressionList = outputExpressionList;
     }
 
     public List<Expression> getPartitionExprList() {
@@ -69,8 +69,8 @@ public class LogicalAggregation extends LogicalUnaryOperator {
         return groupByExprList;
     }
 
-    public List<NamedExpression> getAggExprList() {
-        return aggExprList;
+    public List<NamedExpression> getOutputExpressionList() {
+        return outputExpressionList;
     }
 
     public AggPhase getAggPhase() {
@@ -79,13 +79,13 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Aggregation (" + "aggExprList: " + StringUtils.join(aggExprList, ", ") + ", groupByExprList: "
+        return "Aggregation (" + "aggExprList: " + StringUtils.join(outputExpressionList, ", ") + ", groupByExprList: "
                 + StringUtils.join(groupByExprList, ", ") + ")";
     }
 
     @Override
     public List<Slot> computeOutput(Plan input) {
-        return aggExprList.stream().map(namedExpr -> {
+        return outputExpressionList.stream().map(namedExpr -> {
             try {
                 return namedExpr.toSlot();
             } catch (UnboundException e) {

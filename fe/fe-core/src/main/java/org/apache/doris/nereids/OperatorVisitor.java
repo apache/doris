@@ -44,7 +44,7 @@ public abstract class OperatorVisitor<R, C> {
         return null;
     }
 
-    public R visitPhysicalSort(PhysicalHeapSort physicalHeapSort, C context) {
+    public R visitPhysicalHeapSort(PhysicalHeapSort physicalHeapSort, C context) {
         return null;
     }
 

@@ -37,7 +37,6 @@ public class PhysicalHeapSort extends PhysicalUnaryOperator {
     private final int offset;
 
     private final List<OrderKey> orderList;
-    // TODO(wj): Do we need it? If offset is 0 and limit != 0, we can think it's topN.
     private final boolean useTopN;
 
     /**

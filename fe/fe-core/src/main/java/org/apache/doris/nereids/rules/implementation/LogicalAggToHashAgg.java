@@ -31,7 +31,7 @@ public class LogicalAggToHashAgg extends OneImplementationRuleFactory {
         return logicalAggregation().then(agg -> plan(
             new PhysicalAggregation(
                 agg.getOperator().getGroupByExprList(),
-                agg.getOperator().getAggExprList(),
+                agg.getOperator().getOutputExpressionList(),
                 agg.getOperator().getPartitionExprList(),
                 agg.getOperator().getAggPhase(),
                 false),
