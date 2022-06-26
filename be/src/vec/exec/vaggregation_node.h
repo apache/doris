@@ -417,9 +417,9 @@ public:
 private:
     // group by k1,k2
     std::vector<VExprContext*> _probe_expr_ctxs;
-    // left / full join will change the key nullable make output/input solt
+    // left / full join will change the output nullable make output/input solt
     // nullable diff. so we need make nullable of it.
-    std::vector<size_t> _make_nullable_keys;
+    std::vector<size_t> _make_nullable_output;
     std::vector<size_t> _probe_key_sz;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
@@ -483,9 +483,6 @@ private:
     void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
 
     void release_tracker();
-
-    MutableColumns _create_temp_key_columns();
-    MutableColumns _create_temp_value_columns();
 
     using vectorized_execute = std::function<Status(Block* block)>;
     using vectorized_pre_agg = std::function<Status(Block* in_block, Block* out_block)>;

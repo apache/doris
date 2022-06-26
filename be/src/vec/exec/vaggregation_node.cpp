@@ -224,7 +224,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
             DCHECK(nullable_output);
-            _make_nullable_keys.emplace_back(i);
+            _make_nullable_output.emplace_back(i);
         }
     }
     for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
@@ -233,6 +233,12 @@ Status AggregationNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
                                                           _mem_pool.get(), intermediate_slot_desc,
                                                           output_slot_desc, mem_tracker()));
+        auto nullable_output = output_slot_desc->is_nullable();
+        auto nullable_agg_output = _aggregate_evaluators[i]->data_type()->is_nullable();
+        if (nullable_output != nullable_agg_output) {
+            DCHECK(nullable_output);
+            _make_nullable_output.emplace_back(i + j);
+        }
     }
 
     // set profile timer to evaluators
@@ -571,7 +577,7 @@ void AggregationNode::_close_without_key() {
 
 void AggregationNode::_make_nullable_output_key(Block* block) {
     if (block->rows() != 0) {
-        for (auto cid : _make_nullable_keys) {
+        for (auto cid : _make_nullable_output) {
             block->get_by_position(cid).column =
                     make_nullable(block->get_by_position(cid).column);
             block->get_by_position(cid).type =
@@ -846,27 +852,20 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (!mem_reuse) {
-            key_columns.emplace_back(column_withschema[i].type->create_column());
+            key_columns.emplace_back(_probe_expr_ctxs[i]->root()->data_type()->create_column());
         } else {
             key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
         }
     }
 
-    MutableColumns temp_key_columns = _create_temp_key_columns();
-    DCHECK(temp_key_columns.size() == key_size);
-
     MutableColumns value_columns;
     for (int i = key_size; i < column_withschema.size(); ++i) {
         if (!mem_reuse) {
-            value_columns.emplace_back(column_withschema[i].type->create_column());
+            value_columns.emplace_back(_aggregate_evaluators[i-key_size]->data_type()->create_column());
         } else {
             value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
         }
     }
-
-    MutableColumns temp_value_columns = _create_temp_value_columns();
-    DCHECK(temp_value_columns.size() == _aggregate_evaluators.size() &&
-           _aggregate_evaluators.size() == column_withschema.size() - key_size);
 
     SCOPED_TIMER(_get_results_timer);
     std::visit(
@@ -874,14 +873,14 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
                 auto& data = agg_method.data;
                 auto& iter = agg_method.iterator;
                 agg_method.init_once();
-                while (iter != data.end() && temp_key_columns[0]->size() < state->batch_size()) {
+                while (iter != data.end() && key_columns[0]->size() < state->batch_size()) {
                     const auto& key = iter->get_first();
                     auto& mapped = iter->get_second();
-                    agg_method.insert_key_into_columns(key, temp_key_columns, _probe_key_sz);
+                    agg_method.insert_key_into_columns(key, key_columns, _probe_key_sz);
                     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i)
                         _aggregate_evaluators[i]->insert_result_info(
                                 mapped + _offsets_of_aggregate_states[i],
-                                temp_value_columns[i].get());
+                                value_columns[i].get());
 
                     ++iter;
                 }
@@ -889,15 +888,15 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
                     if (agg_method.data.has_null_key_data()) {
                         // only one key of group by support wrap null key
                         // here need additional processing logic on the null key / value
-                        DCHECK(temp_key_columns.size() == 1);
-                        DCHECK(temp_key_columns[0]->is_nullable());
-                        if (temp_key_columns[0]->size() < state->batch_size()) {
-                            temp_key_columns[0]->insert_data(nullptr, 0);
+                        DCHECK(key_columns.size() == 1);
+                        DCHECK(key_columns[0]->is_nullable());
+                        if (key_columns[0]->size() < state->batch_size()) {
+                            key_columns[0]->insert_data(nullptr, 0);
                             auto mapped = agg_method.data.get_null_key_data();
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i)
                                 _aggregate_evaluators[i]->insert_result_info(
                                         mapped + _offsets_of_aggregate_states[i],
-                                        temp_value_columns[i].get());
+                                        value_columns[i].get());
                             *eos = true;
                         }
                     } else {
@@ -906,25 +905,6 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
                 }
             },
             _agg_data._aggregated_method_variant);
-
-    for (int i = 0; i < key_size; ++i) {
-        if (key_columns[i]->is_nullable() xor temp_key_columns[i]->is_nullable()) {
-            DCHECK(key_columns[i]->is_nullable() && !temp_key_columns[i]->is_nullable());
-            key_columns[i] = (*std::move(make_nullable(std::move(temp_key_columns[i])))).mutate();
-        } else {
-            key_columns[i] = std::move(temp_key_columns[i]);
-        }
-    }
-
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        if (value_columns[i]->is_nullable() xor temp_value_columns[i]->is_nullable()) {
-            DCHECK(value_columns[i]->is_nullable() && !temp_value_columns[i]->is_nullable());
-            value_columns[i] =
-                    (*std::move(make_nullable(std::move(temp_value_columns[i])))).mutate();
-        } else {
-            value_columns[i] = std::move(temp_value_columns[i]);
-        }
-    }
 
     if (!mem_reuse) {
         *block = column_withschema;
@@ -1141,22 +1121,6 @@ void AggregationNode::_close_with_serialized_key() {
 
 void AggregationNode::release_tracker() {
     mem_tracker()->Release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
-}
-
-MutableColumns AggregationNode::_create_temp_key_columns() {
-    MutableColumns key_columns;
-    for (const auto& expr_ctx : _probe_expr_ctxs) {
-        key_columns.push_back(expr_ctx->root()->data_type()->create_column());
-    }
-    return key_columns;
-}
-
-MutableColumns AggregationNode::_create_temp_value_columns() {
-    MutableColumns key_columns;
-    for (const auto& agg : _aggregate_evaluators) {
-        key_columns.push_back(agg->data_type()->create_column());
-    }
-    return key_columns;
 }
 
 } // namespace doris::vectorized
