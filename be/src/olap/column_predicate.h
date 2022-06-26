@@ -48,10 +48,11 @@ enum class PredicateType {
 };
 
 struct PredicateTypeTraits {
-    static bool is_range(PredicateType type) {
+    static constexpr bool is_range(PredicateType type) {
         return (type == PredicateType::LT || type == PredicateType::LE ||
                 type == PredicateType::GT || type == PredicateType::GE);
     }
+    static constexpr bool is_bloom_filter(PredicateType type) { return type == PredicateType::BF; }
 };
 
 class ColumnPredicate {

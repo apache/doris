@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "olap/column_predicate.h"
 #include "runtime/vectorized_row_batch.h"
 #include "vec/columns/column_dictionary.h"
@@ -27,7 +29,14 @@ template <class T, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite), _value(value) {}
+            : ColumnPredicate(column_id, opposite), _value(value) {
+        if constexpr (std::is_same_v<T, uint24_t>) {
+            _value_real = 0;
+            memory_copy(&_value_real, _value.get_data(), sizeof(T));
+        } else {
+            _value_real = _value;
+        }
+    }
 
     PredicateType type() const override { return PT; }
 
@@ -184,7 +193,7 @@ public:
                                      nullable_column_ptr->get_null_map_column())
                                      .get_data();
 
-            return _base_evaluate<true>(&nested_column, &null_map, sel, size);
+            return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
         } else {
             return _base_evaluate<false>(&column, nullptr, sel, size);
         }
@@ -192,26 +201,16 @@ public:
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
-        _evaluate<true>(column, sel, size, flags);
+        _evaluate_bit<true>(column, sel, size, flags);
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
-        _evaluate<false>(column, sel, size, flags);
+        _evaluate_bit<false>(column, sel, size, flags);
     }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
                       bool* flags) const override {
-        using TReal = std::conditional_t<std::is_same_v<T, uint24_t>, uint32_t, T>;
-
-        TReal value_real;
-        if constexpr (std::is_same_v<T, uint24_t>) {
-            value_real = 0;
-            memory_copy(&value_real, _value.get_data(), sizeof(T));
-        } else {
-            value_real = _value;
-        }
-
         if (column.is_nullable()) {
             auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -228,20 +227,19 @@ public:
                     auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
                                                            _value, _is_greater(), _is_eq())
                                                  : dict_column_ptr->find_code(_value);
-                    auto& data_array = dict_column_ptr->get_data();
+                    auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop<true>(size, flags, &null_map, data_array, dict_code);
+                    _base_loop_vec<true>(size, flags, null_map.data(), data_array, dict_code);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
             } else {
-                auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<TReal>&>(
+                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<TReal>&>(
                                            nested_column)
-                                           .get_data();
+                                           .get_data()
+                                           .data();
 
-                _base_loop<true>(size, flags, &null_map, data_array, value_real);
-                for (uint16_t i = 0; i < size; i++) {
-                }
+                _base_loop_vec<true>(size, flags, null_map.data(), data_array, _value_real);
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -251,19 +249,20 @@ public:
                     auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
                                                            _value, _is_greater(), _is_eq())
                                                  : dict_column_ptr->find_code(_value);
-                    auto& data_array = dict_column_ptr->get_data();
+                    auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop<false>(size, flags, nullptr, data_array, dict_code);
+                    _base_loop_vec<false>(size, flags, nullptr, data_array, dict_code);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
             } else {
-                auto& data_array =
+                auto* data_array =
                         vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(
                                 column)
-                                ->get_data();
+                                ->get_data()
+                                .data();
 
-                _base_loop<false>(size, flags, nullptr, data_array, value_real);
+                _base_loop_vec<false>(size, flags, nullptr, data_array, _value_real);
             }
         }
 
@@ -275,6 +274,8 @@ public:
     }
 
 private:
+    using TReal = std::conditional_t<std::is_same_v<T, uint24_t>, uint32_t, T>;
+
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::EQ) {
@@ -292,9 +293,7 @@ private:
         }
     }
 
-    constexpr bool _is_range() const {
-        return !(PT == PredicateType::EQ || PT == PredicateType::NE);
-    }
+    constexpr bool _is_range() const { return PredicateTypeTraits::is_range(PT); }
 
     constexpr bool _is_greater() const { return _operator(1, 0); }
 
@@ -317,24 +316,24 @@ private:
             return status;
         }
 
-        if constexpr (PT == PredicateType::EQ) {
+        if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
             if (exact_match) {
                 RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring));
             }
-        } else if constexpr (PT == PredicateType::NE) {
-            if (!exact_match) {
-                return Status::OK();
+        } else if constexpr (PredicateTypeTraits::is_range(PT)) {
+            rowid_t from = 0;
+            rowid_t to = ordinal_limit;
+            if constexpr (PT == PredicateType::LT) {
+                to = seeked_ordinal;
+            } else if constexpr (PT == PredicateType::LE) {
+                to = seeked_ordinal + exact_match;
+            } else if constexpr (PT == PredicateType::GT) {
+                from = seeked_ordinal + exact_match;
+            } else if constexpr (PT == PredicateType::GE) {
+                from = seeked_ordinal;
             }
-            RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring));
-        } else if constexpr (PT == PredicateType::LT) {
-            RETURN_IF_ERROR(iterator->read_union_bitmap(0, seeked_ordinal, &roaring));
-        } else if constexpr (PT == PredicateType::LE) {
-            RETURN_IF_ERROR(iterator->read_union_bitmap(0, seeked_ordinal + exact_match, &roaring));
-        } else if constexpr (PT == PredicateType::GT) {
-            RETURN_IF_ERROR(iterator->read_union_bitmap(seeked_ordinal + exact_match, ordinal_limit,
-                                                        &roaring));
-        } else if constexpr (PT == PredicateType::GE) {
-            RETURN_IF_ERROR(iterator->read_union_bitmap(seeked_ordinal, ordinal_limit, &roaring));
+
+            RETURN_IF_ERROR(iterator->read_union_bitmap(from, to, &roaring));
         }
 
         if constexpr (PT == PredicateType::NE) {
@@ -347,8 +346,8 @@ private:
     }
 
     template <bool is_and>
-    void _evaluate(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
-                   bool* flags) const {
+    void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+                       bool* flags) const {
         if (column.is_nullable()) {
             auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -357,19 +356,18 @@ private:
                                      nullable_column_ptr->get_null_map_column())
                                      .get_data();
 
-            _base_evaluate<true, is_and>(&nested_column, &null_map, sel, size, flags);
+            _base_evaluate_bit<true, is_and>(&nested_column, null_map.data(), sel, size, flags);
         } else {
-            _base_evaluate<false, is_and>(&column, nullptr, sel, size, flags);
+            _base_evaluate_bit<false, is_and>(&column, nullptr, sel, size, flags);
         }
     }
 
     template <bool is_nullable, typename TArray, typename TValue>
-    void _base_loop(uint16_t size, bool* flags,
-                    const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                    const TArray& data_array, const TValue& value) const {
+    void _base_loop_vec(uint16_t size, bool* __restrict flags, const uint8_t* __restrict null_map,
+                        const TArray* __restrict data_array, const TValue& value) const {
         for (uint16_t i = 0; i < size; i++) {
             if constexpr (is_nullable) {
-                flags[i] = !(*null_map)[i] && _operator(data_array[i], value);
+                flags[i] = !null_map[i] && _operator(data_array[i], value);
             } else {
                 flags[i] = _operator(data_array[i], value);
             }
@@ -377,16 +375,16 @@ private:
     }
 
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
-    void _base_loop(const uint16_t* sel, uint16_t size, bool* flags,
-                    const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                    const TArray& data_array, const TValue& value) const {
+    void _base_loop_bit(const uint16_t* sel, uint16_t size, bool* flags,
+                        const uint8_t* __restrict null_map, const TArray* __restrict data_array,
+                        const TValue& value) const {
         for (uint16_t i = 0; i < size; i++) {
             if (is_and ^ flags[i]) {
                 continue;
             }
             if constexpr (is_nullable) {
                 if (_opposite ^ is_and ^
-                    (!(*null_map)[sel[i]] && _operator(data_array[sel[i]], value))) {
+                    (!null_map[sel[i]] && _operator(data_array[sel[i]], value))) {
                     flags[i] = !is_and;
                 }
             } else {
@@ -398,45 +396,45 @@ private:
     }
 
     template <bool is_nullable, bool is_and>
-    void _base_evaluate(const vectorized::IColumn* column,
-                        const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                        const uint16_t* sel, uint16_t size, bool* flags) const {
+    void _base_evaluate_bit(const vectorized::IColumn* column, const uint8_t* null_map,
+                            const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringValue>) {
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                auto& data_array = dict_column_ptr->get_data();
+                auto* data_array = dict_column_ptr->get_data().data();
                 auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
                                                        _value, _operator(1, 0), _operator(1, 1))
                                              : dict_column_ptr->find_code(_value);
-                _base_loop<is_nullable, is_and, decltype(data_array), decltype(dict_code)>(
-                        sel, size, flags, null_map, data_array, dict_code);
+                _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
+                                                    dict_code);
             } else {
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
         } else {
-            auto& data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column)
-                            ->get_data();
+            auto* data_array =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
+                            ->get_data()
+                            .data();
 
-            _base_loop<is_nullable, is_and, decltype(data_array), decltype(_value)>(
-                    sel, size, flags, null_map, data_array, _value);
+            _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
+                                                _value_real);
         }
     }
 
     template <bool is_nullable, typename TArray, typename TValue>
-    uint16_t _base_loop(uint16_t* sel, uint16_t size,
-                        const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                        const TArray& data_array, const TValue& value) const {
+    uint16_t _base_loop(uint16_t* sel, uint16_t size, const uint8_t* __restrict null_map,
+                        const TArray* __restrict data_array, const TValue& value) const {
         uint16_t new_size = 0;
         for (uint16_t i = 0; i < size; ++i) {
+            uint16_t idx = sel[i];
             if constexpr (is_nullable) {
-                if (_opposite ^ (!(*null_map)[i] && _operator(data_array[sel[i]], value))) {
-                    sel[new_size++] = sel[i];
+                if (_opposite ^ (!null_map[i] && _operator(data_array[idx], value))) {
+                    sel[new_size++] = idx;
                 }
             } else {
-                if (_opposite ^ _operator(data_array[sel[i]], value)) {
-                    sel[new_size++] = sel[i];
+                if (_opposite ^ _operator(data_array[idx], value)) {
+                    sel[new_size++] = idx;
                 }
             }
         }
@@ -444,35 +442,34 @@ private:
     }
 
     template <bool is_nullable>
-    uint16_t _base_evaluate(const vectorized::IColumn* column,
-                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+    uint16_t _base_evaluate(const vectorized::IColumn* column, const uint8_t* null_map,
                             uint16_t* sel, uint16_t size) const {
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringValue>) {
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                auto& data_array = dict_column_ptr->get_data();
+                auto* data_array = dict_column_ptr->get_data().data();
                 auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
                                                        _value, _is_greater(), _is_eq())
                                              : dict_column_ptr->find_code(_value);
 
-                return _base_loop<is_nullable, decltype(data_array), decltype(dict_code)>(
-                        sel, size, null_map, data_array, dict_code);
+                return _base_loop<is_nullable>(sel, size, null_map, data_array, dict_code);
             } else {
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 return 0;
             }
         } else {
-            auto& data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column)
-                            ->get_data();
+            auto* data_array =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
+                            ->get_data()
+                            .data();
 
-            return _base_loop<is_nullable, decltype(data_array), decltype(_value)>(
-                    sel, size, null_map, data_array, _value);
+            return _base_loop<is_nullable>(sel, size, null_map, data_array, _value_real);
         }
     }
 
     T _value;
+    TReal _value_real;
 };
 
 template <class T>
