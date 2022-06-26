@@ -2940,12 +2940,8 @@ public class Catalog {
             if (partitionInfo.getType() == PartitionType.RANGE) {
                 sb.append("\n");
                 sb.append("PARTITION BY RANGE(");
-                idx = 0;
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 for (Column column : rangePartitionInfo.getPartitionColumns()) {
-                    if (idx != 0) {
-                        sb.append(", ");
-                    }
                     sb.append("`").append(column.getName()).append("`");
                 }
                 sb.append(")\n()");
@@ -2957,12 +2953,14 @@ public class Catalog {
             sb.append("\"user\" = \"").append(esTable.getUserName()).append("\",\n");
             sb.append("\"password\" = \"").append(hidePassword ? "" : esTable.getPasswd()).append("\",\n");
             sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\",\n");
-            sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
+            if (esTable.getMappingType() != null) {
+                sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
+            }
             sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\",\n");
             sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isDocValueScanEnable()).append("\",\n");
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.maxDocValueFields()).append("\",\n");
-            sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\"\n");
-            sb.append("\"nodes_discovery\" = \"").append(esTable.isNodesDiscovery()).append("\"\n");
+            sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\",\n");
+            sb.append("\"nodes_discovery\" = \"").append(esTable.isNodesDiscovery()).append("\",\n");
             sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.HIVE) {
