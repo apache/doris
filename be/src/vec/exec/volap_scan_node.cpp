@@ -676,6 +676,13 @@ Status VOlapScanNode::normalize_conjuncts() {
             break;
         }
 
+        case TYPE_DATEV2: {
+            ColumnValueRange<doris::vectorized::DateV2Value> range(slots[slot_idx]->col_name(),
+                                                                   slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         case TYPE_DECIMALV2: {
             ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
                                                    slots[slot_idx]->type().type);
@@ -829,7 +836,8 @@ Status VOlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescri
 }
 
 static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
-    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+    if ((slot->type().is_date_type() || slot->type().is_date_v2_type()) &&
+        (expr->type().is_date_type() || expr->type().is_date_v2_type())) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
@@ -950,6 +958,19 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, 
     case TYPE_BOOLEAN: {
         bool v = *reinterpret_cast<bool*>(value);
         func(temp_range, reinterpret_cast<T*>(&v));
+        break;
+    }
+    case TYPE_DATEV2: {
+        DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
+        if (!date_value.check_loss_accuracy_cast_to_date()) {
+            doris::vectorized::DateV2Value date_v2;
+            date_v2.convert_dt_to_date_v2(&date_value);
+            if constexpr (std::is_same_v<T, doris::vectorized::DateV2Value>) {
+                func(temp_range, &date_v2);
+            } else {
+                __builtin_unreachable();
+            }
+        }
         break;
     }
     default: {
@@ -1295,6 +1316,22 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                      *reinterpret_cast<T*>(&date_value));
                     break;
+                }
+                case TYPE_DATEV2: {
+                    DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
+                    if (date_value.check_loss_accuracy_cast_to_date()) {
+                        if (pred->op() == TExprOpcode::LT || pred->op() == TExprOpcode::GE) {
+                            ++date_value;
+                        }
+                    }
+                    doris::vectorized::DateV2Value date_v2;
+                    date_v2.convert_dt_to_date_v2(&date_value);
+                    if constexpr (std::is_same_v<T, doris::vectorized::DateV2Value>) {
+                        range->add_range(to_olap_filter_type(pred->op(), child_idx), date_v2);
+                        break;
+                    } else {
+                        __builtin_unreachable();
+                    }
                 }
                 case TYPE_TINYINT:
                 case TYPE_DECIMALV2:

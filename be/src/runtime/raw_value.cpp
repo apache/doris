@@ -84,6 +84,10 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
         stream->write(chars, sizeof(DateTimeValue));
         break;
 
+    case TYPE_DATEV2:
+        stream->write(chars, sizeof(doris::vectorized::DateV2Value));
+        break;
+
     case TYPE_DECIMALV2:
         stream->write(chars, sizeof(DecimalV2Value));
         break;
@@ -160,6 +164,10 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     case TYPE_DATE:
     case TYPE_DATETIME:
         *stream << *reinterpret_cast<const DateTimeValue*>(value);
+        break;
+
+    case TYPE_DATEV2:
+        *stream << *reinterpret_cast<const doris::vectorized::DateV2Value*>(value);
         break;
 
     case TYPE_DECIMALV2:
@@ -293,6 +301,11 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         *reinterpret_cast<DateTimeValue*>(dst) = *reinterpret_cast<const DateTimeValue*>(value);
         break;
 
+    case TYPE_DATEV2:
+        *reinterpret_cast<doris::vectorized::DateV2Value*>(dst) =
+                *reinterpret_cast<const doris::vectorized::DateV2Value*>(value);
+        break;
+
     case TYPE_DECIMALV2:
         *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
         break;
@@ -377,6 +390,10 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
     case TYPE_DATE:
     case TYPE_DATETIME:
         *reinterpret_cast<DateTimeValue*>(dst) = *reinterpret_cast<const DateTimeValue*>(value);
+        break;
+    case TYPE_DATEV2:
+        *reinterpret_cast<doris::vectorized::DateV2Value*>(dst) =
+                *reinterpret_cast<const doris::vectorized::DateV2Value*>(value);
         break;
     case TYPE_VARCHAR:
     case TYPE_CHAR:
@@ -480,6 +497,12 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
         ts_value1 = reinterpret_cast<const DateTimeValue*>(v1);
         ts_value2 = reinterpret_cast<const DateTimeValue*>(v2);
         return *ts_value1 > *ts_value2 ? 1 : (*ts_value1 < *ts_value2 ? -1 : 0);
+
+    case TYPE_DATEV2: {
+        auto date_v2_value1 = reinterpret_cast<const doris::vectorized::DateV2Value*>(v1);
+        auto date_v2_value2 = reinterpret_cast<const doris::vectorized::DateV2Value*>(v2);
+        return *date_v2_value1 > *date_v2_value2 ? 1 : (*date_v2_value1 < *date_v2_value2 ? -1 : 0);
+    }
 
     case TYPE_DECIMALV2: {
         DecimalV2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);

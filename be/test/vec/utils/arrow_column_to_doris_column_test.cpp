@@ -123,7 +123,8 @@ void test_arrow_to_datetime_column(std::shared_ptr<ArrowType> type, ColumnWithTy
     if constexpr (std::is_same_v<ArrowType, arrow::TimestampType>) {
         time_zone = type->timezone();
     }
-    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, num_elements, time_zone);
+    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
+                                            num_elements, time_zone);
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
@@ -216,7 +217,8 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
     ASSERT_EQ(column.column->size(), counter);
     auto array = create_constant_numeric_array<ArrowType, is_nullable>(num_elements, arrow_numeric,
                                                                        type, counter);
-    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, num_elements, "UTC");
+    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
+                                            num_elements, "UTC");
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
@@ -351,7 +353,8 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
                                   int128_t arrow_value, int128_t expect_value, size_t& counter) {
     ASSERT_EQ(column.column->size(), counter);
     auto array = create_decimal_array<is_nullable>(num_elements, arrow_value, type, counter);
-    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, num_elements, "UTC");
+    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
+                                            num_elements, "UTC");
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
@@ -452,7 +455,8 @@ void test_arrow_to_fixed_binary_column(ColumnWithTypeAndName& column, size_t num
     ASSERT_EQ(column.column->size(), counter);
     auto array =
             create_fixed_size_binary_array<bytes_width, is_nullable>(num_elements, value, counter);
-    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, num_elements, "UTC");
+    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
+                                            num_elements, "UTC");
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
@@ -554,7 +558,8 @@ void test_arrow_to_binary_column(ColumnWithTypeAndName& column, size_t num_eleme
                                  ArrowCppType value, size_t& counter) {
     ASSERT_EQ(column.column->size(), counter);
     auto array = create_binary_array<ArrowType, is_nullable>(num_elements, value, counter);
-    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, num_elements, "UTC");
+    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
+                                            num_elements, "UTC");
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
@@ -650,8 +655,8 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
     ASSERT_EQ(column.column->size(), counter);
     auto array = create_array_array<ArrowType, is_nullable>(vec_offsets, null_map, value_type,
                                                             values, counter);
-    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, vec_offsets.size() - 1,
-                                            "UTC");
+    auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
+                                            vec_offsets.size() - 1, "UTC");
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
