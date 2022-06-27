@@ -214,9 +214,9 @@ Status ExecNode::prepare(RuntimeState* state) {
                                                    _mem_tracker);
 
     if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, row_desc(), expr_mem_tracker()));
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor, expr_mem_tracker()));
     }
-    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor, expr_mem_tracker()));
 
     // TODO(zc):
     // AddExprCtxsToFree(_conjunct_ctxs);

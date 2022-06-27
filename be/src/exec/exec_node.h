@@ -179,7 +179,7 @@ public:
 
     int id() const { return _id; }
     TPlanNodeType::type type() const { return _type; }
-    const RowDescriptor& row_desc() const { return _row_descriptor; }
+    virtual const RowDescriptor& row_desc() const { return _row_descriptor; }
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
