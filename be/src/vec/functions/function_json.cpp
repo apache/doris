@@ -412,6 +412,7 @@ struct JsonParser<'4'> {
     // time
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
+        // remove double quotes, "xxx" -> xxx
         value.SetString(data.data + 1, data.size - 2, allocator);
     }
 };
