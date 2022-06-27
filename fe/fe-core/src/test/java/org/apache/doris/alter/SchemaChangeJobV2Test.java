@@ -445,7 +445,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterCatalog.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
         new Expectations() {
             {
                 table.isColocateTable();
@@ -462,7 +462,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterCatalog.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
         new Expectations() {
             {
                 table.isColocateTable();
@@ -481,7 +481,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterCatalog.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
         new Expectations() {
             {
                 table.isColocateTable();

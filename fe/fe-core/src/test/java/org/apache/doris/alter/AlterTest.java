@@ -51,6 +51,7 @@ import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.File;
@@ -984,9 +985,7 @@ public class AlterTest {
                 + "PARTITION BY RANGE(k1)\n"
                 + "(\n"
                 + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
 
         // partition key can not be changed.
@@ -995,26 +994,14 @@ public class AlterTest {
         alterTable(changeOrderStmt, true);
     }
 
+    // Open it when date v2 is ready
+    @Ignore
     @Test
     public void testAlterDateV2Schema() throws Exception {
-        createTable("CREATE TABLE test.unique_partition_datev2\n"
-                + "(\n"
-                + "    k1 date,\n"
-                + "    k2 datetime(3),\n"
-                + "    k3 datetime,\n"
-                + "    v1 date,\n"
-                + "    v2 datetime(3),\n"
-                + "    v3 datetime,\n"
-                + "    v4 int\n"
-                + ")\n"
-                + "UNIQUE KEY(k1, k2, k3)\n"
-                + "PARTITION BY RANGE(k1)\n"
-                + "(\n"
-                + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
-                + "PROPERTIES('replication_num' = '1');");
+        createTable("CREATE TABLE test.unique_partition_datev2\n" + "(\n" + "    k1 date,\n" + "    k2 datetime(3),\n"
+                + "    k3 datetime,\n" + "    v1 date,\n" + "    v2 datetime(3),\n" + "    v3 datetime,\n" + "    v4 int\n"
+                + ")\n" + "UNIQUE KEY(k1, k2, k3)\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1');");
 
         // partition key can not be changed.
         String changeOrderStmt = "ALTER TABLE test.unique_partition_datev2 modify column k1 int key null";

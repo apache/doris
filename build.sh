@@ -393,7 +393,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/doris_be ${DORIS_OUTPUT}/be/lib/
     # make a soft link palo_be point to doris_be, for forward compatibility
-    cd ${DORIS_OUTPUT}/be/lib && rm palo_be && ln -s doris_be palo_be && cd -
+    cd ${DORIS_OUTPUT}/be/lib && rm -f palo_be && ln -s doris_be palo_be && cd -
 
     if [ "${BUILD_META_TOOL}" = "ON" ]; then
         cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/
