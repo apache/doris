@@ -820,8 +820,8 @@ void SegmentIterator::_init_current_block(
         auto column_desc = _schema.column(cid);
 
         // the column in block must clear() here to insert new data
-        if (_is_first_read_column[cid] ||
-            i >= block->columns()) { //todo(wb) maybe we can release it after output block
+        if ((_is_need_vec_eval || _is_need_short_eval) &&
+            (_is_first_read_column[cid] || i >= block->columns())) {
             current_columns[cid]->clear();
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
@@ -1007,21 +1007,23 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
-            if (_is_first_read_column[cid]) {
-                _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
-                        column_desc->type(), column_desc->is_nullable());
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
-            } else if (i >= block->columns()) {
-                // if i >= block->columns means the column and not the pred_column means `column i` is
-                // a delete condition column. but the column is not effective in the segment. so we just
-                // create a column to hold the data.
-                // a. origin data -> b. delete condition -> c. new load data
-                // the segment of c do not effective delete condition, but it still need read the column
-                // to match the schema.
-                // TODO: skip read the not effective delete column to speed up segment read.
-                _current_return_columns[cid] =
-                        Schema::get_data_type_ptr(*column_desc)->create_column();
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+            if (_is_need_vec_eval || _is_need_short_eval) {
+                if (_is_first_read_column[cid]) {
+                    _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
+                            column_desc->type(), column_desc->is_nullable());
+                    _current_return_columns[cid]->reserve(_opts.block_row_max);
+                } else if (i >= block->columns()) {
+                    // if i >= block->columns means the column and not the pred_column means `column i` is
+                    // a delete condition column. but the column is not effective in the segment. so we just
+                    // create a column to hold the data.
+                    // a. origin data -> b. delete condition -> c. new load data
+                    // the segment of c do not effective delete condition, but it still need read the column
+                    // to match the schema.
+                    // TODO: skip read the not effective delete column to speed up segment read.
+                    _current_return_columns[cid] =
+                            Schema::get_data_type_ptr(*column_desc)->create_column();
+                    _current_return_columns[cid]->reserve(_opts.block_row_max);
+                }
             }
         }
     }
