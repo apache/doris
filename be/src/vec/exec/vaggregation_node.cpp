@@ -580,10 +580,13 @@ void AggregationNode::_close_without_key() {
 void AggregationNode::_make_nullable_output_column(Block* block) {
     if (block->rows() != 0) {
         for (auto cid : _make_nullable_output_column_pos) {
-            block->get_by_position(cid).column =
-                    make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type =
-                    make_nullable(block->get_by_position(cid).type);
+            if (!block->get_by_position(cid).column->is_nullable()) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+            }
+            if (!block->get_by_position(cid).type->is_nullable()) {
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
         }
     }
 }
@@ -696,7 +699,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
                         // will serialize value data to string column
                         std::vector<VectorBufferWriter> value_buffer_writers;
-                        bool mem_reuse = out_block->mem_reuse();
+                        bool mem_reuse = out_block->mem_reuse() && _make_nullable_output_column_pos.empty();
                         auto serialize_string_type = std::make_shared<DataTypeString>();
                         MutableColumns value_columns;
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -736,22 +739,9 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             out_block->swap(Block(columns_with_schema));
                         } else {
                             for (int i = 0; i < key_size; ++i) {
-                                auto output_column = out_block->get_by_position(i).column;
-                                if (output_column->is_nullable() xor
-                                    key_columns[i]->is_nullable()) {
-                                    DCHECK(output_column->is_nullable() &&
-                                           !key_columns[i]->is_nullable());
-
-                                    auto nullable_key_column =
-                                            make_nullable((key_columns[i]->get_ptr()));
-                                    std::move(*output_column)
-                                            .mutate()
-                                            ->insert_range_from(*nullable_key_column, 0, rows);
-                                } else {
-                                    std::move(*output_column)
-                                            .mutate()
-                                            ->insert_range_from(*key_columns[i], 0, rows);
-                                }
+                                std::move(*out_block->get_by_position(i).column)
+                                        .mutate()
+                                        ->insert_range_from(*key_columns[i], 0, rows);
                             }
                         }
                     }
@@ -944,7 +934,7 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
     MutableColumns value_columns(agg_size);
     DataTypes value_data_types(agg_size);
 
-    bool mem_reuse = block->mem_reuse();
+    bool mem_reuse = block->mem_reuse() && _make_nullable_output_column_pos.empty();
 
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
