@@ -736,9 +736,22 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             out_block->swap(Block(columns_with_schema));
                         } else {
                             for (int i = 0; i < key_size; ++i) {
-                                std::move(*out_block->get_by_position(i).column)
-                                        .mutate()
-                                        ->insert_range_from(*key_columns[i], 0, rows);
+                                auto output_column = out_block->get_by_position(i).column;
+                                if (output_column->is_nullable() xor
+                                    key_columns[i]->is_nullable()) {
+                                    DCHECK(output_column->is_nullable() &&
+                                           !key_columns[i]->is_nullable());
+
+                                    auto nullable_key_column =
+                                            make_nullable((key_columns[i]->get_ptr()));
+                                    std::move(*output_column)
+                                            .mutate()
+                                            ->insert_range_from(*nullable_key_column, 0, rows);
+                                } else {
+                                    std::move(*output_column)
+                                            .mutate()
+                                            ->insert_range_from(*key_columns[i], 0, rows);
+                                }
                             }
                         }
                     }
