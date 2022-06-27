@@ -357,7 +357,7 @@ private:
     uint64_t _hit_count = 0;    // 命中cache的总次数
 };
 
-static const int kNumShardBits = 4;
+static const int kNumShardBits = 10;
 static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
