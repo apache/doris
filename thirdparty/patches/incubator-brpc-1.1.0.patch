@@ -1,0 +1,188 @@
+From ecb8963a93cdbaa92f8e4f65f1f2e4c879a28a3f Mon Sep 17 00:00:00 2001
+From: chenguangming <chenguangming@bigo.sg>
+Date: Wed, 22 Jun 2022 20:22:22 +0800
+Subject: [PATCH 1/2] fix additional refrerence can not release when socket is
+ reviving
+
+---
+ src/brpc/socket.cpp | 29 ++++++++++++++++++-----------
+ src/brpc/socket.h   | 19 ++++++++++++++-----
+ 2 files changed, 32 insertions(+), 16 deletions(-)
+
+diff --git a/src/brpc/socket.cpp b/src/brpc/socket.cpp
+index 59a570ac7..ad316651c 100644
+--- a/src/brpc/socket.cpp
++++ b/src/brpc/socket.cpp
+@@ -445,7 +445,7 @@ Socket::Socket(Forbidden)
+     , _overcrowded(false)
+     , _fail_me_at_server_stop(false)
+     , _logoff_flag(false)
+-    , _recycle_flag(false)
++    , _additional_ref_status(REF_USING)
+     , _error_code(0)
+     , _pipeline_q(NULL)
+     , _last_writetime_us(0)
+@@ -632,7 +632,7 @@ int Socket::Create(const SocketOptions& options, SocketId* id) {
+     // May be non-zero for RTMP connections.
+     m->_fail_me_at_server_stop = false;
+     m->_logoff_flag.store(false, butil::memory_order_relaxed);
+-    m->_recycle_flag.store(false, butil::memory_order_relaxed);
++    m->_additional_ref_status.store(REF_USING, butil::memory_order_relaxed);
+     m->_error_code = 0;
+     m->_error_text.clear();
+     m->_agent_socket_id.store(INVALID_SOCKET_ID, butil::memory_order_relaxed);
+@@ -742,11 +742,14 @@ int Socket::WaitAndReset(int32_t expected_nref) {
+ void Socket::Revive() {
+     const uint32_t id_ver = VersionOfSocketId(_this_id);
+     uint64_t vref = _versioned_ref.load(butil::memory_order_relaxed);
++    _additional_ref_status.store(REF_REVIVING, butil::memory_order_relaxed);
+     while (1) {
+         CHECK_EQ(id_ver + 1, VersionOfVRef(vref));
+         
+         int32_t nref = NRefOfVRef(vref);
+         if (nref <= 1) {
++            // Set status to REF_RECYLED since no one uses this socket
++            _additional_ref_status.store(REF_RECYLED, butil::memory_order_relaxed);
+             CHECK_EQ(1, nref);
+             LOG(WARNING) << *this << " was abandoned during revival";
+             return;
+@@ -757,8 +760,8 @@ void Socket::Revive() {
+                 vref, MakeVRef(id_ver, nref + 1/*note*/),
+                 butil::memory_order_release,
+                 butil::memory_order_relaxed)) {
+-            // Set this flag to true since we add additional ref again
+-            _recycle_flag.store(false, butil::memory_order_relaxed);
++            // Set status to REF_USING since we add additional ref again
++            _additional_ref_status.store(REF_USING, butil::memory_order_relaxed);
+             if (_user) {
+                 _user->AfterRevived(this);
+             } else {
+@@ -770,12 +773,16 @@ void Socket::Revive() {
+ }
+ 
+ int Socket::ReleaseAdditionalReference() {
+-    bool expect = false;
+-    // Use `relaxed' fence here since `Dereference' has `released' fence
+-    if (_recycle_flag.compare_exchange_strong(
+-            expect, true,
+-            butil::memory_order_relaxed,
+-            butil::memory_order_relaxed)) {
++    // wait until status is not REF_REVIVING
++    while (_additional_ref_status.load(butil::memory_order_relaxed) == REF_REVIVING) {
++        bthread_yield();
++    }
++
++    AdditionalRefStatus expect = REF_USING;
++    if (_additional_ref_status.compare_exchange_strong(expect,
++        REF_RECYLED,
++        butil::memory_order_relaxed,
++        butil::memory_order_relaxed)) {
+         return Dereference();
+     }
+     return -1;
+@@ -2114,7 +2121,7 @@ void Socket::DebugSocket(std::ostream& os, SocketId id) {
+        << "\nauth_id=" << ptr->_auth_id.value
+        << "\nauth_context=" << ptr->_auth_context
+        << "\nlogoff_flag=" << ptr->_logoff_flag.load(butil::memory_order_relaxed)
+-       << "\nrecycle_flag=" << ptr->_recycle_flag.load(butil::memory_order_relaxed)
++       << "\n_additional_ref_status=" << ptr->_additional_ref_status.load(butil::memory_order_relaxed)
+        << "\nninflight_app_health_check="
+        << ptr->_ninflight_app_health_check.load(butil::memory_order_relaxed)
+        << "\nagent_socket_id=";
+diff --git a/src/brpc/socket.h b/src/brpc/socket.h
+index 4be6a7316..9099f2839 100644
+--- a/src/brpc/socket.h
++++ b/src/brpc/socket.h
+@@ -355,8 +355,9 @@ friend class policy::H2GlobalStreamCreator;
+ 
+     bool Failed() const;
+ 
+-    bool DidReleaseAdditionalRereference() const
+-    { return _recycle_flag.load(butil::memory_order_relaxed); }
++    bool DidReleaseAdditionalRereference() const {
++        return _additional_ref_status.load(butil::memory_order_relaxed) == REF_RECYLED;
++    }
+ 
+     // Notify `id' object (by calling bthread_id_error) when this Socket
+     // has been `SetFailed'. If it already has, notify `id' immediately
+@@ -784,9 +785,17 @@ friend void DereferenceSocket(Socket*);
+     // Set by SetLogOff
+     butil::atomic<bool> _logoff_flag;
+ 
+-    // Flag used to mark whether additional reference has been decreased
+-    // by either `SetFailed' or `SetRecycle'
+-    butil::atomic<bool> _recycle_flag;
++    enum AdditionalRefStatus {
++        REF_USING,        // additional ref is using normally
++        REF_REVIVING,     // additional ref is reviving
++        REF_RECYLED       // additional ref has benn recyled
++    };
++
++    // additional ref status:
++    // Socket()、Create(): REF_USING
++    // SetFailed(): REF_USING -> REF_RECYLED
++    // Revive(): REF_RECYLED -> REF_REVIVING -> REF_USING
++    butil::atomic<AdditionalRefStatus> _additional_ref_status;
+ 
+     // Concrete error information from SetFailed()
+     // Accesses to these 2 fields(especially _error_text) must be protected
+
+From 8067352282396f3d377d38e0ae5fe72547f03b15 Mon Sep 17 00:00:00 2001
+From: chenguangming <chenguangming@bigo.sg>
+Date: Thu, 23 Jun 2022 12:17:30 +0800
+Subject: [PATCH 2/2] fix update ReleaseAdditionalReference && use sched_yield
+ instead of bthread_yield
+
+---
+ src/brpc/socket.cpp | 30 +++++++++++++++++-------------
+ 1 file changed, 17 insertions(+), 13 deletions(-)
+
+diff --git a/src/brpc/socket.cpp b/src/brpc/socket.cpp
+index ad316651c..baa3a6a5f 100644
+--- a/src/brpc/socket.cpp
++++ b/src/brpc/socket.cpp
+@@ -773,19 +773,22 @@ void Socket::Revive() {
+ }
+ 
+ int Socket::ReleaseAdditionalReference() {
+-    // wait until status is not REF_REVIVING
+-    while (_additional_ref_status.load(butil::memory_order_relaxed) == REF_REVIVING) {
+-        bthread_yield();
+-    }
++    do {
++        AdditionalRefStatus expect = REF_USING;
++        if (_additional_ref_status.compare_exchange_strong(
++            expect,
++            REF_RECYLED,
++            butil::memory_order_relaxed,
++            butil::memory_order_relaxed)) {
++            return Dereference();
++        }
+ 
+-    AdditionalRefStatus expect = REF_USING;
+-    if (_additional_ref_status.compare_exchange_strong(expect,
+-        REF_RECYLED,
+-        butil::memory_order_relaxed,
+-        butil::memory_order_relaxed)) {
+-        return Dereference();
+-    }
+-    return -1;
++        if (expect == REF_REVIVING) { // sched_yield to wait until status is not REF_REVIVING
++            sched_yield();
++        } else {
++            return -1; // REF_RECYLED
++        }
++    } while (1);
+ }
+ 
+ void Socket::AddRecentError() {
+@@ -2121,7 +2124,8 @@ void Socket::DebugSocket(std::ostream& os, SocketId id) {
+        << "\nauth_id=" << ptr->_auth_id.value
+        << "\nauth_context=" << ptr->_auth_context
+        << "\nlogoff_flag=" << ptr->_logoff_flag.load(butil::memory_order_relaxed)
+-       << "\n_additional_ref_status=" << ptr->_additional_ref_status.load(butil::memory_order_relaxed)
++       << "\n_additional_ref_status="
++       << ptr->_additional_ref_status.load(butil::memory_order_relaxed)
+        << "\nninflight_app_health_check="
+        << ptr->_ninflight_app_health_check.load(butil::memory_order_relaxed)
+        << "\nagent_socket_id=";

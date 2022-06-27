@@ -186,10 +186,10 @@ LEVELDB_SOURCE=leveldb-1.20
 LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.0.0.tar.gz"
-BRPC_NAME="incubator-brpc-1.0.0.tar.gz"
-BRPC_SOURCE="incubator-brpc-1.0.0"
-BRPC_MD5SUM="73b201192a10107628e3af5ccd643676"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.1.0.tar.gz"
+BRPC_NAME="incubator-brpc-1.1.0.tar.gz"
+BRPC_SOURCE="incubator-brpc-1.1.0"
+BRPC_MD5SUM="e1439fd70e37a2bcffcf05b2526cacdd"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
