@@ -121,7 +121,7 @@ public interface TableIf {
                 case HUDI:
                     return "Hudi";
                 case TABLE_VALUED_FUNCTION:
-                    return "Table_Valued_Function"
+                    return "Table_Valued_Function";
                 default:
                     return null;
             }

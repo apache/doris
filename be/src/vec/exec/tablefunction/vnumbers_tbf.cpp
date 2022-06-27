@@ -40,14 +40,17 @@ Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool
     do {
         for (int i = 0; i < _slot_num; ++i) {
             if (mem_reuse) {
+                LOG(INFO) << "---ftw: one cloulmns.";
                 columns[i] = std::move(*(block->get_by_position(i).column)).mutate();
             } else {
+                LOG(INFO) << "---ftw: two cloulmns.";
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
         }
         while (true) {
             RETURN_IF_CANCELLED(state);
             int batch_size = state->batch_size();
+            LOG(INFO) << "---ftw: columns.size() = " << columns.size();
             if (columns[0]->size() == batch_size) {
                 // what if batch_size < _total_numbers, should we set *eos？
                 break;
@@ -57,8 +60,10 @@ Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool
                 *eos = true;
                 break;
             }
-            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(columns[0].get())
-                    ->insert_value(_cur_offset++);
+            columns[0]->insert_data(reinterpret_cast<const char*>(&_cur_offset), sizeof(_cur_offset));
+            ++_cur_offset;
+            // reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(columns[0].get())
+                    // ->insert_value(_cur_offset++);
         }
         auto n_columns = 0;
         if (!mem_reuse) {
