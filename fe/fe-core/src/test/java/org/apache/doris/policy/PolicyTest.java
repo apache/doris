@@ -66,7 +66,7 @@ public class PolicyTest extends TestWithFeService {
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Catalog.getCurrentCatalog().getAuth().createUser(createUserStmt);
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ADMIN_PRIV);
-        TablePattern tablePattern = new TablePattern("*", "*");
+        TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
         Catalog.getCurrentCatalog().getAuth().grant(grantStmt);

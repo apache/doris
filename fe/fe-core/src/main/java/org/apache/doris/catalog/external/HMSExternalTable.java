@@ -132,6 +132,59 @@ public class HMSExternalTable extends ExternalTable {
         return null;
     }
 
+    @Override
+    public String getMysqlType() {
+        return type.name();
+    }
+
+    @Override
+    public String getEngine() {
+        switch (type) {
+            case HIVE:
+                return "Hive";
+            case ICEBERG:
+                return "Iceberg";
+            case HUDI:
+                return "Hudi";
+            default:
+                return null;
+        }
+    }
+
+    @Override
+    public String getComment() {
+        return "";
+    }
+
+    @Override
+    public long getCreateTime() {
+        return 0;
+    }
+
+    @Override
+    public long getUpdateTime() {
+        return 0;
+    }
+
+    @Override
+    public long getRowCount() {
+        return 0;
+    }
+
+    @Override
+    public long getDataLength() {
+        return 0;
+    }
+
+    @Override
+    public long getAvgRowLength() {
+        return 0;
+    }
+
+    public long getLastCheckTime() {
+        return 0;
+    }
+
     /**
      * get database name of hms table.
      */

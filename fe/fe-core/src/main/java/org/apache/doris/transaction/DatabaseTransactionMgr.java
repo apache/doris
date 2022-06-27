@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -349,7 +350,7 @@ public class DatabaseTransactionMgr {
     }
 
     private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
-        Database db = catalog.getDbOrMetaException(dbId);
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
 
         if (usedQuotaDataBytes == -1) {
             usedQuotaDataBytes = db.getUsedDataQuotaWithLock();
@@ -370,7 +371,7 @@ public class DatabaseTransactionMgr {
             throws UserException {
         // check status
         // the caller method already own db lock, we do not obtain db lock here
-        Database db = catalog.getDbOrMetaException(dbId);
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
         TransactionState transactionState;
         readLock();
         try {
@@ -415,7 +416,7 @@ public class DatabaseTransactionMgr {
                                    List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
                                    Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
                                     Set<Long> totalInvolvedBackends) throws UserException {
-        Database db = catalog.getDbOrMetaException(dbId);
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
 
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
@@ -577,7 +578,7 @@ public class DatabaseTransactionMgr {
             throws UserException {
         // check status
         // the caller method already own tables' write lock
-        Database db = catalog.getDbOrMetaException(dbId);
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
         TransactionState transactionState;
         readLock();
         try {
@@ -813,9 +814,9 @@ public class DatabaseTransactionMgr {
         // the transaction with empty commit info only three cases mentioned above may happen, because user cannot
         // drop table without force while there are committed transactions on table and writeLockTablesIfExist is
         // a blocking function, the returned result would be the existed table list which hold write lock
-        Database db = catalog.getDbOrMetaException(transactionState.getDbId());
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
+        List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         try {
             boolean hasError = false;
@@ -1431,7 +1432,7 @@ public class DatabaseTransactionMgr {
         List<List<String>> infos = new ArrayList<List<String>>();
         readLock();
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
             TransactionState txnState = unprotectedGetTransactionState(txnId);
             if (txnState == null) {
                 throw new AnalysisException("transaction with id " + txnId + " does not exist");
@@ -1668,9 +1669,9 @@ public class DatabaseTransactionMgr {
         boolean shouldAddTableListLock  = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
         Database db = null;
-        List<Table> tableList = null;
+        List<? extends TableIf> tableList = null;
         if (shouldAddTableListLock) {
-            db = catalog.getDbOrMetaException(transactionState.getDbId());
+            db = catalog.getInternalDataSource().getDbOrMetaException(transactionState.getDbId());
             tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
             tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }

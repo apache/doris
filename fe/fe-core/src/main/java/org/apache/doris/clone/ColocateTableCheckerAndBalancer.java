@@ -146,7 +146,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // get all groups
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
-            Database db = catalog.getDbNullable(groupId.dbId);
+            Database db = catalog.getInternalDataSource().getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }
@@ -214,7 +214,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
-            Database db = catalog.getDbNullable(groupId.dbId);
+            Database db = catalog.getInternalDataSource().getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }

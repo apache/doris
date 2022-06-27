@@ -30,7 +30,7 @@ import javax.annotation.Nullable;
 /**
  * The interface of DataSource(catalog).
  */
-public interface DataSourceIf {
+public interface DataSourceIf<T extends DatabaseIf> {
 
     // Type of this data source
     String getType();
@@ -42,31 +42,33 @@ public interface DataSourceIf {
 
     List<String> getDbNames();
 
-    @Nullable
-    DatabaseIf getDbNullable(String dbName);
+    List<Long> getDbIds();
 
     @Nullable
-    DatabaseIf getDbNullable(long dbId);
+    T getDbNullable(String dbName);
 
-    Optional<DatabaseIf> getDb(String dbName);
+    @Nullable
+    T getDbNullable(long dbId);
 
-    Optional<DatabaseIf> getDb(long dbId);
+    Optional<T> getDb(String dbName);
 
-    <E extends Exception> DatabaseIf getDbOrException(String dbName, java.util.function.Function<String, E> e) throws E;
+    Optional<T> getDb(long dbId);
 
-    <E extends Exception> DatabaseIf getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E;
+    <E extends Exception> T getDbOrException(String dbName, java.util.function.Function<String, E> e) throws E;
 
-    DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException;
+    <E extends Exception> T getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E;
 
-    DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException;
+    T getDbOrMetaException(String dbName) throws MetaNotFoundException;
 
-    DatabaseIf getDbOrDdlException(String dbName) throws DdlException;
+    T getDbOrMetaException(long dbId) throws MetaNotFoundException;
 
-    DatabaseIf getDbOrDdlException(long dbId) throws DdlException;
+    T getDbOrDdlException(String dbName) throws DdlException;
 
-    DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException;
+    T getDbOrDdlException(long dbId) throws DdlException;
 
-    DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException;
+    T getDbOrAnalysisException(String dbName) throws AnalysisException;
+
+    T getDbOrAnalysisException(long dbId) throws AnalysisException;
 
     Map<String, String> getProperties();
 

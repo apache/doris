@@ -27,6 +27,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -134,6 +135,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             return;
         case TYPE_INT:
         case TYPE_FLOAT:
+        case TYPE_DATEV2:
             _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
             return;
         case TYPE_BIGINT:
@@ -421,7 +423,7 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggregationNode::_destory_agg_status(AggregateDataPtr data) {
+Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
@@ -531,8 +533,12 @@ Status AggregationNode::_merge_without_key(Block* block) {
     std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
     int rows = block->rows();
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
+               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
+        int col_id =
+                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
         if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(i).column;
+            auto column = block->get_by_position(col_id).column;
             if (column->is_nullable()) {
                 column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
             }
@@ -550,7 +556,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
                         deserialize_buffer.get() + _offsets_of_aggregate_states[i],
                         &_agg_arena_pool);
 
-                _destory_agg_status(deserialize_buffer.get());
+                _destroy_agg_status(deserialize_buffer.get());
             }
         } else {
             _aggregate_evaluators[i]->execute_single_add(
@@ -567,7 +573,7 @@ void AggregationNode::_update_memusage_without_key() {
 }
 
 void AggregationNode::_close_without_key() {
-    _destory_agg_status(_agg_data.without_key);
+    _destroy_agg_status(_agg_data.without_key);
     release_tracker();
 }
 
@@ -1052,8 +1058,12 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
     std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
+               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
+        int col_id =
+                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
         if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(i + key_size).column;
+            auto column = block->get_by_position(col_id).column;
             if (column->is_nullable()) {
                 column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
             }
@@ -1071,7 +1081,7 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
                         deserialize_buffer.get() + _offsets_of_aggregate_states[i],
                         &_agg_arena_pool);
 
-                _destory_agg_status(deserialize_buffer.get());
+                _destroy_agg_status(deserialize_buffer.get());
             }
         } else {
             _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
@@ -1101,7 +1111,7 @@ void AggregationNode::_close_with_serialized_key() {
                 auto& data = agg_method.data;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        _destory_agg_status(mapped);
+                        _destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
                 });

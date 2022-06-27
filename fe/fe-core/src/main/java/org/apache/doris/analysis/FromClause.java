@@ -87,7 +87,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
 
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
             String tblName = tableName.getTbl();
             db.getTableOrAnalysisException(tblName);
         }

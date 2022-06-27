@@ -169,17 +169,16 @@ public:
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {
-        size_t value_size = sizeof(uint24_t);
+        size_t input_value_size = sizeof(uint24_t);
+
         for (int i = 0; i < num; i++) {
-            const char* cur_ptr = data_ptr + value_size * i;
-            uint64_t value = 0;
-            value = *(unsigned char*)(cur_ptr + 2);
-            value <<= 8;
-            value |= *(unsigned char*)(cur_ptr + 1);
-            value <<= 8;
-            value |= *(unsigned char*)(cur_ptr);
-            vectorized::VecDateTimeValue date = VecDateTimeValue::create_from_olap_date(value);
-            this->insert_data(reinterpret_cast<char*>(&date), 0);
+            uint64_t val = 0;
+            memcpy((char*)(&val), data_ptr, input_value_size);
+            data_ptr += input_value_size;
+
+            VecDateTimeValue date;
+            date.set_olap_date(val);
+            data.push_back_without_reserve(unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
         }
     }
 

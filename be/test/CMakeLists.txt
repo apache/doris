@@ -356,6 +356,7 @@ set(VEC_TEST_FILES
     vec/function/function_test_util.cpp
     vec/function/table_function_test.cpp
     vec/runtime/vdata_stream_test.cpp
+    vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
 )
@@ -380,11 +381,13 @@ add_executable(doris_be_test
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
 
-add_executable(benchmark_tool
+if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
+    add_executable(benchmark_tool
     tools/benchmark_tool.cpp
     testutil/test_util.cpp
     olap/tablet_schema_helper.cpp
-)
+    )
 
-target_link_libraries(benchmark_tool ${TEST_LINK_LIBS})
-set_target_properties(benchmark_tool PROPERTIES COMPILE_FLAGS "-fno-access-control")
+    target_link_libraries(benchmark_tool ${TEST_LINK_LIBS})
+    set_target_properties(benchmark_tool PROPERTIES COMPILE_FLAGS "-fno-access-control")
+endif()

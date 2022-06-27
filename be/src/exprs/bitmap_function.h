@@ -30,7 +30,7 @@ namespace doris {
  * 2. Add a UT in BitmapFunctionsTest
  * 3. Add the function signature in gensrc/script/doris_builtins_functions.py
  *    Note: if the result is bitmap serialize data, the function return type should be BITMAP
- *    you could use `nm $DORIS_HOME/output/be/lib/palo_be | grep bitmap` to get the function signature
+ *    you could use `nm $DORIS_HOME/output/be/lib/doris_be | grep bitmap` to get the function signature
  * 4. Update the doc  docs/documentation/cn/sql-reference/sql-functions/aggregate-functions/bitmap.md
  *    and docs/documentation/en/sql-reference/sql-functions/aggregate-functions/bitmap_EN.md
  */

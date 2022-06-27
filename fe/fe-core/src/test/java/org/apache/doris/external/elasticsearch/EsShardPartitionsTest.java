@@ -28,11 +28,10 @@ public class EsShardPartitionsTest extends EsTestCase {
 
     @Test
     public void testPartition() throws Exception {
-        EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
-                .getDbOrMetaException(CatalogTestUtil.testDb1)
-                .getTableOrMetaException(CatalogTestUtil.testEsTableId1);
-        EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions("doe",
-                loadJsonFromFile("data/es/test_search_shards.json"));
+        EsTable esTable = (EsTable) Catalog.getCurrentInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDb1).getTableOrMetaException(CatalogTestUtil.testEsTableId1);
+        EsShardPartitions esShardPartitions =
+                EsShardPartitions.findShardPartitions("doe", loadJsonFromFile("data/es/test_search_shards.json"));
         EsTablePartitions esTablePartitions = EsTablePartitions.fromShardPartitions(esTable, esShardPartitions);
         Assert.assertNotNull(esTablePartitions);
         Assert.assertEquals(1, esTablePartitions.getUnPartitionedIndexStates().size());

@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
  * @param <R> Return type of each visit method.
  * @param <C> Context type.
  */
-@SuppressWarnings("rawtypes")
 public abstract class PlanOperatorVisitor<R, C> {
 
     public abstract R visit(Plan plan, C context);

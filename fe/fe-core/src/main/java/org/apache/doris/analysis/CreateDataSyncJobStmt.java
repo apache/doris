@@ -93,7 +93,7 @@ public class CreateDataSyncJobStmt extends DdlStmt {
         for (ChannelDescription channelDescription : channelDescriptions) {
             channelDescription.analyze(dbName);
             String tableName = channelDescription.getTargetTable();
-            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
             OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
             if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("Table: " + tableName

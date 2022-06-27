@@ -135,7 +135,25 @@ Status VOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                 bloom_filters) {
-    RETURN_IF_ERROR(_init_return_columns());
+    // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
+    bool single_version =
+            (_tablet_reader_params.rs_readers.size() == 1 &&
+             _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
+             !_tablet_reader_params.rs_readers[0]
+                      ->rowset()
+                      ->rowset_meta()
+                      ->is_segments_overlapping()) ||
+            (_tablet_reader_params.rs_readers.size() == 2 &&
+             _tablet_reader_params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
+             _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
+             !_tablet_reader_params.rs_readers[1]
+                      ->rowset()
+                      ->rowset_meta()
+                      ->is_segments_overlapping());
+
+    _tablet_reader_params.direct_mode = _aggregation || single_version;
+
+    RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.reader_type = READER_QUERY;
@@ -166,28 +184,12 @@ Status VOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.profile = _parent->runtime_profile();
     _tablet_reader_params.runtime_state = _runtime_state;
-    // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
-    bool single_version =
-            (_tablet_reader_params.rs_readers.size() == 1 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
-             !_tablet_reader_params.rs_readers[0]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping()) ||
-            (_tablet_reader_params.rs_readers.size() == 2 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
-             _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
-             !_tablet_reader_params.rs_readers[1]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping());
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
 
-    if (_aggregation || single_version) {
+    if (_tablet_reader_params.direct_mode) {
         _tablet_reader_params.return_columns = _return_columns;
-        _tablet_reader_params.direct_mode = true;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
@@ -223,7 +225,7 @@ Status VOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status VOlapScanner::_init_return_columns() {
+Status VOlapScanner::_init_return_columns(bool need_seq_col) {
     for (auto slot : _tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -242,7 +244,7 @@ Status VOlapScanner::_init_return_columns() {
     }
 
     // expand the sequence column
-    if (_tablet->tablet_schema().has_sequence_col()) {
+    if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
             if (_tablet->tablet_schema().column(col).aggregation() ==
@@ -357,6 +359,7 @@ void VOlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_load_counter, stats.blocks_load);
     COUNTER_UPDATE(_parent->_block_fetch_timer, stats.block_fetch_ns);
     COUNTER_UPDATE(_parent->_block_seek_timer, stats.block_seek_ns);
+    COUNTER_UPDATE(_parent->_block_seek_counter, stats.block_seek_num);
     COUNTER_UPDATE(_parent->_block_convert_timer, stats.block_convert_ns);
 
     COUNTER_UPDATE(_parent->_raw_rows_counter, stats.raw_rows_read);
@@ -365,8 +368,15 @@ void VOlapScanner::update_counter() {
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, stats.num_rows_filtered);
     COUNTER_UPDATE(_parent->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(_parent->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_UPDATE(_parent->_block_init_timer, stats.block_init_ns);
+    COUNTER_UPDATE(_parent->_block_init_seek_timer, stats.block_init_seek_ns);
+    COUNTER_UPDATE(_parent->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(_parent->_first_read_timer, stats.first_read_ns);
+    COUNTER_UPDATE(_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
+    COUNTER_UPDATE(_parent->_first_read_seek_counter, stats.block_first_read_seek_num);
     COUNTER_UPDATE(_parent->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(_parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
+    COUNTER_UPDATE(_parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(_parent->_output_col_timer, stats.output_col_ns);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);
 
@@ -390,7 +400,6 @@ void VOlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);
-    COUNTER_UPDATE(_parent->_block_seek_counter, stats.block_seek_num);
 
     COUNTER_UPDATE(_parent->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(_parent->_total_segment_counter, stats.total_segment_number);

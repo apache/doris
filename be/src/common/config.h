@@ -144,6 +144,7 @@ CONF_String(doris_cgroups, "");
 CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
 CONF_mBool(compress_rowbatches, "true");
+CONF_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
 // if true, each disk will have a separate thread pool for scanner
@@ -165,7 +166,7 @@ CONF_mInt64(thrift_client_retry_interval_ms, "1000");
 // max row count number for single scan range, used in segmentv1
 CONF_mInt32(doris_scan_range_row_count, "524288");
 // max bytes number for single scan range, used in segmentv2
-CONF_mInt32(doris_scan_range_max_mb, "0");
+CONF_mInt32(doris_scan_range_max_mb, "1024");
 // size of scanner queue between scanner thread and compute thread
 CONF_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number

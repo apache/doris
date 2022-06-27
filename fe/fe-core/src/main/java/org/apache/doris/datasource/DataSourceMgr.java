@@ -23,13 +23,18 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 
 import com.google.common.collect.Lists;
@@ -43,6 +48,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * DataSourceMgr will load all data sources at FE startup,
@@ -72,6 +78,43 @@ public class DataSourceMgr implements Writable {
 
     public InternalDataSource getInternalDataSource() {
         return internalDataSource;
+    }
+
+    public DataSourceIf getCatalog(String name) {
+        return nameToCatalogs.get(name);
+    }
+
+    public DatabaseIf getDbNullable(long dbId) {
+        DatabaseIf db = internalDataSource.getDbNullable(dbId);
+        if (db != null) {
+            return db;
+        }
+        for (DataSourceIf ds : nameToCatalogs.values()) {
+            if (ds == internalDataSource) {
+                continue;
+            }
+            db = ds.getDbNullable(dbId);
+            if (db != null) {
+                return db;
+            }
+        }
+        return null;
+    }
+
+    public List<Long> getDbIds() {
+        List<Long> dbIds = Lists.newArrayList();
+        for (DataSourceIf ds : nameToCatalogs.values()) {
+            dbIds.addAll(ds.getDbIds());
+        }
+        return dbIds;
+    }
+
+    public List<String> getDbNames() {
+        List<String> dbNames = Lists.newArrayList();
+        for (DataSourceIf ds : nameToCatalogs.values()) {
+            dbNames.addAll(ds.getDbNames());
+        }
+        return dbNames;
     }
 
     private void writeLock() {
@@ -151,6 +194,13 @@ public class DataSourceMgr implements Writable {
     }
 
     /**
+     * Get catalog, or null if not exists.
+     */
+    public DataSourceIf getCatalogNullable(String catalogName) {
+        return nameToCatalogs.get(catalogName);
+    }
+
+    /**
      * List all catalog or get the special catalog with a name.
      */
     public ShowResultSet showCatalogs(ShowCatalogStmt showStmt) throws AnalysisException {
@@ -159,17 +209,25 @@ public class DataSourceMgr implements Writable {
         try {
             if (showStmt.getCatalogName() == null) {
                 for (DataSourceIf ds : nameToCatalogs.values()) {
-                    List<String> row = Lists.newArrayList();
-                    row.add(ds.getName());
-                    row.add(ds.getType());
-                    rows.add(row);
+                    if (Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                            ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
+                        List<String> row = Lists.newArrayList();
+                        row.add(ds.getName());
+                        row.add(ds.getType());
+                        rows.add(row);
+                    }
                 }
             } else {
                 if (!nameToCatalogs.containsKey(showStmt.getCatalogName())) {
                     throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
                 }
-                DataSourceIf ds = nameToCatalogs.get(showStmt.getCatalogName());
-                for (Map.Entry<String, String>  elem : ds.getProperties().entrySet()) {
+                DataSourceIf<DatabaseIf> ds = nameToCatalogs.get(showStmt.getCatalogName());
+                if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                        ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
+                            ConnectContext.get().getQualifiedUser(), ds.getName());
+                }
+                for (Map.Entry<String, String> elem : ds.getProperties().entrySet()) {
                     List<String> row = Lists.newArrayList();
                     row.add(elem.getKey());
                     row.add(elem.getValue());
@@ -220,6 +278,10 @@ public class DataSourceMgr implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public List<DataSourceIf> listCatalogs() {
+        return nameToCatalogs.values().stream().collect(Collectors.toList());
     }
 
     /**

@@ -180,7 +180,7 @@ REFRESH DATABASE iceberg_test_db;
 
 **注意：**
 - Iceberg 表 Schema 变更**不会自动同步**，需要在 Doris 中通过 `REFRESH` 命令同步 Iceberg 外表或数据库。
-- 当前默认支持的 Iceberg 版本为 0.12.0，未在其他版本进行测试。后续后支持更多版本。
+- 当前默认支持的 Iceberg 版本为 0.12.0、0.13.2，未在其他版本进行测试。后续后支持更多版本。
 
 ### 查询用法
 

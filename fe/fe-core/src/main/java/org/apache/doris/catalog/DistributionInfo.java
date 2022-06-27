@@ -18,19 +18,15 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang.NotImplementedException;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
-import java.util.Map;
 
 public abstract class DistributionInfo implements Writable {
 
@@ -87,34 +83,5 @@ public abstract class DistributionInfo implements Writable {
 
     public boolean equals(DistributionInfo info) {
         return false;
-    }
-
-    public static List<Expr> toDistExpr(OlapTable tbl, DistributionInfo distInfo, Map<String, Expr> exprByCol) {
-        List<Expr> distExprs = Lists.newArrayList();
-        if (distInfo instanceof RandomDistributionInfo) {
-            for (Column col : tbl.getBaseSchema()) {
-                if (col.isKey()) {
-                    Expr distExpr = exprByCol.get(col.getName());
-                    // used to compute hash
-                    if (col.getDataType() == PrimitiveType.CHAR) {
-                        distExpr.setType(Type.CHAR);
-                    }
-                    distExprs.add(distExpr);
-                } else {
-                    break;
-                }
-            }
-        } else if (distInfo instanceof HashDistributionInfo) {
-            HashDistributionInfo hashDistInfo = (HashDistributionInfo) distInfo;
-            for (Column col : hashDistInfo.getDistributionColumns()) {
-                Expr distExpr = exprByCol.get(col.getName());
-                // used to compute hash
-                if (col.getDataType() == PrimitiveType.CHAR) {
-                    distExpr.setType(Type.CHAR);
-                }
-                distExprs.add(distExpr);
-            }
-        }
-        return distExprs;
     }
 }

@@ -242,6 +242,7 @@ public class GroupByClauseTest {
         try {
             groupByClause.analyze(analyzer);
         } catch (AnalysisException exception) {
+            exception.printStackTrace();
             Assert.assertTrue(false);
         }
     }

@@ -246,6 +246,14 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << buffer;
                     break;
                 }
+                case TYPE_DATEV2: {
+                    char buf[64];
+                    const DateV2Value* time_val =
+                            (const DateV2Value*)(col.column->get_data_at(i).data);
+                    time_val->to_string(buf);
+                    _plain_text_outstream << buf;
+                    break;
+                }
                 case TYPE_DATE:
                 case TYPE_DATETIME: {
                     char buf[64];

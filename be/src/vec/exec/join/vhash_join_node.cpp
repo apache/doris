@@ -469,7 +469,7 @@ struct ProcessHashTableProbe {
         output_block->swap(mutable_block.to_block());
 
         // dispose the other join conjunt exec
-        {
+        if (output_block->rows()) {
             int result_column_id = -1;
             int orig_columns = output_block->columns();
             (*_join_node->_vother_join_conjunct_ptr)->execute(output_block, &result_column_id);
@@ -1204,6 +1204,7 @@ void HashJoinNode::_hash_table_init() {
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
+        case TYPE_DATEV2:
             _hash_table_variants.emplace<I32HashTableContext>();
             break;
         case TYPE_BIGINT:
@@ -1273,5 +1274,4 @@ void HashJoinNode::_hash_table_init() {
         _hash_table_variants.emplace<SerializedHashTableContext>();
     }
 }
-
 } // namespace doris::vectorized

@@ -108,7 +108,7 @@ public class DescribeStmt extends ShowStmt {
                                                 dbTableName.getDb() + ": " + dbTableName.getTbl());
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbTableName.getDb());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbTableName.getDb());
         Table table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();

@@ -238,7 +238,7 @@ public class ConsistencyChecker extends MasterDaemon {
         List<Long> chosenTablets = Lists.newArrayList();
 
         // sort dbs
-        List<Long> dbIds = catalog.getDbIds();
+        List<Long> dbIds = catalog.getInternalDataSource().getDbIds();
         if (dbIds.isEmpty()) {
             return chosenTablets;
         }
@@ -248,7 +248,7 @@ public class ConsistencyChecker extends MasterDaemon {
                 // skip 'information_schema' database
                 continue;
             }
-            Database db = catalog.getDbNullable(dbId);
+            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -365,7 +365,7 @@ public class ConsistencyChecker extends MasterDaemon {
     }
 
     public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Catalog catalog) throws MetaNotFoundException {
-        Database db = catalog.getDbOrMetaException(info.getDbId());
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(info.getDbId());
         OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId());
         table.writeLock();
         try {

@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -92,12 +91,7 @@ public class MetaInfoAction extends RestBaseController {
         }
 
         // 1. get all database with privilege
-        List<String> dbNames = null;
-        try {
-            dbNames = Catalog.getCurrentCatalog().getClusterDbNames(ns);
-        } catch (AnalysisException e) {
-            return ResponseEntityBuilder.okWithCommonError("namespace does not exist: " + ns);
-        }
+        List<String> dbNames = Catalog.getCurrentCatalog().getCurrentDataSource().getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
@@ -142,7 +136,7 @@ public class MetaInfoAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -225,7 +219,7 @@ public class MetaInfoAction extends RestBaseController {
         Database db;
         Table tbl;
         try {
-            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

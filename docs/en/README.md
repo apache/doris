@@ -62,7 +62,7 @@ under the License.
         </div>
         <div class="newsboxImg">
           <div class="newsboxImgBox">
-            <img src="/blog-images/graduate.jpeg" alt="img">
+            <img src="/blog-images/graduate.jpg" alt="img">
           </div>
         </div>
       </a>
@@ -339,5 +339,5 @@ under the License.
     </div>
   </div>
 </div>
-<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/wowjs@1.1.2/dist/wow.min.js"></script>
+<script type="text/javascript" src="/js/wow.min.js"></script>
 <script type="text/javascript" src="/js/home.js"></script>

@@ -44,9 +44,10 @@ public class OptimizeGroupExpressionJob extends Job<Plan> {
     @Override
     public void execute() {
         List<Rule<Plan>> validRules = new ArrayList<>();
-        List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
         List<Rule<Plan>> implementationRules = getRuleSet().getImplementationRules();
-        validRules.addAll(getValidRules(groupExpression, explorationRules));
+        // TODO: enable exploration job after we test it
+        // List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
+        // validRules.addAll(getValidRules(groupExpression, explorationRules));
         validRules.addAll(getValidRules(groupExpression, implementationRules));
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
@@ -55,7 +56,6 @@ public class OptimizeGroupExpressionJob extends Job<Plan> {
 
             // If child_pattern has any more children (i.e non-leaf), then we will explore the
             // child before applying the rule. (assumes task pool is effectively a stack)
-            // TODO: adapt situation when pattern arity smaller than group expression arity
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
                 if (childPattern.arity() > 0 && !childPattern.isGroup()) {

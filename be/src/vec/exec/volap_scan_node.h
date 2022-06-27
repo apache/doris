@@ -17,10 +17,13 @@
 
 #pragma once
 
-#include "exec/olap_scan_node.h"
+#include "exec/olap_common.h"
+#include "exec/scan_node.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/tablet.h"
 #include "util/progress_updater.h"
 
 namespace doris {
@@ -65,8 +68,7 @@ private:
     Status start_scan(RuntimeState* state);
     void eval_const_conjuncts();
     Status normalize_conjuncts();
-    Status build_olap_filters();
-    Status build_scan_key();
+    Status build_key_ranges_and_filters();
     template <class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
@@ -245,8 +247,6 @@ private:
     RuntimeProfile::Counter* _rows_vec_cond_counter = nullptr;
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
-    RuntimeProfile::Counter* _first_read_timer = nullptr;
-    RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
@@ -255,12 +255,26 @@ private:
     RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
-    RuntimeProfile::Counter* _block_seek_timer = nullptr;
-    RuntimeProfile::Counter* _block_seek_counter = nullptr;
-    RuntimeProfile::Counter* _block_convert_timer = nullptr;
+    RuntimeProfile::Counter* _block_fetch_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
-    RuntimeProfile::Counter* _block_fetch_timer = nullptr;
+    // Not used any more, will be removed after non-vectorized code is removed
+    RuntimeProfile::Counter* _block_seek_timer = nullptr;
+    // Not used any more, will be removed after non-vectorized code is removed
+    RuntimeProfile::Counter* _block_seek_counter = nullptr;
+    // Add more detail seek timer and counter profile
+    // Read process is split into 3 stages: init, first read, lazy read
+    RuntimeProfile::Counter* _block_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
+    RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
+    RuntimeProfile::Counter* _first_read_timer = nullptr;
+    RuntimeProfile::Counter* _first_read_seek_timer = nullptr;
+    RuntimeProfile::Counter* _first_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _lazy_read_timer = nullptr;
+    RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
+    RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
+
+    RuntimeProfile::Counter* _block_convert_timer = nullptr;
 
     RuntimeProfile::Counter* _index_load_timer = nullptr;
 
