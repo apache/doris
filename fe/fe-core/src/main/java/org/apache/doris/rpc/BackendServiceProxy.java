@@ -37,6 +37,7 @@ import org.apache.thrift.protocol.TCompactProtocol;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class BackendServiceProxy {
@@ -50,12 +51,24 @@ public class BackendServiceProxy {
         serviceMap = Maps.newConcurrentMap();
     }
 
-    private static class SingletonHolder {
-        private static final BackendServiceProxy INSTANCE = new BackendServiceProxy();
+    private static class Holder {
+        private static final int PROXY_NUM = 20;
+        private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
+        private static AtomicInteger count = new AtomicInteger();
+
+        static {
+            for (int i = 0; i < proxies.length; i++) {
+                proxies[i] = new BackendServiceProxy();
+            }
+        }
+
+        static BackendServiceProxy get() {
+            return proxies[count.addAndGet(1) % PROXY_NUM];
+        }
     }
 
     public static BackendServiceProxy getInstance() {
-        return SingletonHolder.INSTANCE;
+        return Holder.get();
     }
 
     public void removeProxy(TNetworkAddress address) {
