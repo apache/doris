@@ -121,16 +121,7 @@ public:
         int columns = finalized_block.columns();
         *merged_rows += rows;
 
-        std::vector<RowRef> pushed_row_refs;
-        if (_tablet->keys_type() == KeysType::DUP_KEYS) {
-            std::swap(pushed_row_refs, row_refs);
-        } else if (_tablet->keys_type() == KeysType::UNIQUE_KEYS) {
-            for (int i = 0; i < rows; i++) {
-                if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
-                    pushed_row_refs.push_back(row_refs[i]);
-                }
-            }
-        } else if (_tablet->keys_type() == KeysType::AGG_KEYS) {
+        if (_tablet->keys_type() == KeysType::AGG_KEYS) {
             auto tablet_schema = _tablet->tablet_schema();
             int key_number = _tablet->num_key_columns();
 
@@ -184,25 +175,36 @@ public:
                 agg_functions[i]->destroy(agg_places[i]);
                 delete[] agg_places[i];
             }
-        }
-
-        // update real inserted row number
-        rows = pushed_row_refs.size();
-        *merged_rows -= rows;
-
-        for (int i = 0; i < rows; i += ALTER_TABLE_BATCH_SIZE) {
-            int limit = std::min(ALTER_TABLE_BATCH_SIZE, rows - i);
-
-            for (int idx = 0; idx < columns; idx++) {
-                auto column = finalized_block.get_by_position(idx).column->assume_mutable();
-
-                for (int j = 0; j < limit; j++) {
-                    auto row_ref = pushed_row_refs[i + j];
-                    column->insert_from(*row_ref.get_column(idx), row_ref.position);
+        } else {
+            std::vector<RowRef> pushed_row_refs;
+            if (_tablet->keys_type() == KeysType::DUP_KEYS) {
+                std::swap(pushed_row_refs, row_refs);
+            } else if (_tablet->keys_type() == KeysType::UNIQUE_KEYS) {
+                for (int i = 0; i < rows; i++) {
+                    if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
+                        pushed_row_refs.push_back(row_refs[i]);
+                    }
                 }
             }
-            rowset_writer->add_block(&finalized_block);
-            finalized_block.clear_column_data();
+
+            // update real inserted row number
+            rows = pushed_row_refs.size();
+            *merged_rows -= rows;
+
+            for (int i = 0; i < rows; i += ALTER_TABLE_BATCH_SIZE) {
+                int limit = std::min(ALTER_TABLE_BATCH_SIZE, rows - i);
+
+                for (int idx = 0; idx < columns; idx++) {
+                    auto column = finalized_block.get_by_position(idx).column->assume_mutable();
+
+                    for (int j = 0; j < limit; j++) {
+                        auto row_ref = pushed_row_refs[i + j];
+                        column->insert_from(*row_ref.get_column(idx), row_ref.position);
+                    }
+                }
+                rowset_writer->add_block(&finalized_block);
+                finalized_block.clear_column_data();
+            }
         }
 
         RETURN_IF_ERROR(rowset_writer->flush());
