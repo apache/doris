@@ -74,7 +74,7 @@ public class ProfileManager {
 
     public static final ArrayList<String> PROFILE_HEADERS = new ArrayList(
             Arrays.asList(QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
-                    START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE));
+                    START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
 
     private class ProfileElement {
         public Map<String, String> infoStrings = Maps.newHashMap();
