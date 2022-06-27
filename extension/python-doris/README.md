@@ -2,6 +2,10 @@
 
 python for apache-doris
 
+a small wheel, which is mainly used to make it easier to use streamload and execute Doris SQL in Python. 
+
+if anyone have some idea to optimize this tool, please make a PR to [DorisClient](https://github.com/TurboWay/DorisClient)
+
 # Install
 
 ```shell
