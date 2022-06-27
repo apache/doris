@@ -28,25 +28,32 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalAggregation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.analysis.FunctionParams;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.FunctionCall;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * Used to generate the merge agg node for distributed execution.
  */
-public class AggregateRewrite extends OneRewriteRuleFactory {
+public class AggregateBreakUp extends OneRewriteRuleFactory {
 
     @Override
     public Rule<Plan> build() {
-        return logicalAggregation().thenApply(ctx -> {
+        return logicalAggregation().when(p -> {
+            LogicalAggregation logicalAggregation = p.getOperator();
+            return !logicalAggregation.isBrokeUp();
+        }).thenApply(ctx -> {
             Plan plan = ctx.root;
             Operator operator = plan.getOperator();
             LogicalAggregation agg = (LogicalAggregation) operator;
@@ -56,10 +63,13 @@ public class AggregateRewrite extends OneRewriteRuleFactory {
                 namedExpression = (NamedExpression) namedExpression.clone();
                 List<Expression> children = namedExpression.children();
                 for (Expression child : children) {
-                    if (!(child instanceof FunctionCall)) {
+                    if (!(child instanceof Alias)) {
                         continue;
                     }
-                    FunctionCall functionCall = (FunctionCall) child;
+                    if (!(child.child(0) instanceof FunctionCall)) {
+                        continue;
+                    }
+                    FunctionCall functionCall = (FunctionCall) child.child(0);
                     FunctionName functionName = functionCall.getFnName();
                     FunctionParams functionParams = functionCall.getFnParams();
                     List<Expression> expressionList = functionParams.getExpression();
@@ -81,16 +91,63 @@ public class AggregateRewrite extends OneRewriteRuleFactory {
                 }
                 intermediateAggExpressionList.add(namedExpression);
             }
-            LogicalAggregation mergeAgg = new LogicalAggregation(
-                    agg.getGroupByExpressions(),
-                    agg.getOutputExpressions(),
-                    true
-            );
             LogicalAggregation localAgg = new LogicalAggregation(
                     agg.getGroupByExpressions(),
-                    intermediateAggExpressionList
+                    intermediateAggExpressionList,
+                    true
             );
-            return plan(mergeAgg, plan(localAgg, plan.child(0)));
+
+            Plan childPlan = plan(localAgg, plan.child(0));
+            List<Slot> stalePlanOutputSlotList = plan.getOutput();
+            List<Slot> childOutputSlotList = childPlan.getOutput();
+            int childOutputSize = stalePlanOutputSlotList.size();
+            Preconditions.checkState(childOutputSize == childOutputSlotList.size());
+            Map<Slot, Slot> staleToNew = new HashMap<>();
+            for (int i = 0; i < stalePlanOutputSlotList.size(); i++) {
+                staleToNew.put(stalePlanOutputSlotList.get(i), childOutputSlotList.get(i));
+            }
+            List<Expression> groupByExpressionList = agg.getGroupByExpressions();
+            for (int i = 0; i < groupByExpressionList.size(); i++) {
+                replaceSlot(staleToNew, groupByExpressionList, groupByExpressionList.get(i), i);
+            }
+            List<NamedExpression> mergeOutputExpressionList = agg.getOutputExpressions();
+            for (int i = 0; i < mergeOutputExpressionList.size(); i++) {
+                replaceSlot(staleToNew, mergeOutputExpressionList, mergeOutputExpressionList.get(i), i);
+            }
+            LogicalAggregation mergeAgg = new LogicalAggregation(
+                    groupByExpressionList,
+                    mergeOutputExpressionList,
+                    true
+            );
+            return plan(mergeAgg, childPlan);
         }).toRule(RuleType.REWRITE_AGG);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends Expression> void replaceSlot(Map<Slot, Slot> staleToNew,
+            List<T> expressionList, Expression root, int index) {
+        if (index != -1) {
+            if (root instanceof Slot) {
+                Slot v = staleToNew.get(root);
+                if (v == null) {
+                    return;
+                }
+                expressionList.set(index, (T) v);
+                return;
+            }
+        }
+        List<Expression> children = root.children();
+        for (int i = 0; i < children.size(); i++) {
+            Expression cur = children.get(i);
+            if (!(cur instanceof Slot)) {
+                replaceSlot(staleToNew, expressionList, cur, -1);
+                continue;
+            }
+            Expression v = staleToNew.get(cur);
+            if (v == null) {
+                continue;
+            }
+            children.set(i, v);
+        }
     }
 }
