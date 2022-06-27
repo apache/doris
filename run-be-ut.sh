@@ -42,6 +42,7 @@ usage() {
   echo "
 Usage: $0 <options>
   Optional options:
+     --benchmark        build benchmark-tool
      --clean            clean and build ut
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
@@ -63,7 +64,7 @@ Usage: $0 <options>
   exit 1
 }
 
-OPTS=$(getopt  -n $0 -o vhj:f: -l run,clean,filter: -- "$@")
+OPTS=$(getopt  -n $0 -o vhj:f: -l benchmark,run,clean,filter: -- "$@")
 if [ "$?" != "0" ]; then
   usage
 fi
@@ -74,18 +75,16 @@ eval set -- "$OPTS"
 
 PARALLEL=$[$(nproc)/5+1]
 
-if [[ -z ${USE_LLD} ]]; then
-    USE_LLD=OFF
-fi
-
 CLEAN=0
 RUN=0
+BUILD_BENCHMARK_TOOL=OFF
 FILTER=""
 if [ $# != 1 ] ; then
     while true; do 
         case "$1" in
             --clean) CLEAN=1 ; shift ;;
             --run) RUN=1 ; shift ;;
+            --benchmark) BUILD_BENCHMARK_TOOL=ON ; shift ;;
             -f | --filter) FILTER="--gtest_filter=$2"; shift 2;;
             -j) PARALLEL=$2; shift 2 ;;
             --) shift ;  break ;;
@@ -123,7 +122,6 @@ if [[ -z ${USE_DWARF} ]]; then
     USE_DWARF=OFF
 fi
 
-
 MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 
@@ -132,9 +130,9 @@ ${CMAKE_CMD} -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
     -DMAKE_TEST=ON \
-    -DUSE_LLD=${USE_LLD} \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DBUILD_META_TOOL=OFF \
+    -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
     -DWITH_MYSQL=OFF \
     -DUSE_DWARF=${USE_DWARF} \
     -DUSE_MEM_TRACKER=ON \

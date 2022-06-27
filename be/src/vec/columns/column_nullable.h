@@ -168,8 +168,10 @@ public:
     }
 
     bool is_date_type() const override { return get_nested_column().is_date_type(); }
+    bool is_date_v2_type() const override { return get_nested_column().is_date_v2_type(); }
     bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
     void set_date_type() override { get_nested_column().set_date_type(); }
+    void set_date_v2_type() override { get_nested_column().set_date_v2_type(); }
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
     bool is_nullable() const override { return true; }
@@ -289,6 +291,5 @@ private:
 };
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
-ColumnPtr remove_nullable(const ColumnPtr& column);
 
 } // namespace doris::vectorized

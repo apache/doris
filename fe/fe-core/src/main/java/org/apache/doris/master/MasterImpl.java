@@ -292,7 +292,7 @@ public class MasterImpl {
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;

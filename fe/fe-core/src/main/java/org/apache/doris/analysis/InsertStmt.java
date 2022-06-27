@@ -22,12 +22,14 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -188,7 +190,7 @@ public class InsertStmt extends DdlStmt {
         return tblName.getTbl();
     }
 
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet)
+    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
             throws AnalysisException {
         // get dbs of statement
         queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
@@ -196,15 +198,15 @@ public class InsertStmt extends DdlStmt {
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
-        Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-        Table table = db.getTableOrAnalysisException(tblName.getTbl());
+        DatabaseIf db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
+        TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
-                                                                PrivPredicate.LOAD)) {
+        if (!Catalog.getCurrentCatalog().getAuth()
+                .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), dbName + ": " + tableName);
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    dbName + ": " + tableName);
         }
 
         tableMap.put(table.getId(), table);
@@ -294,7 +296,7 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getCatalog().getDbOrAnalysisException(tblName.getDb());
+        db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
@@ -325,7 +327,8 @@ public class InsertStmt extends DdlStmt {
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // Get table
         if (targetTable == null) {
-            targetTable = analyzer.getTableOrAnalysisException(tblName);
+            DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(tblName.getDb());
+            targetTable = (Table) db.getTableOrAnalysisException(tblName.getTbl());
         }
 
         if (targetTable instanceof OlapTable) {

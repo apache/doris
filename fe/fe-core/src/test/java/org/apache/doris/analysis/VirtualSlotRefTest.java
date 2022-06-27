@@ -102,8 +102,6 @@ public class VirtualSlotRefTest {
         Assert.assertTrue(v instanceof VirtualSlotRef);
         Assert.assertTrue(((VirtualSlotRef) v).getRealSlots().get(0).equals(virtualSlot.getRealSlots().get(0)));
         Assert.assertFalse(((VirtualSlotRef) v).getRealSlots().get(0) == virtualSlot.getRealSlots().get(0));
-
-
     }
 
     @Test

@@ -23,10 +23,10 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -40,6 +40,7 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -290,8 +291,8 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap,
-            Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
+            throws AnalysisException {
         getWithClauseTables(analyzer, tableMap, parentViewNameSet);
         for (TableRef tblRef : fromClause) {
             if (tblRef instanceof InlineViewRef) {
@@ -315,16 +316,14 @@ public class SelectStmt extends QueryStmt {
                 if (Strings.isNullOrEmpty(tableName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
-                Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-                Table table = db.getTableOrAnalysisException(tableName);
+                DatabaseIf db = analyzer.getCatalog().getCurrentDataSource().getDbOrAnalysisException(dbName);
+                TableIf table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                        tableName,
-                        PrivPredicate.SELECT)) {
+                if (!Catalog.getCurrentCatalog().getAuth()
+                        .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.SELECT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(),
+                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                             dbName + ": " + tableName);
                 }
                 tableMap.put(table.getId(), table);
@@ -512,6 +511,13 @@ public class SelectStmt extends QueryStmt {
                         "WHERE clause must not contain analytic expressions: " + e.toSql());
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
+        }
+
+        // Change all outer join tuple to null here after analyze where and from clause
+        // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
+        // the solt desc nullable mark must be corrected to make sure BE exec query right.
+        if (VectorizedUtil.isVectorized()) {
+            analyzer.changeAllOuterJoinTupleToNull();
         }
 
         createSortInfo(analyzer);

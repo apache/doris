@@ -860,7 +860,7 @@ public class SystemInfoService {
     public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId) {
         AtomicLong atomicLong;
         if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database db = (Database) Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("failed to update backend report version, db {} does not exist", dbId);
                 return;

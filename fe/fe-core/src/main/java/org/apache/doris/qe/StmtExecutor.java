@@ -58,6 +58,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -69,6 +70,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -78,6 +80,7 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -571,7 +574,7 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
-            Map<Long, Table> tableMap = Maps.newTreeMap();
+            Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
@@ -586,7 +589,7 @@ public class StmtExecutor implements ProfileWriter {
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
             // table id in tableList is in ascending order because that table map is a sorted map
-            List<Table> tables = Lists.newArrayList(tableMap.values());
+            List<TableIf> tables = Lists.newArrayList(tableMap.values());
             int analyzeTimes = 2;
             for (int i = 1; i <= analyzeTimes; i++) {
                 MetaLockUtils.readLockTables(tables);
@@ -604,6 +607,13 @@ public class StmtExecutor implements ProfileWriter {
                         throw e;
                     } else {
                         resetAnalyzerAndStmt();
+                    }
+                } catch (VecNotImplException e) {
+                    if (i == analyzeTimes) {
+                        throw e;
+                    } else {
+                        resetAnalyzerAndStmt();
+                        VectorizedUtil.switchToQueryNonVec();
                     }
                 } catch (UserException e) {
                     throw e;
@@ -1187,8 +1197,8 @@ public class StmtExecutor implements ProfileWriter {
         TTxnParams txnConf = txnEntry.getTxnConf();
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
-        Database dbObj = Catalog.getCurrentCatalog().getDbOrException(
-                dbName, s -> new TException("database is invalid for dbName: " + s));
+        Database dbObj = Catalog.getCurrentInternalCatalog()
+                .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
         Table tblObj = dbObj.getTableOrException(tblName, s -> new TException("table is invalid: " + s));
         txnConf.setDbId(dbObj.getId()).setTbl(tblName).setDb(dbName);
         txnEntry.setTable(tblObj);

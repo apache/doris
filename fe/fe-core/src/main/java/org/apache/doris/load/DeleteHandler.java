@@ -145,7 +145,7 @@ public class DeleteHandler implements Writable {
         List<String> partitionNames = stmt.getPartitionNames();
         boolean noPartitionSpecified = partitionNames.isEmpty();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         DeleteJob deleteJob = null;
         try {
@@ -575,7 +575,9 @@ public class DeleteHandler implements Writable {
                             binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
                         }
                     } else if (column.getDataType() == PrimitiveType.DATE
-                            || column.getDataType() == PrimitiveType.DATETIME) {
+                            || column.getDataType() == PrimitiveType.DATETIME
+                            || column.getDataType() == PrimitiveType.DATEV2
+                            || column.getDataType() == PrimitiveType.DATETIMEV2) {
                         DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
                         value = dateLiteral.getStringValue();
                         binaryPredicate.setChild(1, LiteralExpr.create(value,
@@ -591,9 +593,10 @@ public class DeleteHandler implements Writable {
                 try {
                     InPredicate inPredicate = (InPredicate) condition;
                     for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                        value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
                         if (column.getDataType() == PrimitiveType.DATE
-                                || column.getDataType() == PrimitiveType.DATETIME) {
+                                || column.getDataType() == PrimitiveType.DATETIME
+                                || column.getDataType() == PrimitiveType.DATEV2
+                                || column.getDataType() == PrimitiveType.DATETIMEV2) {
                             DateLiteral dateLiteral = new DateLiteral(value,
                                     Type.fromPrimitiveType(column.getDataType()));
                             value = dateLiteral.getStringValue();
@@ -692,7 +695,7 @@ public class DeleteHandler implements Writable {
     // show delete stmt
     public List<List<Comparable>> getDeleteInfosByDb(long dbId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }

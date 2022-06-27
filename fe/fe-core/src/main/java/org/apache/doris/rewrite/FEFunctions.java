@@ -62,7 +62,8 @@ public class FEFunctions {
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
         long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000, Type.TIME);
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000,
+            FloatLiteral.getDefaultTimeType(Type.TIME));
     }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
@@ -134,6 +135,7 @@ public class FEFunctions {
         DateLiteral dateLiteral = new DateLiteral();
         try {
             dateLiteral.fromDateFormatStr(fmtLiteral.getStringValue(), date.getStringValue(), false);
+            dateLiteral.setType(DateLiteral.getDefaultDateType(dateLiteral.getType()));
             return dateLiteral;
         } catch (InvalidFormatException e) {
             e.printStackTrace();
@@ -220,7 +222,8 @@ public class FEFunctions {
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }
-        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
+        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
+                DateLiteral.getDefaultDateType(Type.DATETIME));
         return new StringLiteral(dl.getStringValue());
     }
 
@@ -230,13 +233,15 @@ public class FEFunctions {
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }
-        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
+        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
+                DateLiteral.getDefaultDateType(Type.DATETIME));
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
-        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATETIME);
+        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
+            DateLiteral.getDefaultDateType(Type.DATETIME));
     }
 
     @FEFunction(name = "current_timestamp", argTypes = {}, returnType = "DATETIME")
@@ -246,13 +251,15 @@ public class FEFunctions {
 
     @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
     public static DateLiteral curDate() throws AnalysisException {
-        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
+        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
+            DateLiteral.getDefaultDateType(Type.DATE));
     }
 
     @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
     public static FloatLiteral curTime() throws AnalysisException {
         DateLiteral now = now();
-        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()), Type.TIME);
+        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()),
+            FloatLiteral.getDefaultTimeType(Type.TIME));
     }
 
     @FEFunction(name = "current_time", argTypes = {}, returnType = "TIME")
@@ -263,7 +270,7 @@ public class FEFunctions {
     @FEFunction(name = "utc_timestamp", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral utcTimestamp() throws AnalysisException {
         return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getOrSystemTimeZone("+00:00"))),
-                Type.DATETIME);
+            DateLiteral.getDefaultDateType(Type.DATETIME));
     }
 
     @FEFunction(name = "yearweek", argTypes = { "DATE" }, returnType = "INT")
@@ -541,7 +548,10 @@ public class FEFunctions {
         @FEFunction(name = "ifnull", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT"),
         @FEFunction(name = "ifnull", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME"),
         @FEFunction(name = "ifnull", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME"),
-        @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
+        @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME"),
+        @FEFunction(name = "ifnull", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIME"),
+        @FEFunction(name = "ifnull", argTypes = { "DATEV2", "DATETIMEV2" }, returnType = "DATETIME"),
+        @FEFunction(name = "ifnull", argTypes = { "DATETIMEV2", "DATEV2" }, returnType = "DATETIME")
     })
     public static LiteralExpr ifNull(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         return first instanceof NullLiteral ? second : first;

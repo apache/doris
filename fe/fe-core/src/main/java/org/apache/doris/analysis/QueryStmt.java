@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -455,8 +455,8 @@ public abstract class QueryStmt extends StatementBase {
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap,
-            Set<String> parentViewNameSet) throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
+            throws AnalysisException {
         if (withClause != null) {
             withClause.getTables(analyzer, tableMap, parentViewNameSet);
         }
@@ -535,7 +535,7 @@ public abstract class QueryStmt extends StatementBase {
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet.
     // issue link: https://github.com/apache/doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet)
+    public abstract void getTables(Analyzer analyzer, Map<Long, TableIf> tables, Set<String> parentViewNameSet)
             throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and

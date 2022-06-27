@@ -22,11 +22,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -36,6 +37,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
@@ -259,6 +261,8 @@ public class Analyzer {
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
+
+        private final Set<TupleId> outerJoinedMaterializedTupleIds = Sets.newHashSet();
 
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
@@ -655,14 +659,14 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
 
-        Database database = globalState.catalog.getDbOrAnalysisException(dbName);
-        Table table = database.getTableOrAnalysisException(tableName.getTbl());
+        DatabaseIf database = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(dbName);
+        TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream().filter(
-                    partition -> partition.getState() == PartitionState.RESTORE
-            ).collect(Collectors.toList()).isEmpty();
+            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream()
+                    .filter(partition -> partition.getState() == PartitionState.RESTORE).collect(Collectors.toList())
+                    .isEmpty();
 
             if (!isNotRestoring) {
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
@@ -693,8 +697,8 @@ public class Analyzer {
         }
     }
 
-    public Table getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        Database db = globalState.catalog.getDbOrAnalysisException(tblName.getDb());
+    public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
+        DatabaseIf db = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
@@ -760,7 +764,7 @@ public class Analyzer {
          * The inner subquery: select k1 from table c where a.k1=k1;
          * There is a associated column (a.k1) which belongs to the outer query appears in the inner subquery.
          * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
-         * The exception of this query like that: Unknown column 'k1' in 'a'
+         * The exception to this query like that: Unknown column 'k1' in 'a'
          */
         if (d == null && hasAncestors() && isSubquery) {
             // analyzer father for subquery
@@ -785,6 +789,13 @@ public class Analyzer {
         String key = d.getAlias() + "." + col.getName();
         SlotDescriptor result = slotRefMap.get(key);
         if (result != null) {
+            // this is a trick to set slot as nullable when slot is on inline view
+            // When analyze InlineViewRef, we first generate sMap and baseTblSmap and then analyze join.
+            // We have already registered column ref at that time, but we did not know
+            // whether inline view is outer joined. So we have to check it and set slot as nullable here.
+            if (isOuterJoined(d.getId())) {
+                result.setIsNullable(true);
+            }
             result.setMultiRef(true);
             return result;
         }
@@ -937,6 +948,57 @@ public class Analyzer {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("registerOuterJoinedTids: " + globalState.outerJoinedTupleIds);
+        }
+    }
+
+    public void registerOuterJoinedMaterilizeTids(List<TupleId> tids) {
+        globalState.outerJoinedMaterializedTupleIds.addAll(tids);
+    }
+
+    /**
+     * The main function of this method is to set the column property on the nullable side of the outer join
+     * to nullable in the case of vectorization.
+     * For example:
+     * Query: select * from t1 left join t2 on t1.k1=t2.k1
+     * Origin: t2.k1 not null
+     * Result: t2.k1 is nullable
+     *
+     * @throws VecNotImplException In some cases, it is not possible to directly modify the column property to nullable.
+     *     It will report an error and fall back from vectorized mode to non-vectorized mode for execution.
+     *     If the nullside column of the outer join is a column that must return non-null like count(*)
+     *     then there is no way to force the column to be nullable.
+     *     At this time, vectorization cannot support this situation,
+     *     so it is necessary to fall back to non-vectorization for processing.
+     *     For example:
+     *       Query: select * from t1 left join
+     *              (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
+     *       Origin: tmp.k1 not null, tmp.count_k2 not null
+     *       Result: throw VecNotImplException
+     */
+    public void changeAllOuterJoinTupleToNull() throws VecNotImplException {
+        for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                changeSlotToNull(slotDescriptor);
+            }
+        }
+
+        for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                changeSlotToNull(slotDescriptor);
+            }
+        }
+    }
+
+    private void changeSlotToNull(SlotDescriptor slotDescriptor) throws VecNotImplException {
+        if (slotDescriptor.getSourceExprs().isEmpty()) {
+            slotDescriptor.setIsNullable(true);
+            return;
+        }
+        for (Expr sourceExpr : slotDescriptor.getSourceExprs()) {
+            if (!sourceExpr.isNullable()) {
+                throw new VecNotImplException("The slot (" + slotDescriptor.toString()
+                        + ") could not be changed to nullable");
+            }
         }
     }
 
@@ -1357,6 +1419,10 @@ public class Analyzer {
 
     public boolean isFullOuterJoined(TupleId tid) {
         return globalState.fullOuterJoinedTupleIds.containsKey(tid);
+    }
+
+    public boolean isOuterMaterializedJoined(TupleId tid) {
+        return globalState.outerJoinedMaterializedTupleIds.contains(tid);
     }
 
     public boolean isFullOuterJoined(SlotId sid) {
