@@ -17,8 +17,10 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.base.Strings;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
@@ -175,6 +177,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
+    public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
+
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
@@ -191,6 +195,8 @@ public class SessionVariable implements Serializable, Writable {
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
     public static final String ENABLE_NEREIDS = "enable_nereids";
+
+    static final String SESSION_CONTEXT = "session_context";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -465,6 +471,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
 
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
@@ -479,6 +486,14 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
     private boolean enableNereids = false;
+
+    /**
+     * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
+     * For example, trace_id can be passed to trace the query request sent by the user.
+     * set session_context="trace_id:1234565678";
+     */
+    @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
+    public String sessionContext = "";
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -1220,4 +1235,28 @@ public class SessionVariable implements Serializable, Writable {
         return queryOptions;
     }
 
+    /**
+     * The sessionContext is as follows:
+     * "k1:v1;k2:v2;..."
+     * Here we want to get value with key named "trace_id",
+     * Return empty string is not found.
+     *
+     * @return
+    */
+    public String getTraceId() {
+        if (Strings.isNullOrEmpty(sessionContext)) {
+            return "";
+        }
+        String[] parts = sessionContext.split(";");
+        for (String part : parts) {
+            String[] innerParts = part.split(":");
+            if (innerParts.length != 2) {
+                continue;
+            }
+            if (innerParts[0].equals(ProfileManager.TRACE_ID)) {
+                return innerParts[1];
+            }
+        }
+        return "";
+    }
 }
