@@ -747,10 +747,12 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                                                    _compress_codec.get()));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
-                _dict_decoder = std::make_unique<BinaryPlainPageDecoder>(dict_data);
+                _dict_decoder = std::make_unique<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>(
+                        dict_data);
                 RETURN_IF_ERROR(_dict_decoder->init());
 
-                auto* pd_decoder = (BinaryPlainPageDecoder*)_dict_decoder.get();
+                auto* pd_decoder =
+                        (BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
                 _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
                 pd_decoder->get_dict_word_info(_dict_word_info.get());
             }

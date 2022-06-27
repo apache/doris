@@ -58,12 +58,12 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING, CppType> {
 template <FieldType type>
 struct TypeEncodingTraits<type, PLAIN_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new BinaryPlainPageBuilder(opts);
+        *builder = new BinaryPlainPageBuilder<type>(opts);
         return Status::OK();
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
-        *decoder = new BinaryPlainPageDecoder(data, opts);
+        *decoder = new BinaryPlainPageDecoder<type>(data, opts);
         return Status::OK();
     }
 };
