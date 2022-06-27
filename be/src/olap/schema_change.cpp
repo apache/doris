@@ -849,6 +849,10 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     for (int idx = 0; idx < column_size; idx++) {
         int ref_idx = _schema_mapping[idx].ref_column;
 
+        if (!_schema_mapping[idx].materialized_function.empty()) {
+            return Status::NotSupported("Materialized function not supported now. ");
+        }
+
         if (ref_idx < 0) {
             // new column, write default value
             auto value = _schema_mapping[idx].default_value;
@@ -861,14 +865,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                 DefaultValueColumnIterator::insert_default_data(type_info.get(), value->size(),
                                                                 value->ptr(), column, row_size);
             }
-            continue;
-        }
-
-        if (!_schema_mapping[idx].materialized_function.empty()) {
-            return Status::NotSupported("Materialized function not supported now. ");
-        }
-
-        if (_schema_mapping[idx].expr != nullptr) {
+        } else if (_schema_mapping[idx].expr != nullptr) {
             // calculate special materialized function, to_bitmap/hll_hash/count_field or cast expr
             vectorized::VExprContext* ctx = nullptr;
             RETURN_IF_ERROR(
@@ -892,11 +889,10 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
             swap_idx_map[result_column_id] = idx;
 
             ctx->close(state);
-            continue;
+        } else {
+            // same type, just swap column
+            swap_idx_map[ref_idx] = idx;
         }
-
-        // same type, just swap column
-        swap_idx_map[ref_idx] = idx;
     }
 
     for (auto it : swap_idx_map) {
@@ -912,8 +908,28 @@ Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
     // TODO: rethink this check
     // This check is to prevent schema-change from causing data loss,
     // But it is possible to generate null data in material-view or rollup.
-    for (size_t i = 0; i < ref_column->size(); i++) {
-        if (ref_column->is_null_at(i) != new_column->is_null_at(i)) {
+
+    if (ref_column->is_nullable() != new_column->is_nullable()) {
+        return Status::DataQualityError("column.is_nullable() is changed!");
+    }
+
+    if (ref_column->is_nullable()) {
+        auto* ref_null_map =
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(ref_column)
+                        ->get_null_map_column()
+                        .get_data()
+                        .data();
+        auto* new_null_map =
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                        ->get_null_map_column()
+                        .get_data()
+                        .data();
+
+        bool is_changed = false;
+        for (size_t i = 0; i < ref_column->size(); i++) {
+            is_changed |= (ref_null_map[i] != new_null_map[i]);
+        }
+        if (is_changed) {
             return Status::DataQualityError("is_null of data is changed!");
         }
     }
