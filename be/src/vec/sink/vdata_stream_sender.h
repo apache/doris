@@ -256,8 +256,8 @@ private:
             std::string err = fmt::format(
                     "failed to send brpc batch, error={}, error_text={}, client: {}, "
                     "latency = {}",
-                    berror(cntl->ErrorCode()), cntl->ErrorText(),
-                    BackendOptions::get_localhost(), cntl->latency_us());
+                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
+                    cntl->latency_us());
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
