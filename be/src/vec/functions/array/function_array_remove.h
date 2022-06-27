@@ -34,8 +34,6 @@ public:
     /// Get function name.
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     bool is_variadic() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 2; }
@@ -44,6 +42,8 @@ public:
         DCHECK(is_array(arguments[0]))
                 << "First argument for function: " << name << " should be DataTypeArray but it has type "
                 << arguments[0]->get_name() << ".";
+        LOG(INFO) << "arguments[0]:" << arguments[0]->get_name();
+        LOG(INFO) << "arguments[1]:" << arguments[1]->get_name();
         return arguments[0];
     }
 
@@ -75,11 +75,11 @@ public:
         LOG(INFO) << "left type is " << args[0].type->get_name();
         LOG(INFO) << "right type is " << args[1].type->get_name();
         LOG(INFO) << "right column type is " << args[1].column->get_name();
-        if (!is_column_const(*args[1].column)) {
-            return Status::RuntimeError(
-                    fmt::format("second argument of {} only support constant column now.",
-                                get_name()));
-        }
+//        if (!is_column_const(*args[1].column)) {
+//            return Status::RuntimeError(
+//                    fmt::format("second argument of {} only support constant column now.",
+//                                get_name()));
+//        }
 
         auto res_column = _execute_non_nullable(args, input_rows_count);
         if (!res_column) {
@@ -99,7 +99,7 @@ private:
     template <typename NestedColumnType, typename RightColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& target,
-                              const UInt8* nested_null_map, UInt8* dst_null_map, bool target_is_null) {
+                              const UInt8* nested_null_map, UInt8* dst_null_map, UInt8* target_null_map) {
         LOG(INFO) << "nested column type is " << nested_column.get_name();
         // check array nested column type and get data
         auto& src_column = reinterpret_cast<const NestedColumnType&>(nested_column);
@@ -131,6 +131,7 @@ private:
 
             if (len == 0) {
                 // case: array:[], target:1 ==> []
+                // case: array:NULL, target:1 ==> NULL
                 dst_offsets.push_back(cur);
                 continue;
             }
@@ -139,8 +140,7 @@ private:
             for (size_t pos = 0; pos < len; ++pos) {
                 LOG(INFO) << "pos: " << pos;
                 LOG(INFO) << "nested_null_map: " << nested_null_map;
-                LOG(INFO) << "target_is_null: " << target_is_null;
-                if (!nested_null_map && target_is_null) {
+                if (!nested_null_map && target_null_map[row]) {
                     // case: array:[1,2], target:Null ==> [1,2]
                     LOG(INFO) << "case: array:[1,2], target:Null ==> [1,2]. " << off + pos;
                     dst_column.insert_from_not_nullable(src_column, off + pos);
@@ -150,17 +150,17 @@ private:
                 if (nested_null_map) {
                     LOG(INFO) << "nested_null_map is true";
                     LOG(INFO) << "nested_null_map[" << off + pos << "]: " << nested_null_map[off + pos];
-                    if (nested_null_map[off + pos] && !target_is_null) {
+                    if (nested_null_map[off + pos] && !target_null_map[row]) {
                         // case: array:[Null], target:1 ==> [Null]
                         LOG(INFO) << "case: array:[Null], target:1 ==> [Null]. " << off + pos;
                         dst_column.insert_data(nullptr, 0);
                         continue;
-                    } else if (!nested_null_map[off + pos] && target_is_null) {
+                    } else if (!nested_null_map[off + pos] && target_null_map[row]) {
                         // case: array:[1,2], target:Null ==> [1,2]
                         LOG(INFO) << "case: array:[1,2], target:Null ==> [1,2]. " << off + pos;
                         dst_column.insert_from_not_nullable(src_column, off + pos);
                         continue;
-                    } else if (nested_null_map[off + pos] && target_is_null) {
+                    } else if (nested_null_map[off + pos] && target_null_map[row]) {
                         // case: array:[Null], target:Null ==> []
                         LOG(INFO) << "case: array:[Null], target:Null ==> []. " << off + pos;
                         ++count;
@@ -172,7 +172,7 @@ private:
                 // only need to compare with the first element of right column's data
                 // because from now right column is constant
                 LOG(INFO) << "src_data[" << off + pos << "]";
-                if (src_data[off + pos] == target_data[0]) {
+                if (src_data[off + pos] == target_data[row]) {
                     LOG(INFO) << "count+1, count: " << count;
                     ++count;
                 } else {
@@ -193,7 +193,7 @@ private:
 
     ColumnPtr _execute_string(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& target,
-                              const UInt8* nested_null_map, UInt8* dst_null_map, bool target_is_null) {
+                              const UInt8* nested_null_map, UInt8* dst_null_map, UInt8* target_null_map) {
 
         // prepare dst array
         auto dst = ColumnArray::create(
@@ -204,53 +204,53 @@ private:
     template <typename NestedColumnType>
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
                                        const UInt8* arr_null_map, const IColumn& target,
-                                       const UInt8* nested_null_map, UInt8* dst_null_map, bool target_is_null) {
+                                       const UInt8* nested_null_map, UInt8* dst_null_map, UInt8* target_null_map) {
         LOG(INFO) << "target column type is " << target.get_name();
         if (check_column<ColumnUInt8>(target)) {
             return _execute_number<NestedColumnType, ColumnUInt8>(offsets, nested_column, arr_null_map,
                                                                   target, nested_null_map, dst_null_map,
-                                                                  target_is_null);
+                                                                  target_null_map);
         } else if (check_column<ColumnInt8>(target)) {
             return _execute_number<NestedColumnType, ColumnInt8>(offsets, nested_column, arr_null_map,
                                                                  target, nested_null_map, dst_null_map,
-                                                                 target_is_null);
+                                                                 target_null_map);
         } else if (check_column<ColumnInt16>(target)) {
             return _execute_number<NestedColumnType, ColumnInt16>(offsets, nested_column, arr_null_map,
                                                                   target, nested_null_map, dst_null_map,
-                                                                  target_is_null);
+                                                                  target_null_map);
         } else if (check_column<ColumnInt32>(target)) {
             LOG(INFO) << "enter target int32";
             return _execute_number<NestedColumnType, ColumnInt32>(offsets, nested_column, arr_null_map,
                                                                   target, nested_null_map, dst_null_map,
-                                                                  target_is_null);
+                                                                  target_null_map);
         } else if (check_column<ColumnInt64>(target)) {
             return _execute_number<NestedColumnType, ColumnInt64>(offsets, nested_column, arr_null_map,
                                                                   target, nested_null_map, dst_null_map,
-                                                                  target_is_null);
+                                                                  target_null_map);
         } else if (check_column<ColumnInt128>(target)) {
             return _execute_number<NestedColumnType, ColumnInt128>(offsets, nested_column, arr_null_map,
                                                                    target, nested_null_map, dst_null_map,
-                                                                   target_is_null);
+                                                                   target_null_map);
         } else if (check_column<ColumnFloat32>(target)) {
             return _execute_number<NestedColumnType, ColumnFloat32>(offsets, nested_column, arr_null_map,
                                                                     target, nested_null_map, dst_null_map,
-                                                                    target_is_null);
+                                                                    target_null_map);
         } else if (check_column<ColumnFloat64>(target)) {
             return _execute_number<NestedColumnType, ColumnFloat64>(offsets, nested_column, arr_null_map,
                                                                     target, nested_null_map, dst_null_map,
-                                                                    target_is_null);
+                                                                    target_null_map);
         } else if (target.is_date_type()) {
             return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_column, arr_null_map,
                                                                  target, nested_null_map, dst_null_map,
-                                                                 target_is_null);
+                                                                 target_null_map);
         } else if (target.is_datetime_type()) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_column, arr_null_map,
                                                                      target, nested_null_map, dst_null_map,
-                                                                     target_is_null);
+                                                                     target_null_map);
         } else if (check_column<ColumnDecimal128>(target)) {
             return _execute_number<NestedColumnType, ColumnDecimal128>(offsets, nested_column, arr_null_map,
                                                                        target, nested_null_map, dst_null_map,
-                                                                       target_is_null);
+                                                                       target_null_map);
         }
         return nullptr;
     }
@@ -263,9 +263,20 @@ private:
         const auto& offsets = array_column.get_offsets();
         DCHECK(offsets.size() == input_rows_count);
 
-        // currently, only constant right column is supported
-        const ColumnPtr target_ptr = arguments[1].column;
-        DCHECK(is_column_const(*target_ptr));
+        const auto right_column = arguments[1].column;
+        ColumnPtr target_ptr = nullptr;
+        if (is_column_const(*right_column)) {
+            // expand constant column
+            const auto& const_col = reinterpret_cast<const ColumnConst&>(*right_column);
+            target_ptr = const_col.get_data_column_ptr()->
+                    replicate(ColumnArray::Offsets(1, input_rows_count));
+        } else {
+            target_ptr = right_column;
+        }
+
+        // From now target_null_map is always fill with non-null.
+        auto target_nullable_col = ColumnUInt8::create(input_rows_count, 0);
+        UInt8* target_null_map = target_nullable_col->get_data().data();
 
         const UInt8* nested_null_map = nullptr;
         ColumnPtr nested_column = nullptr;
@@ -275,20 +286,8 @@ private:
             nested_null_map = nested_null_column.get_null_map_column().get_data().data();
             nested_column = nested_null_column.get_nested_column_ptr();
         } else {
-            if (target_ptr->only_null()) {
-                // case: array:[1,2,3], target:Null ==> [1,2,3]
-                // return ColumnArray::Create(array_column);
-                LOG(INFO) << "target column is only null while nested column isn't nullable"
-                          << ", return immediately.";
-                return array_column.clone_resized(input_rows_count);
-            }
             nested_column = array_column.get_data_ptr();
         }
-
-        // check and get target column
-        const auto& const_col = reinterpret_cast<const ColumnConst&>(*target_ptr);
-        const auto& target = const_col.get_data_column();
-        const bool target_is_null = const_col.only_null();
 
         auto left_element_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*arguments[0].type).get_nested_type());
@@ -301,57 +300,57 @@ private:
         ColumnPtr res = nullptr;
         if (is_string(right_type) && is_string(left_element_type)) {
             res = _execute_string(offsets, *nested_column, src_null_map,
-                                  target, nested_null_map, dst_null_map,
-                                  target_is_null);
+                                  *target_ptr, nested_null_map, dst_null_map,
+                                  target_null_map);
         } else if (is_number(right_type) && is_number(left_element_type)) {
             LOG(INFO) << "enternumber";
             if (check_column<ColumnUInt8>(*nested_column)) {
                 res = _execute_number_expanded<ColumnUInt8>(offsets, *nested_column, src_null_map,
-                                                            target, nested_null_map, dst_null_map,
-                                                            target_is_null);
+                                                            *target_ptr, nested_null_map, dst_null_map,
+                                                            target_null_map);
             } else if (check_column<ColumnInt8>(*nested_column)) {
                 res = _execute_number_expanded<ColumnInt8>(offsets, *nested_column, src_null_map,
-                                                           target, nested_null_map, dst_null_map,
-                                                           target_is_null);
+                                                           *target_ptr, nested_null_map, dst_null_map,
+                                                           target_null_map);
             } else if (check_column<ColumnInt16>(*nested_column)) {
                 res = _execute_number_expanded<ColumnInt16>(offsets, *nested_column, src_null_map,
-                                                            target, nested_null_map, dst_null_map,
-                                                            target_is_null);
+                                                            *target_ptr, nested_null_map, dst_null_map,
+                                                            target_null_map);
             } else if (check_column<ColumnInt32>(*nested_column)) {
                 LOG(INFO) << "enterint32";
                 res = _execute_number_expanded<ColumnInt32>(offsets, *nested_column, src_null_map,
-                                                            target, nested_null_map, dst_null_map,
-                                                            target_is_null);
+                                                            *target_ptr, nested_null_map, dst_null_map,
+                                                            target_null_map);
             } else if (check_column<ColumnInt64>(*nested_column)) {
                 res = _execute_number_expanded<ColumnInt64>(offsets, *nested_column, src_null_map,
-                                                            target, nested_null_map, dst_null_map,
-                                                            target_is_null);
+                                                            *target_ptr, nested_null_map, dst_null_map,
+                                                            target_null_map);
             } else if (check_column<ColumnInt128>(*nested_column)) {
                 res = _execute_number_expanded<ColumnInt128>(offsets, *nested_column, src_null_map,
-                                                             target, nested_null_map, dst_null_map,
-                                                             target_is_null);
+                                                             *target_ptr, nested_null_map, dst_null_map,
+                                                             target_null_map);
             } else if (check_column<ColumnFloat32>(*nested_column)) {
                 res = _execute_number_expanded<ColumnFloat32>(offsets, *nested_column, src_null_map,
-                                                              target, nested_null_map, dst_null_map,
-                                                              target_is_null);
+                                                              *target_ptr, nested_null_map, dst_null_map,
+                                                              target_null_map);
             } else if (check_column<ColumnFloat64>(*nested_column)) {
                 res = _execute_number_expanded<ColumnFloat64>(offsets, *nested_column, src_null_map,
-                                                              target, nested_null_map, dst_null_map,
-                                                              target_is_null);
+                                                              *target_ptr, nested_null_map, dst_null_map,
+                                                              target_null_map);
             } else if (check_column<ColumnDecimal128>(*nested_column)) {
                 res = _execute_number_expanded<ColumnDecimal128>(offsets, *nested_column, src_null_map,
-                                                                 target, nested_null_map, dst_null_map,
-                                                                 target_is_null);
+                                                                 *target_ptr, nested_null_map, dst_null_map,
+                                                                 target_null_map);
             }
         } else if (is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)) {
             if (nested_column->is_date_type()) {
                 res = _execute_number_expanded<ColumnDate>(offsets, *nested_column, src_null_map,
-                                                           target, nested_null_map, dst_null_map,
-                                                           target_is_null);
+                                                           *target_ptr, nested_null_map, dst_null_map,
+                                                           target_null_map);
             } else if (nested_column->is_datetime_type()) {
                 res = _execute_number_expanded<ColumnDateTime>(offsets, *nested_column, src_null_map,
-                                                               target, nested_null_map, dst_null_map,
-                                                               target_is_null);
+                                                               *target_ptr, nested_null_map, dst_null_map,
+                                                               target_null_map);
             }
         }
 
