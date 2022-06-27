@@ -1433,19 +1433,23 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         StorageEngine::instance()->create_cumulative_compaction(tablet, _cumulative_compaction);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         Status res = _cumulative_compaction->prepare_compact();
+        int64_t now_ms = UnixMillis();
         if (!res.ok()) {
-            set_last_cumu_compaction_failure_time(UnixMillis());
+            set_last_cumu_compaction_failure_time(now_ms);
             *permits = 0;
             if (res.precise_code() != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError(
                         fmt::format("prepare cumulative compaction with err: {}", res));
+            } else {
+                _data_dir->set_tablet_prepare_compact_failed(now_ms / 1000, true);
             }
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
+        _data_dir->set_tablet_prepare_compact_failed(now_ms / 1000, false);
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
     } else {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
@@ -1463,19 +1467,23 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         StorageEngine::instance()->create_base_compaction(tablet, _base_compaction);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
         Status res = _base_compaction->prepare_compact();
+        int64_t now_ms = UnixMillis();
         if (!res.ok()) {
-            set_last_base_compaction_failure_time(UnixMillis());
+            set_last_base_compaction_failure_time(now_ms);
             *permits = 0;
             if (res.precise_code() != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 return Status::InternalError(
                         fmt::format("prepare base compaction with err: {}", res));
+            } else {
+                _data_dir->set_tablet_prepare_compact_failed(now_ms / 1000, true);
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
+        _data_dir->set_tablet_prepare_compact_failed(now_ms / 1000, false);
         compaction_rowsets = _base_compaction->get_input_rowsets();
     }
     *permits = 0;

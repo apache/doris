@@ -304,6 +304,13 @@ CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
 // This config can be set to limit thread number in  smallcompaction thread pool.
 CONF_mInt32(quick_compaction_max_threads, "10");
 
+// max consecutive prepare failure interval before dir compaction quiet
+CONF_mInt32(max_prepare_failure_interval_before_quiet, "10");
+// dir quiet period time
+CONF_mInt32(data_dir_quiet_period_s, "60");
+// sleep time in compaction quiet period per shard
+CONF_mInt32(data_dir_sleep_time_in_quiet_period_ms, "100");
+
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
 

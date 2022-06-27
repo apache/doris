@@ -139,6 +139,41 @@ public:
     // storage_root/trash/20150619154308.delete_counter/tablet_path/segment_path/tablet_uid
     Status move_to_trash(const FilePathDesc& segment_path_desc);
 
+    // add data_dir consecutive prepared failed times to make it
+    // goes to quiet period to save cpu cost when no tablet needs to compact
+    void set_tablet_prepare_compact_failed(int64_t now, bool failed) {
+        std::unique_lock<std::mutex> lck(_compaction_quiet_mutex);
+        if (!failed) {
+            _compaction_last_prepared_failed_ts = 0;
+            _compaction_quiet_period_s = 0;
+            _compaction_sleep_cv.notify_one();
+        } else {
+            if (_compaction_last_prepared_failed_ts == 0) {
+                _compaction_last_prepared_failed_ts = now;
+                return;
+            }
+            if (_compaction_last_prepared_failed_ts != 0 &&
+                now - _compaction_last_prepared_failed_ts >=
+                        config::max_prepare_failure_interval_before_quiet) {
+                _compaction_quiet_period_s = now + config::data_dir_quiet_period_s;
+                _compaction_last_prepared_failed_ts = 0;
+            }
+        }
+    }
+    void wait_in_quiet_period(int64_t wait_ms) {
+        std::unique_lock<std::mutex> lock(_compaction_quiet_mutex);
+        // It is necessary to wake up the thread on timeout to prevent deadlock
+        // in case of no running compaction task.
+        _compaction_sleep_cv.wait_for(lock, std::chrono::milliseconds(wait_ms),
+                                      [this] { return _compaction_quiet_period_s == 0; });
+    }
+    bool is_in_quiet_period(int64_t now) {
+        if (now < _compaction_quiet_period_s) {
+            return true;
+        }
+        return false;
+    }
+
 private:
     Status _init_cluster_id();
     Status _init_capacity();
@@ -192,13 +227,18 @@ private:
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;
 
+    mutable std::mutex _compaction_quiet_mutex;
+    std::condition_variable _compaction_sleep_cv;
+    int32_t _compaction_last_prepared_failed_ts;
+    int64_t _compaction_quiet_period_s;
+
+    mutable std::shared_mutex _pending_path_mutex;
+    std::set<std::string> _pending_path_ids;
+
     std::mutex _check_path_mutex;
     std::condition_variable _check_path_cv;
     std::set<std::string> _all_check_paths;
     std::set<std::string> _all_tablet_schemahash_paths;
-
-    mutable std::shared_mutex _pending_path_mutex;
-    std::set<std::string> _pending_path_ids;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity;

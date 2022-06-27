@@ -659,6 +659,9 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
     double tablet_scan_frequency = 0.0;
     TabletSharedPtr best_tablet;
     for (const auto& tablets_shard : _tablets_shards) {
+        if (data_dir->is_in_quiet_period(now_ms / 1000)) {
+            data_dir->wait_in_quiet_period(config::data_dir_sleep_time_in_quiet_period_ms);
+        }
         std::shared_lock rdlock(tablets_shard.lock);
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             const TabletSharedPtr& tablet_ptr = tablet_map.second;

@@ -572,6 +572,9 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     tablets_compaction.emplace_back(tablet);
                 }
                 max_compaction_score = std::max(max_compaction_score, disk_max_score);
+            } else {
+                // can't find a tablet to do compaction
+                data_dir->set_tablet_prepare_compact_failed(UnixSeconds(), true);
             }
         }
     }
