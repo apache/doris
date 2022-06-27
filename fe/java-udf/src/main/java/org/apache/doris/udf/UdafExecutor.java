@@ -139,22 +139,12 @@ public class UdafExecutor {
             do {
                 Long curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr) + 8L * idx);
                 Object[] inputArgs = new Object[argTypes.length + 1];
-                if (!stateObjMap.containsKey(curPlace)) {
-                    Object stateObj = create();
-                    stateObjMap.put(curPlace, stateObj);
-                }
+                stateObjMap.putIfAbsent(curPlace, createAggState());
                 inputArgs[0] = stateObjMap.get(curPlace);
                 do {
                     Object[] inputObjects = allocateInputObjects(idx);
                     for (int i = 0; i < argTypes.length; ++i) {
-                        if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) == -1
-                                || UdfUtils.UNSAFE.getByte(null,
-                                        UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i))
-                                                + idx) == 0) {
-                            inputArgs[i + 1] = inputObjects[i];
-                        } else {
-                            inputArgs[i + 1] = null;
-                        }
+                        inputArgs[i + 1] = inputObjects[i];
                     }
                     allMethods.get(UDAF_ADD_FUNCTION).invoke(udaf, inputArgs);
                     idx++;
@@ -168,7 +158,7 @@ public class UdafExecutor {
     /**
      * invoke user create function to get obj.
      */
-    public Object create() throws UdfRuntimeException {
+    public Object createAggState() throws UdfRuntimeException {
         try {
             return allMethods.get(UDAF_CREATE_FUNCTION).invoke(udaf, null);
         } catch (Exception e) {
@@ -182,7 +172,7 @@ public class UdafExecutor {
     public void destroy(long place) throws UdfRuntimeException {
         try {
             Long curPlace = place;
-            allMethods.get(UDAF_DESTORY_FUNCTION).invoke(udaf, stateObjMap.get(curPlace));
+            allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udaf, stateObjMap.get(curPlace));
             stateObjMap.remove(curPlace);
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to destroy: ", e);
@@ -213,15 +203,12 @@ public class UdafExecutor {
         try {
             Object[] args = new Object[2];
             ByteArrayInputStream bins = new ByteArrayInputStream(data);
-            args[0] = create();
+            args[0] = createAggState();
             args[1] = new DataInputStream(bins);
             allMethods.get(UDAF_DESERIALIZE_FUNCTION).invoke(udaf, args);
             args[1] = args[0];
             Long curPlace = place;
-            if (!stateObjMap.containsKey(curPlace)) {
-                Object stateObj = create();
-                stateObjMap.put(curPlace, stateObj);
-            }
+            stateObjMap.putIfAbsent(curPlace, createAggState());
             args[0] = stateObjMap.get(curPlace);
             allMethods.get(UDAF_MERGE_FUNCTION).invoke(udaf, args);
         } catch (Exception e) {
@@ -371,6 +358,12 @@ public class UdafExecutor {
         Object[] inputObjects = new Object[argTypes.length];
 
         for (int i = 0; i < argTypes.length; ++i) {
+            // skip the input column of current row is null
+            if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) != -1
+                    && UdfUtils.UNSAFE.getByte(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i) + row) == 1) {
+                inputObjects[i] = null;
+                continue;
+            }
             switch (argTypes[i]) {
                 case BOOLEAN:
                     inputObjects[i] = UdfUtils.UNSAFE.getBoolean(null,
