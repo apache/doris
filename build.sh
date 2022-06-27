@@ -375,7 +375,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
     # make a soft link palo_be point to doris_be, for forward compatibility
-    cd ${DORIS_OUTPUT}/be/lib && rm palo_be && ln -s doris_be palo_be && cd -
+    cd ${DORIS_OUTPUT}/be/lib && rm -f palo_be && ln -s doris_be palo_be && cd -
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
