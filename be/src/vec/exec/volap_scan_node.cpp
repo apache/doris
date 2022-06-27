@@ -17,6 +17,7 @@
 
 #include "vec/exec/volap_scan_node.h"
 
+#include "common/consts.h"
 #include "common/resource_tls.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -28,6 +29,7 @@
 #include "util/priority_thread_pool.hpp"
 #include "util/to_string.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/volap_scanner.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
@@ -689,9 +691,47 @@ Status VOlapScanNode::normalize_conjuncts() {
         }
 
         case TYPE_DECIMALV2: {
-            ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
-                                                   slots[slot_idx]->type().type);
-            normalize_predicate(range, slots[slot_idx]);
+            /// To support Decimal type with different precisions and scales, and also need to
+            /// keep compatible with Decimal before, I continue to use DecimalV2Value to represent
+            /// a decimal value range with precision <= 27 and scale <= 9 (which is the old decimal
+            /// type). When precision and scale beyonds this threshold, a new value range type
+            /// should be used to represent the new decimal type. To handle a predicate with a
+            /// higher scale, decimal will be rounded to be able to push down.
+            /// For example,
+            /// 1. `Decimal(2,1) < 2.22` will be considered equivalent to `Decimal(2,1) < 2.3` and
+            /// we just use `Decimal(2,1) < 2.3` to push down.
+            /// 2. `Decimal(2,1) = 2.22` will be just discarded because no value with scale 1 will
+            /// equal to 2.22.
+            /// Runtime filters are another kind of predicates which need to be handled here.
+            /// You can refer to comments before IRuntimeFilter for more implementation details.
+            /// TODO(gabriel): To keep compatible with previous Decimal type, I made lots of
+            ///  hacking both for predicates and runtime filters, these all will be refactored
+            ///  after removing previous Decimal type.
+            if (slots[slot_idx]->type().precision <= 27 && slots[slot_idx]->type().scale <= 9) {
+                ColumnValueRange<DecimalV2Value> range(
+                        slots[slot_idx]->col_name(), slots[slot_idx]->type().type,
+                        DecimalV2Value::get_min_decimal(slots[slot_idx]->type().precision,
+                                                        slots[slot_idx]->type().scale),
+                        DecimalV2Value::get_max_decimal(slots[slot_idx]->type().precision,
+                                                        slots[slot_idx]->type().scale),
+                        true, slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);
+                normalize_predicate(range, slots[slot_idx]);
+            } else if (slots[slot_idx]->type().precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
+                ColumnValueRange<int32_t> range(
+                        slots[slot_idx]->col_name(), slots[slot_idx]->type().type,
+                        slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);
+                normalize_predicate(range, slots[slot_idx]);
+            } else if (slots[slot_idx]->type().precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
+                ColumnValueRange<int64_t> range(
+                        slots[slot_idx]->col_name(), slots[slot_idx]->type().type,
+                        slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);
+                normalize_predicate(range, slots[slot_idx]);
+            } else {
+                ColumnValueRange<int128_t> range(
+                        slots[slot_idx]->col_name(), slots[slot_idx]->type().type,
+                        slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);
+                normalize_predicate(range, slots[slot_idx]);
+            }
             break;
         }
 
@@ -933,10 +973,11 @@ std::pair<bool, void*> VOlapScanNode::should_push_down_eq_predicate(doris::SlotD
     return result_pair;
 }
 
-template <typename T, typename ChangeFixedValueRangeFunc>
-Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, PrimitiveType type,
-                                               void* value, const ChangeFixedValueRangeFunc& func) {
-    switch (type) {
+template <typename FromType, typename T, typename ChangeFixedValueRangeFunc>
+Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, TypeDescriptor type,
+                                               void* value, const ChangeFixedValueRangeFunc& func,
+                                               bool* loss_accuracy) {
+    switch (type.type) {
     case TYPE_DATE: {
         DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
         // There is must return empty data in olap_scan_node,
@@ -946,7 +987,31 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, 
         }
         break;
     }
-    case TYPE_DECIMALV2:
+    case TYPE_DECIMALV2: {
+        if constexpr (std::is_same_v<int32_t, T>) {
+            T real_val = *reinterpret_cast<T*>(value);
+            func(temp_range, reinterpret_cast<T*>(&real_val));
+        } else if constexpr (std::is_same_v<int64_t, T>) {
+            T real_val = *reinterpret_cast<T*>(value);
+            func(temp_range, reinterpret_cast<T*>(&real_val));
+        } else if constexpr (std::is_same_v<int128_t, T>) {
+            func(temp_range, reinterpret_cast<T*>(value));
+        } else {
+            if constexpr (std::is_same_v<FromType, int128_t>) {
+                DecimalV2Value decimal_value(
+                        (*reinterpret_cast<int128_t*>(value)) /
+                                StringParser::get_scale_multiplier<int128_t>(type.scale),
+                        ((*reinterpret_cast<int128_t*>(value)) %
+                         StringParser::get_scale_multiplier<int128_t>(type.scale)) *
+                                StringParser::get_scale_multiplier<int128_t>(DecimalV2Value::SCALE -
+                                                                             type.scale));
+                func(temp_range, reinterpret_cast<T*>(&decimal_value));
+            } else {
+                func(temp_range, reinterpret_cast<T*>(value));
+            }
+        }
+        break;
+    }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
@@ -1059,7 +1124,8 @@ Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // create empty range as temp range, temp range should do intersection on range
-        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
+                range->type(), slot->type().precision, slot->type().scale);
 
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
@@ -1070,17 +1136,33 @@ Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 
             // begin to push InPredicate value into ColumnValueRange
             HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
+            bool loss_accuracy = false;
             while (iter->has_next()) {
                 // column in (nullptr) is always false so continue to
                 // dispose next item
                 if (nullptr == iter->get_value()) {
                     continue;
                 }
-                auto value = const_cast<void*>(iter->get_value());
-                RETURN_IF_ERROR(
-                        change_fixed_value_range(temp_range, slot->type().type, value,
-                                                 ColumnValueRange<T>::add_fixed_value_range));
+                if constexpr (std::is_same_v<DecimalV2Value, T>) {
+                    if (typeid(*(pred->hybrid_set())) == typeid(HybridSet<int128_t>)) {
+                        RETURN_IF_ERROR(change_fixed_value_range<int128_t>(
+                                temp_range, slot->type(), const_cast<void*>(iter->get_value()),
+                                ColumnValueRange<T>::add_fixed_value_range, &loss_accuracy));
+                    } else {
+                        RETURN_IF_ERROR(change_fixed_value_range<T>(
+                                temp_range, slot->type(), const_cast<void*>(iter->get_value()),
+                                ColumnValueRange<T>::add_fixed_value_range, &loss_accuracy));
+                    }
+                } else {
+                    RETURN_IF_ERROR(change_fixed_value_range<T>(
+                            temp_range, slot->type(), const_cast<void*>(iter->get_value()),
+                            ColumnValueRange<T>::add_fixed_value_range, &loss_accuracy));
+                }
+
                 iter->next();
+            }
+            if (loss_accuracy) {
+                continue;
             }
 
             if (is_key_column(slot->col_name())) {
@@ -1103,12 +1185,16 @@ Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                     continue;
                 }
 
+                bool loss_accuracy = false;
                 auto value = result_pair.second;
                 // where A = nullptr should return empty result set
                 if (value != nullptr) {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(temp_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range<T>(
+                            temp_range, slot->type(), value,
+                            ColumnValueRange<T>::add_fixed_value_range, &loss_accuracy));
+                }
+                if (loss_accuracy) {
+                    continue;
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1139,8 +1225,8 @@ Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot
     // If the conjunct of slot is fixed value, will change the fixed value set of column value range
     // else add value to not in range and push down predicate directly
     bool is_fixed_range = range->is_fixed_value_range();
-    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name(),
-                                                                             range->type());
+    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(
+            range->column_name(), range->type(), slot->type().precision, slot->type().scale);
 
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
@@ -1151,6 +1237,7 @@ Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot
                 continue;
             }
 
+            bool loss_accuracy = false;
             // begin to push InPredicate value into ColumnValueRange
             auto iter = pred->hybrid_set()->begin();
             while (iter->has_next()) {
@@ -1160,15 +1247,18 @@ Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot
                 }
                 auto value = const_cast<void*>(iter->get_value());
                 if (is_fixed_range) {
-                    RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range<T>(
+                            *range, slot->type(), value,
+                            ColumnValueRange<T>::remove_fixed_value_range, &loss_accuracy));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range<T>(
+                            not_in_range, slot->type(), value,
+                            ColumnValueRange<T>::add_fixed_value_range, &loss_accuracy));
                 }
                 iter->next();
+            }
+            if (loss_accuracy) {
+                continue;
             }
 
             // only where a in ('a', 'b', nullptr) contain nullptr will
@@ -1194,14 +1284,18 @@ Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot
                 }
                 auto value = result_pair.second;
 
+                bool loss_accuracy = false;
                 if (is_fixed_range) {
-                    RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range<T>(
+                            *range, slot->type(), value,
+                            ColumnValueRange<T>::remove_fixed_value_range, &loss_accuracy));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range<T>(
+                            not_in_range, slot->type(), value,
+                            ColumnValueRange<T>::add_fixed_value_range, &loss_accuracy));
+                }
+                if (loss_accuracy) {
+                    continue;
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1241,7 +1335,8 @@ bool VOlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot
         return false;
     }
 
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
+            range->type(), slot->type().precision, slot->type().scale);
     temp_range.set_contain_null(is_null_str == "null");
     range->intersection(temp_range);
 
@@ -1307,6 +1402,7 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     continue;
                 }
 
+                bool loss_accuracy = false;
                 switch (slot->type().type) {
                 case TYPE_DATE: {
                     DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
@@ -1337,8 +1433,25 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                         __builtin_unreachable();
                     }
                 }
+                case TYPE_DECIMALV2: {
+                    if constexpr (std::is_same_v<int32_t, T>) {
+                        T real_val = *reinterpret_cast<T*>(value);
+                        range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                         *reinterpret_cast<T*>(&real_val));
+                    } else if constexpr (std::is_same_v<int64_t, T>) {
+                        T real_val = *reinterpret_cast<T*>(value);
+                        range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                         *reinterpret_cast<T*>(&real_val));
+                    } else if constexpr (std::is_same_v<int128_t, T>) {
+                        range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                         *reinterpret_cast<T*>(value));
+                    } else {
+                        range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                         *reinterpret_cast<T*>(value));
+                    }
+                    break;
+                }
                 case TYPE_TINYINT:
-                case TYPE_DECIMALV2:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
                 case TYPE_HLL:
@@ -1360,6 +1473,9 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     return Status::InternalError(
                             "Normalize filter fail, Unsupported Primitive type");
                 }
+                }
+                if (loss_accuracy) {
+                    continue;
                 }
 
                 if (is_key_column(slot->col_name())) {

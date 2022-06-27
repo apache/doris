@@ -229,6 +229,15 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
     case OLAP_FIELD_TYPE_DECIMAL:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(type_info));
         break;
+    case OLAP_FIELD_TYPE_DECIMAL32:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL32>(type_info));
+        break;
+    case OLAP_FIELD_TYPE_DECIMAL64:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL64>(type_info));
+        break;
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL128>(type_info));
+        break;
     case OLAP_FIELD_TYPE_BOOL:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_BOOL>(type_info));
         break;

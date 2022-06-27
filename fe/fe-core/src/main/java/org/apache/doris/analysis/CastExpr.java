@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
@@ -264,8 +265,14 @@ public class CastExpr extends Expr {
 
         // this cast may result in loss of precision, but the user requested it
         if (childType.matchesType(type)) {
-            noOp = true;
-            return;
+            // For types which has precision and scale, we also need to check quality between precisions and scales
+            if (!Config.enable_decimal_v3 || !PrimitiveType.typeWithPrecision.contains(
+                    type.getPrimitiveType()) || ((((ScalarType) type).decimalPrecision()
+                    == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
+                    == ((ScalarType) childType).decimalScale()))) {
+                noOp = true;
+                return;
+            }
         }
         // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
         // it is necessary to check if it is castable before creating fn.

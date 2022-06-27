@@ -243,7 +243,8 @@ public:
 
     // used by init scan key stored in string format
     // value_string should end with '\0'
-    Status from_string(char* buf, const std::string& value_string) const {
+    Status from_string(char* buf, const std::string& value_string, const int precision = 0,
+                       const int scale = 0) const {
         if (type() == OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
             auto slice = reinterpret_cast<Slice*>(buf);
             if (slice->size < value_string.size()) {
@@ -252,7 +253,7 @@ public:
                 slice->size = value_string.size();
             }
         }
-        return _type_info->from_string(buf, value_string);
+        return _type_info->from_string(buf, value_string, precision, scale);
     }
 
     //  convert inner value to string
@@ -331,6 +332,8 @@ protected:
         other->_index_size = this->_index_size;
         other->_is_nullable = this->_is_nullable;
         other->_sub_fields.clear();
+        other->_precision = this->_precision;
+        other->_scale = this->_scale;
         for (const auto& f : _sub_fields) {
             Field* item = f->clone();
             other->add_sub_field(std::unique_ptr<Field>(item));

@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "common/consts.h"
 #include "common/logging.h"
 #include "runtime/string_value.h"
 #include "runtime/types.h"
@@ -165,8 +166,21 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const vectorized::DateV2Value*>(v2);
 
     case TYPE_DECIMALV2:
-        return reinterpret_cast<const PackedInt128*>(v1)->value <
-               reinterpret_cast<const PackedInt128*>(v2)->value;
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
+                return *reinterpret_cast<const int32_t*>(v1) <
+                       *reinterpret_cast<const int32_t*>(v2);
+            } else if (type.precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
+                return *reinterpret_cast<const int64_t*>(v1) <
+                       *reinterpret_cast<const int64_t*>(v2);
+            } else {
+                return reinterpret_cast<const PackedInt128*>(v1)->value <
+                       reinterpret_cast<const PackedInt128*>(v2)->value;
+            }
+        } else {
+            return reinterpret_cast<const PackedInt128*>(v1)->value <
+                   reinterpret_cast<const PackedInt128*>(v2)->value;
+        }
 
     case TYPE_LARGEINT:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
@@ -221,8 +235,21 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const vectorized::DateV2Value*>(v2);
 
     case TYPE_DECIMALV2:
-        return reinterpret_cast<const PackedInt128*>(v1)->value ==
-               reinterpret_cast<const PackedInt128*>(v2)->value;
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
+                return *reinterpret_cast<const int32_t*>(v1) ==
+                       *reinterpret_cast<const int32_t*>(v2);
+            } else if (type.precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
+                return *reinterpret_cast<const int64_t*>(v1) ==
+                       *reinterpret_cast<const int64_t*>(v2);
+            } else {
+                return reinterpret_cast<const PackedInt128*>(v1)->value ==
+                       reinterpret_cast<const PackedInt128*>(v2)->value;
+            }
+        } else {
+            return reinterpret_cast<const PackedInt128*>(v1)->value ==
+                   reinterpret_cast<const PackedInt128*>(v2)->value;
+        }
 
     case TYPE_LARGEINT:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
@@ -414,11 +441,21 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     }
 
     case TYPE_DECIMALV2: {
-        const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
-        int64_t int_val = dec_val->int_value();
-        int32_t frac_val = dec_val->frac_value();
-        seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
-        return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
+                return HashUtil::zlib_crc_hash(v, 4, seed);
+            } else if (type.precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
+                return HashUtil::zlib_crc_hash(v, 8, seed);
+            } else {
+                return HashUtil::zlib_crc_hash(v, 16, seed);
+            }
+        } else {
+            const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
+            int64_t int_val = dec_val->int_value();
+            int32_t frac_val = dec_val->frac_value();
+            seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
+            return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
+        }
     }
     default:
         DCHECK(false) << "invalid type: " << type;
@@ -474,11 +511,15 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescri
     }
 
     case TYPE_DECIMALV2: {
-        const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
-        int64_t int_val = dec_val->int_value();
-        int32_t frac_val = dec_val->frac_value();
-        seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
-        return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
+        if (config::enable_execution_decimalv3) {
+            return HashUtil::zlib_crc_hash(v, len, seed);
+        } else {
+            const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
+            int64_t int_val = dec_val->int_value();
+            int32_t frac_val = dec_val->frac_value();
+            seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
+            return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
+        }
     }
     default:
         DCHECK(false) << "invalid type: " << type;

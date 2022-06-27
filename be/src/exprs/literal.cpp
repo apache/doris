@@ -97,7 +97,14 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
     case TYPE_DECIMALV2: {
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);
-        _value.decimalv2_val = DecimalV2Value(node.decimal_literal.value);
+        const std::string& decimal_str = node.decimal_literal.value;
+        if (config::enable_execution_decimalv3 && (_type.precision > 27 || _type.scale > 9)) {
+            StringParser::ParseResult result;
+            _value.large_int_val = StringParser::string_to_decimal<int128_t>(
+                    decimal_str.data(), decimal_str.size(), _type.precision, _type.scale, &result);
+        } else {
+            _value.decimalv2_val = DecimalV2Value(decimal_str);
+        }
         break;
     }
     case TYPE_ARRAY: {
@@ -139,7 +146,7 @@ BigIntVal Literal::get_big_int_val(ExprContext* context, TupleRow* row) {
 }
 
 LargeIntVal Literal::get_large_int_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_LARGEINT) << _type;
+    DCHECK(_type.type == TYPE_LARGEINT || _type.type == TYPE_DECIMALV2) << _type;
     return LargeIntVal(_value.large_int_val);
 }
 

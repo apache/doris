@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TDecimalLiteral;
@@ -268,7 +269,9 @@ public class DecimalLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDecimalV2()) {
+        if (targetType.isDecimalV2() && (!Config.enable_decimal_v3
+                || ((((ScalarType) targetType).decimalPrecision() == value.precision())
+                && (((ScalarType) targetType).decimalScale() == value.precision())))) {
             return this;
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);

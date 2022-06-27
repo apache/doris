@@ -137,7 +137,13 @@ DataTypePtr DataTypeDecimal<T>::promote_numeric_type() const {
 
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
-    return ColumnType::create(0, scale);
+    if (config::enable_execution_decimalv3) {
+        return ColumnType::create(0, scale);
+    } else {
+        auto col = ColumnDecimal128::create(0, scale);
+        col->set_decimalv2_type();
+        return col;
+    }
 }
 
 template <typename T>

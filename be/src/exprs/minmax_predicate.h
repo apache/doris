@@ -24,7 +24,7 @@ namespace doris {
 // only used in Runtime Filter
 class MinMaxFuncBase {
 public:
-    virtual void insert(const void* data) = 0;
+    virtual void insert(const void* data, const size_t len) = 0;
     virtual bool find(void* data) = 0;
     virtual bool is_empty() = 0;
     virtual void* get_max() = 0;
@@ -42,13 +42,16 @@ public:
     MinMaxNumFunc() = default;
     ~MinMaxNumFunc() = default;
 
-    void insert(const void* data) override {
+    void insert(const void* data, const size_t len) override {
         if (data == nullptr) {
             return;
         }
 
         T val_data;
-        if constexpr (sizeof(T) >= sizeof(int128_t)) {
+        if constexpr (std::is_same_v<T, int128_t>) {
+            val_data = 0;
+            memcpy(&val_data, data, len > 0 ? len : sizeof(T));
+        } else if constexpr (sizeof(T) >= sizeof(int128_t)) {
             // use dereference operator on unalign address maybe lead segmentation fault
             memcpy(&val_data, data, sizeof(T));
         } else {

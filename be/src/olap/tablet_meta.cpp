@@ -211,6 +211,7 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
     if (tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
         column->set_precision(tcolumn.column_type.precision);
         column->set_frac(tcolumn.column_type.scale);
+        // Convert DECIMALV2 to corresponding DECIMAL type if turn `enable_storage_decimalv3` on
         if (config::enable_storage_decimalv3) {
             if (tcolumn.column_type.precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
                 length = sizeof(int32_t);

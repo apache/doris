@@ -53,7 +53,8 @@ public:
     // Deserialize field value from incoming string.
     //
     // NOTE: the parameter must be a '\0' terminated string. It do not include the null flag.
-    Status from_string(const std::string& value_string) {
+    Status from_string(const std::string& value_string, const int precision = 0,
+                       const int scale = 0) {
         if (_is_string_type) {
             if (value_string.size() > _var_length) {
                 Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
@@ -63,7 +64,7 @@ public:
                 slice->data = _string_content.get();
             }
         }
-        return _rep->from_string(_field_buf + 1, value_string);
+        return _rep->from_string(_field_buf + 1, value_string, precision, scale);
     }
 
     // Attach to a buf.

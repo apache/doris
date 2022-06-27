@@ -283,12 +283,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 case TYPE_DECIMALV2: {
-                    const DecimalV2Value decimal_val(
-                            reinterpret_cast<const PackedInt128*>(col.column->get_data_at(i).data)
-                                    ->value);
-                    std::string decimal_str;
-                    decimal_str = decimal_val.to_string();
-                    _plain_text_outstream << decimal_str;
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
                 default: {

@@ -359,6 +359,8 @@ message PColumnValue {
     optional int64 longVal = 3;
     optional double doubleVal = 4;
     optional bytes stringVal = 5;
+    optional int32 precision = 6;
+    optional int32 scale = 7;
 }
 
 // TODO: CHECK ALL TYPE

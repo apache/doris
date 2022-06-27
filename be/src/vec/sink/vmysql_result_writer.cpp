@@ -151,7 +151,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             _buffer.close_dynamic_mode();
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
-    } else if (type == TYPE_DECIMALV2) {
+    } else if constexpr (type == TYPE_DECIMALV2) {
         WhichDataType which(nested_type_ptr);
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {

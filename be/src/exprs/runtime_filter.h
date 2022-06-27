@@ -111,6 +111,12 @@ struct MergeRuntimeFilterParams {
 /// left table data according to the scanning results of the right table during the join process.
 /// The runtimefilter will build some filter conditions.
 /// that can be pushed down to node based on the results of the right table.
+/// TODO(gabriel): To support Decimal type with different precisions and scales, and also need
+///  to keep compatible with Decimal before, I have to make some hacking codes to implement
+///  runtime filter. Specifically, now int128_t is used to represent all Decimal types with
+///  different precisions and scales. To make this, some memcpy operations have to be done
+///  which may hurt performance (although not much). This will be refactored after previous
+///  Decimal being removed.
 class IRuntimeFilter {
 public:
     IRuntimeFilter(RuntimeState* state, ObjectPool* pool)
@@ -233,8 +239,8 @@ public:
 
 protected:
     // serialize _wrapper to protobuf
-    void to_protobuf(PInFilter* filter);
-    void to_protobuf(PMinMaxFilter* filter);
+    void to_protobuf(PInFilter* filter, const int32_t precision, const int32_t scale);
+    void to_protobuf(PMinMaxFilter* filter, const int32_t precision, const int32_t scale);
 
     template <class T>
     Status serialize_impl(T* request, void** data, int* len);
@@ -279,6 +285,8 @@ protected:
     // we don't have to prepare it or close it
     ExprContext* _probe_ctx;
     doris::vectorized::VExprContext* _vprobe_ctx;
+    int _rf_return_type_precision;
+    int _rf_return_type_scale;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;

@@ -39,7 +39,7 @@ public:
     virtual ~HybridSetBase() = default;
     virtual void insert(const void* data) = 0;
     // use in vectorize execute engine
-    virtual void insert(void* data, size_t) = 0;
+    virtual void insert(const void* data, const size_t len) = 0;
 
     virtual void insert(HybridSetBase* set) = 0;
 
@@ -71,31 +71,44 @@ public:
 
     virtual Status to_vexpr_list(doris::ObjectPool* pool,
                                  std::vector<doris::vectorized::VExpr*>* vexpr_list) override {
+        DCHECK(vexpr_list->size() == 1);
+        auto to_type = (*vexpr_list)[0]->type().type;
         HybridSetBase::IteratorBase* it = begin();
         DCHECK(it != nullptr);
         while (it->has_next()) {
             TExprNode node;
             const void* v = it->get_value();
-            create_texpr_literal_node<T>(v, &node);
+            if constexpr (std::is_same_v<int128_t, T>) {
+                if (to_type == PrimitiveType::TYPE_DECIMALV2) {
+                    create_texpr_literal_node<T, DecimalV2Value>(v, &node);
+                } else {
+                    create_texpr_literal_node<T, T>(v, &node);
+                }
+            } else {
+                create_texpr_literal_node<T, T>(v, &node);
+            }
             vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
             it->next();
         }
         return Status::OK();
     };
 
-    void insert(const void* data) override {
+    void insert(const void* data) override { insert(data, 0); }
+    void insert(const void* data, const size_t len) override {
         if (data == nullptr) return;
 
         if constexpr (sizeof(T) >= 16) {
             // for largeint, it will core dump with no memcpy
             T value;
-            memcpy(&value, data, sizeof(T));
+            if constexpr (std::is_same_v<int128_t, T>) {
+                value = 0;
+            }
+            memcpy(&value, data, len > 0 ? len : sizeof(T));
             _set.insert(value);
         } else {
             _set.insert(*reinterpret_cast<const T*>(data));
         }
     }
-    void insert(void* data, size_t) override { insert(data); }
 
     void insert(HybridSetBase* set) override {
         HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
@@ -149,7 +162,7 @@ public:
         while (it->has_next()) {
             TExprNode node;
             const void* v = it->get_value();
-            create_texpr_literal_node<StringValue>(v, &node);
+            create_texpr_literal_node<StringValue, StringValue>(v, &node);
             vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
             it->next();
         }
@@ -163,8 +176,8 @@ public:
         std::string str_value(value->ptr, value->len);
         _set.insert(str_value);
     }
-    void insert(void* data, size_t size) override {
-        std::string str_value(reinterpret_cast<char*>(data), size);
+    void insert(const void* data, const size_t size) override {
+        std::string str_value(reinterpret_cast<const char*>(data), size);
         _set.insert(str_value);
     }
 

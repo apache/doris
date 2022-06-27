@@ -79,7 +79,7 @@ public:
     virtual Status init(int64_t expect_num, double fpp) = 0;
     virtual Status init_with_fixed_length(int64_t bloom_filter_length) = 0;
 
-    virtual void insert(const void* data) = 0;
+    virtual void insert(const void* data, const size_t len = 0) = 0;
     virtual bool find(const void* data) const = 0;
     virtual bool find_olap_engine(const void* data) const = 0;
     virtual bool find_uint32_t(uint32_t data) const = 0;
@@ -167,7 +167,16 @@ protected:
 
 template <class T, class BloomFilterAdaptor>
 struct CommonFindOp {
-    ALWAYS_INLINE void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
+    ALWAYS_INLINE void insert(BloomFilterAdaptor& bloom_filter, const void* data,
+                              const size_t len = 0) const {
+        if constexpr (std::is_same_v<T, int128_t>) {
+            if (len > 0 && len < 16) {
+                int128_t value = 0;
+                memcpy(&value, data, len);
+                bloom_filter.add_bytes((char*)&value, sizeof(T));
+                return;
+            }
+        }
         bloom_filter.add_bytes((char*)data, sizeof(T));
     }
     ALWAYS_INLINE bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
@@ -184,7 +193,8 @@ struct CommonFindOp {
 
 template <class BloomFilterAdaptor>
 struct StringFindOp {
-    ALWAYS_INLINE void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
+    ALWAYS_INLINE void insert(BloomFilterAdaptor& bloom_filter, const void* data,
+                              const size_t len = 0) const {
         const auto* value = reinterpret_cast<const StringValue*>(data);
         if (value) {
             bloom_filter.add_bytes(value->ptr, value->len);
@@ -260,16 +270,7 @@ struct DateV2FindOp : public CommonFindOp<doris::vectorized::DateV2Value, BloomF
 template <class BloomFilterAdaptor>
 struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value, BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        auto packed_decimal = *static_cast<const decimal12_t*>(data);
-        DecimalV2Value value;
-        int64_t int_value = packed_decimal.integer;
-        int32_t frac_value = packed_decimal.fraction;
-        value.from_olap_decimal(int_value, frac_value);
-
-        constexpr int decimal_value_sz = sizeof(DecimalV2Value);
-        char data_bytes[decimal_value_sz];
-        memcpy(&data_bytes, &value, decimal_value_sz);
-        return bloom_filter.test(Slice(data_bytes, decimal_value_sz));
+        return bloom_filter.test(Slice((char*)data, sizeof(int128_t)));
     }
 };
 
@@ -321,9 +322,9 @@ public:
 
     ~BloomFilterFunc() = default;
 
-    void insert(const void* data) override {
+    void insert(const void* data, const size_t len = 0) override {
         DCHECK(this->_bloom_filter != nullptr);
-        dummy.insert(*this->_bloom_filter, data);
+        dummy.insert(*this->_bloom_filter, data, len);
     }
 
     bool find(const void* data) const override {

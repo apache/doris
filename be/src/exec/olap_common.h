@@ -27,7 +27,10 @@
 
 #include "exec/olap_utils.h"
 #include "olap/tuple.h"
+#include "runtime/tuple.h"
 #include "runtime/type_limit.h"
+#include "runtime/types.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 
@@ -53,8 +56,13 @@ public:
 
     ColumnValueRange(std::string col_name, PrimitiveType type);
 
+    ColumnValueRange(std::string col_name, PrimitiveType type, int precision, int scale);
+
     ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max,
                      bool contain_null);
+
+    ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max,
+                     bool contain_null, int precision, int scale);
 
     // should add fixed value before add range
     Status add_fixed_value(const T& value);
@@ -86,8 +94,14 @@ public:
 
     void set_empty_value_range() {
         _fixed_values.clear();
-        _low_value = TYPE_MAX;
-        _high_value = TYPE_MIN;
+        if constexpr (std::is_same_v<DecimalV2Value, T>) {
+            _low_value = DecimalV2Value::get_min_decimal(_precision, _scale);
+            _high_value = DecimalV2Value::get_max_decimal(_precision, _scale);
+        } else {
+            _low_value = TYPE_MAX;
+            _high_value = TYPE_MIN;
+        }
+
         _contain_null = false;
     }
 
@@ -133,10 +147,34 @@ public:
             }
 
             TCondition low;
-            if (TYPE_MIN != _low_value || FILTER_LARGER_OR_EQUAL != _low_op) {
-                low.__set_column_name(_column_name);
-                low.__set_condition_op((_low_op == FILTER_LARGER_OR_EQUAL ? ">=" : ">>"));
-                low.condition_values.push_back(cast_to_string(_low_value));
+            if constexpr (std::is_same_v<T, DecimalV2Value>) {
+                if (DecimalV2Value::get_min_decimal(_precision, _scale) != _low_value ||
+                    FILTER_LARGER_OR_EQUAL != _low_op) {
+                    low.__set_column_name(_column_name);
+                    low.__set_condition_op((_low_op == FILTER_LARGER_OR_EQUAL ? ">=" : ">>"));
+                    DecimalV2Value val = {0, 0};
+                    val.set_value(((DecimalV2Value)_low_value).value() %
+                                  DecimalV2Value::get_scale_base(9 + _precision - _scale));
+                    low.condition_values.push_back(cast_to_string(val));
+                }
+            } else {
+                if (TYPE_MIN != _low_value || FILTER_LARGER_OR_EQUAL != _low_op) {
+                    low.__set_column_name(_column_name);
+                    low.__set_condition_op((_low_op == FILTER_LARGER_OR_EQUAL ? ">=" : ">>"));
+                    if constexpr (std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+                                  std::is_same_v<T, int128_t>) {
+                        if (_scale > 0) {
+                            std::ostringstream ss;
+                            doris::vectorized::write_text<T>(
+                                    (doris::vectorized::Decimal<T>)_low_value, _scale, ss);
+                            low.condition_values.push_back(ss.str());
+                        } else {
+                            low.condition_values.push_back(cast_to_string(_low_value));
+                        }
+                    } else {
+                        low.condition_values.push_back(cast_to_string(_low_value));
+                    }
+                }
             }
 
             if (low.condition_values.size() != 0) {
@@ -144,10 +182,34 @@ public:
             }
 
             TCondition high;
-            if (TYPE_MAX != _high_value || FILTER_LESS_OR_EQUAL != _high_op) {
-                high.__set_column_name(_column_name);
-                high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
-                high.condition_values.push_back(cast_to_string(_high_value));
+            if constexpr (std::is_same_v<T, DecimalV2Value>) {
+                if (DecimalV2Value::get_max_decimal(_precision, _scale) != _high_value ||
+                    FILTER_LESS_OR_EQUAL != _high_op) {
+                    high.__set_column_name(_column_name);
+                    high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
+                    DecimalV2Value val = {0, 0};
+                    val.set_value(((DecimalV2Value)_high_value).value() %
+                                  DecimalV2Value::get_scale_base(9 + _precision - _scale));
+                    high.condition_values.push_back(cast_to_string(val));
+                }
+            } else {
+                if (TYPE_MAX != _high_value || FILTER_LESS_OR_EQUAL != _high_op) {
+                    high.__set_column_name(_column_name);
+                    high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
+                    if constexpr (std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+                                  std::is_same_v<T, int128_t>) {
+                        if (_scale > 0) {
+                            std::ostringstream ss;
+                            doris::vectorized::write_text<T>(
+                                    (doris::vectorized::Decimal<T>)_high_value, _scale, ss);
+                            high.condition_values.push_back(ss.str());
+                        } else {
+                            high.condition_values.push_back(cast_to_string(_high_value));
+                        }
+                    } else {
+                        high.condition_values.push_back(cast_to_string(_high_value));
+                    }
+                }
             }
 
             if (high.condition_values.size() != 0) {
@@ -174,7 +236,26 @@ public:
         condition.__set_condition_op(is_in ? "*=" : "!*=");
 
         for (const auto& value : _fixed_values) {
-            condition.condition_values.push_back(cast_to_string(value));
+            if constexpr (std::is_same_v<T, DecimalV2Value>) {
+                DecimalV2Value val = {0, 0};
+                val.set_value(((DecimalV2Value)value).value() %
+                              DecimalV2Value::get_scale_base(9 + _precision - _scale));
+                condition.condition_values.push_back(cast_to_string(val));
+            } else {
+                if constexpr (std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+                              std::is_same_v<T, int128_t>) {
+                    if (_scale > 0) {
+                        std::ostringstream ss;
+                        doris::vectorized::write_text<T>((doris::vectorized::Decimal<T>)value,
+                                                         _scale, ss);
+                        condition.condition_values.push_back(ss.str());
+                    } else {
+                        condition.condition_values.push_back(cast_to_string(value));
+                    }
+                } else {
+                    condition.condition_values.push_back(cast_to_string(value));
+                }
+            }
         }
 
         if (condition.condition_values.size() != 0) {
@@ -184,17 +265,29 @@ public:
 
     void set_whole_value_range() {
         _fixed_values.clear();
-        _low_value = TYPE_MIN;
-        _high_value = TYPE_MAX;
+        if constexpr (std::is_same_v<DecimalV2Value, T>) {
+            _low_value = DecimalV2Value::get_min_decimal(_precision, _scale);
+            _high_value = DecimalV2Value::get_max_decimal(_precision, _scale);
+        } else {
+            _low_value = TYPE_MIN;
+            _high_value = TYPE_MAX;
+        }
         _low_op = FILTER_LARGER_OR_EQUAL;
         _high_op = FILTER_LESS_OR_EQUAL;
         _contain_null = true;
     }
 
     bool is_whole_value_range() const {
-        return _fixed_values.empty() && _low_value == TYPE_MIN && _high_value == TYPE_MAX &&
-               _low_op == FILTER_LARGER_OR_EQUAL && _high_op == FILTER_LESS_OR_EQUAL &&
-               contain_null();
+        if constexpr (std::is_same_v<DecimalV2Value, T>) {
+            return _fixed_values.empty() && _low_op == FILTER_LARGER_OR_EQUAL &&
+                   _high_op == FILTER_LESS_OR_EQUAL && contain_null() &&
+                   _low_value == DecimalV2Value::get_min_decimal(_precision, _scale) &&
+                   _high_value == DecimalV2Value::get_max_decimal(_precision, _scale);
+        } else {
+            return _fixed_values.empty() && _low_value == TYPE_MIN && _high_value == TYPE_MAX &&
+                   _low_op == FILTER_LARGER_OR_EQUAL && _high_op == FILTER_LESS_OR_EQUAL &&
+                   contain_null();
+        }
     }
 
     // only two case will set range contain null, call by temp_range in olap scan node
@@ -224,9 +317,20 @@ public:
         return ColumnValueRange<T>::create_empty_column_value_range("", type);
     }
 
+    static ColumnValueRange<T> create_empty_column_value_range(PrimitiveType type, int precision,
+                                                               int scale) {
+        return ColumnValueRange<T>::create_empty_column_value_range("", type, precision, scale);
+    }
+
     static ColumnValueRange<T> create_empty_column_value_range(const std::string& col_name,
                                                                PrimitiveType type) {
         return ColumnValueRange<T>(col_name, type, TYPE_MAX, TYPE_MIN, false);
+    }
+
+    static ColumnValueRange<T> create_empty_column_value_range(const std::string& col_name,
+                                                               PrimitiveType type, int precision,
+                                                               int scale) {
+        return ColumnValueRange<T>(col_name, type, TYPE_MAX, TYPE_MIN, false, precision, scale);
     }
 
 protected:
@@ -245,6 +349,8 @@ private:
     std::set<T> _fixed_values; // Column's fixed int value
 
     bool _contain_null;
+    int _precision;
+    int _scale;
 };
 
 class OlapScanKeys {
@@ -331,6 +437,11 @@ ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type)
         : ColumnValueRange(std::move(col_name), type, TYPE_MIN, TYPE_MAX, true) {}
 
 template <class T>
+ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, int precision,
+                                      int scale)
+        : ColumnValueRange(std::move(col_name), type, TYPE_MIN, TYPE_MAX, true, precision, scale) {}
+
+template <class T>
 ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, const T& min,
                                       const T& max, bool contain_null)
         : _column_name(std::move(col_name)),
@@ -339,7 +450,22 @@ ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, 
           _high_value(max),
           _low_op(FILTER_LARGER_OR_EQUAL),
           _high_op(FILTER_LESS_OR_EQUAL),
-          _contain_null(contain_null) {}
+          _contain_null(contain_null),
+          _precision(-1),
+          _scale(-1) {}
+
+template <class T>
+ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, const T& min,
+                                      const T& max, bool contain_null, int precision, int scale)
+        : _column_name(std::move(col_name)),
+          _column_type(type),
+          _low_value(min),
+          _high_value(max),
+          _low_op(FILTER_LARGER_OR_EQUAL),
+          _high_op(FILTER_LESS_OR_EQUAL),
+          _contain_null(contain_null),
+          _precision(precision),
+          _scale(scale) {}
 
 template <class T>
 Status ColumnValueRange<T>::add_fixed_value(const T& value) {
@@ -347,11 +473,24 @@ Status ColumnValueRange<T>::add_fixed_value(const T& value) {
         return Status::InternalError("AddFixedValue failed, Invalid type");
     }
 
-    _fixed_values.insert(value);
-    _contain_null = false;
+    if constexpr (std::is_same_v<DecimalV2Value, T>) {
+        DecimalV2Value val = {0, 0};
+        if (((DecimalV2Value)value).round(&val, _scale, DecimalRoundMode::TRUNCATE) ==
+            DecimalError::E_DEC_OK) {
+            if (val.value() == ((DecimalV2Value)value).value()) {
+                _fixed_values.insert(value);
+                _contain_null = false;
+                _high_value = DecimalV2Value::get_min_decimal(_precision, _scale);
+                _low_value = DecimalV2Value::get_max_decimal(_precision, _scale);
+            }
+        }
+    } else {
+        _fixed_values.insert(value);
+        _contain_null = false;
 
-    _high_value = TYPE_MIN;
-    _low_value = TYPE_MAX;
+        _high_value = TYPE_MIN;
+        _low_value = TYPE_MAX;
+    }
 
     return Status::OK();
 }
@@ -506,15 +645,30 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         }
         }
 
-        _high_value = TYPE_MIN;
-        _low_value = TYPE_MAX;
+        if constexpr (std::is_same_v<DecimalV2Value, T>) {
+            _high_value = DecimalV2Value::get_min_decimal(_precision, _scale);
+            _low_value = DecimalV2Value::get_max_decimal(_precision, _scale);
+        } else {
+            _high_value = TYPE_MIN;
+            _low_value = TYPE_MAX;
+        }
     } else {
         if (_high_value > _low_value) {
             switch (op) {
             case FILTER_LARGER: {
                 if (value >= _low_value) {
-                    _low_value = value;
-                    _low_op = op;
+                    if constexpr (std::is_same_v<DecimalV2Value, T>) {
+                        DecimalV2Value new_value;
+                        if (((DecimalV2Value)value)
+                                    .round(&new_value, _scale, DecimalRoundMode::FLOOR) ==
+                            DecimalError::E_DEC_OK) {
+                            _low_value = new_value;
+                            _low_op = op;
+                        }
+                    } else {
+                        _low_value = value;
+                        _low_op = op;
+                    }
                 }
 
                 break;
@@ -522,8 +676,18 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
 
             case FILTER_LARGER_OR_EQUAL: {
                 if (value > _low_value) {
-                    _low_value = value;
-                    _low_op = op;
+                    if constexpr (std::is_same_v<DecimalV2Value, T>) {
+                        DecimalV2Value new_value;
+                        if (((DecimalV2Value)value)
+                                    .round(&new_value, _scale, DecimalRoundMode::CEILING) ==
+                            DecimalError::E_DEC_OK) {
+                            _low_value = new_value;
+                            _low_op = op;
+                        }
+                    } else {
+                        _low_value = value;
+                        _low_op = op;
+                    }
                 }
 
                 break;
@@ -531,8 +695,18 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
 
             case FILTER_LESS: {
                 if (value <= _high_value) {
-                    _high_value = value;
-                    _high_op = op;
+                    if constexpr (std::is_same_v<DecimalV2Value, T>) {
+                        DecimalV2Value new_value;
+                        if (((DecimalV2Value)value)
+                                    .round(&new_value, _scale, DecimalRoundMode::CEILING) ==
+                            DecimalError::E_DEC_OK) {
+                            _high_value = new_value;
+                            _high_op = op;
+                        }
+                    } else {
+                        _high_value = value;
+                        _high_op = op;
+                    }
                 }
 
                 break;
@@ -540,8 +714,18 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
 
             case FILTER_LESS_OR_EQUAL: {
                 if (value < _high_value) {
-                    _high_value = value;
-                    _high_op = op;
+                    if constexpr (std::is_same_v<DecimalV2Value, T>) {
+                        DecimalV2Value new_value;
+                        if (((DecimalV2Value)value)
+                                    .round(&new_value, _scale, DecimalRoundMode::FLOOR) ==
+                            DecimalError::E_DEC_OK) {
+                            _high_value = new_value;
+                            _high_op = op;
+                        }
+                    } else {
+                        _high_value = value;
+                        _high_op = op;
+                    }
                 }
 
                 break;
@@ -556,8 +740,13 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
             _high_value == _low_value) {
             add_fixed_value(_high_value);
-            _high_value = TYPE_MIN;
-            _low_value = TYPE_MAX;
+            if constexpr (std::is_same_v<DecimalV2Value, T>) {
+                _high_value = DecimalV2Value::get_min_decimal(_precision, _scale);
+                _low_value = DecimalV2Value::get_max_decimal(_precision, _scale);
+            } else {
+                _high_value = TYPE_MIN;
+                _low_value = TYPE_MAX;
+            }
         }
     }
 
@@ -650,8 +839,13 @@ void ColumnValueRange<T>::intersection(ColumnValueRange<T>& range) {
         if (!result_values.empty()) {
             _fixed_values = std::move(result_values);
             _contain_null = false;
-            _high_value = TYPE_MIN;
-            _low_value = TYPE_MAX;
+            if constexpr (std::is_same_v<DecimalV2Value, T>) {
+                _high_value = DecimalV2Value::get_min_decimal(_precision, _scale);
+                _low_value = DecimalV2Value::get_max_decimal(_precision, _scale);
+            } else {
+                _high_value = TYPE_MIN;
+                _low_value = TYPE_MAX;
+            }
         } else {
             set_empty_value_range();
         }

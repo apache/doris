@@ -89,9 +89,10 @@ private:
                                             ColumnValueRange<T>* range);
     bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
 
-    template <typename T, typename ChangeFixedValueRangeFunc>
-    static Status change_fixed_value_range(ColumnValueRange<T>& range, PrimitiveType type,
-                                           void* value, const ChangeFixedValueRangeFunc& func);
+    template <typename FromType, typename T, typename ChangeFixedValueRangeFunc>
+    static Status change_fixed_value_range(ColumnValueRange<T>& range, TypeDescriptor type,
+                                           void* value, const ChangeFixedValueRangeFunc& func,
+                                           bool* loss_accuracy);
 
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);

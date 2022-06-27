@@ -287,6 +287,24 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         }
         break;
     }
+    case OLAP_FIELD_TYPE_DECIMAL32: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal32>*>(column);
+        insert_data_directly(cid, column_decimal);
+        break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL64: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal64>*>(column);
+        insert_data_directly(cid, column_decimal);
+        break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL128: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+        insert_data_directly(cid, column_decimal);
+        break;
+    }
     case OLAP_FIELD_TYPE_ARRAY: {
         auto column_array = assert_cast<vectorized::ColumnArray*>(column);
         auto nested_col = (*column_array->get_data_ptr()).assume_mutable();
@@ -553,6 +571,21 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
             }
         }
         break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL32: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal32>*>(column);
+        insert_data_directly(batch, column_decimal, start, len);
+    }
+    case OLAP_FIELD_TYPE_DECIMAL64: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal64>*>(column);
+        insert_data_directly(batch, column_decimal, start, len);
+    }
+    case OLAP_FIELD_TYPE_DECIMAL128: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+        insert_data_directly(batch, column_decimal, start, len);
     }
     case OLAP_FIELD_TYPE_ARRAY: {
         auto array_batch = reinterpret_cast<const ArrayColumnVectorBatch*>(batch);

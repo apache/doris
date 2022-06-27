@@ -21,6 +21,7 @@ import org.apache.doris.mysql.MysqlColType;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 
@@ -73,6 +74,14 @@ public enum PrimitiveType {
     private static final int VARCHAR_INDEX_LEN = 20;
     private static final int STRING_INDEX_LEN = 20;
     private static final int DECIMAL_INDEX_LEN = 12;
+
+    public static ImmutableSet<PrimitiveType> typeWithPrecision;
+
+    static {
+        ImmutableSet.Builder<PrimitiveType> builder = ImmutableSet.builder();
+        builder.add(DECIMALV2);
+        typeWithPrecision = builder.build();
+    }
 
     private static ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
     static {

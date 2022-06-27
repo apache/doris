@@ -28,6 +28,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import java.util.ArrayList;
 
@@ -159,7 +160,7 @@ public class TypeDef implements ParseNode {
             case DECIMALV2: {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
-                if (Config.relax_decimal_precision_limit) {
+                if (Config.enable_decimal_v3) {
                     // precision: [1, 38]
                     if (precision < 1 || precision > ScalarType.MAX_DECIMAL128_PRECISION) {
                         throw new AnalysisException("Precision of decimal must between 1 and 38."

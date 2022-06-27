@@ -223,6 +223,20 @@ public:
         return DecimalV2Value(MAX_INT_VALUE, MAX_FRAC_VALUE);
     }
 
+    static DecimalV2Value get_min_decimal(int precision, int scale) {
+        DCHECK(precision <= 27 && scale <= 9);
+        return DecimalV2Value(
+                -MAX_INT_VALUE % get_scale_base(18 - precision + scale),
+                MAX_FRAC_VALUE / get_scale_base(9 - scale) * get_scale_base(9 - scale));
+    }
+
+    static DecimalV2Value get_max_decimal(int precision, int scale) {
+        DCHECK(precision <= 27 && scale <= 9);
+        return DecimalV2Value(
+                MAX_INT_VALUE % get_scale_base(18 - precision + scale),
+                MAX_FRAC_VALUE / get_scale_base(9 - scale) * get_scale_base(9 - scale));
+    }
+
     static DecimalV2Value from_decimal_val(const DecimalV2Val& val) {
         return DecimalV2Value(val.value());
     }

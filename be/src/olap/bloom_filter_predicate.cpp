@@ -41,19 +41,22 @@ ColumnPredicate* BloomFilterColumnPredicateFactory::create_column_predicate(
     switch (type) {
 #define M(NAME)                                                         \
     case OLAP_FIELD_##NAME: {                                           \
-        filter.reset(create_bloom_filter(NAME));                        \
+        filter.reset(create_bloom_filter(NAME, true));                  \
         filter->light_copy(bloom_filter.get());                         \
         return new BloomFilterColumnPredicate<NAME>(column_id, filter); \
     }
         APPLY_FOR_PRIMTYPE(M)
 #undef M
+    case OLAP_FIELD_TYPE_DECIMAL32:
+    case OLAP_FIELD_TYPE_DECIMAL64:
+    case OLAP_FIELD_TYPE_DECIMAL128:
     case OLAP_FIELD_TYPE_DECIMAL: {
-        filter.reset(create_bloom_filter(TYPE_DECIMALV2));
+        filter.reset(create_bloom_filter(TYPE_DECIMALV2, true));
         filter->light_copy(bloom_filter.get());
         return new BloomFilterColumnPredicate<TYPE_DECIMALV2>(column_id, filter);
     }
     case OLAP_FIELD_TYPE_BOOL: {
-        filter.reset(create_bloom_filter(TYPE_BOOLEAN));
+        filter.reset(create_bloom_filter(TYPE_BOOLEAN, true));
         filter->light_copy(bloom_filter.get());
         return new BloomFilterColumnPredicate<TYPE_BOOLEAN>(column_id, filter);
     }

@@ -271,7 +271,8 @@ Status RowCursor::from_tuple(const OlapTuple& tuple) {
         }
         set_not_null(cid);
         char* buf = cell_ptr(cid);
-        Status res = field->from_string(buf, tuple.get_value(i));
+        Status res = field->from_string(buf, tuple.get_value(i), field->get_precision(),
+                                        field->get_scale());
         if (!res.ok()) {
             LOG(WARNING) << "fail to convert field from string. string=" << tuple.get_value(i)
                          << ", res=" << res;

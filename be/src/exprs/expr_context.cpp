@@ -267,12 +267,21 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.datetime_val;
     }
     case TYPE_DECIMALV2: {
-        DecimalV2Val v = e->get_decimalv2_val(this, row);
-        if (v.is_null) {
-            return nullptr;
+        if (config::enable_execution_decimalv3 && (e->_type.precision > 27 || e->_type.scale > 9)) {
+            doris_udf::LargeIntVal v = e->get_large_int_val(this, row);
+            if (v.is_null) {
+                return nullptr;
+            }
+            _result.large_int_val = v.val;
+            return &_result.large_int_val;
+        } else {
+            DecimalV2Val v = e->get_decimalv2_val(this, row);
+            if (v.is_null) {
+                return nullptr;
+            }
+            _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
+            return &_result.decimalv2_val;
         }
-        _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
-        return &_result.decimalv2_val;
     }
     case TYPE_ARRAY: {
         doris_udf::CollectionVal v = e->get_array_val(this, row);

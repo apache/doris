@@ -304,8 +304,6 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
         buf.position() = buf.end();
         return result != StringParser::PARSE_FAILURE;
     }
-    // TODO: open this static_assert
-    // static_assert(std::is_same_v<Decimal128, T>);
     auto dv = binary_cast<Int128, DecimalV2Value>(x.value);
     auto ans = dv.parse_from_str((const char*)buf.position(), buf.count()) == 0;
 

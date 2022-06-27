@@ -166,12 +166,8 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             break;
         }
         case TYPE_DECIMALV2: {
-            DecimalV2Value value =
-                    (DecimalV2Value)
-                            assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>&>(
-                                    *column)
-                                    .get_data()[row];
-            fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
+            auto val = type_ptr->to_string(*column, row);
+            fmt::format_to(_insert_stmt_buffer, "{}", val);
             break;
         }
         case TYPE_DATE:

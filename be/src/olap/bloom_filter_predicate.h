@@ -107,17 +107,51 @@ private:
                 }
             };
 
+            auto get_decimal_value = [](auto& data, int128_t* return_value) {
+                if constexpr (T == PrimitiveType::TYPE_DECIMALV2 &&
+                              std::is_same_v<std::decay_t<decltype(data)>, decimal12_t>) {
+                    auto packed_decimal = *static_cast<const decimal12_t*>(&data);
+                    DecimalV2Value value;
+                    int64_t int_value = packed_decimal.integer;
+                    int32_t frac_value = packed_decimal.fraction;
+                    value.from_olap_decimal(int_value, frac_value);
+                    *return_value = value.operator int128_t();
+                } else if constexpr (T == PrimitiveType::TYPE_DECIMALV2 &&
+                                     std::is_same_v<std::decay_t<decltype(data)>, int32_t>) {
+                    *return_value = 0;
+                    memcpy(&return_value, &data, sizeof(int32_t));
+                } else if constexpr (T == PrimitiveType::TYPE_DECIMALV2 &&
+                                     std::is_same_v<std::decay_t<decltype(data)>, int64_t>) {
+                    *return_value = 0;
+                    memcpy(&return_value, &data, sizeof(int64_t));
+                } else {
+                    LOG(FATAL) << "Invalid Decimal Type!";
+                }
+            };
+
             auto pred_col_data = get_column_data(column);
             for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
 
-                if constexpr (is_nullable) {
-                    new_size += !null_map[idx] && _specific_filter->find_olap_engine(
-                                                          get_cell_value(pred_col_data[idx]));
+                if constexpr (T == PrimitiveType::TYPE_DECIMALV2) {
+                    int128_t tmp_value;
+                    if constexpr (is_nullable) {
+                        get_decimal_value(pred_col_data[idx], &tmp_value);
+                        new_size += !null_map[idx] &&
+                                    _specific_filter->find_olap_engine((const void*)&tmp_value);
+                    } else {
+                        get_decimal_value(pred_col_data[idx], &tmp_value);
+                        new_size += _specific_filter->find_olap_engine((const void*)&tmp_value);
+                    }
                 } else {
-                    new_size +=
-                            _specific_filter->find_olap_engine(get_cell_value(pred_col_data[idx]));
+                    if constexpr (is_nullable) {
+                        new_size += !null_map[idx] && _specific_filter->find_olap_engine(
+                                                              get_cell_value(pred_col_data[idx]));
+                    } else {
+                        new_size += _specific_filter->find_olap_engine(
+                                get_cell_value(pred_col_data[idx]));
+                    }
                 }
             }
         }

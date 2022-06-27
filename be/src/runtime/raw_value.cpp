@@ -22,10 +22,12 @@
 
 #include <sstream>
 
+#include "common/consts.h"
 #include "runtime/collection_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/tuple.h"
 #include "util/types.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 
@@ -89,7 +91,17 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
         break;
 
     case TYPE_DECIMALV2:
-        stream->write(chars, sizeof(DecimalV2Value));
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
+                stream->write(chars, 4);
+            } else if (type.precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
+                stream->write(chars, 8);
+            } else {
+                stream->write(chars, 16);
+            }
+        } else {
+            stream->write(chars, sizeof(DecimalV2Value));
+        }
         break;
 
     case TYPE_LARGEINT:
@@ -171,7 +183,21 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         break;
 
     case TYPE_DECIMALV2:
-        *stream << DecimalV2Value(reinterpret_cast<const PackedInt128*>(value)->value).to_string();
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= type.MAX_DECIMAL4_PRECISION) {
+                auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal32*>(value);
+                write_text(*decimal_val, type.scale, *stream);
+            } else if (type.precision <= type.MAX_DECIMAL8_PRECISION) {
+                auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal64*>(value);
+                write_text(*decimal_val, type.scale, *stream);
+            } else {
+                auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal128*>(value);
+                write_text(*decimal_val, type.scale, *stream);
+            }
+        } else {
+            *stream << DecimalV2Value(reinterpret_cast<const PackedInt128*>(value)->value)
+                               .to_string();
+        }
         break;
 
     case TYPE_LARGEINT:
@@ -307,7 +333,21 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         break;
 
     case TYPE_DECIMALV2:
-        *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= type.MAX_DECIMAL4_PRECISION) {
+                *reinterpret_cast<doris::vectorized::Decimal32*>(dst) =
+                        *reinterpret_cast<const doris::vectorized::Decimal32*>(value);
+            } else if (type.precision <= type.MAX_DECIMAL8_PRECISION) {
+                *reinterpret_cast<doris::vectorized::Decimal64*>(dst) =
+                        *reinterpret_cast<const doris::vectorized::Decimal64*>(value);
+            } else {
+                *reinterpret_cast<PackedInt128*>(dst) =
+                        *reinterpret_cast<const PackedInt128*>(value);
+            }
+        } else {
+            *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
+        }
+
         break;
 
     case TYPE_OBJECT:
@@ -409,7 +449,20 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
     }
 
     case TYPE_DECIMALV2:
-        *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= type.MAX_DECIMAL4_PRECISION) {
+                *reinterpret_cast<doris::vectorized::Decimal32*>(dst) =
+                        *reinterpret_cast<const doris::vectorized::Decimal32*>(value);
+            } else if (type.precision <= type.MAX_DECIMAL8_PRECISION) {
+                *reinterpret_cast<doris::vectorized::Decimal64*>(dst) =
+                        *reinterpret_cast<const doris::vectorized::Decimal64*>(value);
+            } else {
+                *reinterpret_cast<PackedInt128*>(dst) =
+                        *reinterpret_cast<const PackedInt128*>(value);
+            }
+        } else {
+            *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
+        }
         break;
 
     default:
@@ -505,9 +558,36 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     }
 
     case TYPE_DECIMALV2: {
-        DecimalV2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);
-        DecimalV2Value decimal_value2(reinterpret_cast<const PackedInt128*>(v2)->value);
-        return (decimal_value1 > decimal_value2) ? 1 : (decimal_value1 < decimal_value2 ? -1 : 0);
+        if (config::enable_execution_decimalv3) {
+            if (type.precision <= type.MAX_DECIMAL4_PRECISION) {
+                DecimalV2Value decimal_value1(
+                        reinterpret_cast<const doris::vectorized::Decimal32*>(v1)->value);
+                DecimalV2Value decimal_value2(
+                        reinterpret_cast<const doris::vectorized::Decimal32*>(v2)->value);
+                return (decimal_value1 > decimal_value2)
+                               ? 1
+                               : (decimal_value1 < decimal_value2 ? -1 : 0);
+            } else if (type.precision <= type.MAX_DECIMAL8_PRECISION) {
+                DecimalV2Value decimal_value1(
+                        reinterpret_cast<const doris::vectorized::Decimal64*>(v1)->value);
+                DecimalV2Value decimal_value2(
+                        reinterpret_cast<const doris::vectorized::Decimal64*>(v2)->value);
+                return (decimal_value1 > decimal_value2)
+                               ? 1
+                               : (decimal_value1 < decimal_value2 ? -1 : 0);
+            } else {
+                DecimalV2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);
+                DecimalV2Value decimal_value2(reinterpret_cast<const PackedInt128*>(v2)->value);
+                return (decimal_value1 > decimal_value2)
+                               ? 1
+                               : (decimal_value1 < decimal_value2 ? -1 : 0);
+            }
+        } else {
+            DecimalV2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);
+            DecimalV2Value decimal_value2(reinterpret_cast<const PackedInt128*>(v2)->value);
+            return (decimal_value1 > decimal_value2) ? 1
+                                                     : (decimal_value1 < decimal_value2 ? -1 : 0);
+        }
     }
 
     case TYPE_LARGEINT: {

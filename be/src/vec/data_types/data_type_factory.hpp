@@ -113,6 +113,8 @@ public:
     DataTypePtr create_data_type(const arrow::DataType* type, bool is_nullable);
 
 private:
+    DataTypePtr _create_primitive_data_type(const FieldType& type, int precision, int scale) const;
+
     void register_data_type(const std::string& name, const DataTypePtr& data_type) {
         _data_type_map.emplace(name, data_type);
         _invert_data_type_map.emplace_back(data_type, name);

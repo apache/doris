@@ -129,7 +129,7 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
                          << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
-        Status res = f->from_string(*operand);
+        Status res = f->from_string(*operand, column.precision(), column.frac());
         if (!res.ok()) {
             LOG(WARNING) << "Convert from string failed. [name=" << tcond.column_name
                          << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
@@ -146,7 +146,7 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
                              << ", operand=" << operand.c_str() << ", op_type=" << op << "]";
                 return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             }
-            Status res = f->from_string(operand);
+            Status res = f->from_string(operand, column.precision(), column.frac());
             if (!res.ok()) {
                 LOG(WARNING) << "Convert from string failed. [name=" << tcond.column_name
                              << ", operand=" << operand.c_str() << ", op_type=" << op << "]";

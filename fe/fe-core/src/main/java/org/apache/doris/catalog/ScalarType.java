@@ -80,8 +80,6 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL128_PRECISION = 38;
 
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
-
-    private static final Logger LOG = LogManager.getLogger(ScalarType.class);
     @SerializedName(value = "type")
     private final PrimitiveType type;
 

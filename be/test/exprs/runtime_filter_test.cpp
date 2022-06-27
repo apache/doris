@@ -31,7 +31,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-TTypeDesc create_type_desc(PrimitiveType type);
+TTypeDesc create_type_desc(PrimitiveType type, int precision, int scale);
 
 class RuntimeFilterTest : public testing::Test {
 public:
