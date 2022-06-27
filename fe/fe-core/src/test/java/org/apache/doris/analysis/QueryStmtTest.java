@@ -261,7 +261,7 @@ public class QueryStmtTest {
             Assert.assertEquals(24, exprsMap.size());
             constMap.clear();
             constMap = getConstantExprMap(exprsMap, analyzer);
-            Assert.assertEquals(10, constMap.size());
+            Assert.assertEquals(4, constMap.size());
         }
     }
 
