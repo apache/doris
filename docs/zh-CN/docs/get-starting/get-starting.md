@@ -53,9 +53,9 @@ under the License.
 2. 下载二进制包/自主编译 FE / BE 文件
 
    ```shell
-   wget https://dist.apache.org/repos/dist/release/incubator/doris/要部署的版本
+   wget https://dist.apache.org/repos/dist/release/doris/要部署的版本
    # 例如如下链接
-   wget https://dist.apache.org/repos/dist/release/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
+   wget https://dist.apache.org/repos/dist/release/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
    ```
    
 3. 解压缩 tar.gz 文件
