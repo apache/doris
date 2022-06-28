@@ -178,7 +178,7 @@ public:
                 RELEASE_THREAD_LOCAL_MEM_TRACKER(size);
             }
         } else if (size >= CHUNK_THRESHOLD) {
-            doris::ChunkAllocator::instance()->free_as_chunk((uint8_t*)buf, size);
+            doris::ChunkAllocator::instance()->free((uint8_t*)buf, size);
         } else {
             ::free(buf);
         }

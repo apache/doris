@@ -78,7 +78,7 @@ public:
     // If the chunk allocator is full, then free to the system.
     // Note: make sure that the length of 'data' is equal to size,
     // otherwise the capacity of chunk allocator will be wrong.
-    void free_as_chunk(uint8_t* data, size_t size, MemTracker* tracker = nullptr);
+    void free(uint8_t* data, size_t size, MemTracker* tracker = nullptr);
 
 private:
     static ChunkAllocator* _s_instance;

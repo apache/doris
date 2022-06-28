@@ -241,7 +241,7 @@ Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk, MemTracker* tra
     return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk, tracker, check_limits);
 }
 
-void ChunkAllocator::free_as_chunk(uint8_t* data, size_t size, MemTracker* tracker) {
+void ChunkAllocator::free(uint8_t* data, size_t size, MemTracker* tracker) {
     Chunk chunk;
     chunk.data = data;
     chunk.size = size;
