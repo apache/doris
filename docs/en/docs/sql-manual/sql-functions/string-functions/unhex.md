@@ -31,7 +31,7 @@ under the License.
 `VARCHAR unhex(VARCHAR str)`
 
 Enter a string, if the length of the string is 0 or an odd number, an empty string is returned;
-If the string contains characters other than `[0-9], [a-z], [A-Z]`, an empty string is returned;
+If the string contains characters other than `[0-9], [a-f], [A-F]`, an empty string is returned;
 In other cases, every two characters are a group of characters converted into hexadecimal, and then spliced into a string for output.
 
 
