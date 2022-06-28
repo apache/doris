@@ -15,23 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.tablefunction;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TScanRange;
 
-/**
- * Implementation rule that convert logical filter to physical filter.
- */
-public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
-    @Override
-    public Rule<Plan> build() {
-        return logicalFilter().then(filter -> plan(
-            new PhysicalFilter(filter.getOperator().getPredicates()),
-            filter.getLogicalProperties(),
-            filter.child()
-        )).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
+public class TableValuedFunctionTask {
+    // Expected running backend
+    private Backend backend;
+    // Function running parameters
+    private TScanRange execParams;
+
+    public TableValuedFunctionTask(Backend backend, TScanRange execParams) {
+        this.backend = backend;
+        this.execParams = execParams;
+    }
+
+    public Backend getBackend() {
+        return backend;
+    }
+
+    public TScanRange getExecParams() {
+        return execParams;
     }
 }
