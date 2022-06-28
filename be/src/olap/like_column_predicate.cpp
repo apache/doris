@@ -111,5 +111,58 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, u
     *size = new_size;
 }
 
+void LikeColumnPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+    if (column.is_nullable()) {
+        auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+        auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        auto& nested_col = nullable_col->get_nested_column();
+        if (nested_col.is_column_dictionary()) {
+            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+            auto& data_array = nested_col_ptr->get_data();
+            for (uint16_t i = 0; i < size; i++) {
+                if (null_map_data[i]) {
+                    flags[i] = _opposite;
+                    continue;
+                }
+
+                StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+                doris_udf::StringVal target;
+                cell_value.to_string_val(&target);
+                flags[i] = _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
+        }
+        else
+        {
+            for (uint16_t i = 0; i < size; i++) {
+                if (null_map_data[i]) {
+                    flags[i] = _opposite;
+                    continue;
+                }
+
+                StringRef cell_value = nested_col.get_data_at(i);
+                doris_udf::StringVal target = cell_value.to_string_val();
+                flags[i] = _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
+        }
+    } else {
+        if (column.is_column_dictionary()) {
+            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(column);
+            auto& data_array = nested_col_ptr->get_data();
+            for (uint16_t i = 0; i < size; i++) {
+                StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+                doris_udf::StringVal target;
+                cell_value.to_string_val(&target);
+                flags[i] = _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
+        } else {
+            for (uint16_t i = 0; i < size; i++) {
+                StringRef cell_value = column.get_data_at(i);
+                doris_udf::StringVal target = cell_value.to_string_val();
+                flags[i] = _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
+            }
+        }
+    }
+}
+
 
 } //namespace doris

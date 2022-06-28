@@ -38,6 +38,7 @@ public:
 
     PredicateType type() const override { return PredicateType::EQ; }
     void evaluate(VectorizedRowBatch* batch) const override;
+    void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override;
     void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const;
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
