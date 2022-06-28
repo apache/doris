@@ -23,33 +23,16 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.CompareMode;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.analysis.FunctionParams;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Arithmetic;
-import org.apache.doris.nereids.trees.expressions.BetweenPredicate;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.FunctionCall;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DataType;
 
@@ -80,7 +63,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             for (NamedExpression namedExpression : outputExpressionList) {
                 namedExpression = (NamedExpression) namedExpression.clone();
                 List<FunctionCall> functionCallList = FindFunctionCall.find(namedExpression);
-                for (FunctionCall functionCall: functionCallList) {
+                for (FunctionCall functionCall : functionCallList) {
                     FunctionName functionName = functionCall.getFnName();
                     FunctionParams functionParams = functionCall.getFnParams();
                     List<Expression> expressionList = functionParams.getExpression();
@@ -162,6 +145,9 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
         }
     }
 
+    /**
+     * Find all function call in the given expression tree.
+     */
     public static class FindFunctionCall extends ExpressionVisitor<Void, List<FunctionCall>> {
 
         private static final FindFunctionCall functionCall = new FindFunctionCall();
