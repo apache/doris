@@ -24,8 +24,10 @@ import com.alibaba.fastjson.JSON;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.http.HttpEntity;
+import org.apache.http.HttpException;
 import org.apache.http.HttpHeaders;
 import org.apache.http.HttpRequest;
+import org.apache.http.HttpRequestInterceptor;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.ProtocolException;
@@ -152,12 +154,19 @@ public class DorisWriterEmitter {
             return false;
         }
     }
-
+    
+    private static class ContentLengthHeaderRemover implements HttpRequestInterceptor {
+        @Override
+        public void process(HttpRequest request, HttpContext context) throws HttpException, IOException {
+            request.removeHeaders("Content-Length");
+        }
+    }
+    
     private Map<String, Object> doHttpPut(final String loadUrl, final DorisFlushBatch flushBatch) throws IOException {
         LOG.info(String.format("Executing stream load to: '%s', size: %s, rows: %d",
                 loadUrl, flushBatch.getSize(), flushBatch.getRows()));
 
-        final HttpClientBuilder httpClientBuilder = HttpClients.custom().setRedirectStrategy(new DefaultRedirectStrategy() {
+        final HttpClientBuilder httpClientBuilder = HttpClients.custom().addInterceptorFirst(new ContentLengthHeaderRemover()).setRedirectStrategy(new DefaultRedirectStrategy() {
             @Override
             protected boolean isRedirectable(final String method) {
                 return true;
