@@ -1977,6 +1977,10 @@ tbl_pattern ::=
     {:
         RESULT = new TablePattern(db, tbl);
     :}
+    | ident_or_star:ctl DOT ident_or_star:db DOT ident_or_star:tbl
+    {:
+        RESULT = new TablePattern(ctl, db, tbl);
+    :}
     ;
 
 resource_pattern ::=
@@ -4157,6 +4161,10 @@ star_expr ::=
     {:
         RESULT = SelectListItem.createStarItem(new TableName(db, tbl));
     :}
+    | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
+    {:
+        RESULT = SelectListItem.createStarItem(new TableName(ctl, db, tbl));
+    :}
     ;
 
 opt_table_name ::=
@@ -4174,6 +4182,8 @@ table_name ::=
     {: RESULT = new TableName(null, tbl); :}
     | ident:db DOT ident:tbl
     {: RESULT = new TableName(db, tbl); :}
+    | ident:ctl DOT ident:db DOT ident:tbl
+    {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
 encryptkey_name ::=
@@ -5292,6 +5302,8 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
+  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
+  {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
   ;
 
 column_subscript ::=
