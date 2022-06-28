@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.cascades;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -36,6 +37,14 @@ public class CostAndEnforcerJob extends Job<Plan> {
 
     @Override
     public void execute() {
-        // TODO
+        for (Group childGroup : groupExpression.children()) {
+            if (!childGroup.isHasCost()) {
+                // TODO: interim solution
+                pushTask(new CostAndEnforcerJob(this.groupExpression, context));
+                pushTask(new OptimizeGroupJob(childGroup, context));
+                childGroup.setHasCost(true);
+                return;
+            }
+        }
     }
 }
