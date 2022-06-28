@@ -28,21 +28,25 @@ import java.util.Objects;
  */
 public abstract class AbstractOperator implements Operator {
     protected final OperatorType type;
-    protected final long limited;
+    protected final long limit;
 
     public AbstractOperator(OperatorType type) {
         this.type = Objects.requireNonNull(type, "type can not be null");
-        this.limited = -1;
+        this.limit = -1;
     }
 
-    public AbstractOperator(OperatorType type, long limited) {
+    public AbstractOperator(OperatorType type, long limit) {
         this.type = type;
-        this.limited = limited;
+        this.limit = limit;
     }
 
     @Override
     public OperatorType getType() {
         return type;
+    }
+
+    public long getLimit() {
+        return limit;
     }
 
     /**
@@ -63,10 +67,6 @@ public abstract class AbstractOperator implements Operator {
 
     public <R, C> R accept(OperatorVisitor<R, C> visitor, Operator operator, C context) {
         return null;
-    }
-
-    public long getLimited() {
-        return limited;
     }
 
 }

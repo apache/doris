@@ -17,21 +17,21 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Implementation rule that convert logical filter to physical filter.
+ * Implementation rule that convert logical project to physical project.
  */
-public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
+public class LogicalProjectToPhysicalProject extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalFilter().then(filter -> plan(
-            new PhysicalFilter(filter.getOperator().getPredicates()),
-            filter.getLogicalProperties(),
-            filter.child()
-        )).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
+        return logicalProject().then(project -> plan(
+                new PhysicalProject(project.getOperator().getProjects()),
+                project.getLogicalProperties(),
+                project.child()
+        )).toRule(RuleType.LOGICAL_PROJECT_TO_PHYSICAL_PROJECT_RULE);
     }
 }

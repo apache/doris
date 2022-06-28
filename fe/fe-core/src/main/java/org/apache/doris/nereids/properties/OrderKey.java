@@ -26,6 +26,7 @@ public class OrderKey {
 
     private Expression expr;
 
+    // Order is ascending.
     private boolean isAsc;
 
     private boolean nullFirst;

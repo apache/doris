@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalScan;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -47,7 +48,7 @@ public class TestPlanOutput implements Plans {
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
         LogicalLeafPlan<LogicalRelation> relationPlan = plan(
-            new LogicalRelation(table, ImmutableList.of("a"))
+            new LogicalOlapScan(table, ImmutableList.of("a"))
         );
         List<Slot> output = relationPlan.getOutput();
         Assertions.assertEquals(2, output.size());
@@ -83,7 +84,7 @@ public class TestPlanOutput implements Plans {
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
         LogicalLeafPlan<LogicalRelation> relationPlan = plan(
-            new LogicalRelation(table, ImmutableList.of("a"))
+            new LogicalOlapScan(table, ImmutableList.of("a"))
         );
 
         List<Slot> output = relationPlan.getOutput();

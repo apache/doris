@@ -28,8 +28,8 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -53,7 +53,7 @@ public class RewriteTopDownJobTest implements Plans {
         @Override
         public Rule<Plan> build() {
             return unboundRelation().then(unboundRelation -> plan(
-                new LogicalRelation(new Table(0, "test", Table.TableType.OLAP, ImmutableList.of(
+                new LogicalOlapScan(new Table(0, "test", Table.TableType.OLAP, ImmutableList.of(
                     new Column("id", Type.INT),
                     new Column("name", Type.STRING)
                 )), Lists.newArrayList("test"))

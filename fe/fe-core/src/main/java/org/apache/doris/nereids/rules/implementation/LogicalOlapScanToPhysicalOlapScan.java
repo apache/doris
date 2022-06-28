@@ -17,21 +17,22 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Implementation rule that convert logical filter to physical filter.
+ * Implementation rule that convert logical OlapScan to physical OlapScan.
  */
-public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
+public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalFilter().then(filter -> plan(
-            new PhysicalFilter(filter.getOperator().getPredicates()),
-            filter.getLogicalProperties(),
-            filter.child()
-        )).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
+        return logicalOlapScan().then(olapScan -> plan(
+                        // TODO: olapScan should get (OlapTable);
+                        new PhysicalOlapScan((OlapTable) olapScan.getOperator().getTable(),
+                                olapScan.getOperator().getQualifier()), olapScan.getLogicalProperties()))
+                .toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 }

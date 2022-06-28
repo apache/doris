@@ -23,9 +23,9 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
@@ -75,7 +75,7 @@ public abstract class PlanOperatorVisitor<R, C> {
         return visit(olapScan, context);
     }
 
-    public R visitPhysicalSort(PhysicalUnaryPlan<PhysicalSort, Plan> sort, C context) {
+    public R visitPhysicalSort(PhysicalUnaryPlan<PhysicalHeapSort, Plan> sort, C context) {
         return visit(sort, context);
     }
 

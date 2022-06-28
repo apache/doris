@@ -32,41 +32,27 @@ import java.util.stream.Collectors;
 /**
  * Physical sort plan operator.
  */
-public class PhysicalSort extends PhysicalUnaryOperator {
-
+public class PhysicalHeapSort extends PhysicalUnaryOperator {
+    // Default offset is 0.
     private final int offset;
 
-    private final int limit;
-
-    private final List<OrderKey> orderList;
-
-    private final boolean useTopN;
+    private final List<OrderKey> orderKeys;
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalSort(int offset, int limit, List<OrderKey> orderList, boolean useTopN) {
-        super(OperatorType.PHYSICAL_SORT);
+    public PhysicalHeapSort(List<OrderKey> orderKeys, long limit, int offset) {
+        super(OperatorType.PHYSICAL_SORT, limit);
         this.offset = offset;
-        this.limit = limit;
-        this.orderList = orderList;
-        this.useTopN = useTopN;
+        this.orderKeys = orderKeys;
     }
 
     public int getOffset() {
         return offset;
     }
 
-    public int getLimit() {
-        return limit;
-    }
-
-    public List<OrderKey> getOrderList() {
-        return orderList;
-    }
-
-    public boolean isUseTopN() {
-        return useTopN;
+    public List<OrderKey> getOrderKeys() {
+        return orderKeys;
     }
 
     public boolean hasLimit() {
@@ -75,15 +61,12 @@ public class PhysicalSort extends PhysicalUnaryOperator {
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalSort((PhysicalUnaryPlan<PhysicalSort, Plan>) plan, context);
+        return visitor.visitPhysicalSort((PhysicalUnaryPlan<PhysicalHeapSort, Plan>) plan, context);
     }
 
     @Override
     public List<Expression> getExpressions() {
         return ImmutableList.<Expression>builder()
-            .addAll(orderList.stream()
-                .map(o -> o.getExpr())
-                .collect(Collectors.toList())
-            ).build();
+                .addAll(orderKeys.stream().map(o -> o.getExpr()).collect(Collectors.toList())).build();
     }
 }
