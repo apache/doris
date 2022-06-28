@@ -46,13 +46,13 @@ import java.util.stream.Collectors;
 /**
  * Used to generate the merge agg node for distributed execution.
  */
-public class AggregateBreakUp extends OneRewriteRuleFactory {
+public class AggregateDisassemble extends OneRewriteRuleFactory {
 
     @Override
     public Rule<Plan> build() {
         return logicalAggregation().when(p -> {
             LogicalAggregation logicalAggregation = p.getOperator();
-            return !logicalAggregation.isBrokeUp();
+            return !logicalAggregation.isDisassembled();
         }).thenApply(ctx -> {
             Plan plan = ctx.root;
             Operator operator = plan.getOperator();

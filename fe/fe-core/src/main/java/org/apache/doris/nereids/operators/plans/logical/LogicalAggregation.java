@@ -43,7 +43,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     private final List<Expression> groupByExpressions;
     private final List<NamedExpression> outputExpressions;
-    private boolean brokeUp;
+    private boolean disassembled;
 
     /**
      * Desc: Constructor for LogicalAggregation.
@@ -56,11 +56,11 @@ public class LogicalAggregation extends LogicalUnaryOperator {
     }
 
     public LogicalAggregation(List<Expression> groupByExpressions,
-            List<NamedExpression> outputExpressions, boolean brokeUp) {
+            List<NamedExpression> outputExpressions, boolean disassembled) {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExpressions = groupByExpressions;
         this.outputExpressions = outputExpressions;
-        this.brokeUp = brokeUp;
+        this.disassembled = disassembled;
     }
 
     /**
@@ -105,11 +105,11 @@ public class LogicalAggregation extends LogicalUnaryOperator {
         return new ImmutableList.Builder<Expression>().addAll(groupByExpressions).addAll(outputExpressions).build();
     }
 
-    public boolean isBrokeUp() {
-        return brokeUp;
+    public boolean isDisassembled() {
+        return disassembled;
     }
 
-    public void setBrokeUp(boolean brokeUp) {
-        this.brokeUp = brokeUp;
+    public void setDisassembled(boolean disassembled) {
+        this.disassembled = disassembled;
     }
 }
