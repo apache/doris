@@ -163,7 +163,7 @@ Status FileScanner::_filter_block(vectorized::Block* _block) {
     return Status::OK();
 }
 
-Status FileScanner::fill_block(vectorized::Block* _block, bool* eof) {
+Status FileScanner::finalize_block(vectorized::Block* _block, bool* eof) {
     *eof = _scanner_eof;
     RETURN_IF_ERROR(_fill_columns_from_path(_block));
     if (LIKELY(_rows > 0)) {

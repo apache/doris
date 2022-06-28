@@ -216,13 +216,8 @@ struct TEsScanRange {
 }
 
 struct TFileTextScanRangeParams {
-    3: optional i8 column_separator;
-    4: optional i8 line_delimiter;
-    // for multibytes separators
-    5: optional i32 column_separator_length = 1;
-    6: optional i32 line_delimiter_length = 1;
-    7: optional string column_separator_str;
-    8: optional string line_delimiter_str;
+    1: optional string column_separator_str;
+    2: optional string line_delimiter_str;
 }
 
 struct TFileScanSlotInfo {
@@ -250,13 +245,10 @@ struct TFileRangeDesc {
     4: optional i64 start_offset;
     // Size of this range, if size = -1, this means that will read to the end of file
     5: optional i64 size;
-    // total size of the file
-    6: optional i64 file_size;
-
     // columns parsed from file path should be after the columns read from file
-    7: optional list<string> columns_from_path;
+    6: optional list<string> columns_from_path;
 
-    8: optional THdfsParams hdfs_params;
+    7: optional THdfsParams hdfs_params;
 }
 
 // HDFS file scan range

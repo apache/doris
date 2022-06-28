@@ -46,7 +46,7 @@ public:
     virtual void close() = 0;
 
 protected:
-    Status fill_block(vectorized::Block* dest_block, bool* eof);
+    Status finalize_block(vectorized::Block* dest_block, bool* eof);
     Status init_block(vectorized::Block* block);
 
     std::unique_ptr<TextConverter> _text_converter;

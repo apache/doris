@@ -49,20 +49,13 @@ FileTextScanner::FileTextScanner(RuntimeState* state, RuntimeProfile* profile,
 {
     if (params.__isset.text_params) {
         auto text_params = params.text_params;
-        if (text_params.__isset.column_separator_length &&
-            text_params.column_separator_length > 1) {
+        if (text_params.__isset.column_separator_str) {
             _value_separator = text_params.column_separator_str;
-            _value_separator_length = text_params.column_separator_length;
-        } else {
-            _value_separator.push_back(static_cast<char>(text_params.column_separator));
-            _value_separator_length = 1;
+            _value_separator_length = _value_separator.length();
         }
-        if (text_params.__isset.line_delimiter_length && text_params.line_delimiter_length > 1) {
+        if (text_params.__isset.line_delimiter_str) {
             _line_delimiter = text_params.line_delimiter_str;
-            _line_delimiter_length = text_params.line_delimiter_length;
-        } else {
-            _line_delimiter.push_back(static_cast<char>(text_params.line_delimiter));
-            _line_delimiter_length = 1;
+            _line_delimiter_length = _line_delimiter.length();
         }
     }
 }
@@ -123,7 +116,7 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
         }
     }
 
-    return fill_block(block, eof);
+    return finalize_block(block, eof);
 }
 
 Status FileTextScanner::_fill_file_columns(const Slice& line, vectorized::Block* _block) {

@@ -168,7 +168,7 @@ Status FileArrowScanner::get_next(vectorized::Block* block, bool* eof) {
         break;
     }
 
-    return fill_block(block, eof);
+    return finalize_block(block, eof);
 }
 
 Status FileArrowScanner::_append_batch_to_block(Block* block) {

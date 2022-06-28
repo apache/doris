@@ -65,7 +65,6 @@ import org.apache.logging.log4j.Logger;
 import org.mortbay.log.Log;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -187,26 +186,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     ? HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
 
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-
-            // set line delimiter
-            textParams.setLineDelimiterLength(lineDelimiter.getBytes(StandardCharsets.UTF_8).length);
-            if (lineDelimiter.getBytes(StandardCharsets.UTF_8).length > 1) {
-                textParams.setLineDelimiterStr(lineDelimiter);
-            } else if (lineDelimiter.getBytes(StandardCharsets.UTF_8).length == 1) {
-                textParams.setLineDelimiter(lineDelimiter.getBytes(StandardCharsets.UTF_8)[0]);
-            } else {
-                throw new DdlException("Text line separator should not be empty str.");
-            }
-
-            // set column separator
-            textParams.setColumnSeparatorLength(columnSeparator.getBytes(StandardCharsets.UTF_8).length);
-            if (columnSeparator.getBytes(StandardCharsets.UTF_8).length > 1) {
-                textParams.setColumnSeparatorStr(columnSeparator);
-            } else if (columnSeparator.getBytes(StandardCharsets.UTF_8).length == 1) {
-                textParams.setColumnSeparator(columnSeparator.getBytes(StandardCharsets.UTF_8)[0]);
-            } else {
-                throw new DdlException("Text column separator should not be empty str.");
-            }
+            textParams.setLineDelimiterStr(lineDelimiter);
+            textParams.setColumnSeparatorStr(columnSeparator);
 
             context.params.setTextParams(textParams);
         }
