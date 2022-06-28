@@ -196,6 +196,19 @@ public:
         return Status::OK();
     }
 
+    Status filter_by_ret_flags(const uint8_t* ret_flags, uint16_t batch_size, IColumn* col_ptr) override {
+        auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        for (size_t i = 0; i < batch_size; i++) {
+            if (ret_flags[i]){
+                auto& code = reinterpret_cast<T&>(_codes[i]);
+                auto value = _dict.get_value(code);
+                res_col->insert_data(value.ptr, value.len);
+            }
+            
+        }
+        return Status::OK();
+    }
+
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data in ColumnDictionary";
     }

@@ -131,6 +131,33 @@ public:
         return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
     }
 
+    Status copy_column_data_to_block(doris::vectorized::IColumn* input_col_ptr,
+                                     uint8_t* ret_flags, uint16_t batch_size, int block_cid) {
+        // Only the additional deleted filter condition need to materialize column be at the end of the block
+        // We should not to materialize the column of query engine do not need. So here just return OK.
+        // Eg:
+        //      `delete from table where a = 10;`
+        //      `select b from table;`
+        // a column only effective in segment iterator, the block from query engine only contain the b column.
+        // so the `block_cid >= data.size()` is true
+        if (block_cid >= data.size()) {
+            return Status::OK();
+        }
+
+        MutableColumnPtr raw_res_ptr = this->get_by_position(block_cid).column->assume_mutable();
+        raw_res_ptr->reserve(batch_size);
+
+        // adapt for outer join change column to nullable
+        // if (raw_res_ptr->is_nullable() && !input_col_ptr->is_nullable()) {
+        //     auto col_ptr_nullable =
+        //             reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
+        //     col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
+        //     raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
+        // }
+
+        return input_col_ptr->filter_by_ret_flags(ret_flags, batch_size, raw_res_ptr);
+    }
+
     void replace_by_position(size_t position, ColumnPtr&& res) {
         this->get_by_position(position).column = std::move(res);
     }

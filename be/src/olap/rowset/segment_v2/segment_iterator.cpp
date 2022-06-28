@@ -898,53 +898,93 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
         return selected_size;
     }
 
-    uint16_t original_size = selected_size;
+    // uint16_t original_size = selected_size;
 
     _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, (bool*)ret_flags);
+    return selected_size;
+    // uint16_t new_size = 0;
 
-    uint16_t new_size = 0;
+    // uint32_t sel_pos = 0;
+    // const uint32_t sel_end = sel_pos + selected_size;
+    // static constexpr size_t SIMD_BYTES = 32;
+    // const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
-    uint32_t sel_pos = 0;
-    const uint32_t sel_end = sel_pos + selected_size;
-    static constexpr size_t SIMD_BYTES = 32;
-    const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
+    // while (sel_pos < sel_end_simd) {
+    //     auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+    //     if (0 == mask) {
+    //         //pass
+    //     } else if (0xffffffff == mask) {
+    //         for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+    //             sel_rowid_idx[new_size++] = sel_pos + i;
+    //         }
+    //     } else {
+    //         while (mask) {
+    //             const size_t bit_pos = __builtin_ctzll(mask);
+    //             sel_rowid_idx[new_size++] = sel_pos + bit_pos;
+    //             mask = mask & (mask - 1);
+    //         }
+    //     }
+    //     sel_pos += SIMD_BYTES;
+    // }
 
-    while (sel_pos < sel_end_simd) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
-        if (0 == mask) {
-            //pass
-        } else if (0xffffffff == mask) {
-            for (uint32_t i = 0; i < SIMD_BYTES; i++) {
-                sel_rowid_idx[new_size++] = sel_pos + i;
-            }
-        } else {
-            while (mask) {
-                const size_t bit_pos = __builtin_ctzll(mask);
-                sel_rowid_idx[new_size++] = sel_pos + bit_pos;
-                mask = mask & (mask - 1);
-            }
-        }
-        sel_pos += SIMD_BYTES;
-    }
+    // for (; sel_pos < sel_end; sel_pos++) {
+    //     if (ret_flags[sel_pos]) {
+    //         sel_rowid_idx[new_size++] = sel_pos;
+    //     }
+    // }
 
-    for (; sel_pos < sel_end; sel_pos++) {
-        if (ret_flags[sel_pos]) {
-            sel_rowid_idx[new_size++] = sel_pos;
-        }
-    }
-
-    _opts.stats->rows_vec_cond_filtered += original_size - new_size;
-    return new_size;
+    // _opts.stats->rows_vec_cond_filtered += original_size - new_size;
+    // return new_size;
 }
 
-uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
-                                                            uint16_t selected_size) {
+uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx,
+                                                            uint16_t batch_size,
+                                                            uint8_t* ret_flags) {
     SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
     if (!_is_need_short_eval) {
-        return selected_size;
+        return batch_size;
+    }
+    uint16_t selected_size = 0;
+    if (!_is_need_vec_eval) {
+        for (uint32_t i = 0; i < batch_size; ++i) {
+            sel_rowid_idx[i] = i;
+        }
+        selected_size = batch_size;
+    }else{
+        uint32_t sel_pos = 0;
+        const uint32_t sel_end = sel_pos + batch_size;
+        static constexpr size_t SIMD_BYTES = 32;
+        const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+
+        while (sel_pos < sel_end_simd) {
+            auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+            if (0 == mask) {
+                //pass
+            } else if (0xffffffff == mask) {
+                for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                    sel_rowid_idx[selected_size++] = sel_pos + i;
+                }
+            } else {
+                while (mask) {
+                    const size_t bit_pos = __builtin_ctzll(mask);
+                    sel_rowid_idx[selected_size++] = sel_pos + bit_pos;
+                    mask = mask & (mask - 1);
+                }
+            }
+            sel_pos += SIMD_BYTES;
+        }
+
+        for (; sel_pos < sel_end; sel_pos++) {
+            if (ret_flags[sel_pos]) {
+                sel_rowid_idx[selected_size++] = sel_pos;
+            }
+        }
+        //count filtered rows of vec_predicate
+        _opts.stats->rows_vec_cond_filtered += batch_size - selected_size;
+
     }
 
-    uint16_t original_size = selected_size;
+    uint16_t input_row_size = selected_size;
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
@@ -954,15 +994,21 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
             predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
-        selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+        selected_size = predicate->evaluate(*short_cir_column, sel_rowid_idx, input_row_size);
     }
-    _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
+    
+    _opts.stats->rows_vec_cond_filtered += input_row_size - selected_size;
 
     // evaluate delete condition
-    original_size = selected_size;
+    uint16_t before_del_size = selected_size;
     selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
-                                                                vec_sel_rowid_idx, selected_size);
-    _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
+                                                                sel_rowid_idx, selected_size);
+    _opts.stats->rows_vec_del_cond_filtered += before_del_size - selected_size;
+    // TODO (englefly) update ret_flags in evaluate()
+    memset(ret_flags, 0, batch_size);
+    for(int i=0; i<selected_size; i++){
+        ret_flags[ sel_rowid_idx[i] ] = 1;
+    }
     return selected_size;
 }
 
@@ -1047,25 +1093,35 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     if (!_is_need_vec_eval && !_is_need_short_eval) {
         _output_non_pred_columns(block);
     } else {
-        uint16_t selected_size = nrows_read;
-        uint16_t sel_rowid_idx[selected_size];
-        uint8_t ret_flags[selected_size];
-        memset(ret_flags, 1u, selected_size);
+        uint16_t sel_rowid_idx[nrows_read];
+        uint8_t ret_flags[nrows_read];
+        memset(ret_flags, 1u, nrows_read);
         // step 1: evaluate vectorization predicate
-        selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size, ret_flags);
-
+        if (_is_need_vec_eval) {
+            SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
+            _pre_eval_block_predicate->evaluate_vec(_current_return_columns, nrows_read, (bool*)ret_flags);
+        }
+        
         // step 2: evaluate short ciruit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
-        selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
+        uint16_t selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, nrows_read, ret_flags);
 
         if (!_lazy_materialization_read) {
-            Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, (uint16_t*) ret_flags,
-                                                   selected_size);
+            Status ret = Status::OK();
+            if (_is_need_short_eval){
+                //materialize by sel_idx
+                ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+                                                    selected_size);
+
+            }else{
+                //materialize by ret_flags
+                ret = _output_column_by_ret_flags(block, _first_read_column_ids, ret_flags, nrows_read);
+            }
             if (!ret.ok()) {
                 return ret;
-            }
+            }            
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
             return ret;

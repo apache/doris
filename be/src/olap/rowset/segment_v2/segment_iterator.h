@@ -100,7 +100,7 @@ private:
     void _init_current_block(vectorized::Block* block,
                              std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size, uint8_t* ret_flags);
-    uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size, uint8_t* ret_flags);
     void _output_non_pred_columns(vectorized::Block* block);
     void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                  std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
@@ -115,6 +115,17 @@ private:
             RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
                                                              sel_rowid_idx, select_size, block_cid,
                                                              _opts.block_row_max));
+        }
+        return Status::OK();
+    }
+
+    Status _output_column_by_ret_flags(vectorized::Block* block, const std::vector<uint32_t>& column_ids,
+                                     uint8_t* ret_flags, uint16_t batch_size) {
+        SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
+        for (auto cid : column_ids) {
+            int block_cid = _schema_block_id_map[cid];
+            RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
+                                                             ret_flags, batch_size, block_cid));
         }
         return Status::OK();
     }
