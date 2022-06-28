@@ -289,7 +289,7 @@ public class LoadManager implements Writable {
             long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbName);
 
         LoadJob loadJob;
         switch (jobType) {
@@ -337,7 +337,7 @@ public class LoadManager implements Writable {
      * Cancel load job by stmt.
      **/
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDbName());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         // List of load jobs waiting to be cancelled
         List<LoadJob> matchLoadJobs = Lists.newArrayList();
         readLock();
@@ -632,7 +632,7 @@ public class LoadManager implements Writable {
     }
 
     private Database checkDb(String dbName) throws DdlException {
-        return Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        return Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
     }
 
     /**

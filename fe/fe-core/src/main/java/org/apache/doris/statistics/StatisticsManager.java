@@ -23,7 +23,9 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -50,12 +52,12 @@ public class StatisticsManager {
 
     public void alterTableStatistics(AlterTableStatsStmt stmt)
             throws AnalysisException {
-        Table table = validateTableName(stmt.getTableName());
+        TableIf table = validateTableName(stmt.getTableName());
         statistics.updateTableStats(table.getId(), stmt.getStatsTypeToValue());
     }
 
     public void alterColumnStatistics(AlterColumnStatsStmt stmt) throws AnalysisException {
-        Table table = validateTableName(stmt.getTableName());
+        TableIf table = validateTableName(stmt.getTableName());
         String columnName = stmt.getColumnName();
         Column column = table.getColumn(columnName);
         if (column == null) {
@@ -67,10 +69,10 @@ public class StatisticsManager {
 
     public List<List<String>> showTableStatsList(String dbName, String tableName)
             throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        DatabaseIf<TableIf> db = Catalog.getCurrentCatalog().getCurrentDataSource().getDbOrAnalysisException(dbName);
         List<List<String>> result = Lists.newArrayList();
         if (tableName != null) {
-            Table table = db.getTableOrAnalysisException(tableName);
+            TableIf table = db.getTableOrAnalysisException(tableName);
             // check priv
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
                     PrivPredicate.SHOW)) {
@@ -82,9 +84,9 @@ public class StatisticsManager {
             // get stats
             result.add(showTableStats(table));
         } else {
-            for (Table table : db.getTables()) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, table.getName(),
-                        PrivPredicate.SHOW)) {
+            for (TableIf table : db.getTables()) {
+                if (!Catalog.getCurrentCatalog().getAuth()
+                        .checkTblPriv(ConnectContext.get(), dbName, table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 try {
@@ -99,7 +101,7 @@ public class StatisticsManager {
 
     public List<List<String>> showColumnStatsList(TableName tableName) throws AnalysisException {
         // check meta
-        Table table = validateTableName(tableName);
+        TableIf table = validateTableName(tableName);
         // check priv
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.SHOW)) {
@@ -123,7 +125,7 @@ public class StatisticsManager {
         return result;
     }
 
-    private List<String> showTableStats(Table table) throws AnalysisException {
+    private List<String> showTableStats(TableIf table) throws AnalysisException {
         TableStats tableStats = statistics.getTableStats(table.getId());
         if (tableStats == null) {
             throw new AnalysisException("There is no statistics in this table:" + table.getName());
@@ -147,7 +149,7 @@ public class StatisticsManager {
         validateTableAndColumn(categoryDesc);
         long dbId = categoryDesc.getDbId();
         long tblId = categoryDesc.getTableId();
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
         Table table = db.getTableOrAnalysisException(tblId);
         String columnName = categoryDesc.getColumnName();
         Type columnType = table.getColumn(columnName).getType();
@@ -155,11 +157,11 @@ public class StatisticsManager {
         statistics.updateColumnStats(tblId, columnName, columnType, statsTypeToValue);
     }
 
-    private Table validateTableName(TableName dbTableName) throws AnalysisException {
+    private TableIf validateTableName(TableName dbTableName) throws AnalysisException {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         return db.getTableOrAnalysisException(tableName);
     }
 
@@ -168,8 +170,8 @@ public class StatisticsManager {
         long tblId = categoryDesc.getTableId();
         String columnName = categoryDesc.getColumnName();
 
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
-        Table table = db.getTableOrAnalysisException(tblId);
+        DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
+        TableIf table = db.getTableOrAnalysisException(tblId);
         if (!Strings.isNullOrEmpty(columnName)) {
             Column column = table.getColumn(columnName);
             if (column == null) {

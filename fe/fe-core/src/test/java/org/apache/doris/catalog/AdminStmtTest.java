@@ -54,7 +54,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetReplicaStatus() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         Assert.assertNotNull(tbl);

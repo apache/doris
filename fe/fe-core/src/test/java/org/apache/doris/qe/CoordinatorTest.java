@@ -33,10 +33,10 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
@@ -63,13 +63,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class CoordinatorTest extends Coordinator {
-    static Planner planner = new Planner();
-    static ConnectContext context = new ConnectContext(null);
 
-    static {
-        context.setQueryId(new TUniqueId(1, 2));
-        context.setQualifiedUser("root");
-    }
 
     @Mocked
     static Catalog catalog;
@@ -77,17 +71,25 @@ public class CoordinatorTest extends Coordinator {
     static EditLog editLog;
     @Mocked
     static FrontendOptions frontendOptions;
+
+    static ConnectContext context = new ConnectContext(null);
     static Analyzer analyzer = new Analyzer(catalog, context);
+    static OriginalPlanner originalPlanner = new OriginalPlanner(analyzer);
+
+    static {
+        context.setQueryId(new TUniqueId(1, 2));
+        context.setQualifiedUser("root");
+    }
 
     public CoordinatorTest() {
-        super(context, analyzer, planner);
+        super(context, analyzer, originalPlanner);
     }
 
     private static Coordinator coor;
 
     @Test
     public void testComputeColocateJoinInstanceParam()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -279,7 +281,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testColocateJoinAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -505,7 +507,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignmentByScheduler()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
         Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
@@ -589,7 +591,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testGetExecHostPortForFragmentIDAndBucketSeq()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
@@ -712,7 +714,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
 
         //TScanRangeLocations
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();

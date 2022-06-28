@@ -232,4 +232,20 @@ public class RangeCompareTest {
         }
     }
 
+    @Test
+    public void testMergeRangeWithDifferentType2() throws AnalysisException {
+        LiteralExpr lowerBoundOfRange1 = new DecimalLiteral("3.0");
+        Range<LiteralExpr> range1 = Range.lessThan(lowerBoundOfRange1);
+        LiteralExpr upperBoundOfRange2 = new DateLiteral("2021-01-01", Type.DATEV2);
+        Range<LiteralExpr> range2 = Range.atLeast(upperBoundOfRange2);
+        RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
+        rangeSet.add(range1);
+        try {
+            rangeSet.add(range2);
+            Assert.fail();
+        } catch (ClassCastException e) {
+            System.out.println(e);
+        }
+    }
+
 }

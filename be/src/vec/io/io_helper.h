@@ -280,6 +280,18 @@ bool read_date_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
+bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
+    static_assert(std::is_same_v<UInt32, T>);
+    auto dv = binary_cast<UInt32, DateV2Value>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count());
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<DateV2Value, UInt32>(dv);
+    return ans;
+}
+
+template <typename T>
 bool read_decimal_text_impl(T& x, ReadBuffer& buf) {
     static_assert(IsDecimalNumber<T>);
     // TODO: open this static_assert
@@ -334,5 +346,10 @@ bool try_read_datetime_text(T& x, ReadBuffer& in) {
 template <typename T>
 bool try_read_date_text(T& x, ReadBuffer& in) {
     return read_date_text_impl<T>(x, in);
+}
+
+template <typename T>
+bool try_read_date_v2_text(T& x, ReadBuffer& in) {
+    return read_date_v2_text_impl<T>(x, in);
 }
 } // namespace doris::vectorized

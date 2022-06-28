@@ -58,7 +58,7 @@ public class FunctionParams {
         isDistinct = false;
     }
 
-    public List<Expression> getExpression() {
+    public List<Expression> getExpressionList() {
         return expression;
     }
 

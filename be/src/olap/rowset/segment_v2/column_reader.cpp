@@ -93,7 +93,11 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                            uint64_t num_rows, FilePathDesc path_desc)
-        : _meta(meta), _opts(opts), _num_rows(num_rows), _path_desc(path_desc) {}
+        : _meta(meta),
+          _opts(opts),
+          _num_rows(num_rows),
+          _path_desc(path_desc),
+          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {}
 
 ColumnReader::~ColumnReader() = default;
 
@@ -510,6 +514,19 @@ FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), _compress_codec));
+    if (config::enable_low_cardinality_optimize &&
+        _reader->encoding_info()->encoding() == DICT_ENCODING) {
+        auto dict_encoding_type = _reader->get_dict_encoding_type();
+        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING) {
+            seek_to_ordinal(_reader->num_rows() - 1);
+            _is_all_dict_encoding = _page.is_dict_encoding;
+            _reader->set_dict_encoding_type(_is_all_dict_encoding
+                                                    ? ColumnReader::ALL_DICT_ENCODING
+                                                    : ColumnReader::PARTIAL_DICT_ENCODING);
+        } else {
+            _is_all_dict_encoding = dict_encoding_type == ColumnReader::ALL_DICT_ENCODING;
+        }
+    }
     return Status::OK();
 }
 
@@ -868,6 +885,13 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
         value.to_datetime();
 
         int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        insert_column_data();
+        break;
+    }
+    case OLAP_FIELD_TYPE_DATEV2: {
+        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType)); //uint32_t
+
+        int128 = *((FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType*)_mem_value);
         insert_column_data();
         break;
     }

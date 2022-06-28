@@ -38,7 +38,7 @@ public class FunctionCall extends Expression {
     private DataType retType;
 
     public FunctionCall(FunctionName functionName, FunctionParams functionParams) {
-        super(NodeType.FUNCTIONCALL, functionParams.getExpression().toArray(new Expression[0]));
+        super(NodeType.FUNCTIONCALL, functionParams.getExpressionList().toArray(new Expression[0]));
         this.fnName = functionName;
         this.fnParams = functionParams;
     }
@@ -78,10 +78,7 @@ public class FunctionCall extends Expression {
 
     @Override
     public Expression clone() {
-        List<Expression> paramExprList = fnParams
-                .getExpression()
-                .stream()
-                .map(Expression::clone)
+        List<Expression> paramExprList = fnParams.getExpressionList().stream().map(Expression::clone)
                 .collect(Collectors.toList());
         return new FunctionCall(fnName, new FunctionParams(fnParams.isDistinct(), paramExprList));
     }

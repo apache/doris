@@ -26,6 +26,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -53,13 +54,10 @@ public class RoutineLoadSchedulerTest {
     TResourceInfo tResourceInfo;
 
     @Test
-    public void testNormalRunOneCycle(@Mocked Catalog catalog,
-                                      @Injectable RoutineLoadManager routineLoadManager,
-                                      @Injectable SystemInfoService systemInfoService,
-                                      @Injectable Database database,
-                                      @Injectable RoutineLoadDesc routineLoadDesc,
-                                      @Mocked StreamLoadPlanner planner,
-                                      @Injectable OlapTable olapTable)
+    public void testNormalRunOneCycle(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+            @Injectable RoutineLoadManager routineLoadManager, @Injectable SystemInfoService systemInfoService,
+            @Injectable Database database, @Injectable RoutineLoadDesc routineLoadDesc,
+            @Mocked StreamLoadPlanner planner, @Injectable OlapTable olapTable)
             throws LoadException, MetaNotFoundException {
         String clusterName = "default";
         List<Long> beIds = Lists.newArrayList();
@@ -91,7 +89,10 @@ public class RoutineLoadSchedulerTest {
                 routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
                 minTimes = 0;
                 result = routineLoadJobList;
-                catalog.getDbNullable(anyLong);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(1L);
@@ -126,9 +127,9 @@ public class RoutineLoadSchedulerTest {
         }
     }
 
-    public void functionTest(@Mocked Catalog catalog,
-                             @Mocked SystemInfoService systemInfoService,
-                             @Injectable Database database) throws DdlException, InterruptedException {
+    public void functionTest(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+            @Mocked SystemInfoService systemInfoService, @Injectable Database database)
+            throws DdlException, InterruptedException {
         new Expectations() {
             {
                 connectContext.toResourceCtx();
@@ -150,7 +151,10 @@ public class RoutineLoadSchedulerTest {
                 catalog.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
-                catalog.getDbNullable(anyLong);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 systemInfoService.getBackendIds(true);

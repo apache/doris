@@ -23,6 +23,8 @@ package org.apache.doris.nereids.properties;
 public class PhysicalProperties {
     private DistributionSpec distributionDesc;
 
+    public PhysicalProperties() {}
+
     public DistributionSpec getDistributionDesc() {
         return distributionDesc;
     }

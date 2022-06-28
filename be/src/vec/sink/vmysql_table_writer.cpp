@@ -186,6 +186,18 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
         }
+        case TYPE_DATEV2: {
+            uint32_t int_val =
+                    assert_cast<const vectorized::ColumnUInt32&>(*column).get_data()[row];
+            vectorized::DateV2Value value =
+                    binary_cast<uint32_t, doris::vectorized::DateV2Value>(int_val);
+
+            char buf[64];
+            char* pos = value.to_string(buf);
+            std::string str(buf, pos - buf - 1);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+            break;
+        }
         default: {
             fmt::memory_buffer err_out;
             fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",

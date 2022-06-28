@@ -48,14 +48,16 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() == 1) {
-            if (!is_date_or_datetime(arguments[0].type)) {
+            if (!is_date_or_datetime(arguments[0].type) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type)) {
                 LOG(FATAL) << fmt::format(
                         "Illegal type {} of argument of function {}. Should be a date or a date "
                         "with time",
                         arguments[0].type->get_name(), get_name());
             }
         } else if (arguments.size() == 2) {
-            if (!is_date_or_datetime(arguments[0].type)) {
+            if (!is_date_or_datetime(arguments[0].type) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type)) {
                 LOG(FATAL) << fmt::format(
                         "Illegal type {} of argument of function {}. Should be a date or a date "
                         "with time",
@@ -92,8 +94,9 @@ public:
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
         WhichDataType which(from_type);
 
-        return DateTimeTransformImpl<Int64, typename ToDataType::FieldType, Transform>::execute(
-                block, arguments, result, input_rows_count);
+        return DateTimeTransformImpl<typename Transform::ARG_TYPE, typename ToDataType::FieldType,
+                                     Transform>::execute(block, arguments, result,
+                                                         input_rows_count);
     }
 
     bool has_information_about_monotonicity() const override { return true; }

@@ -19,7 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 // When one client connect in, we create a connect context for it.
@@ -427,7 +428,8 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
-        currentDbId = Catalog.getCurrentCatalog().getDb(db).map(Database::getId).orElse(-1L);
+        Optional<DatabaseIf> dbInstance = Catalog.getCurrentCatalog().getCurrentDataSource().getDb(db);
+        currentDbId = dbInstance.isPresent() ? dbInstance.get().getId() : -1;
     }
 
     public void setExecutor(StmtExecutor executor) {

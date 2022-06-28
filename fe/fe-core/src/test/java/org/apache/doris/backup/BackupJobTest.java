@@ -30,6 +30,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -84,6 +85,8 @@ public class BackupJobTest {
 
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
 
     private MockBackupHandler backupHandler;
 
@@ -146,10 +149,14 @@ public class BackupJobTest {
         Deencapsulation.setField(catalog, "backupHandler", backupHandler);
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
-
+        ds = Deencapsulation.newInstance(InternalDataSource.class);
         new Expectations(catalog) {
             {
-                catalog.getDbNullable(anyLong);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 

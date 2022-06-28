@@ -83,7 +83,7 @@ public abstract class LoadEtlTask extends MasterTask {
 
         // check db
         long dbId = job.getDbId();
-        db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
             return;

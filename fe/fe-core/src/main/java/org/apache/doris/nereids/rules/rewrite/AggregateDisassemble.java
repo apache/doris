@@ -66,7 +66,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 for (FunctionCall functionCall : functionCallList) {
                     FunctionName functionName = functionCall.getFnName();
                     FunctionParams functionParams = functionCall.getFnParams();
-                    List<Expression> expressionList = functionParams.getExpression();
+                    List<Expression> expressionList = functionParams.getExpressionList();
                     List<Type> staleTypeList = expressionList.stream().map(Expression::getDataType)
                             .map(DataType::toCatalogDataType).collect(Collectors.toList());
                     Function staleFuncDesc = new Function(functionName, staleTypeList,

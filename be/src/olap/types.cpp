@@ -83,6 +83,7 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>(),
             get_scalar_type_info<OLAP_FIELD_TYPE_STRING>(),
             get_scalar_type_info<OLAP_FIELD_TYPE_QUANTILE_STATE>(),
+            get_scalar_type_info<OLAP_FIELD_TYPE_DATEV2>(),
     };
     return field_type_array[field_type];
 }
@@ -147,6 +148,7 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
             INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_OBJECT),
             INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_STRING),
             INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_QUANTILE_STATE),
+            INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DATEV2),
     };
     return array_type_Info_arr[leaf_type][iterations];
 }

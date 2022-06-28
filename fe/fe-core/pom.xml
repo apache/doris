@@ -651,7 +651,7 @@ under the License.
 
     </dependencies>
     <build>
-        <finalName>palo-fe</finalName>
+        <finalName>doris-fe</finalName>
         <plugins>
             <!--jcup-->
             <plugin>

@@ -105,7 +105,7 @@ public class ShowDataStmt extends ShowStmt {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
 
         // order by
         if (orderByElements != null && !orderByElements.isEmpty()) {
