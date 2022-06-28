@@ -62,7 +62,7 @@ inline uint32_t bytes32_mask_to_bits32_mask(const bool* data) {
 inline size_t count_zero_num(const int8_t* __restrict data, size_t size) {
     size_t num = 0;
     const int8_t* end = data + size;
-
+#if defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
     const int8_t* end64 = data + (size / 64 * 64);
 
@@ -80,7 +80,7 @@ inline size_t count_zero_num(const int8_t* __restrict data, size_t size) {
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)), zero16)))
                  << 48u));
     }
-
+#endif
     for (; data < end; ++data) {
         num += (*data == 0);
     }
