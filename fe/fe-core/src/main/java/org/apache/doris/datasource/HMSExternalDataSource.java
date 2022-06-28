@@ -50,6 +50,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     private ConcurrentHashMap<String, Long> dbNameToId = new ConcurrentHashMap();
     private static final AtomicLong nextId = new AtomicLong(0);
 
+    private boolean initialized = false;
     protected String hiveMetastoreUris;
     protected HiveMetaStoreClient client;
 
@@ -63,7 +64,6 @@ public class HMSExternalDataSource extends ExternalDataSource {
         this.dsProperty = new DataSourceProperty();
         this.dsProperty.setProperties(props);
         this.hiveMetastoreUris = props.getOrDefault("hive.metastore.uris", "thrift://127.0.0.1:9083");
-        init();
     }
 
     private void init() {
@@ -90,8 +90,20 @@ public class HMSExternalDataSource extends ExternalDataSource {
         }
     }
 
+    /**
+     * Datasource can't be init when creating because the external datasource may depend on third system.
+     * So you have to make sure the client of third system is initialized before any method was called.
+     */
+    private synchronized void makeSureInitialized() {
+        if (!initialized) {
+            init();
+            initialized = true;
+        }
+    }
+
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
+        makeSureInitialized();
         try {
             List<String> allDatabases = client.getAllDatabases();
             // Update the db name to id map.
@@ -107,6 +119,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
         try {
             return client.getAllTables(dbName);
         } catch (MetaException e) {
@@ -117,6 +130,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
+        makeSureInitialized();
         try {
             return client.tableExists(dbName, tblName);
         } catch (TException e) {
@@ -128,6 +142,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
+        makeSureInitialized();
         try {
             client.getDatabase(dbName);
         } catch (TException e) {
@@ -144,6 +159,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
+        makeSureInitialized();
         for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
             if (entry.getValue() == dbId) {
                 return new HMSExternalDatabase(this, dbId, entry.getKey(), hiveMetastoreUris);
@@ -218,6 +234,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<Long> getDbIds() {
+        makeSureInitialized();
         return Lists.newArrayList(dbNameToId.values());
     }
 }
