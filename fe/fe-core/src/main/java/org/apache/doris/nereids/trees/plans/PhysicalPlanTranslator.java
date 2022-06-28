@@ -153,9 +153,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanFragment childFragment = visit(sort.child(0), context);
         // TODO: Why doesn't the sort node translate if the childfragment is a single instance?
         PhysicalHeapSort physicalHeapSort = sort.getOperator();
-        if (!childFragment.isPartitioned()) {
-            return childFragment;
-        }
         long limit = physicalHeapSort.getLimit();
 
         List<Expr> execOrderingExprList = Lists.newArrayList();
@@ -177,7 +174,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // TODO: notice topN
         SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, true,
                 physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
-
+        childFragment.addPlanRoot(sortNode);
+        if (!childFragment.isPartitioned()) {
+            return childFragment;
+        }
         PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
         ExchangeNode exchNode = (ExchangeNode) mergeFragment.getPlanRoot();
         exchNode.unsetLimit();
@@ -263,6 +263,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visitPhysicalProject(
             PhysicalUnaryPlan<PhysicalProject, Plan> projectPlan, PlanTranslatorContext context) {
+        PhysicalProject physicalProject = projectPlan.getOperator();
+        List<Expr> execExprList = physicalProject.getProjects()
+                .stream()
+                .map(e -> ExpressionConverter.convert(e, context))
+                .collect(Collectors.toList());
+        PlanFragment inputFragment = visit(projectPlan.child(0), context);
+        PlanNode planNode = inputFragment.getPlanRoot();
         return visit(projectPlan.child(0), context);
     }
 
