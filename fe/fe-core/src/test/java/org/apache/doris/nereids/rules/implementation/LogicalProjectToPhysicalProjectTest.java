@@ -37,13 +37,13 @@ import org.junit.Test;
 
 import java.util.List;
 
-public class LogicalProjectionToPhysicalProjectionTest implements Plans {
+public class LogicalProjectToPhysicalProjectTest implements Plans {
     @Test
     public void projectionImplTest(@Mocked Group group) {
         LogicalProject logicalProject = new LogicalProject(Lists.newArrayList());
         Plan plan = plan(logicalProject, new GroupPlan(group));
 
-        Rule<Plan> rule = new LogicalProjectionToPhysicalProjection().build();
+        Rule<Plan> rule = new LogicalProjectToPhysicalProject().build();
 
         PlannerContext plannerContext = new PlannerContext(new OptimizerContext(new Memo()), new ConnectContext(),
                 new PhysicalProperties());

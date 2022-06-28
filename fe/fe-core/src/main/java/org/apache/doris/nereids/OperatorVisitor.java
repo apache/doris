@@ -21,9 +21,9 @@ import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalSort;
 
 /**
  * Base class for the processing of logical and physical operator.
@@ -44,7 +44,7 @@ public abstract class OperatorVisitor<R, C> {
         return null;
     }
 
-    public R visitPhysicalSort(PhysicalSort physicalSort, C context) {
+    public R visitPhysicalHeapSort(PhysicalHeapSort physicalHeapSort, C context) {
         return null;
     }
 

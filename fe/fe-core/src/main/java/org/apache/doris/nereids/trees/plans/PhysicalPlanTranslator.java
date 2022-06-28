@@ -30,13 +30,14 @@ import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalSort;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionConverter;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
@@ -95,9 +96,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 .map(e -> ExpressionConverter.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
 
-        List<Expression> aggExpressionList = physicalAggregation.getAggExprList();
+        List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         // TODO: agg function could be other expr type either
-        ArrayList<FunctionCallExpr> execAggExpressions = aggExpressionList.stream()
+        ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
                 .map(e -> (FunctionCallExpr) ExpressionConverter.convert(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
@@ -147,20 +148,21 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     }
 
     @Override
-    public PlanFragment visitPhysicalSort(PhysicalUnaryPlan<PhysicalSort, Plan> sort,
+    public PlanFragment visitPhysicalSort(PhysicalUnaryPlan<PhysicalHeapSort, Plan> sort,
             PlanTranslatorContext context) {
         PlanFragment childFragment = visit(sort.child(0), context);
-        PhysicalSort physicalSort = sort.getOperator();
+        // TODO: Why doesn't the sort node translate if the childfragment is a single instance?
+        PhysicalHeapSort physicalHeapSort = sort.getOperator();
         if (!childFragment.isPartitioned()) {
             return childFragment;
         }
-        long limit = physicalSort.getLimit();
+        long limit = physicalHeapSort.getLimit();
 
         List<Expr> execOrderingExprList = Lists.newArrayList();
         List<Boolean> ascOrderList = Lists.newArrayList();
         List<Boolean> nullsFirstParamList = Lists.newArrayList();
 
-        List<OrderKey> orderKeyList = physicalSort.getOrderList();
+        List<OrderKey> orderKeyList = physicalHeapSort.getOrderKeys();
         orderKeyList.forEach(k -> {
             execOrderingExprList.add(ExpressionConverter.convert(k.getExpr(), context));
             ascOrderList.add(k.isAsc());
@@ -172,16 +174,17 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         SortInfo sortInfo = new SortInfo(execOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
 
         PlanNode childNode = childFragment.getPlanRoot();
-        SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, physicalSort.isUseTopN(),
-                physicalSort.hasLimit(), physicalSort.getOffset());
+        // TODO: notice topN
+        SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, true,
+                physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
 
         PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
         ExchangeNode exchNode = (ExchangeNode) mergeFragment.getPlanRoot();
         exchNode.unsetLimit();
-        if (physicalSort.hasLimit()) {
+        if (physicalHeapSort.hasLimit()) {
             exchNode.setLimit(limit);
         }
-        long offset = physicalSort.getOffset();
+        long offset = physicalHeapSort.getOffset();
         exchNode.setMergeInfo(sortNode.getSortInfo(), offset);
 
         // Child nodes should not process the offset. If there is a limit,
@@ -216,7 +219,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN) && eqExprList.isEmpty()) {
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
                     rightFragment.getPlanRoot(), null);
-            crossJoinNode.setLimit(physicalHashJoin.getLimited());
+            crossJoinNode.setLimit(physicalHashJoin.getLimit());
             List<Expr> conjuncts = Utils.extractConjuncts(predicateExpr).stream()
                     .map(e -> ExpressionConverter.convert(e, context))
                     .collect(Collectors.toCollection(ArrayList::new));
@@ -249,7 +252,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         hashJoinNode.setChild(0, leftFragmentPlanRoot);
         hashJoinNode.setChild(1, leftFragmentPlanRoot);
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
-        hashJoinNode.setLimit(physicalHashJoin.getLimited());
+        hashJoinNode.setLimit(physicalHashJoin.getLimit());
         leftFragment.setDestination((ExchangeNode) rightFragment.getPlanRoot());
         rightFragment.setDestination((ExchangeNode) leftFragmentPlanRoot);
         PlanFragment result = new PlanFragment(context.nextFragmentId(), hashJoinNode, leftFragment.getDataPartition());
