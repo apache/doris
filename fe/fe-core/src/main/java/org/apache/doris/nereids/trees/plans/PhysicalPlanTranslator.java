@@ -98,7 +98,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .map(e -> ExpressionConverter.converter.convert(e)).collect(Collectors.toCollection(ArrayList::new));
 
         List<Expression> aggExpressionList = physicalAggregation.getAggExprList();
-        // TODO: agg function could be other expr type either
+        // TODO: fix
         ArrayList<FunctionCallExpr> execAggExpressions = aggExpressionList.stream()
                 .map(e -> (FunctionCallExpr) ExpressionConverter.converter.convert(e))
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -106,7 +106,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<Expression> partitionExpressionList = physicalAggregation.getPartitionExprList();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> (FunctionCallExpr) ExpressionConverter.converter.convert(e)).collect(Collectors.toList());
-        // todo: support DISTINCT
+        // TODO: support DISTINCT
         AggregateInfo aggInfo = null;
         switch (phase) {
             case FIRST:

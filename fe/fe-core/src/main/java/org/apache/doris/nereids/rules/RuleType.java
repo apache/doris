@@ -32,7 +32,7 @@ public enum RuleType {
     BINDING_SENTINEL(RuleTypeClass.REWRITE),
 
     // rewrite rules
-    REWRITE_AGG(RuleTypeClass.REWRITE),
+    AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 

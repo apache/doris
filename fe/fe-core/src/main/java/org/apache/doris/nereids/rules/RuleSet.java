@@ -41,9 +41,12 @@ public class RuleSet {
             .build();
 
     public static final List<Rule<Plan>> EXPLORATION_RULES = planRuleFactories()
-            .add(new AggregateDisassemble())
             .add(new JoinCommutative(false))
             .add(new JoinLeftAssociative())
+            .build();
+
+    public static final List<Rule<Plan>> REWRITE_RULES = planRuleFactories()
+            .add(new AggregateDisassemble())
             .build();
 
     public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()
