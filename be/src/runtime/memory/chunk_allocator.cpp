@@ -42,6 +42,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_alloc_count, MetricUnit::
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_free_count, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_alloc_cost_ns, MetricUnit::NANOSECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_free_cost_ns, MetricUnit::NANOSECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(chunk_pool_reserved_bytes, MetricUnit::NOUNIT);
 
 static IntCounter* chunk_pool_local_core_alloc_count;
 static IntCounter* chunk_pool_other_core_alloc_count;
@@ -49,6 +50,7 @@ static IntCounter* chunk_pool_system_alloc_count;
 static IntCounter* chunk_pool_system_free_count;
 static IntCounter* chunk_pool_system_alloc_cost_ns;
 static IntCounter* chunk_pool_system_free_cost_ns;
+static IntGauge* chunk_pool_reserved_bytes;
 
 #ifdef BE_TEST
 static std::mutex s_mutex;
@@ -115,6 +117,7 @@ void ChunkAllocator::init_instance(size_t reserve_limit) {
 
 ChunkAllocator::ChunkAllocator(size_t reserve_limit)
         : _reserve_bytes_limit(reserve_limit),
+          _steal_arena_limit(reserve_limit * 0.1),
           _reserved_bytes(0),
           _arenas(CpuInfo::get_max_num_cores()) {
     _mem_tracker =
@@ -132,6 +135,7 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_count);
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_alloc_cost_ns);
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_cost_ns);
+    INT_GAUGE_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_reserved_bytes);
 }
 
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, bool check_limits) {
@@ -158,8 +162,11 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
         chunk_pool_local_core_alloc_count->increment(1);
         return Status::OK();
     }
-    if (_reserved_bytes > size) {
-        // try to allocate from other core's arena
+    // Second path: try to allocate from other core's arena
+    // When the reserved bytes is greater than the limit, the chunk is stolen from other arena.
+    // Otherwise, it is allocated from the system first, which can reserve enough memory as soon as possible.
+    // After that, allocate from current core arena as much as possible.
+    if (_reserved_bytes > _steal_arena_limit) {
         ++core_id;
         for (int i = 1; i < _arenas.size(); ++i, ++core_id) {
             if (_arenas[core_id % _arenas.size()]->pop_free_chunk(size, &chunk->data)) {
@@ -192,6 +199,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
 
 void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
     // The chunk's memory ownership is transferred from tls tracker to ChunkAllocator.
+    DCHECK(chunk.core_id != -1);
     if (tracker) {
         tracker->transfer_to(_mem_tracker.get(), chunk.size);
     } else {
@@ -199,9 +207,6 @@ void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
                                                                        chunk.size);
     }
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    if (chunk.core_id == -1) {
-        return;
-    }
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -219,12 +224,29 @@ void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
         }
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
 
+    // The memory size of allocate/free is a multiple of 2, so `_reserved_bytes% 100 == 32`
+    // will definitely happen, and the latest `_reserved_bytes` value will be set every time.
+    // The real-time and accurate `_reserved_bytes` value is not required. Usually,
+    // the value of `_reserved_bytes` is equal to ChunkAllocator MemTracker.
+    // The `_reserved_bytes` metric is only concerned when verifying the accuracy of MemTracker.
+    // Therefore, reduce the number of sets and reduce the performance impact.
+    if (_reserved_bytes % 100 == 32) {
+        chunk_pool_reserved_bytes->set_value(_reserved_bytes);
+    }
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
 Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk, MemTracker* tracker,
                                       bool check_limits) {
     return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk, tracker, check_limits);
+}
+
+void ChunkAllocator::free(uint8_t* data, size_t size, MemTracker* tracker) {
+    Chunk chunk;
+    chunk.data = data;
+    chunk.size = size;
+    chunk.core_id = CpuInfo::get_current_core();
+    free(chunk, tracker);
 }
 
 } // namespace doris

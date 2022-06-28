@@ -263,6 +263,29 @@ Status ExecEnv::_init_mem_tracker() {
     RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
 
+    // 5. init chunk allocator
+    if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {
+        ss << "Config min_chunk_reserved_bytes must be a power-of-two: "
+           << config::min_chunk_reserved_bytes;
+        return Status::InternalError(ss.str());
+    }
+
+    int64_t chunk_reserved_bytes_limit =
+            ParseUtil::parse_mem_spec(config::chunk_reserved_bytes_limit, global_memory_limit_bytes,
+                                      MemInfo::physical_mem(), &is_percent);
+    if (chunk_reserved_bytes_limit <= 0) {
+        ss << "Invalid config chunk_reserved_bytes_limit value, must be a percentage or "
+              "positive bytes value or percentage: "
+           << config::chunk_reserved_bytes_limit;
+        return Status::InternalError(ss.str());
+    }
+    chunk_reserved_bytes_limit =
+            BitUtil::RoundDown(chunk_reserved_bytes_limit, config::min_chunk_reserved_bytes);
+    ChunkAllocator::init_instance(chunk_reserved_bytes_limit);
+    LOG(INFO) << "Chunk allocator memory limit: "
+              << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)
+              << ", origin config value: " << config::chunk_reserved_bytes_limit;
+
     // TODO(zc): The current memory usage configuration is a bit confusing,
     // we need to sort out the use of memory
     return Status::OK();

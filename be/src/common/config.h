@@ -426,10 +426,14 @@ CONF_Bool(disable_mem_pools, "false");
 // to a relative large number or the performance is very very bad.
 CONF_Bool(use_mmap_allocate_chunk, "false");
 
-// Chunk Allocator's reserved bytes limit,
-// Default value is 2GB, increase this variable can improve performance, but will
-// acquire more free memory which can not be used by other modules
-CONF_Int64(chunk_reserved_bytes_limit, "2147483648");
+// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
+// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
+// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
+// increase this variable can improve performance,
+// but will acquire more free memory which can not be used by other modules.
+CONF_mString(chunk_reserved_bytes_limit, "20%");
+// 1024, The minimum chunk allocator size (in bytes)
+CONF_Int32(min_chunk_reserved_bytes, "1024");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table

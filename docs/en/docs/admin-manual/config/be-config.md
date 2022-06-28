@@ -238,9 +238,9 @@ The number of worker threads to calculate the checksum of the tablet
 
 ### `chunk_reserved_bytes_limit`
 
-Default: 2147483648
+Default: 20%
 
-The reserved bytes limit of Chunk Allocator is 2GB by default. Increasing this variable can improve performance, but it will get more free memory that other modules cannot use.
+The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit. defaults to bytes if no unit is given, the number of bytes must be a multiple of 2. must larger than 0. and if larger than physical memory size, it will be set to physical memory size. increase this variable can improve performance, but will acquire more free memory which can not be used by other modules.
 
 ### `clear_transaction_task_worker_count`
 
