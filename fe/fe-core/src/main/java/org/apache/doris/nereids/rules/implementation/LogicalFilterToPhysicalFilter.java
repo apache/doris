@@ -23,7 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Implementation rule that convert logical join to physical hash join.
+ * Implementation rule that convert logical filter to physical filter.
  */
 public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
     @Override

@@ -404,6 +404,7 @@ nonterminal WithClause opt_with_clause;
 nonterminal ArrayList<View> with_view_def_list;
 nonterminal View with_view_def;
 nonterminal Subquery subquery;
+nonterminal TableValuedFunctionRef table_valued_function_ref;
 nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
@@ -1976,6 +1977,10 @@ tbl_pattern ::=
     | ident_or_star:db DOT ident_or_star:tbl
     {:
         RESULT = new TablePattern(db, tbl);
+    :}
+    | ident_or_star:ctl DOT ident_or_star:db DOT ident_or_star:tbl
+    {:
+        RESULT = new TablePattern(ctl, db, tbl);
     :}
     ;
 
@@ -4157,6 +4162,10 @@ star_expr ::=
     {:
         RESULT = SelectListItem.createStarItem(new TableName(db, tbl));
     :}
+    | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
+    {:
+        RESULT = SelectListItem.createStarItem(new TableName(ctl, db, tbl));
+    :}
     ;
 
 opt_table_name ::=
@@ -4174,6 +4183,8 @@ table_name ::=
     {: RESULT = new TableName(null, tbl); :}
     | ident:db DOT ident:tbl
     {: RESULT = new TableName(db, tbl); :}
+    | ident:ctl DOT ident:db DOT ident:tbl
+    {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
 encryptkey_name ::=
@@ -4260,6 +4271,17 @@ table_ref ::=
   {:
     s.setLateralViewRefs(lateralViewRefList);
     RESULT = s;
+  :}
+  | table_valued_function_ref:f
+  {:
+  	RESULT = f;
+  :}
+  ;
+
+table_valued_function_ref ::=
+  ident:func_name LPAREN string_list:param_list RPAREN opt_table_alias:alias
+  {:
+    RESULT = new TableValuedFunctionRef(func_name, alias, param_list);
   :}
   ;
 
@@ -5292,6 +5314,8 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
+  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
+  {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
   ;
 
 column_subscript ::=

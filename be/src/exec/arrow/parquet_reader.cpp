@@ -96,6 +96,8 @@ Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_
         _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata));
         _row_group_reader->init_filter_groups(tuple_slot_descs, conjunct_ctxs)
 
+        _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata));
+        _row_group_reader->init_filter_groups(tuple_slot_descs, _map_column, _include_column_ids);
         std::thread thread(&ParquetReaderWrap::prefetch_batch, this);
         thread.detach();
 
@@ -547,6 +549,16 @@ void ParquetReaderWrap::prefetch_batch() {
             if (filter_group_set.end() != filter_group_set.find(current_group)) {
                 // find filter group, skip
                 // LOG(INFO) << ""
+                continue;
+            }
+        }
+        if (config::parquet_predicate_push_down) {
+            if (!_row_group_reader->has_filter_groups()) {
+                continue;
+            }
+            auto filter_group_set = _row_group_reader->filter_groups();
+            if (filter_group_set.end() != filter_group_set.find(current_group)) {
+                // find filter group, skip
                 continue;
             }
         }
