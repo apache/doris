@@ -36,9 +36,23 @@ struct AggregateFunctionBitmapUnionOp {
         res.add(data);
     }
 
-    static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) { res |= data; }
+    static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) {
+        if (UNLIKELY(is_first)) {
+            res = data;
+            is_first = false;
+        } else {
+            res |= data;
+        }
+    }
 
-    static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) { res |= data; }
+    static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) {
+        if (UNLIKELY(is_first)) {
+            res = data;
+            is_first = false;
+        } else {
+            res |= data;
+        }
+    }
 };
 
 struct AggregateFunctionBitmapIntersectOp {
@@ -78,6 +92,8 @@ struct AggregateFunctionBitmapData {
     void write(BufferWritable& buf) const { DataTypeBitMap::serialize_as_stream(value, buf); }
 
     void read(BufferReadable& buf) { DataTypeBitMap::deserialize_as_stream(value, buf); }
+
+    void reset() { is_first = true; }
 
     BitmapValue& get() { return value; }
 };
@@ -124,6 +140,10 @@ public:
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(
                 const_cast<AggregateFunctionBitmapData<Op>&>(this->data(place)).get());
+    }
+
+    void reset(AggregateDataPtr __restrict place) const override { 
+        this->data(place).reset(); 
     }
 };
 
@@ -178,6 +198,10 @@ public:
         auto& value_data = const_cast<AggFunctionData&>(this->data(place)).get();
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(value_data.cardinality());
+    }
+
+    void reset(AggregateDataPtr __restrict place) const override { 
+        this->data(place).reset(); 
     }
 };
 
