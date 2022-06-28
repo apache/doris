@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -45,9 +46,10 @@ public class Group {
 
     // Map of cost lower bounds
     // Map required plan props to cost lower bound of corresponding plan
-    private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans;
+    private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans = Maps.newHashMap();
     private double costLowerBound = -1;
     private boolean isExplored = false;
+    private boolean hasCost = false;
 
     /**
      * Constructor for Group.
@@ -66,6 +68,14 @@ public class Group {
 
     public GroupId getGroupId() {
         return groupId;
+    }
+
+    public boolean isHasCost() {
+        return hasCost;
+    }
+
+    public void setHasCost(boolean hasCost) {
+        this.hasCost = hasCost;
     }
 
     /**
