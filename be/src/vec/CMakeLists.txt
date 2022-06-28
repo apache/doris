@@ -206,7 +206,11 @@ set(VEC_FILES
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
   utils/arrow_column_to_doris_column.cpp
-  runtime/vsorted_run_merger.cpp)
+  runtime/vsorted_run_merger.cpp
+  exec/file_arrow_scanner.cpp
+  exec/file_scanner.cpp
+  exec/file_scan_node.cpp
+  exec/file_text_scanner.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}
