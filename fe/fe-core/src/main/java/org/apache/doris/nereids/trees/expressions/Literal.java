@@ -99,6 +99,10 @@ public class Literal extends Expression implements LeafExpression {
         return value == null;
     }
 
+    public static Literal of(Object value) {
+        return new Literal(value);
+    }
+
     @Override
     public boolean isConstant() {
         return true;

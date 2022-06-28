@@ -85,7 +85,9 @@ public class ExpressionUtils {
         return combine(NodeType.OR, expressions);
     }
 
-
+    /**
+     * Use AND/OR to combine expressions together.
+     */
     public static Expression combine(NodeType op, List<Expression> expressions) {
 
         Objects.requireNonNull(expressions, "expressions is null");
@@ -134,5 +136,5 @@ public class ExpressionUtils {
 
         return combine(op, result);
     }
-
 }
+
