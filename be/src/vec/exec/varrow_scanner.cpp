@@ -72,8 +72,8 @@ Status VArrowScanner::_open_next_reader() {
         }
         _cur_file_reader = _new_arrow_reader(file_reader.release(), _state->batch_size(),
                                              num_of_columns_from_file);
-
-        Status status = _cur_file_reader->init_reader(_src_slot_descs, _conjunct_ctxs, _state->timezone());
+        auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
+        Status status = _cur_file_reader->init_reader(tuple_desc, _src_slot_descs, _conjunct_ctxs, _state->timezone());
 
         if (status.is_end_of_file()) {
             continue;

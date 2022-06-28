@@ -65,7 +65,7 @@ public:
     }
 
     // Register conjuncts for push down
-    virtual void reg_conjunct_ctxs(std::vector<ExprContext*> conjunct_ctxs);
+    virtual void reg_conjunct_ctxs(TupleId tupleId, std::vector<ExprContext*> conjunct_ctxs);
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
@@ -146,6 +146,10 @@ protected:
     int _num_of_columns_from_file;
 
     // File formats based push down predicate
+    std::vector<ExprContext*> _conjunct_ctxs;
+
+    // File formats based push down predicate
+    TupleId _tupleId;
     std::vector<ExprContext*> _conjunct_ctxs;
 
 private:

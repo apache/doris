@@ -49,31 +49,40 @@ public:
                    std::shared_ptr<parquet::FileMetaData>& file_metadata);
     ~RowGroupReader();
 
-    Status init_filter_groups(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+    Status init_filter_groups(const TupleDescriptor* tuple_desc,
                               const std::map<std::string, int>& map_column,
                               const std::vector<int>& include_column_ids);
-
-    bool has_filter_groups() { return _filter_group.empty(); };
 
     std::unordered_set<int> filter_groups() { return _filter_group; };
 
 private:
-    void _init_conjuncts(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+    void _init_conjuncts(const TupleDescriptor* tuple_desc,
                          const std::map<std::string, int>& _map_column,
                          const std::unordered_set<int>& include_column_ids);
 
-    Status _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
+    void _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
                                        const std::string& encoded_min, const std::string& encoded_max,
-                                       bool* need_filter);
+                                       bool& need_filter);
 
-    Status _eval_binary_predicate(const Expr* conjunct, void* value,
-                                  const char* min_bytes, const char* max_bytes, bool* need_filter);
+    void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
+                                  bool& need_filter);
 
-    bool _eval_eq(PrimitiveType conjunct_type, void* value,
-                                  const char* min_bytes, const char* max_bytes);
+    void _eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
+                              bool& need_filter);
 
-    Status _eval_in_predicate(const Expr* conjunct,
-                                  const std::string& min, const std::string& max, bool* need_filter);
+    bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
+                      const char* min_bytes, const char* max_bytes);
+
+    bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes, const char* max_bytes);
+
+    bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes);
+
+    bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes);
+
+    bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes);
+
+    bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes);
+
 private:
     std::map<int, std::vector<ExprContext*>> _slot_conjuncts;
     std::unordered_set<int> _filter_group;

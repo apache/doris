@@ -17,7 +17,67 @@
 
 #include "exec/arrow/parquet_row_group_reader.h"
 #include <exprs/expr_context.h>
+#include <exprs/in_predicate.h>
 #include <parquet/encoding.h>
+#include <cstring>
+
+#define _PLAIN_DECODE(T, value, min_bytes, max_bytes, out_value, out_min, out_max) \
+    const T out_min = reinterpret_cast<const T*>(min_bytes)[0]; \
+    const T out_max = reinterpret_cast<const T*>(max_bytes)[0]; \
+    T out_value = *((T*)value);
+
+#define _PLAIN_DECODE_SINGLE(T, value, bytes, conjunct_value, out) \
+    const T out = reinterpret_cast<const T*>(bytes)[0]; \
+    T conjunct_value = *((T*)value);
+
+#define _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max) \
+    if (conjunct_value < min || conjunct_value > max) { \
+        return true; \
+    }
+
+#define _FILTER_GROUP_BY_GT_PRED(conjunct_value, max) \
+    if (max <= conjunct_value) { \
+        return true; \
+    }
+
+#define _FILTER_GROUP_BY_GE_PRED(conjunct_value, max) \
+    if (max < conjunct_value) { \
+        return true; \
+    }
+
+#define _FILTER_GROUP_BY_LT_PRED(conjunct_value, min) \
+    if (min >= conjunct_value) { \
+        return true; \
+    }
+
+#define _FILTER_GROUP_BY_LE_PRED(conjunct_value, min) \
+    if (min > conjunct_value) { \
+        return true; \
+    }
+
+#define _FILTER_GROUP_BY_IN(T, in_pred_values, min_bytes, max_bytes)      \
+    std::vector<T> in_values; \
+    for (auto val: in_pred_values) { \
+        T value = reinterpret_cast<T*>(val)[0]; \
+        in_values.emplace_back(value); \
+    } \
+    if (in_values.empty()) { \
+        return false; \
+    } \
+    if (in_values.size() >= 2) { \
+        std::sort(in_values.begin(), in_values.end()); \
+        T in_min = in_values.front(); \
+        T in_max = in_values.back(); \
+        const T conj_min = reinterpret_cast<const T*>(min_bytes)[0]; \
+        const T conj_max = reinterpret_cast<const T*>(max_bytes)[0]; \
+        if (in_max < conj_min || in_min > conj_max) { \
+            return true; \
+        } \
+    } else { \
+        T* value = &in_values[0]; \
+        _PLAIN_DECODE(T, value, min_bytes, max_bytes, conjunct_value, min, max) \
+        _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max) \
+    }
 
 namespace doris {
 
@@ -30,22 +90,27 @@ namespace doris {
         _filter_group.clear();
     }
 
-    Status RowGroupReader::init_filter_groups(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+    Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                               const std::map<std::string, int>& map_column,
                                               const std::vector<int>& include_column_ids) {
         std::unordered_set<int> parquet_column_ids(include_column_ids.begin(), include_column_ids.end());
-        _init_conjuncts(tuple_slot_descs, map_column, parquet_column_ids);
+        _init_conjuncts(tuple_desc, map_column, parquet_column_ids);
         int total_group = _file_metadata->num_row_groups();
         for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
             auto row_group_meta = _file_metadata->RowGroup(row_group_id);
-            for (SlotId slot_id = 0; slot_id < tuple_slot_descs.size(); slot_id++) {
-                auto col_iter = map_column.find(tuple_slot_descs[slot_id]->col_name());
+            for (SlotId slot_id = 0; slot_id < tuple_desc->slots().size(); slot_id++) {
+                std::string col_name = tuple_desc->slots()[slot_id]->col_name();
+                auto col_iter = map_column.find(col_name);
                 if (col_iter == map_column.end()) {
                     continue;
                 }
                 int parquet_col_id = col_iter->second;
                 if (parquet_column_ids.end() == parquet_column_ids.find(parquet_col_id)) {
                     // Column not exist in parquet file
+                    continue;
+                }
+                auto slot_iter = _slot_conjuncts.find(slot_id);
+                if (slot_iter == _slot_conjuncts.end()) {
                     continue;
                 }
                 auto statistic = row_group_meta->ColumnChunk(parquet_col_id)->statistics();
@@ -55,15 +120,13 @@ namespace doris {
                 // Min-max of statistic is plain-encoded value
                 std::string min = statistic->EncodeMin();
                 std::string max = statistic->EncodeMax();
+
                 LOG(INFO) << "Stat min:" << parquet::FormatStatValue(statistic->physical_type(), min);
                 LOG(INFO) << "Stat max:" << parquet::FormatStatValue(statistic->physical_type(), max);
                 bool need_filter = false;
-                Status st = _determine_filter_row_group(_slot_conjuncts.at(slot_id), min, max, &need_filter);
-                if (!st.ok()) {
-                    return st;
-                }
+                _determine_filter_row_group(slot_iter->second, min, max, need_filter);
                 if (need_filter) {
-                     LOG(INFO) << "Filter row group id: " << row_group_id;
+                    LOG(INFO) << "Filter row group id: " << row_group_id;
                     _filter_group.emplace(row_group_id);
                 }
             }
@@ -71,28 +134,38 @@ namespace doris {
         return Status::OK();
     }
 
-    void RowGroupReader::_init_conjuncts(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+    void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
                                          const std::map<std::string, int>& map_column,
                                          const std::unordered_set<int>& include_column_ids) {
-        for (int i = 0; i < tuple_slot_descs.size(); i++) {
-            int parquet_col_id = map_column.at(tuple_slot_descs[i]->col_name());
+        for (int i = 0; i < tuple_desc->slots().size(); i++) {
+            auto col_iter = map_column.find(tuple_desc->slots()[i]->col_name());
+            if (col_iter == map_column.end()) {
+                continue;
+            }
+            int parquet_col_id = col_iter->second;
             if (include_column_ids.end() == include_column_ids.find(parquet_col_id)) {
                 continue;
             }
             for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); conj_idx++) {
                 Expr* conjunct = _conjunct_ctxs[conj_idx]->root();
-                if (TExprNodeType::SLOT_REF != conjunct->get_child(0)->node_type()) {
+                if (conjunct->get_num_children() == 0) {
                     continue;
                 }
-                SlotRef* slot_ref = (SlotRef*) (conjunct->get_child(0));
-                SlotId slot_id = slot_ref->slot_id();
-                if (slot_ref->slot_id() == tuple_slot_descs[i]->id()) {
-                    if (_slot_conjuncts.end() == _slot_conjuncts.find(slot_id)) {
+                Expr* raw_slot = conjunct->get_child(0);
+                if (TExprNodeType::SLOT_REF != raw_slot->node_type()) {
+                    continue;
+                }
+                SlotRef* slot_ref = (SlotRef*) raw_slot;
+                SlotId conjunct_slot_id = slot_ref->slot_id();
+                if (conjunct_slot_id == tuple_desc->slots()[i]->id()) {
+                    // Get conjuncts by conjunct_slot_id
+                    auto iter = _slot_conjuncts.find(conjunct_slot_id);
+                    if (_slot_conjuncts.end() == iter) {
                         std::vector<ExprContext*> conjuncts;
                         conjuncts.emplace_back(_conjunct_ctxs[conj_idx]);
-                        _slot_conjuncts.emplace(std::make_pair(slot_id, conjuncts));
+                        _slot_conjuncts.emplace(std::make_pair(conjunct_slot_id, conjuncts));
                     } else {
-                        std::vector<ExprContext*> conjuncts = _slot_conjuncts.at(slot_id);
+                        std::vector<ExprContext*> conjuncts = iter->second;
                         conjuncts.emplace_back(_conjunct_ctxs[conj_idx]);
                     }
                 }
@@ -100,98 +173,374 @@ namespace doris {
         }
     }
 
-    Status RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
+    void RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
                                                        const std::string& encoded_min, const std::string& encoded_max,
-                                                       bool* need_filter) {
+                                                       bool& need_filter) {
         const char* min_bytes = encoded_min.data();
         const char* max_bytes = encoded_max.data();
         for (int i = 0; i < conjuncts.size(); i++) {
-            Expr* expr = conjuncts[i]->root();
-            void* value = conjuncts[i]->get_value(nullptr);
-            if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-                _eval_binary_predicate(expr, value, min_bytes, max_bytes, need_filter);
-            } else if (TExprNodeType::IN_PRED == expr->node_type()) {
-                _eval_in_predicate(expr, min_bytes, max_bytes, need_filter);
+            Expr* conjunct = conjuncts[i]->root();
+            if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
+                _eval_binary_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
+            } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
+                _eval_in_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
             }
         }
-        return Status::OK();
     }
 
-    Status RowGroupReader::_eval_binary_predicate(const Expr* conjunct, void* value,
-                                                  const char* min_bytes, const char* max_bytes, bool* need_filter) {
-        auto conjunct_type = conjunct->get_child(1)->type().type;
-        // LOG(INFO) << "conjunct type " << conjunct_type->debug_string();
+    void RowGroupReader::_eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
+                                                  bool& need_filter) {
+        Expr* conjunct = ctx->root();
+        Expr* expr = conjunct->get_child(1);
+        auto conjunct_type = expr->type().type;
+        void* conjunct_value = ctx->get_value(expr, nullptr);
         switch (conjunct->op()) {
             case TExprOpcode::EQ:
-                *need_filter = _eval_eq(conjunct_type, value, min_bytes, max_bytes);
+                need_filter = _eval_eq(conjunct_type, conjunct_value, min_bytes, max_bytes);
                 break;
             case TExprOpcode::NE:
                 break;
             case TExprOpcode::GT:
+                need_filter = _eval_gt(conjunct_type, conjunct_value, max_bytes);
                 break;
             case TExprOpcode::GE:
+                need_filter = _eval_ge(conjunct_type, conjunct_value, max_bytes);
                 break;
             case TExprOpcode::LT:
+                need_filter = _eval_lt(conjunct_type, conjunct_value, min_bytes);
                 break;
             case TExprOpcode::LE:
+                need_filter = _eval_le(conjunct_type, conjunct_value, min_bytes);
                 break;
             default:
                 break;
         }
-        return Status::OK();
     }
 
-    bool RowGroupReader::_eval_eq(PrimitiveType conjunct_type, void* value,
+    void RowGroupReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
+                                              bool& need_filter) {
+        Expr* conjunct = ctx->root();
+        std::vector<void*> in_pred_values;
+        const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
+        HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
+        while (iter->has_next()) {
+            if (nullptr == iter->get_value()) {
+                return;
+            }
+            in_pred_values.emplace_back(const_cast<void*>(iter->get_value()));
+            iter->next();
+        }
+        auto conjunct_type = conjunct->get_child(1)->type().type;
+        switch (conjunct->op()) {
+            case TExprOpcode::FILTER_IN:
+                _eval_in_val(conjunct_type, in_pred_values, min_bytes, max_bytes);
+                break;
+            case TExprOpcode::FILTER_NOT_IN:
+                break;
+            default:
+                break;
+        }
+    }
+
+    bool RowGroupReader::_eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
                                   const char* min_bytes, const char* max_bytes) {
+
         switch (conjunct_type) {
-            case TYPE_TINYINT:
+            case TYPE_TINYINT: {
+                _FILTER_GROUP_BY_IN(int8_t, in_pred_values, min_bytes, max_bytes)
                 break;
-            case TYPE_SMALLINT:
+            }
+            case TYPE_SMALLINT: {
+                _FILTER_GROUP_BY_IN(int16_t, in_pred_values, min_bytes, max_bytes)
                 break;
+            }
             case TYPE_INT: {
-                const int32_t min = reinterpret_cast<const int32_t*>(min_bytes)[0];
-                const int32_t max = reinterpret_cast<const int32_t*>(max_bytes)[0];
-                int32_t* conjunct_val = (int32_t*) value;
-                if (*conjunct_val < min || *conjunct_val > max) {
-                    return true;
-                }
+                _FILTER_GROUP_BY_IN(int32_t, in_pred_values, min_bytes, max_bytes)
                 break;
             }
             case TYPE_BIGINT: {
-                const int64_t min = reinterpret_cast<const int64_t*>(min_bytes)[0];
-                const int64_t max = reinterpret_cast<const int64_t*>(max_bytes)[0];
-                int64_t* conjunct_val = (int64_t*)value;
-                if (*conjunct_val < min || *conjunct_val > max) {
-                    return true;
-                }
+                _FILTER_GROUP_BY_IN(int64_t, in_pred_values, min_bytes, max_bytes)
                 break;
             }
             case TYPE_STRING:
-                break;
             case TYPE_DATE:
+            case TYPE_DATETIME: {
+                std::vector<char*> in_values;
+                for (auto val: in_pred_values) {
+                    char* value = reinterpret_cast<char**>(val)[0];
+                    in_values.emplace_back(value);
+                }
+                if (in_values.empty()) {
+                    return false;
+                }
+                if (in_values.size() >= 2) {
+                    std::sort(in_values.begin(), in_values.end());
+                    char* in_min = in_values.front();
+                    char* in_max = in_values.back();
+                    if (strcmp(in_max, min_bytes) < 0 || strcmp(in_min, max_bytes) > 0) {
+                        return true;
+                    }
+                }
+                else {
+                    char* value = in_values[0];
+                    if (strcmp(value, min_bytes) < 0 || strcmp(value, max_bytes) > 0) {
+                        return true;
+                    }
+                }
                 break;
-            case TYPE_DATETIME:
-//            case TYPE_TIME:
-                break;
+            }
             default:
                 return false;
         }
         return false;
     }
 
+    bool RowGroupReader::_eval_eq(PrimitiveType conjunct_type, void* value,
+                                  const char* min_bytes, const char* max_bytes) {
+        switch (conjunct_type) {
+            case TYPE_TINYINT: {
+                _PLAIN_DECODE(int16_t, value, min_bytes, max_bytes, conjunct_value, min, max)
+                _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
+                break;
+            }
+                break;
+            case TYPE_SMALLINT: {
+                _PLAIN_DECODE(int16_t , value, min_bytes, max_bytes, conjunct_value, min, max)
+                _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
+                break;
+            }
+            case TYPE_INT: {
+                _PLAIN_DECODE(int32_t , value, min_bytes, max_bytes, conjunct_value, min, max)
+                _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
+                break;
+            }
+            case TYPE_BIGINT: {
+                _PLAIN_DECODE(int64_t , value, min_bytes, max_bytes, conjunct_value, min, max)
+                _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
+                break;
+            }
+            case TYPE_DOUBLE: {
+                _PLAIN_DECODE(double , value, min_bytes, max_bytes, conjunct_value, min, max)
+                _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
+                break;
+            }
+            case TYPE_FLOAT: {
+                _PLAIN_DECODE(float, value, min_bytes, max_bytes, conjunct_value, min, max)
+                _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
+                break;
+            }
+            case TYPE_STRING:
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+                char* conjunct_value = (char*)value;
+                if (strcmp(conjunct_value, min_bytes) < 0 || strcmp(conjunct_value, max_bytes) > 0) {
+                    return true;
+                }
+                break;
+            }
+            default:
+                return false;
+        }
+        return false;
+    }
 
-    Status RowGroupReader::_eval_in_predicate(const Expr *conjunct, const std::string &min,
-                                       const std::string &max, bool *need_filter) {
-//        switch (op_type) {
-//            case TExprOpcode::FILTER_IN:
-//
-//                break;
-//            case TExprOpcode::FILTER_NOT_IN:
-//
-//                break;
-//            default:
-//                break;
-//        }
-        return Status();
+    bool RowGroupReader::_eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+
+        switch (conjunct_type) {
+            case TYPE_TINYINT: {
+                _PLAIN_DECODE_SINGLE(int8_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
+                break;
+            }
+                break;
+            case TYPE_SMALLINT: {
+                _PLAIN_DECODE_SINGLE(int16_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_INT: {
+                _PLAIN_DECODE_SINGLE(int32_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_BIGINT: {
+                _PLAIN_DECODE_SINGLE(int64_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_DOUBLE: {
+                _PLAIN_DECODE_SINGLE(double, value,  max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_FLOAT: {
+                _PLAIN_DECODE_SINGLE(float, value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_STRING:
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+//            case TYPE_TIME:
+                char* conjunct_value = (char*)value;
+                if (strcmp(max_bytes, conjunct_value) <= 0) {
+                    return true;
+                }
+                break;
+            }
+            default:
+                return false;
+        }
+        return false;
+    }
+
+    bool RowGroupReader::_eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+
+        switch (conjunct_type) {
+            case TYPE_TINYINT: {
+                _PLAIN_DECODE_SINGLE(int8_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
+                break;
+            }
+                break;
+            case TYPE_SMALLINT: {
+                _PLAIN_DECODE_SINGLE(int16_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_INT: {
+                _PLAIN_DECODE_SINGLE(int32_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_BIGINT: {
+                _PLAIN_DECODE_SINGLE(int64_t , value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_DOUBLE: {
+                _PLAIN_DECODE_SINGLE(double, value,  max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_FLOAT: {
+                _PLAIN_DECODE_SINGLE(float, value, max_bytes, conjunct_value, max)
+                _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
+                break;
+            }
+            case TYPE_STRING:
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+//            case TYPE_TIME:
+                char* conjunct_value = (char*)value;
+                if (strcmp(max_bytes, conjunct_value) < 0) {
+                    return true;
+                }
+                break;
+            }
+            default:
+                return false;
+        }
+        return false;
+    }
+
+    bool RowGroupReader::_eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+
+        switch (conjunct_type) {
+            case TYPE_TINYINT: {
+                _PLAIN_DECODE_SINGLE(int8_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
+                break;
+            }
+                break;
+            case TYPE_SMALLINT: {
+                _PLAIN_DECODE_SINGLE(int16_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_INT: {
+                _PLAIN_DECODE_SINGLE(int32_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_BIGINT: {
+                _PLAIN_DECODE_SINGLE(int64_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_DOUBLE: {
+                _PLAIN_DECODE_SINGLE(double, value,  min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_FLOAT: {
+                _PLAIN_DECODE_SINGLE(float, value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_STRING:
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+//            case TYPE_TIME:
+                char* conjunct_value = (char*)value;
+                if (strcmp(min_bytes, conjunct_value) >= 0) {
+                    return true;
+                }
+                break;
+            }
+            default:
+                return false;
+        }
+        return false;
+    }
+
+    bool RowGroupReader::_eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+
+        switch (conjunct_type) {
+            case TYPE_TINYINT: {
+                _PLAIN_DECODE_SINGLE(int8_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
+                break;
+            }
+                break;
+            case TYPE_SMALLINT: {
+                _PLAIN_DECODE_SINGLE(int16_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_INT: {
+                _PLAIN_DECODE_SINGLE(int32_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_BIGINT: {
+                _PLAIN_DECODE_SINGLE(int64_t , value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_DOUBLE: {
+                _PLAIN_DECODE_SINGLE(double, value,  min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_FLOAT: {
+                _PLAIN_DECODE_SINGLE(float, value, min_bytes, conjunct_value, min)
+                _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
+                break;
+            }
+            case TYPE_STRING:
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+//            case TYPE_TIME:
+                char* conjunct_value = (char*)value;
+                if (strcmp(min_bytes, conjunct_value) > 0) {
+                    return true;
+                }
+                break;
+            }
+            default:
+                return false;
+        }
+        return false;
     }
 }

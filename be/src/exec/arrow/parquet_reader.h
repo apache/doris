@@ -70,7 +70,8 @@ public:
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
                 MemPool* mem_pool, bool* eof) override;
     Status size(int64_t* size) override;
-    Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+    Status init_reader(const TupleDescriptor* tuple_desc,
+                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
@@ -104,6 +105,7 @@ private:
 
 private:
     std::atomic<bool> _closed = false;
+    std::atomic<bool> _skip_empty_batch = false;
     arrow::Status _status;
     std::mutex _mtx;
     std::condition_variable _queue_reader_cond;
