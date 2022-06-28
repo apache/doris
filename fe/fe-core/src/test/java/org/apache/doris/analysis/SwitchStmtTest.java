@@ -65,11 +65,17 @@ public class SwitchStmtTest {
         GrantStmt grantRole1 = (GrantStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "grant grant_priv on tpch.* to role 'role1';", rootCtx);
         auth.grant(grantRole1);
+        // grant with ctl.db.tbl. grant can succeed even if the catalog does not exist
+        GrantStmt grantRole1WithCtl = (GrantStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "grant select_priv on testc.testdb.* to role 'role1';", rootCtx);
+        auth.grant(grantRole1WithCtl);
         // user1 can't switch to hive
         auth.createUser((CreateUserStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "create user 'user1'@'%' identified by 'pwd1' default role 'role1';", rootCtx));
         user1 = new UserIdentity("user1", "%");
         user1.analyze(clusterName);
+        // user1 has the privileges of testc which is granted by ctl.db.tbl format.
+        Assert.assertTrue(auth.getDbPrivTable().hasPrivsOfCatalog(user1, "testc"));
 
         // create catalog
         CreateCatalogStmt hiveCatalog = (CreateCatalogStmt) UtFrameUtils.parseAndAnalyzeStmt(
@@ -136,7 +142,7 @@ public class SwitchStmtTest {
         Assert.assertEquals(user1ShowResult.size(), 1);
         Assert.assertEquals(user1ShowResult.get(0).get(0), InternalDataSource.INTERNAL_DS_NAME);
 
-        // mock the login of user1
+        // mock the login of user2
         ConnectContext user2Ctx = UtFrameUtils.createDefaultCtx(user2, "127.0.0.1");
         ShowCatalogStmt user2Show = (ShowCatalogStmt) UtFrameUtils.parseAndAnalyzeStmt("show catalogs;", user2Ctx);
         List<List<String>> user2ShowResult = catalog.getDataSourceMgr().showCatalogs(user2Show).getResultRows();

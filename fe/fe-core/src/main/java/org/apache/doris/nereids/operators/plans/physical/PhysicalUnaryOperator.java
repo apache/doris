@@ -37,6 +37,10 @@ public abstract class PhysicalUnaryOperator extends AbstractOperator
         super(type);
     }
 
+    public PhysicalUnaryOperator(OperatorType type, long limit) {
+        super(type, limit);
+    }
+
     @Override
     public PhysicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
