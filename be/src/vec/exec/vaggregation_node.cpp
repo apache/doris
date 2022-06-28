@@ -227,6 +227,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
             _make_nullable_output_column_pos.emplace_back(i);
         }
     }
+    int probe_expr_count = _probe_expr_ctxs.size();
     for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
@@ -237,7 +238,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         auto nullable_agg_output = _aggregate_evaluators[i]->data_type()->is_nullable();
         if (nullable_output != nullable_agg_output) {
             DCHECK(nullable_output);
-            _make_nullable_output_column_pos.emplace_back(i + j);
+            _make_nullable_output_column_pos.emplace_back(i + probe_expr_count);
         }
     }
 
