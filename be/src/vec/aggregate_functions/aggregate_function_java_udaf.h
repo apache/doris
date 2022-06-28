@@ -247,11 +247,6 @@ public:
         return Status::OK();
     }
 
-    Status change_flag_to(bool* flag, const bool to) {
-        *flag = to;
-        return Status::OK();
-    }
-
 private:
     Status register_func_id(JNIEnv* env) {
         auto register_id = [&](const char* func_name, const char* func_sign, jmethodID& func_id) {
@@ -312,8 +307,6 @@ public:
               _fn(fn),
               _return_type(return_type),
               _first_created(true),
-              _destory_deserialize(false),
-              _destoryed_exec_place(false),
               _exec_place(nullptr) {}
     ~AggregateJavaUdaf() = default;
 
@@ -335,15 +328,9 @@ public:
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
-        if (_destory_deserialize) {
-            this->data(place).change_flag_to(const_cast<bool*>(&_destory_deserialize), false);
-        } else {
-            if (!_destoryed_exec_place) {
-                this->data(_exec_place)
-                        .change_flag_to(const_cast<bool*>(&_destoryed_exec_place), true);
-                this->data(_exec_place).destroy(reinterpret_cast<int64_t>(place));
-                this->data(_exec_place).~Data();
-            }
+        if (place == _exec_place) {
+            this->data(_exec_place).destroy(reinterpret_cast<int64_t>(place));
+            this->data(_exec_place).~Data();
         }
     }
 
@@ -398,7 +385,6 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         new (place) Data(argument_types.size());
-        this->data(place).change_flag_to(const_cast<bool*>(&_destory_deserialize), true);
         this->data(place).read(buf);
     }
 
@@ -410,8 +396,6 @@ private:
     TFunction _fn;
     DataTypePtr _return_type;
     bool _first_created;
-    bool _destory_deserialize;
-    bool _destoryed_exec_place;
     AggregateDataPtr _exec_place;
 };
 
