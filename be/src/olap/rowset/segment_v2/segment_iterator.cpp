@@ -643,18 +643,13 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 
 // todo(wb) need a UT here
 void SegmentIterator::_vec_init_lazy_materialization() {
-    _is_first_read_column.resize(_schema.columns().size(), false);
+    _is_pred_column.resize(_schema.columns().size(), false);
 
     // including short/vec/delete pred
     std::set<ColumnId> pred_column_ids;
-
-    // Other columns(not predicate columns) can read firstly together with predicate columns
-    std::set<ColumnId> other_first_read_column_ids;
-
     _lazy_materialization_read = false;
 
     std::set<ColumnId> del_cond_id_set;
-    std::set<ColumnId> lazy_read_column_ids;
     _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
 
     if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
@@ -663,7 +658,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
 
         for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
-            _is_first_read_column[cid] = true;
+            _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
             // Step1: check pred using short eval or vec eval
@@ -686,7 +681,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             pred_column_ids.insert(del_cond_id_set.begin(), del_cond_id_set.end());
 
             for (auto cid : del_cond_id_set) {
-                _is_first_read_column[cid] = true;
+                _is_pred_column[cid] = true;
             }
         }
 
@@ -703,58 +698,65 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // Step 2: check non-predicate read costs to determine whether need lazy materialization
+    // fill _non_predicate_columns.
     // note(wb) For block schema, query layer and storage layer may have some diff
     //   query layer block schema not contains delete column, but storage layer appends delete column to end of block schema
     //   When output block to query layer, delete column can be skipped.
     //  _schema.column_ids() stands for storage layer block schema, so it contains delete columnid
     //  we just regard delete column as common pred column here.
-    for (size_t i = 0; i < _schema.num_column_ids(); ++i) {
-        auto cid = _schema.column_id(i);
-        FieldType type = _schema.column(cid)->type();
-        if (!_is_first_read_column[cid]) {
-            switch (type) {
-            case OLAP_FIELD_TYPE_VARCHAR:
-            case OLAP_FIELD_TYPE_CHAR:
-            case OLAP_FIELD_TYPE_STRING: {
-                // if a string column is all dict encoding in one segment, it's almost same as
-                // an int32_t column, it can be read together with predicate columns.
-                if (config::enable_low_cardinality_optimize &&
-                    _column_iterators[cid]->is_all_dict_encoding()) {
-                    other_first_read_column_ids.insert(cid);
-                    _is_first_read_column[cid] = true;
-                } else {
-                    lazy_read_column_ids.insert(cid);
+    if (_schema.column_ids().size() > pred_column_ids.size()) {
+        for (auto cid : _schema.column_ids()) {
+            if (!_is_pred_column[cid]) {
+                _non_predicate_columns.push_back(cid);
+                FieldType type = _schema.column(cid)->type();
+
+                // todo(wb) maybe we can make read char type faster
+                // todo(wb) support map/array type
+                // todo(wb) consider multiple integer columns cost, such as 1000 columns, maybe lazy materialization faster
+                if (!_lazy_materialization_read &&
+                    (_is_need_vec_eval ||
+                     _is_need_short_eval) && // only when pred exists, we need to consider lazy materialization
+                    (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
+                     type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
+                     type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_BOOL ||
+                     type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DATETIME ||
+                     type == OLAP_FIELD_TYPE_DECIMAL)) {
+                    _lazy_materialization_read = true;
                 }
-                break;
-            }
-            case OLAP_FIELD_TYPE_HLL:
-            case OLAP_FIELD_TYPE_OBJECT:
-            case OLAP_FIELD_TYPE_BOOL:
-            case OLAP_FIELD_TYPE_DATE:
-            case OLAP_FIELD_TYPE_DATETIME:
-            case OLAP_FIELD_TYPE_DECIMAL:
-                lazy_read_column_ids.insert(cid);
-                break;
-            default:
-                other_first_read_column_ids.insert(cid);
-                _is_first_read_column[cid] = true;
-                break;
             }
         }
     }
 
-    _first_read_column_ids.assign(pred_column_ids.begin(), pred_column_ids.end());
-    _first_read_column_ids.insert(_first_read_column_ids.end(), other_first_read_column_ids.begin(),
-                                  other_first_read_column_ids.end());
-    if (_is_need_vec_eval || _is_need_short_eval) {
-        _lazy_materialization_read = !lazy_read_column_ids.empty();
-        _lazy_read_column_ids.assign(lazy_read_column_ids.begin(), lazy_read_column_ids.end());
-    } else {
-        _lazy_materialization_read = false;
+    // Step 3: fill column ids for read and output
+    if (_lazy_materialization_read) {
+        // insert pred cid to first_read_columns
+        for (auto cid : pred_column_ids) {
+            _first_read_column_ids.push_back(cid);
+        }
+    } else if (!_is_need_vec_eval &&
+               !_is_need_short_eval) { // no pred exists, just read and output column
+        for (int i = 0; i < _schema.num_column_ids(); i++) {
+            auto cid = _schema.column_id(i);
+            _first_read_column_ids.push_back(cid);
+        }
+    } else { // pred exits, but we can eliminate lazy materialization
+        // insert pred/non-pred cid to first read columns
+        std::set<ColumnId> pred_id_set;
+        pred_id_set.insert(_short_cir_pred_column_ids.begin(), _short_cir_pred_column_ids.end());
+        pred_id_set.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
+        std::set<ColumnId> non_pred_set(_non_predicate_columns.begin(),
+                                        _non_predicate_columns.end());
 
-        // No need to lazy read, all columns should be read firstly.
-        _first_read_column_ids.insert(_first_read_column_ids.end(), lazy_read_column_ids.begin(),
-                                      lazy_read_column_ids.end());
+        for (int i = 0; i < _schema.num_column_ids(); i++) {
+            auto cid = _schema.column_id(i);
+            if (pred_id_set.find(cid) != pred_id_set.end()) {
+                _first_read_column_ids.push_back(cid);
+            } else if (non_pred_set.find(cid) != non_pred_set.end()) {
+                _first_read_column_ids.push_back(cid);
+                // when _lazy_materialization_read = false, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
+                _is_pred_column[cid] = true;
+            }
+        }
     }
 
     // make _schema_block_id_map
@@ -820,7 +822,7 @@ void SegmentIterator::_init_current_block(
         auto column_desc = _schema.column(cid);
 
         // the column in block must clear() here to insert new data
-        if (_is_first_read_column[cid] ||
+        if (_is_pred_column[cid] ||
             i >= block->columns()) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
@@ -839,14 +841,9 @@ void SegmentIterator::_init_current_block(
     }
 }
 
-void SegmentIterator::_output_lazy_read_columns(vectorized::Block* block) {
-    _output_columns_by_relace(block, _lazy_read_column_ids);
-}
-
-void SegmentIterator::_output_columns_by_relace(vectorized::Block* block,
-                                                const std::vector<ColumnId>& column_ids) {
+void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
-    for (auto cid : column_ids) {
+    for (auto cid : _non_predicate_columns) {
         auto loc = _schema_block_id_map[cid];
         // if loc < block->block->columns() means the column is delete column and should
         // not output by block, so just skip the column.
@@ -1007,7 +1004,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
-            if (_is_first_read_column[cid]) {
+            if (_is_pred_column[cid]) {
                 _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
                         column_desc->type(), column_desc->is_nullable());
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
@@ -1039,7 +1036,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         for (int i = 0; i < block->columns(); i++) {
             auto cid = _schema.column_id(i);
             // todo(wb) abstract make column where
-            if (!_is_first_read_column[cid]) { // non-predicate
+            if (!_is_pred_column[cid]) { // non-predicate
                 block->replace_by_position(i, std::move(_current_return_columns[cid]));
             }
         }
@@ -1048,7 +1045,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     }
 
     if (!_is_need_vec_eval && !_is_need_short_eval) {
-        _output_columns_by_relace(block, _first_read_column_ids);
+        _output_non_pred_columns(block);
     } else {
         uint16_t selected_size = nrows_read;
         uint16_t sel_rowid_idx[selected_size];
@@ -1073,13 +1070,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             return ret;
         }
 
-        // step3: read lazy_read_column_ids column
-        _read_columns_by_rowids(_lazy_read_column_ids, _block_rowids, sel_rowid_idx, selected_size,
+        // step3: read non_predicate column
+        _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx, selected_size,
                                 &_current_return_columns);
 
         // step4: output columns
-        // 4.1 output lazy_read_column_ids column
-        _output_lazy_read_columns(block);
+        // 4.1 output non-predicate column
+        _output_non_pred_columns(block);
 
         // 4.3 output short circuit and predicate column
         // when lazy materialization enables, _first_read_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
