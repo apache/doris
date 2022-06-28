@@ -520,7 +520,8 @@ module.exports = [
               "explode-bitmap",
               "explode-split",
               "explode-json-array",
-              "outer-combinator"
+              "outer-combinator",
+              "numbers"
             ],
           },
           {

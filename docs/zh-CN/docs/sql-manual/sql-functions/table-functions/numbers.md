@@ -1,11 +1,11 @@
 ---
 {
-    "title": "unhex",
+    "title": "numbers",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,40 +24,45 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## unhex
+## `numbers`
+
 ### description
-#### Syntax
 
-`VARCHAR unhex(VARCHAR str)`
+表函数，生成一张只含有一列的临时表，列名为`number`，行的值为[0,n)。
 
-输入字符串，如果字符串长度为0或者为奇数，返回空串；
-如果字符串中包含`[0-9]、[a-f]、[A-F]`之外的字符，返回空串；
-其他情况每两个字符为一组转化为16进制后的字符，然后拼接成字符串输出
+该函数用于from子句中。
 
+语法：
+
+```
+FROM numbers(n[,m]);
+```
+
+参数：
+- `n`: 代表生成[0,n)的行。
+- `m`: 可选参数,代表`m`个be节点同时执行该函数（需要部署多个be）。
 
 ### example
-
 ```
-mysql> select unhex('@');
-+------------+
-| unhex('@') |
-+------------+
-|            |
-+------------+
-
-mysql> select unhex('41');
-+-------------+
-| unhex('41') |
-+-------------+
-| A           |
-+-------------+
-
-mysql> select unhex('4142');
-+---------------+
-| unhex('4142') |
-+---------------+
-| AB            |
-+---------------+
+mysql> select * from numbers("10");
++--------+
+| number |
++--------+
+|      0 |
+|      1 |
+|      2 |
+|      3 |
+|      4 |
+|      5 |
+|      6 |
+|      7 |
+|      8 |
+|      9 |
++--------+
 ```
+
 ### keywords
-UNHEX
+
+    numbers
+
+

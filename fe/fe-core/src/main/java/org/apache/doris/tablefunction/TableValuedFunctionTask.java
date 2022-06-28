@@ -15,34 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.tablefunction;
 
-public enum StatisticalType {
-    DEFAULT,
-    AGG_NODE,
-    ANALYTIC_EVAL_NODE,
-    ASSERT_NUM_ROWS_NODE,
-    BROKER_SCAN_NODE,
-    CROSS_JOIN_NODE,
-    EMPTY_SET_NODE,
-    ES_SCAN_NODE,
-    EXCEPT_NODE,
-    EXCHANGE_NODE,
-    HASH_JOIN_NODE,
-    HIVE_SCAN_NODE,
-    ICEBERG_SCAN_NODE,
-    INTERSECT_NODE,
-    LOAD_SCAN_NODE,
-    MYSQL_SCAN_NODE,
-    ODBC_SCAN_NODE,
-    OLAP_SCAN_NODE,
-    REPEAT_NODE,
-    SELECT_NODE,
-    SET_OPERATION_NODE,
-    SCHEMA_SCAN_NODE,
-    SORT_NODE,
-    STREAM_LOAD_SCAN_NODE,
-    TABLE_FUNCTION_NODE,
-    UNION_NODE,
-    TABLE_VALUED_FUNCTION_NODE,
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TScanRange;
+
+public class TableValuedFunctionTask {
+    // Expected running backend
+    private Backend backend;
+    // Function running parameters
+    private TScanRange execParams;
+
+    public TableValuedFunctionTask(Backend backend, TScanRange execParams) {
+        this.backend = backend;
+        this.execParams = execParams;
+    }
+
+    public Backend getBackend() {
+        return backend;
+    }
+
+    public TScanRange getExecParams() {
+        return execParams;
+    }
 }
