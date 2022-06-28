@@ -106,18 +106,57 @@ private:
         }
     }
 
+inline uint32_t get_mask(const uint16_t* data) {
+    auto zero32 = _mm256_setzero_si256();
+    __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data));
+    uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+    return mask;
+}
     template <typename Y>
-    void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
+    void insert_default_value_res_column(const uint16_t* sel16, size_t sel_size,
                                          vectorized::ColumnVector<Y>* res_ptr) {
         static_assert(std::is_same_v<T, Y>);
+        const uint8_t* sel = (uint8_t*) sel16;
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
         Y* y = (Y*)res_data.get_end_ptr();
-        for (size_t i = 0; i < sel_size; i++) {
-            y[i] = T(data[sel[i]]);
+
+        int new_size = 0;
+        uint32_t sel_pos = 0;
+        static constexpr size_t SIMD_BYTES = 32;
+        const uint32_t sel_end_simd = sel_pos + sel_size / SIMD_BYTES * SIMD_BYTES;
+        auto zero32 = _mm256_setzero_si256();
+        while (sel_pos < sel_end_simd) {
+           __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(sel + sel_pos));
+           uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+           if (0 == mask) {
+                //pass
+            } else if (0xffffffff == mask) {
+                for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                    y[new_size++] = data[sel_pos + i];
+                }
+            } else {
+                while (mask) {
+                    const size_t bit_pos = __builtin_ctzll(mask);
+                    y[new_size++] = data[sel_pos + bit_pos];
+                    mask = mask & (mask - 1);
+                }
+            }
+            sel_pos += SIMD_BYTES;
         }
-        res_data.set_end_ptr(y + sel_size);
+
+        for (; sel_pos < sel_size; sel_pos++) {
+            if (sel[sel_pos]) {
+                y[new_size++] = data[sel_pos];
+            }
+        }
+        res_data.set_end_ptr(y + new_size);
+        
+        // for (size_t i = 0; i < sel_size; i++) {
+        //     y[i] = T(data[sel[i]]);
+        // }
+        // res_data.set_end_ptr(y + sel_size);
     }
 
     void insert_byte_to_res_column(const uint16_t* sel, size_t sel_size,

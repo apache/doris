@@ -888,7 +888,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 }
 
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
-                                                            uint16_t selected_size) {
+                                                            uint16_t selected_size,
+                                                            uint8_t * ret_flags) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     if (!_is_need_vec_eval) {
         for (uint32_t i = 0; i < selected_size; ++i) {
@@ -898,9 +899,8 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     }
 
     uint16_t original_size = selected_size;
-    bool ret_flags[selected_size];
-    memset(ret_flags, 1, selected_size);
-    _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
+
+    _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, (bool*)ret_flags);
 
     uint16_t new_size = 0;
 
@@ -1049,9 +1049,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     } else {
         uint16_t selected_size = nrows_read;
         uint16_t sel_rowid_idx[selected_size];
-
+        uint8_t ret_flags[selected_size];
+        memset(ret_flags, 1u, selected_size);
         // step 1: evaluate vectorization predicate
-        selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
+        selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size, ret_flags);
 
         // step 2: evaluate short ciruit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
@@ -1060,7 +1061,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
 
         if (!_lazy_materialization_read) {
-            Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+            Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, (uint16_t*) ret_flags,
                                                    selected_size);
             if (!ret.ok()) {
                 return ret;
