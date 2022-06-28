@@ -248,7 +248,7 @@ struct TFileRangeDesc {
     3: optional string path;
     // Offset of this file start
     4: optional i64 start_offset;
-    // Size of this range, if size = -1, this means that will read to then end of file
+    // Size of this range, if size = -1, this means that will read to the end of file
     5: optional i64 size;
     // total size of the file
     6: optional i64 file_size;
