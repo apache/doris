@@ -34,18 +34,18 @@ public:
                     const std::vector<TPlanFragmentDestination>& destinations,
                     int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
-    virtual ~VResultFileSink() = default;
-    virtual Status init(const TDataSink& thrift_sink) override;
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
+    ~VResultFileSink() override = default;
+    Status init(const TDataSink& thrift_sink) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
     // send data in 'batch' to this backend stream mgr
     // Blocks until all rows in batch are placed in the buffer
-    virtual Status send(RuntimeState* state, RowBatch* batch) override;
-    virtual Status send(RuntimeState* state, Block* block) override;
+    Status send(RuntimeState* state, RowBatch* batch) override;
+    Status send(RuntimeState* state, Block* block) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
-    virtual Status close(RuntimeState* state, Status exec_status) override;
-    virtual RuntimeProfile* profile() override { return _profile; }
+    Status close(RuntimeState* state, Status exec_status) override;
+    RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
@@ -57,7 +57,7 @@ private:
 
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
-    std::vector<ExprContext*> _output_expr_ctxs;
+    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
     RowDescriptor _output_row_descriptor;
 
     std::unique_ptr<Block> _output_block = nullptr;

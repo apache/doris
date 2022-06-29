@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_outfile", "basic") {
+suite("test_outfile", "expr") {
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
@@ -48,8 +48,8 @@ suite("test_outfile", "basic") {
         logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
         return
     }
-    def tableName = "outfile_test"
-    def outFilePath = """${context.file.parent}/tmp"""
+    def tableName = "outfile_test_expr"
+    def outFilePath = """${context.file.parent}/tmp_expr"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -84,7 +84,7 @@ suite("test_outfile", "basic") {
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}
             """
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default """ SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
         File path = new File(outFilePath)
@@ -94,12 +94,12 @@ suite("test_outfile", "basic") {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/";
+            SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/";
         """
         File[] files = path.listFiles()
         assert files.length == 1
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
-        List<String> baseLines = Files.readAllLines(Paths.get("""${context.config.dataPath}/export/test_outfile.out"""), StandardCharsets.UTF_8)
+        List<String> baseLines = Files.readAllLines(Paths.get("""${context.config.dataPath}/export/test_outfile_expr.out"""), StandardCharsets.UTF_8)
         for (int j = 0; j < outLines.size(); j ++) {
             String[] outLine = outLines.get(j).split("\t")
             String[] baseLine = baseLines.get(j + 2).split("\t")

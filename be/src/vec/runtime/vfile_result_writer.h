@@ -30,22 +30,22 @@ public:
     VFileResultWriter(const ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
-                      const std::vector<ExprContext*>& output_expr_ctxs,
+                      const std::vector<VExprContext*>& _output_vexpr_ctxs,
                       RuntimeProfile* parent_profile, BufferControlBlock* sinker,
                       Block* output_block, bool output_object_data,
                       const RowDescriptor& output_row_descriptor);
     virtual ~VFileResultWriter() = default;
 
-    virtual Status append_block(Block& block) override;
-    virtual Status append_row_batch(const RowBatch* batch) override {
+    Status append_block(Block& block) override;
+    Status append_row_batch(const RowBatch* batch) override {
         return Status::NotSupported("append_row_batch is not supported in VFileResultWriter!");
     };
 
-    virtual Status init(RuntimeState* state) override;
-    virtual Status close() override;
+    Status init(RuntimeState* state) override;
+    Status close() override;
 
     // file result writer always return statistic result in one row
-    virtual int64_t get_written_rows() const override { return 1; }
+    int64_t get_written_rows() const override { return 1; }
 
     std::string gen_types();
     Status write_csv_header();
@@ -80,7 +80,7 @@ private:
     const ResultFileOptions* _file_opts;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
-    const std::vector<ExprContext*>& _output_expr_ctxs;
+    const std::vector<VExprContext*>& _output_vexpr_ctxs;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.

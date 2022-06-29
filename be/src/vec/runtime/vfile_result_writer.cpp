@@ -18,6 +18,7 @@
 #include "vec/runtime/vfile_result_writer.h"
 
 #include "common/consts.h"
+#include "common/status.h"
 #include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
@@ -33,22 +34,23 @@
 #include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 using doris::operator<<;
 
-VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
-                                     const TStorageBackendType::type storage_type,
-                                     const TUniqueId fragment_instance_id,
-                                     const std::vector<ExprContext*>& output_expr_ctxs,
-                                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                                     Block* output_block, bool output_object_data,
-                                     const RowDescriptor& output_row_descriptor)
+VFileResultWriter::VFileResultWriter(
+        const ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
+        const TUniqueId fragment_instance_id,
+        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+        RuntimeProfile* parent_profile, BufferControlBlock* sinker, Block* output_block,
+        bool output_object_data, const RowDescriptor& output_row_descriptor)
         : _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
-          _output_expr_ctxs(output_expr_ctxs),
+          _output_vexpr_ctxs(output_vexpr_ctxs),
           _parent_profile(parent_profile),
           _sinker(sinker),
           _output_block(output_block),
@@ -185,7 +187,16 @@ Status VFileResultWriter::append_block(Block& block) {
     if (_parquet_writer != nullptr) {
         return Status::NotSupported("Parquet Writer is not supported yet!");
     } else {
-        RETURN_IF_ERROR(_write_csv_file(block));
+        Status status = Status::OK();
+        // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
+        // failed, just return the error status
+        auto output_block = VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                               block, status);
+        auto num_rows = output_block.rows();
+        if (UNLIKELY(num_rows == 0)) {
+            return status;
+        }
+        RETURN_IF_ERROR(_write_csv_file(output_block));
     }
 
     _written_rows += block.rows();
@@ -199,7 +210,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
             if (col.column->is_null_at(i)) {
                 _plain_text_outstream << NULL_IN_CSV;
             } else {
-                switch (_output_expr_ctxs[col_id]->root()->type().type) {
+                switch (_output_vexpr_ctxs[col_id]->root()->type().type) {
                 case TYPE_BOOLEAN:
                 case TYPE_TINYINT:
                     _plain_text_outstream << (int)*reinterpret_cast<const int8_t*>(
@@ -277,8 +288,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                             reinterpret_cast<const PackedInt128*>(col.column->get_data_at(i).data)
                                     ->value);
                     std::string decimal_str;
-                    int output_scale = _output_expr_ctxs[col_id]->root()->output_scale();
-                    decimal_str = decimal_val.to_string(output_scale);
+                    decimal_str = decimal_val.to_string();
                     _plain_text_outstream << decimal_str;
                     break;
                 }
@@ -299,10 +309,10 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
 }
 
 std::string VFileResultWriter::gen_types() {
-    std::string types = "";
-    int num_columns = _output_expr_ctxs.size();
+    std::string types;
+    int num_columns = _output_vexpr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
-        types += type_to_string(_output_expr_ctxs[i]->root()->type().type);
+        types += type_to_string(_output_vexpr_ctxs[i]->root()->type().type);
         if (i < num_columns - 1) {
             types += _file_opts->column_separator;
         }
