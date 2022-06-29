@@ -220,7 +220,6 @@ Status CsvScanNode::open(RuntimeState* state) {
 
     _runtime_state = state;
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_csv_scanner->open());
 
@@ -237,7 +236,6 @@ Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
@@ -318,7 +316,6 @@ Status CsvScanNode::close(RuntimeState* state) {
         return Status::OK();
     }
     VLOG_CRITICAL << "CsvScanNode::Close";
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 

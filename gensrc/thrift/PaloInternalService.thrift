@@ -94,7 +94,7 @@ struct TQueryOptions {
   8: optional i32 max_io_buffers = 0
   9: optional bool allow_unsupported_formats = 0
   10: optional i64 default_order_by_limit = -1
-  11: optional string debug_action = ""
+  // 11: optional string debug_action = "" // Never used
   12: optional i64 mem_limit = 2147483648
   13: optional bool abort_on_default_limit_exceeded = 0
   14: optional i32 query_timeout = 3600
@@ -227,9 +227,9 @@ struct TPlanFragmentExecParams {
   5: list<TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
-  6: optional Types.TPlanNodeId debug_node_id
-  7: optional PlanNodes.TExecNodePhase debug_phase
-  8: optional PlanNodes.TDebugAction debug_action
+  // 6: optional Types.TPlanNodeId debug_node_id // Never used
+  // 7: optional PlanNodes.TExecNodePhase debug_phase // Never used
+  // 8: optional PlanNodes.TDebugAction debug_action // Never used
 
   // Id of this fragment in its role as a sender.
   9: optional i32 sender_id
