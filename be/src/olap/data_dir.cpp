@@ -820,4 +820,41 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     return Status::OK();
 }
 
+void DataDir::perform_remote_gc() {
+    std::vector<std::pair<std::string, std::string>> gc_kvs;
+    auto traverse_remote_rowset_func = [&gc_kvs](const std::string& key,
+                                                 const std::string& value) -> bool {
+        gc_kvs.emplace_back(key, value);
+        return true;
+    };
+    _meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX, traverse_remote_rowset_func);
+    std::vector<std::string> deleted_keys;
+    for (auto& [key, val] : gc_kvs) {
+        auto rowset_id = key.substr(REMOTE_ROWSET_GC_PREFIX.size());
+        RemoteRowsetGcPB gc_pb;
+        gc_pb.ParseFromString(val);
+        auto fs = io::FileSystemMap::instance()->get(gc_pb.resource_id());
+        if (!fs) {
+            LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
+            continue;
+        }
+        DCHECK(fs->type() != io::FileSystemType::LOCAL);
+        Status st;
+        for (int i = 0; i < gc_pb.num_segments(); ++i) {
+            auto seg_path = BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i);
+            st = fs->delete_file(seg_path);
+            if (!st.ok()) {
+                LOG(WARNING) << st.to_string();
+                break;
+            }
+        }
+        if (st.ok()) {
+            deleted_keys.push_back(std::move(key));
+        }
+    }
+    for (const auto& key : deleted_keys) {
+        _meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    }
+}
+
 } // namespace doris

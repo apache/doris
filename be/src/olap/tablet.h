@@ -30,6 +30,7 @@
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
@@ -298,13 +299,15 @@ public:
 
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
-    // Physically remove remote rowsets.
     void remove_all_remote_rowsets();
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location, uint32_t version);
+
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+                                     int64_t num_segments);
 
 private:
     Status _init_once_action();

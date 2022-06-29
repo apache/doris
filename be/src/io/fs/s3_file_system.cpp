@@ -153,12 +153,13 @@ Status S3FileSystem::delete_file(const Path& path) {
     request.WithBucket(_s3_conf.bucket).WithKey(key);
 
     auto outcome = client->DeleteObject(request);
-    if (!outcome.IsSuccess()) {
-        return Status::IOError("failed to delete object(endpoint={}, bucket={}, key={}): {}",
-                               _s3_conf.endpoint, _s3_conf.bucket, key,
-                               outcome.GetError().GetMessage());
+    if (outcome.IsSuccess() ||
+        outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+        return Status::OK();
     }
-    return Status::OK();
+    return Status::IOError(
+            fmt::format("failed to delete object(endpoint={}, bucket={}, key={}): {}",
+                        _s3_conf.endpoint, _s3_conf.bucket, key, outcome.GetError().GetMessage()));
 }
 
 Status S3FileSystem::create_directory(const Path& path) {

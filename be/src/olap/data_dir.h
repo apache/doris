@@ -116,6 +116,8 @@ public:
 
     void perform_path_gc_by_tablet();
 
+    void perform_remote_gc();
+
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
     // TODO(cmy): for now we can not precisely calculate the capacity Doris used,

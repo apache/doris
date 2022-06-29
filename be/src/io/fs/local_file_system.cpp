@@ -62,6 +62,9 @@ Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
 
 Status LocalFileSystem::delete_file(const Path& path) {
     auto fs_path = absolute_path(path);
+    if (!std::filesystem::exists(fs_path)) {
+        return Status::OK();
+    }
     if (!std::filesystem::is_regular_file(fs_path)) {
         return Status::IOError(fmt::format("{} is not a file", fs_path.native()));
     }
@@ -90,6 +93,9 @@ Status LocalFileSystem::create_directory(const Path& path) {
 
 Status LocalFileSystem::delete_directory(const Path& path) {
     auto fs_path = absolute_path(path);
+    if (!std::filesystem::exists(fs_path)) {
+        return Status::OK();
+    }
     if (!std::filesystem::is_directory(fs_path)) {
         return Status::IOError(fmt::format("{} is not a directory", fs_path.native()));
     }
