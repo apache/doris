@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Physical hash join plan operator.
@@ -35,7 +37,7 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
 
     private final JoinType joinType;
 
-    private final Expression condition;
+    private final Optional<Expression> condition;
 
     /**
      * Constructor of PhysicalHashJoinNode.
@@ -43,17 +45,17 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
      * @param joinType Which join type, left semi join, inner join...
      * @param predicate join condition.
      */
-    public PhysicalHashJoin(JoinType joinType, Expression predicate) {
+    public PhysicalHashJoin(JoinType joinType, Optional<Expression> predicate) {
         super(OperatorType.PHYSICAL_HASH_JOIN);
-        this.joinType = joinType;
-        this.condition = predicate;
+        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
+        this.condition = Objects.requireNonNull(predicate, "predicate can not be null");
     }
 
     public JoinType getJoinType() {
         return joinType;
     }
 
-    public Expression getCondition() {
+    public Optional<Expression> getCondition() {
         return condition;
     }
 
@@ -64,6 +66,6 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return ImmutableList.of(condition);
+        return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
 }
