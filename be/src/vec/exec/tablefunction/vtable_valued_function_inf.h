@@ -35,7 +35,7 @@ public:
     VTableValuedFunctionInf(TupleId tuple_id, const TupleDescriptor* tuple_desc)
             : _tuple_id(tuple_id), _tuple_desc(tuple_desc) {}
 
-    ~VTableValuedFunctionInf() = default;
+    virtual ~VTableValuedFunctionInf() = default;
 
     // Should set function parameters in this method
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
