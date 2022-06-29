@@ -17,10 +17,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache Doris (incubating)
+# Apache Doris
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
-[![Total Lines](https://tokei.rs/b1/github/apache/incubator-doris?category=lines)](https://github.com/apache/incubator-doris)
-[![GitHub release](https://img.shields.io/github/release/apache/incubator-doris.svg)](https://github.com/apache/incubator-doris/releases)
+[![Total Lines](https://tokei.rs/b1/github/apache/doris?category=lines)](https://github.com/apache/doris)
+[![GitHub release](https://img.shields.io/github/release/apache/doris.svg)](https://github.com/apache/doris/releases)
 [![Join the Doris Community at Slack](https://img.shields.io/badge/chat-slack-brightgreen)](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
@@ -33,13 +33,13 @@ Its original name was Palo, developed in Baidu. After donated to Apache Software
 
 - Doris provides high availability, reliability, fault tolerance, and scalability.
 
-The main advantages of Doris are the simplicity (of developing, deploying and using) and meeting many data serving requirements in a single system. For details, refer to [Overview](https://github.com/apache/incubator-doris/wiki/Doris-Overview).
+The main advantages of Doris are the simplicity (of developing, deploying and using) and meeting many data serving requirements in a single system. For details, refer to [Overview](https://github.com/apache/doris/wiki/Doris-Overview).
 
 **Official website: https://doris.apache.org/**
 
-[![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/incubator-doris)
+[![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/doris)
 
-[![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/incubator-doris)
+[![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/doris)
 
 ## License
 
@@ -55,15 +55,15 @@ Doris mainly integrates the technology of [Google Mesa](https://research.google/
 
 ## Compile and install
 
-See [Compilation](https://doris.incubator.apache.org/installing/compilation-with-ldb-toolchain.html)
+See [Compilation](https://doris.apache.org/installing/compilation-with-ldb-toolchain.html)
 
 ## Getting start
 
-See [Basic Usage](https://doris.incubator.apache.org/getting-started/basic-usage.html)
+See [Basic Usage](https://doris.apache.org/getting-started/basic-usage.html)
 
 ## Report issues or submit pull request
 
-If you find any bugs, feel free to file a [GitHub issue](https://github.com/apache/incubator-doris/issues) or fix it by submitting a [pull request](https://github.com/apache/incubator-doris/pulls).
+If you find any bugs, feel free to file a [GitHub issue](https://github.com/apache/doris/issues) or fix it by submitting a [pull request](https://github.com/apache/doris/pulls).
 
 ## Contact Us
 
@@ -75,6 +75,6 @@ Contact us through the following mailing list.
 
 ## Links
 
-* Doris official site - <http://doris.incubator.apache.org>
+* Doris official site - <http://doris.apache.org>
 * Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
 * Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)

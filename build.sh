@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Apache Doris(incubating).
+# This script is used to compile Apache Doris
 # Usage:
 #    sh build.sh --help
 # Eg:
