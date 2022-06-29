@@ -181,7 +181,7 @@ under the License.
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.0.1</javax.servlet-api.version>
-        <je.version>18.3.12</je.version>
+        <je.version>18.3.12-SNAPSHOT</je.version>
         <jetty.version>6.1.14</jetty.version>
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
@@ -282,6 +282,15 @@ under the License.
                 <repository>
                     <id>cloudera-public</id>
                     <url>https://repository.cloudera.com/artifactory/public/</url>
+                </repository>
+                <!-- for selectdb je -->>
+                <repository>
+                    <id>ossrh</id>
+                    <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+                </repository>
+                <repository>
+                    <id>alimaven-public</id>
+                    <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -402,7 +411,7 @@ under the License.
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>com.sleepycat</groupId>
+                <groupId>io.github.selectdb</groupId>
                 <artifactId>je</artifactId>
                 <version>${je.version}</version>
             </dependency>
