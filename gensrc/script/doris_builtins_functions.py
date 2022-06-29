@@ -186,7 +186,6 @@ visible_functions = [
     [['array_distinct'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
 
-<<<<<<< HEAD
     [['array_min'],     'TINYINT',  ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_min'],     'SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_min'],     'INT',      ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
