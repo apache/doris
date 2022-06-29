@@ -145,4 +145,11 @@ public class SlotReference extends Slot {
     public SlotReference clone() {
         return new SlotReference(name, getDataType(), nullable, Lists.newArrayList(qualifier));
     }
+
+    public Slot withNullable(boolean newNullable) {
+        if (this.nullable == newNullable) {
+            return this;
+        }
+        return new SlotReference(exprId, name, dataType, newNullable, qualifier);
+    }
 }

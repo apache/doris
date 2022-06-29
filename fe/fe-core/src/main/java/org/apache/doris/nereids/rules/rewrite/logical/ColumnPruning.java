@@ -15,25 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.rules.PlanRuleFactory;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.plans.Plan;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
- * Abstract class for all slot in expression.
+ * column prune rule set.
  */
-public abstract class Slot extends NamedExpression implements LeafExpression {
-
-    public Slot(NodeType type) {
-        super(type);
+public class ColumnPruning implements PlanRuleFactory {
+    @Override
+    public List<Rule<Plan>> buildRules() {
+        return ImmutableList.of(
+                new PruneFilterChildColumns().build(),
+                new PruneAggChildColumns().build(),
+                new PruneJoinChildrenColumns().build(),
+                new PruneSortChildColumns().build()
+        );
     }
 
     @Override
-    public Slot toSlot() {
-        return this;
-    }
-
-    public Slot withNullable(boolean newNullable) {
-        throw new RuntimeException("Do not implement");
+    public RulePromise defaultPromise() {
+        return RulePromise.REWRITE;
     }
 }
