@@ -96,9 +96,9 @@ public class ArrayType extends Type {
     @Override
     public String toSql(int depth) {
         if (!containsNull) {
-            return "ARRAY<NOT_NULL(" + itemType.toSql(depth + 1) + ")>";
+            return "array<not_null(" + itemType.toSql(depth + 1) + ")>";
         } else {
-            return "ARRAY<" + itemType.toSql(depth + 1) + ">";
+            return "array<" + itemType.toSql(depth + 1) + ">";
         }
     }
 
@@ -158,7 +158,7 @@ public class ArrayType extends Type {
 
     @Override
     public String toString() {
-        return toSql(0);
+        return toSql(0).toUpperCase();
     }
 
     @Override
