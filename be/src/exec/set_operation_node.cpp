@@ -75,7 +75,6 @@ Status SetOperationNode::close(RuntimeState* state) {
         Expr::close(exprs, state);
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     // Must reset _probe_batch in close() to release resources
     _probe_batch.reset(nullptr);
 
@@ -136,7 +135,6 @@ bool SetOperationNode::equals(TupleRow* row, TupleRow* other) {
 
 Status SetOperationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(
