@@ -92,6 +92,8 @@ public:
 
     const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
+    TabletStorageType get_storage_type();
+
 private:
     Status _init_tablet_reader_params(
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,

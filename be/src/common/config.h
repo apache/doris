@@ -798,6 +798,11 @@ CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
 
+// number of s3 scanner thread pool size
+CONF_Int32(doris_s3_scanner_thread_pool_thread_num, "48");
+// number of s3 scanner thread pool queue size
+CONF_Int32(doris_s3_scanner_thread_pool_queue_size, "102400");
+
 } // namespace config
 
 } // namespace doris
