@@ -1754,7 +1754,7 @@ Status Tablet::cooldown() {
     }
     if (has_shutdown) {
         record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
-                                    old_rowset->num_segments());
+                                    to_add.front()->num_segments());
         return Status::Aborted(fmt::format("tablet {} has shutdown", tablet_id()));
     }
     return Status::OK();
