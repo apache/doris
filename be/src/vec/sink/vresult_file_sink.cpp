@@ -83,9 +83,10 @@ Status VResultFileSink::init(const TDataSink& tsink) {
 
 Status VResultFileSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(Expr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_expr_ctxs));
+    RETURN_IF_ERROR(
+            VExpr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_vexpr_ctxs));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc, _expr_mem_tracker));
     return Status::OK();
 }
 
@@ -106,7 +107,7 @@ Status VResultFileSink::prepare(RuntimeState* state) {
                 state->fragment_instance_id(), _buf_size, &_sender));
         // create writer
         _writer.reset(new (std::nothrow) VFileResultWriter(
-                _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
+                _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
                 _profile, _sender.get(), nullptr, state->return_object_data_as_binary(),
                 _output_row_descriptor));
     } else {
@@ -121,7 +122,7 @@ Status VResultFileSink::prepare(RuntimeState* state) {
         // create writer
         _output_block.reset(new Block(_output_row_descriptor.tuple_descriptors()[0]->slots(), 1));
         _writer.reset(new (std::nothrow) VFileResultWriter(
-                _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
+                _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
                 _profile, nullptr, _output_block.get(), state->return_object_data_as_binary(),
                 _output_row_descriptor));
     }
@@ -134,7 +135,7 @@ Status VResultFileSink::prepare(RuntimeState* state) {
 }
 
 Status VResultFileSink::open(RuntimeState* state) {
-    return Expr::open(_output_expr_ctxs, state);
+    return VExpr::open(_output_vexpr_ctxs, state);
 }
 
 Status VResultFileSink::send(RuntimeState* state, RowBatch* batch) {
@@ -193,7 +194,7 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
         _output_block->clear();
     }
 
-    Expr::close(_output_expr_ctxs, state);
+    VExpr::close(_output_vexpr_ctxs, state);
 
     _closed = true;
     return Status::OK();
