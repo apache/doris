@@ -34,6 +34,8 @@ import java.util.Objects;
  * TODO: Increase the implementation of sub expression. such as Integer.
  */
 public class Literal extends Expression implements LeafExpression {
+    public static final Literal TRUE_LITERAL = new Literal(true);
+    public static final Literal FALSE_LITERAL = new Literal(false);
     private final DataType dataType;
     private final Object value;
 

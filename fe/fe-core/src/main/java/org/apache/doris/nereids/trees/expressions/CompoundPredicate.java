@@ -46,4 +46,11 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCompoundPredicate(this, context);
     }
+
+    public NodeType flip() {
+        if (getType() == NodeType.AND) {
+            return NodeType.OR;
+        }
+        return NodeType.AND;
+    }
 }
