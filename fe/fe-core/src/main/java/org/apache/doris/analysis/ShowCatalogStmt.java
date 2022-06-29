@@ -20,8 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 /**
@@ -56,10 +56,7 @@ public class ShowCatalogStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer)  throws AnalysisException, UserException {
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
-        }
+        Util.checkCatalogEnabled();
         super.analyze(analyzer);
     }
 
