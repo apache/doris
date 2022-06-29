@@ -76,4 +76,4 @@ mysql> select k1, k2, array_remove(k2, k1) from array_type_table_1;
 
 ### keywords
 
-ARRAY, REMOVE
+ARRAY,REMOVE,ARRAY_REMOVE
