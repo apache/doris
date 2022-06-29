@@ -57,7 +57,7 @@ Usage: $0 <options>
 
   Environment variables:
     USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
-    BUILD_META_TOOL     If set BUILD_META_TOOL=OFF, the output meta_tools binaries will not be compiled. Default is ON.
+    BUILD_META_TOOL     If set BUILD_META_TOOL=OFF, the output meta_tools binaries will not be compiled. Default is OFF.
     STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
 
   Eg.
