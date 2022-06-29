@@ -428,6 +428,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    @Override
+    public LogicalPlan visitFromClause(FromClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan left = null;
+            // build left deep join tree
+            for (RelationContext relation : ctx.relation()) {
+                LogicalPlan right = plan(relation.relationPrimary());
+                if (left == null) {
+                    left = right;
+                } else {
+                    LogicalJoin logicalJoin = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty());
+                    left = new LogicalBinaryPlan(logicalJoin, left, right);
+                }
+                left = withJoinRelations(left, relation);
+            }
+            // TODO: pivot and lateral view
+            return left;
+        });
+    }
 
     /* ********************************************************************************************
      * Table Identifier parsing
@@ -533,20 +552,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withRelation(Optional<FromClauseContext> ctx) {
         if (ctx.isPresent()) {
-            LogicalPlan left = null;
-            // build left deep join tree
-            for (RelationContext relation : ctx.get().relation()) {
-                LogicalPlan right = plan(relation.relationPrimary());
-                if (left == null) {
-                    left = right;
-                } else {
-                    LogicalJoin logicalJoin = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty());
-                    left = new LogicalBinaryPlan(logicalJoin, left, right);
-                }
-                left = withJoinRelations(left, relation);
-            }
-            // TODO: pivot and lateral view
-            return left;
+            return visitFromClause(ctx.get());
         } else {
             throw new IllegalStateException("Unsupported one row relation");
         }
