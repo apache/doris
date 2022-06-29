@@ -74,10 +74,19 @@ public:
     // Free chunk allocated from this allocator
     void free(const Chunk& chunk, MemTracker* tracker = nullptr);
 
+    // Transfer the memory ownership to the chunk allocator.
+    // If the chunk allocator is full, then free to the system.
+    // Note: make sure that the length of 'data' is equal to size,
+    // otherwise the capacity of chunk allocator will be wrong.
+    void free(uint8_t* data, size_t size, MemTracker* tracker = nullptr);
+
 private:
     static ChunkAllocator* _s_instance;
 
     size_t _reserve_bytes_limit;
+    // When the reserved chunk memory size is greater than the limit,
+    // it is allowed to steal the chunks of other arenas.
+    size_t _steal_arena_limit;
     std::atomic<int64_t> _reserved_bytes;
     // each core has a ChunkArena
     std::vector<std::unique_ptr<ChunkArena>> _arenas;

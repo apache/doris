@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.plans.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -29,7 +29,21 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.plans.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.expressions.Arithmetic;
+import org.apache.doris.nereids.trees.expressions.BetweenPredicate;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.FunctionCall;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -44,9 +58,9 @@ import java.util.List;
  * Used to convert expression of new optimizer to stale expr.
  */
 @SuppressWarnings("rawtypes")
-public class ExpressionConverter extends ExpressionVisitor<Expr, PlanTranslatorContext> {
+public class ExpressionTranslator extends ExpressionVisitor<Expr, PlanTranslatorContext> {
 
-    public static ExpressionConverter converter = new ExpressionConverter();
+    public static ExpressionTranslator converter = new ExpressionTranslator();
 
     public static Expr convert(Expression expression, PlanTranslatorContext planContext) {
         return converter.visit(expression, planContext);

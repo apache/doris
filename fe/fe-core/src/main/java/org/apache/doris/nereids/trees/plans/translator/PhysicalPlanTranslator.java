@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.plans.translator;
 
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Expr;
@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.plans.JoinType;
@@ -36,10 +37,12 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionConverter;
+import org.apache.doris.nereids.trees.expressions.FindFunctionCall;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -59,7 +62,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -94,17 +99,24 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<Expression> groupByExpressionList = physicalAggregation.getGroupByExprList();
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
-                .map(e -> ExpressionConverter.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
+                .map(e -> ExpressionTranslator.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
 
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         // TODO: agg function could be other expr type either
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
-                .map(e -> (FunctionCallExpr) ExpressionConverter.convert(e, context))
+                .map(e ->
+                    // TODO: assume the function is agg function by now,
+                    //       but in the future the function may actually
+                    //       is another function type.
+                    FindFunctionCall.find(e)
+                )
+                .flatMap(List::stream)
+                .map(x -> (FunctionCallExpr) ExpressionTranslator.convert(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         List<Expression> partitionExpressionList = physicalAggregation.getPartitionExprList();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
-                .map(e -> (FunctionCallExpr) ExpressionConverter.convert(e, context)).collect(Collectors.toList());
+                .map(e -> (FunctionCallExpr) ExpressionTranslator.convert(e, context)).collect(Collectors.toList());
         // todo: support DISTINCT
         AggregateInfo aggInfo = null;
         switch (phase) {
@@ -138,8 +150,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<Slot> slotList = olapScan.getOutput();
         PhysicalOlapScan physicalOlapScan = olapScan.getOperator();
         OlapTable olapTable = physicalOlapScan.getTable();
+        List<Expr> execConjunctsList = physicalOlapScan
+                .getExpressions()
+                .stream()
+                .map(e -> ExpressionTranslator.convert(e, context)).collect(Collectors.toList());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextNodeId(), tupleDescriptor, olapTable.getName());
+        olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);
         // Create PlanFragment
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);
@@ -161,7 +178,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<OrderKey> orderKeyList = physicalHeapSort.getOrderKeys();
         orderKeyList.forEach(k -> {
-            execOrderingExprList.add(ExpressionConverter.convert(k.getExpr(), context));
+            execOrderingExprList.add(ExpressionTranslator.convert(k.getExpr(), context));
             ascOrderList.add(k.isAsc());
             nullsFirstParamList.add(k.isNullFirst());
         });
@@ -221,7 +238,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                     rightFragment.getPlanRoot(), null);
             crossJoinNode.setLimit(physicalHashJoin.getLimit());
             List<Expr> conjuncts = Utils.extractConjuncts(predicateExpr).stream()
-                    .map(e -> ExpressionConverter.convert(e, context))
+                    .map(e -> ExpressionTranslator.convert(e, context))
                     .collect(Collectors.toCollection(ArrayList::new));
             crossJoinNode.addConjuncts(conjuncts);
             ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), rightFragment.getPlanRoot(), false);
@@ -237,9 +254,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<Expression> expressionList = Utils.extractConjuncts(predicateExpr);
         expressionList.removeAll(eqExprList);
-        List<Expr> execOtherConjunctList = expressionList.stream().map(e -> ExpressionConverter.convert(e, context))
+        List<Expr> execOtherConjunctList = expressionList.stream().map(e -> ExpressionTranslator.convert(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
-        List<Expr> execEqConjunctList = eqExprList.stream().map(e -> ExpressionConverter.convert(e, context))
+        List<Expr> execEqConjunctList = eqExprList.stream().map(e -> ExpressionTranslator.convert(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,
@@ -266,11 +283,40 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PhysicalProject physicalProject = projectPlan.getOperator();
         List<Expr> execExprList = physicalProject.getProjects()
                 .stream()
-                .map(e -> ExpressionConverter.convert(e, context))
+                .map(e -> ExpressionTranslator.convert(e, context))
                 .collect(Collectors.toList());
         PlanFragment inputFragment = visit(projectPlan.child(0), context);
-        PlanNode planNode = inputFragment.getPlanRoot();
-        return visit(projectPlan.child(0), context);
+        PlanNode inputPlanNode = inputFragment.getPlanRoot();
+        List<Expr> predicateList = inputPlanNode.getConjuncts();
+        Set<Integer> requiredSlotIdList = new HashSet<>();
+        for (Expr expr : predicateList) {
+            extractExecSlot(expr, requiredSlotIdList);
+        }
+        for (Expr expr : execExprList) {
+            if (expr instanceof SlotRef) {
+                requiredSlotIdList.add(((SlotRef) expr).getDesc().getId().asInt());
+            }
+        }
+        for (TupleId tupleId : inputPlanNode.getTupleIds()) {
+            TupleDescriptor tupleDescriptor = context.getTupleDesc(tupleId);
+            Preconditions.checkNotNull(tupleDescriptor);
+            List<SlotDescriptor> slotDescList = tupleDescriptor.getSlots();
+            slotDescList.removeIf(slotDescriptor -> !requiredSlotIdList.contains(slotDescriptor.getId().asInt()));
+            for (int i = 0; i < slotDescList.size(); i++) {
+                slotDescList.get(i).setSlotOffset(i);
+            }
+        }
+        return inputFragment;
+    }
+
+    private void extractExecSlot(Expr root, Set<Integer>  slotRefList) {
+        if (root instanceof SlotRef) {
+            slotRefList.add(((SlotRef) root).getDesc().getId().asInt());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            extractExecSlot(child, slotRefList);
+        }
     }
 
     @Override
@@ -282,7 +328,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         Expression expression = filter.getPredicates();
         List<Expression> expressionList = Utils.extractConjuncts(expression);
         expressionList.stream().map(e -> {
-            return ExpressionConverter.convert(e, context);
+            return ExpressionTranslator.convert(e, context);
         }).forEach(planNode::addConjunct);
         return inputFragment;
     }
@@ -291,12 +337,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
-            SlotReference slotReference = (SlotReference) slot;
-            SlotDescriptor slotDescriptor = context.addSlotDesc(tupleDescriptor, slot.getId().asInt());
-            slotDescriptor.setColumn(slotReference.getColumn());
-            slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
-            slotDescriptor.setIsMaterialized(true);
-            context.addSlotRefMapping(slot, new SlotRef(slotDescriptor));
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
         }
         return tupleDescriptor;
     }

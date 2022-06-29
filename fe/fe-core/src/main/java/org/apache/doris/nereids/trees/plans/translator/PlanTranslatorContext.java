@@ -15,14 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.plans.translator;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
@@ -97,4 +100,21 @@ public class PlanTranslatorContext {
     public List<ScanNode> getScanNodeList() {
         return scanNodeList;
     }
+
+    /**
+     * Create SlotDesc and add it to the mappings from expression to the stales epxr
+     */
+    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
+        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc, slotReference.getId().asInt());
+        slotDescriptor.setColumn(slotReference.getColumn());
+        slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
+        slotDescriptor.setIsMaterialized(true);
+        this.addSlotRefMapping(slotReference, new SlotRef(slotDescriptor));
+        return slotDescriptor;
+    }
+
+    public TupleDescriptor getTupleDesc(TupleId tupleId) {
+        return descTable.getTupleDesc(tupleId);
+    }
+
 }
