@@ -94,7 +94,7 @@ public class AnalyzeTest extends TestWithFeService {
 
         List<Plan> children = root.children();
         for (Plan child : children) {
-            if (!checkPlanNodeBound((LogicalPlan) child)) {
+            if (!checkBound((LogicalPlan) child)) {
                 return false;
             }
         }
