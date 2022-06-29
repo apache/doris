@@ -101,9 +101,7 @@ private:
                              std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
-    void _output_lazy_read_columns(vectorized::Block* block);
-    void _output_columns_by_relace(vectorized::Block* block,
-                                   const std::vector<ColumnId>& column_ids);
+    void _output_non_pred_columns(vectorized::Block* block);
     void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                  std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
                                  size_t select_size, vectorized::MutableColumns* mutable_columns);
@@ -158,7 +156,7 @@ private:
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
     std::vector<ColumnId>
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
-    std::vector<bool> _is_first_read_column; // columns hold by segmentIter
+    std::vector<bool> _is_pred_column; // columns hold by segmentIter
     vectorized::MutableColumns _current_return_columns;
     std::unique_ptr<AndBlockColumnPredicate> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
@@ -167,8 +165,6 @@ private:
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _first_read_column_ids;
-    std::vector<ColumnId> _lazy_read_column_ids;
-
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
