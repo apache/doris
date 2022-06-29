@@ -236,7 +236,6 @@ public class DistributedPlanner {
         // move 'result' to end, it depends on all of its children
         fragments.remove(result);
         fragments.add(result);
-
         if (!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1) {
             result = createMergeFragment(result);
             fragments.add(result);
@@ -276,6 +275,8 @@ public class DistributedPlanner {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
+        } else if (node instanceof TableValuedFunctionScanNode) {
+            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof OlapScanNode) {
             // olap scan node
             OlapScanNode olapScanNode = (OlapScanNode) node;

@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.thrift.TTableDescriptor;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -92,11 +93,14 @@ public interface TableIf {
 
     String getComment(boolean escapeQuota);
 
+    public TTableDescriptor toThrift();
+
     /**
      * Doris table type.
      */
     public enum TableType {
-        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI;
+        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI,
+        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -120,6 +124,10 @@ public interface TableIf {
                     return "Hive";
                 case HUDI:
                     return "Hudi";
+                case TABLE_VALUED_FUNCTION:
+                    return "Table_Valued_Function";
+                case HMS_EXTERNAL_TABLE:
+                    return "hms";
                 default:
                     return null;
             }
@@ -140,6 +148,8 @@ public interface TableIf {
                 case ELASTICSEARCH:
                 case HIVE:
                 case HUDI:
+                case TABLE_VALUED_FUNCTION:
+                case HMS_EXTERNAL_TABLE:
                     return "EXTERNAL TABLE";
                 default:
                     return null;
