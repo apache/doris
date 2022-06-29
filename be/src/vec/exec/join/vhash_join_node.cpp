@@ -24,6 +24,7 @@
 #include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -37,7 +38,7 @@ std::variant<std::false_type, std::true_type> static inline make_bool_variant(bo
 }
 
 using ProfileCounter = RuntimeProfile::Counter;
-template <class HashTableContext, bool ignore_null, bool build_unique>
+template <class HashTableContext>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
                           HashJoinNode* join_node, int batch_size, uint8_t offset)
@@ -49,8 +50,8 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _offset(offset) {}
 
-    Status operator()(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map,
-                      bool has_runtime_filter) {
+    template <bool ignore_null, bool build_unique, bool has_runtime_filter>
+    void run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map) {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
         int64_t old_bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
@@ -73,7 +74,7 @@ struct ProcessHashTableBuild {
         hash_table_ctx.hash_table.reset_resize_timer();
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];
-        if (has_runtime_filter) {
+        if constexpr (has_runtime_filter) {
             inserted_rows.reserve(_batch_size);
         }
 
@@ -92,14 +93,14 @@ struct ProcessHashTableBuild {
 
             if (emplace_result.is_inserted()) {
                 new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                if (has_runtime_filter) {
+                if constexpr (has_runtime_filter) {
                     inserted_rows.push_back(k);
                 }
             } else {
                 if constexpr (!build_unique) {
                     /// The first element of the list is stored in the value of the hash table, the rest in the pool.
                     emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
-                    if (has_runtime_filter) {
+                    if constexpr (has_runtime_filter) {
                         inserted_rows.push_back(k);
                     }
                 } else {
@@ -110,9 +111,16 @@ struct ProcessHashTableBuild {
 
         COUNTER_UPDATE(_join_node->_build_table_expanse_timer,
                        hash_table_ctx.hash_table.get_resize_timer_value());
-
-        return Status::OK();
     }
+
+    template <bool ignore_null, bool build_unique, bool has_runtime_filter>
+    struct Reducer {
+        template <typename... TArgs>
+        static void run(ProcessHashTableBuild<HashTableContext>& build, TArgs&&... args) {
+            build.template run<ignore_null, build_unique, has_runtime_filter>(
+                    std::forward<TArgs>(args)...);
+        }
+    };
 
 private:
     const int _rows;
@@ -275,7 +283,7 @@ struct ProcessHashTableProbe {
 
         {
             SCOPED_TIMER(_search_hashtable_timer);
-            for (; _probe_index < _probe_rows;) {
+            while (_probe_index < _probe_rows) {
                 if constexpr (ignore_null) {
                     if ((*null_map)[_probe_index]) {
                         _items_counts[_probe_index++] = (uint32_t)0;
@@ -394,7 +402,7 @@ struct ProcessHashTableProbe {
 
         int current_offset = 0;
 
-        for (; _probe_index < _probe_rows;) {
+        while (_probe_index < _probe_rows) {
             // ignore null rows
             if constexpr (ignore_null) {
                 if ((*null_map)[_probe_index]) {
@@ -509,11 +517,6 @@ struct ProcessHashTableProbe {
                 }
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
-            } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
-                for (int i = 0; i < column->size(); ++i) {
-                    DCHECK(visited_map[i]);
-                    *visited_map[i] |= column->get_bool(i);
-                }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
                 auto new_filter_column = ColumnVector<UInt8>::create();
                 auto& filter_map = new_filter_column->get_data();
@@ -556,7 +559,8 @@ struct ProcessHashTableProbe {
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
             } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
-                                 JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
+                                 JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
+                                 JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
                 for (int i = 0; i < column->size(); ++i) {
                     DCHECK(visited_map[i]);
                     *visited_map[i] |= column->get_bool(i);
@@ -822,7 +826,9 @@ Status HashJoinNode::close(RuntimeState* state) {
 
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
-    if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
+    if (_vother_join_conjunct_ptr) {
+        (*_vother_join_conjunct_ptr)->close(state);
+    }
 
     _hash_table_mem_tracker->release(_mem_used);
 
@@ -1169,19 +1175,14 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-#define CALL_BUILD_FUNCTION(HAS_NULL, BUILD_UNIQUE)                                           \
-    ProcessHashTableBuild<HashTableCtxType, HAS_NULL, BUILD_UNIQUE> hash_table_build_process( \
-            rows, block, raw_ptrs, this, state->batch_size(), offset);                        \
-    st = hash_table_build_process(arg, &null_map_val, has_runtime_filter);
-                    if (std::pair {has_null, _build_unique} == std::pair {true, true}) {
-                        CALL_BUILD_FUNCTION(true, true);
-                    } else if (std::pair {has_null, _build_unique} == std::pair {true, false}) {
-                        CALL_BUILD_FUNCTION(true, false);
-                    } else if (std::pair {has_null, _build_unique} == std::pair {false, true}) {
-                        CALL_BUILD_FUNCTION(false, true);
-                    } else {
-                        CALL_BUILD_FUNCTION(false, false);
-                    }
+                    ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
+                            rows, block, raw_ptrs, this, state->batch_size(), offset);
+
+                    constexpr_3_bool_match<ProcessHashTableBuild<
+                            HashTableCtxType>::template Reducer>::run(has_null, _build_unique,
+                                                                      has_runtime_filter,
+                                                                      hash_table_build_process, arg,
+                                                                      &null_map_val);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }

@@ -252,7 +252,7 @@ private:
 
     void _hash_table_init();
 
-    template <class HashTableContext, bool ignore_null, bool build_unique>
+    template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
     template <class HashTableContext, class JoinOpType, bool ignore_null>

@@ -407,18 +407,37 @@ struct JsonParser<'3'> {
     }
 };
 
+template <>
+struct JsonParser<'4'> {
+    // time
+    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
+                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
+        // remove double quotes, "xxx" -> xxx
+        value.SetString(data.data + 1, data.size - 2, allocator);
+    }
+};
+
+template <int flag, typename Impl>
+struct ExecuteReducer {
+    template <typename... TArgs>
+    static void run(TArgs&&... args) {
+        Impl::template execute_type<JsonParser<flag>>(std::forward<TArgs>(args)...);
+    }
+};
+
 struct FunctionJsonArrayImpl {
     static constexpr auto name = "json_array";
 
-    CONSTEXPR_LOOP_MATCH_DECLARE(execute_type);
+    template <int flag>
+    using Reducer = ExecuteReducer<flag, FunctionJsonArrayImpl>;
 
     static void execute_parse(const std::string& type_flags,
                               const std::vector<const ColumnString*>& data_columns,
                               std::vector<rapidjson::Value>& objects,
                               rapidjson::Document::AllocatorType& allocator) {
         for (int i = 0; i < data_columns.size() - 1; i++) {
-            constexpr_loop_match<'0', '6', JsonParser>(type_flags[i], objects, allocator,
-                                                       data_columns[i]);
+            constexpr_int_match<'0', '5', Reducer>::run(type_flags[i], objects, allocator,
+                                                        data_columns[i]);
         }
     }
 
@@ -439,7 +458,8 @@ struct FunctionJsonArrayImpl {
 struct FunctionJsonObjectImpl {
     static constexpr auto name = "json_object";
 
-    CONSTEXPR_LOOP_MATCH_DECLARE(execute_type);
+    template <int flag>
+    using Reducer = ExecuteReducer<flag, FunctionJsonObjectImpl>;
 
     static void execute_parse(std::string type_flags,
                               const std::vector<const ColumnString*>& data_columns,
@@ -450,8 +470,8 @@ struct FunctionJsonObjectImpl {
         }
 
         for (int i = 0; i + 1 < data_columns.size() - 1; i += 2) {
-            constexpr_loop_match<'0', '6', JsonParser>(type_flags[i + 1], objects, allocator,
-                                                       data_columns[i], data_columns[i + 1]);
+            constexpr_int_match<'0', '5', Reducer>::run(type_flags[i + 1], objects, allocator,
+                                                        data_columns[i], data_columns[i + 1]);
         }
     }
 
@@ -464,7 +484,7 @@ struct FunctionJsonObjectImpl {
         rapidjson::Value value;
 
         for (int i = 0; i < objects.size(); i++) {
-            JsonParser<'4'>::update_value(result, key, key_column->get_data_at(i),
+            JsonParser<'5'>::update_value(result, key, key_column->get_data_at(i),
                                           allocator); // key always is string
             TypeImpl::update_value(result, value, value_column->get_data_at(i), allocator);
             objects[i].AddMember(key, value, allocator);
