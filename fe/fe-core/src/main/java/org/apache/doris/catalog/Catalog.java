@@ -232,6 +232,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import lombok.Setter;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -2741,7 +2742,7 @@ public class Catalog {
             }
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
 
-            addTableComment(table, sb);
+            addTableComment(olapTable, sb);
 
             // partition
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -2871,7 +2872,7 @@ public class Catalog {
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
 
-            addTableComment(table, sb);
+            addTableComment(mysqlTable, sb);
 
             // properties
             sb.append("\nPROPERTIES (\n");
@@ -2891,7 +2892,7 @@ public class Catalog {
         } else if (table.getType() == TableType.ODBC) {
             OdbcTable odbcTable = (OdbcTable) table;
 
-            addTableComment(table, sb);
+            addTableComment(odbcTable, sb);
 
             // properties
             sb.append("\nPROPERTIES (\n");
@@ -2912,7 +2913,7 @@ public class Catalog {
         } else if (table.getType() == TableType.BROKER) {
             BrokerTable brokerTable = (BrokerTable) table;
 
-            addTableComment(table, sb);
+            addTableComment(brokerTable, sb);
 
             // properties
             sb.append("\nPROPERTIES (\n");
@@ -2930,7 +2931,7 @@ public class Catalog {
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             EsTable esTable = (EsTable) table;
 
-            addTableComment(table, sb);
+            addTableComment(esTable, sb);
 
             // partition
             PartitionInfo partitionInfo = esTable.getPartitionInfo();
@@ -2963,7 +2964,7 @@ public class Catalog {
         } else if (table.getType() == TableType.HIVE) {
             HiveTable hiveTable = (HiveTable) table;
 
-            addTableComment(table, sb);
+            addTableComment(hiveTable, sb);
 
             // properties
             sb.append("\nPROPERTIES (\n");
@@ -2974,7 +2975,7 @@ public class Catalog {
         } else if (table.getType() == TableType.ICEBERG) {
             IcebergTable icebergTable = (IcebergTable) table;
 
-            addTableComment(table, sb);
+            addTableComment(icebergTable, sb);
 
             // properties
             sb.append("\nPROPERTIES (\n");
@@ -2985,7 +2986,7 @@ public class Catalog {
         } else if (table.getType() == TableType.HUDI) {
             HudiTable hudiTable = (HudiTable) table;
 
-            addTableComment(table, sb);
+            addTableComment(hudiTable, sb);
 
             // properties
             sb.append("\nPROPERTIES (\n");
@@ -3055,12 +3056,6 @@ public class Catalog {
                 sb.append(");");
                 createRollupStmt.add(sb.toString());
             }
-        }
-    }
-
-    private static void addTableComment(Table table, StringBuilder sb) {
-        if (!Strings.isNullOrEmpty(table.getComment())) {
-            sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
         }
     }
 
@@ -3685,7 +3680,7 @@ public class Catalog {
 
     // the invoker should keep table's write lock
     public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
-                                    GroupId assignedGroupId)
+            GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
@@ -4113,7 +4108,7 @@ public class Catalog {
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
                         = new ModifyTableDefaultDistributionBucketNumOperationLog(
-                                db.getId(), olapTable.getId(), bucketNum);
+                        db.getId(), olapTable.getId(), bucketNum);
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }
@@ -4611,7 +4606,7 @@ public class Catalog {
                     if (column.getAggregationType() == AggregateType.REPLACE
                             || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
                         throw new DdlException("Cannot change distribution type of aggregate keys table which has value"
-                            + " columns with " + column.getAggregationType() + " type.");
+                                + " columns with " + column.getAggregationType() + " type.");
                     }
                 }
             }
@@ -4918,5 +4913,11 @@ public class Catalog {
 
         // send task immediately
         AgentTaskExecutor.submit(batchTask);
+    }
+
+    private static void addTableComment(Table table, StringBuilder sb) {
+        if (StringUtils.isNotBlank(table.getComment())) {
+            sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
+        }
     }
 }

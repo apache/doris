@@ -17,13 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class ShowCreateTableStmtTest extends TestWithFeService {
@@ -41,13 +39,11 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
 
     @Test
     public void testNormal() throws Exception {
-        ShowResultSet showResultSet = showCreateTable("show create table table1");
-        System.out.println(showResultSet.getMetaData());
-        System.out.println(showResultSet.getResultRows());
+        String sql = "show create table table1";
+        ShowResultSet showResultSet = showCreateTable(sql);
+        String showSql = showResultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(showSql.contains("`k1` int(11) NULL COMMENT 'test column k1'"));
+        Assertions.assertTrue(showSql.contains("COMMENT 'test table1'"));
     }
 
-    @Test
-    public void testNoTbl() throws AnalysisException {
-
-    }
 }
