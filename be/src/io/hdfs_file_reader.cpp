@@ -86,9 +86,9 @@ Status HdfsFileReader::open() {
     RETURN_IF_ERROR(connect());
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
-        return Status::InternalError(
-                "open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+        return Status::InternalError("open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                                     BackendOptions::get_localhost(), _namenode, _path,
+                                     hdfsGetLastError());
     }
     VLOG_NOTICE << "open file, namenode:" << _namenode << ", path:" << _path;
     return seek(_current_offset);
@@ -143,9 +143,9 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
     if (position != _current_offset) {
         int ret = hdfsSeek(_hdfs_fs, _hdfs_file, position);
         if (ret != 0) { // check fseek return value
-            return Status::InternalError(
-                    "hdfsSeek failed.(BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+            return Status::InternalError("hdfsSeek failed.(BE: {}) namenode:{}, path:{}, err: {}",
+                                         BackendOptions::get_localhost(), _namenode, _path,
+                                         hdfsGetLastError());
         }
     }
 
@@ -188,9 +188,8 @@ int64_t HdfsFileReader::size() {
 Status HdfsFileReader::seek(int64_t position) {
     int res = hdfsSeek(_hdfs_fs, _hdfs_file, position);
     if (res != 0) {
-        return Status::InternalError(
-                "Seek to offset failed. (BE: {}) offset={}, err: {}",
-                BackendOptions::get_localhost(), position, _path, hdfsGetLastError());
+        return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
+                                     BackendOptions::get_localhost(), position, hdfsGetLastError());
     }
     return Status::OK();
 }
