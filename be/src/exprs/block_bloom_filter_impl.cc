@@ -51,9 +51,6 @@ BlockBloomFilter::BlockBloomFilter()
 
 BlockBloomFilter::~BlockBloomFilter() {
     close();
-    if (_directory != nullptr) {
-        free(_directory);
-    }
 }
 
 Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_seed) {
@@ -107,6 +104,7 @@ Status BlockBloomFilter::init_from_directory(int log_space_bytes, const Slice& d
 
 void BlockBloomFilter::close() {
     if (_directory != nullptr) {
+        free(_directory);
         _directory = nullptr;
     }
 }
