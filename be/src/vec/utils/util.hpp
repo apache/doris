@@ -25,8 +25,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 class VectorizedUtils {
