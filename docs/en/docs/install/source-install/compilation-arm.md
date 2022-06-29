@@ -55,7 +55,7 @@ Note that this document is for guidance only. Compiling in different environment
 
 ### Compile with ldb-toolchain
 
-This method works for Doris versions after [commit 7f3564](https://github.com/apache/incubator-doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1).
+This method works for Doris versions after [commit 7f3564](https://github.com/apache/doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1).
 
 Download [ldb\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
 
@@ -333,7 +333,7 @@ Note that both jdk and nodejs need to download the corresponding aarch64 version
 
 ```shell
 cd /opt
-git clone https://github.com/apache/incubator-doris.git
+git clone https://github.com/apache/doris.git
 ```
 
 #### Install and deploy
@@ -375,7 +375,7 @@ USE_AVX2=OFF sh build.sh
 
         ```shell
         export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
-        sh /opt/incubator-doris/thirdparty/build-thirdparty.sh
+        sh /opt/doris/thirdparty/build-thirdparty.sh
         ````
 
         REPOSITORY_URL contains all third-party library source packages and their historical versions.
@@ -386,7 +386,7 @@ USE_AVX2=OFF sh build.sh
 
      - An exception is thrown when executing build.sh
 
-       > /opt/incubator-doris/env.sh: line 46: python: command not found
+       > /opt/doris/env.sh: line 46: python: command not found
        >
        > Python 2.7.18
 
