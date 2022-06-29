@@ -76,10 +76,8 @@ Status NodeChannel::init(RuntimeState* state) {
     _state = state;
     auto node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
-        std::stringstream ss;
-        ss << "unknown node id, id=" << _node_id;
         _cancelled = true;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown node id, id={}", _node_id);
     }
 
     _node_info = *node;

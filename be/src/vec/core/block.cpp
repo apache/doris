@@ -732,8 +732,8 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
                  << ", compressed size: " << compressed_size;
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
-        return Status::InternalError(fmt::format(
-                "The block is large than 2GB({}), can not send by Protobuf.", *compressed_bytes));
+        return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",
+                                     *compressed_bytes);
     }
     return Status::OK();
 }

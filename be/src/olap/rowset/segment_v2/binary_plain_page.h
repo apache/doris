@@ -177,11 +177,10 @@ public:
         CHECK(!_parsed);
 
         if (_data.size < sizeof(uint32_t)) {
-            std::stringstream ss;
-            ss << "file corruption: not enough bytes for trailer in BinaryPlainPageDecoder ."
-                  "invalid data size:"
-               << _data.size << ", trailer size:" << sizeof(uint32_t);
-            return Status::Corruption(ss.str());
+            return Status::Corruption(
+                    "file corruption: not enough bytes for trailer in BinaryPlainPageDecoder ."
+                    "invalid data size:{}, trailer size:{}",
+                    _data.size, sizeof(uint32_t));
         }
 
         // Decode trailer

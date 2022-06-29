@@ -60,9 +60,7 @@ SlotRef::SlotRef(const TypeDescriptor& type, int offset)
 
 Status SlotRef::prepare(const SlotDescriptor* slot_desc, const RowDescriptor& row_desc) {
     if (!slot_desc->is_materialized()) {
-        std::stringstream error;
-        error << "reference to non-materialized slot. slot_id: " << _slot_id;
-        return Status::InternalError(error.str());
+        return Status::InternalError("reference to non-materialized slot. slot_id: {}", _slot_id);
     }
     _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
     if (_tuple_idx == RowDescriptor::INVALID_IDX) {
@@ -85,15 +83,11 @@ Status SlotRef::prepare(RuntimeState* state, const RowDescriptor& row_desc, Expr
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
     if (slot_desc == nullptr) {
         // TODO: create macro MAKE_ERROR() that returns a stream
-        std::stringstream error;
-        error << "couldn't resolve slot descriptor " << _slot_id;
-        return Status::InternalError(error.str());
+        return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
     }
 
     if (!slot_desc->is_materialized()) {
-        std::stringstream error;
-        error << "reference to non-materialized slot. slot_id: " << _slot_id;
-        return Status::InternalError(error.str());
+        return Status::InternalError("reference to non-materialized slot. slot_id: {}", _slot_id);
     }
 
     // TODO(marcel): get from runtime state

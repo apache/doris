@@ -86,9 +86,7 @@ Status AggFn::init(const RowDescriptor& row_desc, RuntimeState* state) {
         (aggregate_fn.merge_fn_symbol.empty() && !aggregate_fn.is_analytic_only_fn)) {
         // This path is only for partially implemented builtins.
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
-        std::stringstream ss;
-        ss << "Function " << _fn.name.function_name << " is not implemented.";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Function {} is not implemented.", _fn.name.function_name);
     }
     if (_fn.binary_type == TFunctionBinaryType::NATIVE ||
         _fn.binary_type == TFunctionBinaryType::BUILTIN ||

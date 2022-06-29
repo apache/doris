@@ -63,10 +63,9 @@ Status S3Reader::open() {
     } else if (response.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return Status::NotFound("{} not exists!", _path);
     } else {
-        std::stringstream out;
-        out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
-        return Status::InternalError(out.str());
+        return Status::InternalError("Error: [{}:{}] at {}", response.GetError().GetExceptionName(),
+                                     response.GetError().GetMessage(),
+                                     BackendOptions::get_localhost());
     }
 }
 

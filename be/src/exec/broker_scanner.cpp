@@ -171,9 +171,8 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
         compress_type = CompressType::DEFLATE;
         break;
     default: {
-        std::stringstream ss;
-        ss << "Unknown format type, cannot inference compress type, type=" << type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown format type, cannot inference compress type, type={}",
+                                     type);
     }
     }
     RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, &_cur_decompressor));
@@ -196,9 +195,7 @@ Status BrokerScanner::open_line_reader() {
     int64_t size = range.size;
     if (range.start_offset != 0) {
         if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
-            std::stringstream ss;
-            ss << "For now we do not support split compressed file";
-            return Status::InternalError(ss.str());
+            return Status::InternalError("For now we do not support split compressed file");
         }
         size += 1;
         // not first range will always skip one line
@@ -226,9 +223,8 @@ Status BrokerScanner::open_line_reader() {
         _cur_line_reader = new PlainBinaryLineReader(_cur_file_reader.get());
         break;
     default: {
-        std::stringstream ss;
-        ss << "Unknown format type, cannot init line reader, type=" << range.format_type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown format type, cannot init line reader, type={}",
+                                     range.format_type);
     }
     }
 

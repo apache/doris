@@ -275,9 +275,8 @@ Status RemoteBlockManager::open() {
 Status RemoteBlockManager::create_block(const CreateBlockOptions& opts,
                                         std::unique_ptr<WritableBlock>* block) {
     if (_opts.read_only) {
-        std::stringstream ss;
-        ss << "create_block failed. remote block is readonly: " << opts.path_desc.debug_string();
-        return Status::NotSupported(ss.str());
+        return Status::NotSupported("create_block failed. remote block is readonly: {}",
+                                    opts.path_desc.debug_string());
     }
 
     shared_ptr<WritableFile> local_writer;

@@ -71,10 +71,9 @@ Status S3Writer::open() {
     } else if (response.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return Status::OK();
     } else {
-        std::stringstream out;
-        out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
-        return Status::InternalError(out.str());
+        return Status::InternalError("Error: [{}:{}] at {}", response.GetError().GetExceptionName(),
+                                     response.GetError().GetMessage(),
+                                     BackendOptions::get_localhost());
     }
 }
 
@@ -131,10 +130,9 @@ Status S3Writer::_sync() {
     if (response.IsSuccess()) {
         return Status::OK();
     } else {
-        std::stringstream out;
-        out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
-        return Status::InternalError(out.str());
+        return Status::InternalError("Error: [{}:{}] at {}", response.GetError().GetExceptionName(),
+                                     response.GetError().GetMessage(),
+                                     BackendOptions::get_localhost());
     }
 }
 } // end namespace doris

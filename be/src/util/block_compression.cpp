@@ -421,22 +421,20 @@ public:
         // reset ctx to start new compress session
         auto ret = ZSTD_CCtx_reset(ctx_c, ZSTD_reset_session_only);
         if (ZSTD_isError(ret)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "ZSTD_CCtx_reset error: $0", ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+            return Status::InvalidArgument("ZSTD_CCtx_reset error: {}",
+                                           ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
         }
         // set compression level to default 3
         ret = ZSTD_CCtx_setParameter(ctx_c, ZSTD_c_compressionLevel, ZSTD_CLEVEL_DEFAULT);
         if (ZSTD_isError(ret)) {
-            return Status::InvalidArgument(
-                    strings::Substitute("ZSTD_CCtx_setParameter compression level error: $0",
-                                        ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+            return Status::InvalidArgument("ZSTD_CCtx_setParameter compression level error: {}",
+                                           ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
         }
         // set checksum flag to 1
         ret = ZSTD_CCtx_setParameter(ctx_c, ZSTD_c_checksumFlag, 1);
         if (ZSTD_isError(ret)) {
-            return Status::InvalidArgument(
-                    strings::Substitute("ZSTD_CCtx_setParameter checksumFlag error: $0",
-                                        ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+            return Status::InvalidArgument("ZSTD_CCtx_setParameter checksumFlag error: {}",
+                                           ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
         }
 
         ZSTD_outBuffer out_buf = {output->data, output->size, 0};
@@ -453,15 +451,13 @@ public:
                 auto ret = ZSTD_compressStream2(ctx_c, &out_buf, &in_buf, mode);
 
                 if (ZSTD_isError(ret)) {
-                    return Status::InvalidArgument(
-                            strings::Substitute("ZSTD_compressStream2 error: $0",
-                                                ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+                    return Status::InvalidArgument("ZSTD_compressStream2 error: {}",
+                                                   ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
                 }
 
                 // ret is ZSTD hint for needed output buffer size
                 if (ret > 0 && out_buf.pos == out_buf.size) {
-                    return Status::InvalidArgument(
-                            strings::Substitute("ZSTD_compressStream2 output buffer full"));
+                    return Status::InvalidArgument("ZSTD_compressStream2 output buffer full");
                 }
 
                 finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
@@ -482,8 +478,8 @@ public:
         // reset ctx to start a new decompress session
         auto ret = ZSTD_DCtx_reset(ctx_d, ZSTD_reset_session_only);
         if (ZSTD_isError(ret)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "ZSTD_DCtx_reset error: $0", ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+            return Status::InvalidArgument("ZSTD_DCtx_reset error: {}",
+                                           ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
         }
 
         ZSTD_inBuffer in_buf = {input.data, input.size, 0};
@@ -494,15 +490,13 @@ public:
             auto ret = ZSTD_decompressStream(ctx_d, &out_buf, &in_buf);
 
             if (ZSTD_isError(ret)) {
-                return Status::InvalidArgument(
-                        strings::Substitute("ZSTD_decompressStream error: $0",
-                                            ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+                return Status::InvalidArgument("ZSTD_decompressStream error: {}",
+                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
             }
 
             // ret is ZSTD hint for needed output buffer size
             if (ret > 0 && out_buf.pos == out_buf.size) {
-                return Status::InvalidArgument(
-                        strings::Substitute("ZSTD_decompressStream output buffer full"));
+                return Status::InvalidArgument("ZSTD_decompressStream output buffer full");
             }
         }
 

@@ -294,9 +294,9 @@ struct ConvertImplGenericFromString {
             }
             block.replace_by_position(result, std::move(col_to));
         } else {
-            return Status::RuntimeError(fmt::format(
+            return Status::RuntimeError(
                     "Illegal column {} of first argument of conversion function from string",
-                    col_from.get_name()));
+                    col_from.get_name());
         }
         return Status::OK();
     }
@@ -890,11 +890,11 @@ public:
                     block, arguments, result, input_rows_count);
         }
 
-        return Status::RuntimeError(fmt::format(
+        return Status::RuntimeError(
                 "Illegal type {} of argument of function {} . Only String or FixedString "
                 "argument is accepted for try-conversion function. For other arguments, use "
                 "function without 'orZero' or 'orNull'.",
-                block.get_by_position(arguments[0]).type->get_name(), get_name()));
+                block.get_by_position(arguments[0]).type->get_name(), get_name());
     }
 };
 
@@ -1162,8 +1162,8 @@ private:
                 block.get_by_position(result).column = ColumnArray::create(
                         nested_result_column, from_col_array->get_offsets_ptr());
             } else {
-                return Status::RuntimeError(fmt::format(
-                        "Illegal column {} for function CAST AS Array", from_column->get_name()));
+                return Status::RuntimeError("Illegal column {} for function CAST AS Array",
+                                            from_column->get_name());
             }
             return Status::OK();
         };
