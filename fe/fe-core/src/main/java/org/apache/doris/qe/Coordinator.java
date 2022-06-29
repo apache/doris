@@ -579,9 +579,11 @@ public class Coordinator {
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
             Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
-            // If #fragments >=3, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
+            // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
-            boolean twoPhaseExecution = fragments.size() >= 3;
+            // we choose #fragments >=2 because in some cases
+            // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
+            boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
