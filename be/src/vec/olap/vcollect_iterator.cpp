@@ -202,7 +202,10 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
         } else {
             _ref.is_same = false;
             _ref.row_pos = 0;
-            _block->clear_column_data();
+
+            _block = std::make_shared<Block>(_schema.create_block(
+                    _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+
             auto res = _rs_reader->next_block(_block.get());
             if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
                 return res;

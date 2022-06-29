@@ -234,7 +234,6 @@ private:
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     _block_row_max = opts.block_row_max;
     RETURN_IF_ERROR(_iter->init(opts));
-    RETURN_IF_ERROR(block_reset());
     RETURN_IF_ERROR(_load_next_block());
     if (valid()) {
         RETURN_IF_ERROR(advance());
@@ -258,7 +257,7 @@ Status VMergeIteratorContext::advance() {
 
 Status VMergeIteratorContext::_load_next_block() {
     do {
-        block_reset();
+        _block.clear();
         Status st = _iter->next_batch(&_block);
         if (!st.ok()) {
             _valid = false;

@@ -121,6 +121,10 @@ private:
 
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
+    void _init_current_return_columns();
+    void _clear_current_return_columns();
+    Status _init_return_block(vectorized::Block* block);
+
 private:
     class BitmapRangeIterator;
 

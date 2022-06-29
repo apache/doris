@@ -729,6 +729,9 @@ void SegmentIterator::_vec_init_lazy_materialization() {
 
     // Step 3: fill column ids for read and output
     if (_lazy_materialization_read) {
+        // 1. have predicate columns;
+        // 2. and have non-predicate columns
+        // 3. and some non-predicate columns can be lazy-materialized read 
         // insert pred cid to first_read_columns
         for (auto cid : pred_column_ids) {
             _first_read_column_ids.push_back(cid);
@@ -813,9 +816,41 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
     return Status::OK();
 }
 
+
+void SegmentIterator::_clear_current_return_columns() {
+    _current_return_columns.clear();
+}
+
+void SegmentIterator::_init_current_return_columns() {
+    _current_return_columns.clear();
+    _current_return_columns.resize(_schema.columns().size());
+
+    for (size_t i = 0; i < _schema.num_column_ids(); i++) {
+        auto cid = _schema.column_id(i);
+        auto column_desc = _schema.column(cid);
+        if (_is_pred_column[cid]) {
+            _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
+                    column_desc->type(), column_desc->is_nullable());
+        } else {
+            _current_return_columns[cid] =
+                    Schema::get_data_type_ptr(*column_desc)->create_column();
+
+            if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
+                _current_return_columns[cid]->set_date_type();
+            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
+                // TODO(Gabriel): support datetime v2
+                _current_return_columns[cid]->set_datetime_type();
+            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
+                _current_return_columns[cid]->set_date_v2_type();
+            }
+        }
+        _current_return_columns[cid]->reserve(_opts.block_row_max);
+    }
+}
+
+/*
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
-    block->clear_column_data(_schema.num_column_ids());
 
     for (size_t i = 0; i < _schema.num_column_ids(); i++) {
         auto cid = _schema.column_id(i);
@@ -839,6 +874,36 @@ void SegmentIterator::_init_current_block(
             current_columns[cid]->reserve(_opts.block_row_max);
         }
     }
+}
+*/
+
+Status SegmentIterator::_init_return_block(vectorized::Block* block) {
+    if (block->columns() != 0) {
+        return Status::OK();
+    }
+    for (size_t i = 0; i < _schema.num_column_ids(); ++i) {
+        auto cid = _schema.column_id(i);
+        auto column_desc = _schema.column(cid);
+
+        auto data_type = Schema::get_data_type_ptr(*column_desc);
+        if (data_type == nullptr) {
+            return Status::RuntimeError("invalid data type");
+        }
+        auto column = data_type->create_column();
+        if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
+            column->set_date_type();
+        } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
+            // TODO(Gabriel): support datetime v2
+            column->set_datetime_type();
+        } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
+            column->set_date_v2_type();
+        }
+
+        column->reserve(_opts.block_row_max);
+        block->insert(
+                vectorized::ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
+    }
+    return Status::OK();
 }
 
 void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
@@ -990,9 +1055,6 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    bool is_mem_reuse = block->mem_reuse();
-    DCHECK(is_mem_reuse);
-
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init(true));
@@ -1000,6 +1062,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         if (_lazy_materialization_read) {
             _block_rowids.resize(_opts.block_row_max);
         }
+        /*
         _current_return_columns.resize(_schema.columns().size());
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
@@ -1021,9 +1084,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
+        */
     }
 
-    _init_current_block(block, _current_return_columns);
+    // _init_current_block(block, _current_return_columns);
+
+    _init_return_block(block);
+    _init_current_return_columns();
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
@@ -1033,6 +1100,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     _opts.stats->raw_rows_read += nrows_read;
 
     if (nrows_read == 0) {
+        /*
         for (int i = 0; i < block->columns(); i++) {
             auto cid = _schema.column_id(i);
             // todo(wb) abstract make column where
@@ -1040,7 +1108,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 block->replace_by_position(i, std::move(_current_return_columns[cid]));
             }
         }
-        block->clear_column_data();
+        */
+        _clear_current_return_columns();
         return Status::EndOfFile("no more data in segment");
     }
 
@@ -1062,6 +1131,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         if (!_lazy_materialization_read) {
             Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
                                                    selected_size);
+            _clear_current_return_columns();
+
             if (!ret.ok()) {
                 return ret;
             }
@@ -1085,6 +1156,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
                                                   selected_size));
     }
+
+    _clear_current_return_columns();
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
