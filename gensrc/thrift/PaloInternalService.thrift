@@ -227,7 +227,7 @@ struct TPlanFragmentExecParams {
   5: list<TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
-  6: optional Types.TPlanNodeId debug_node_id
+  // 6: optional Types.TPlanNodeId debug_node_id // Never used
   7: optional PlanNodes.TExecNodePhase debug_phase
   8: optional PlanNodes.TDebugAction debug_action
 
