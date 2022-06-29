@@ -183,8 +183,8 @@ under the License.
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.sleepycat</groupId>
-            <artifactId>je</artifactId>
+            <groupId>io.github.swjtu-zhanglei</groupId>
+            <artifactId>bdb-je</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.mortbay.jetty/jetty -->
         <dependency>
