@@ -184,7 +184,7 @@ public class Group {
      * @return {@link Optional} of cost and {@link GroupExpression} of physical plan pair.
      */
     public Optional<Pair<Double, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
-        if (physicalProperties == null || lowestCostPlans == null || lowestCostPlans.isEmpty()) {
+        if (physicalProperties == null || lowestCostPlans.isEmpty()) {
             return Optional.empty();
         }
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
