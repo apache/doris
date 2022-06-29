@@ -32,7 +32,6 @@ Status VSelectNode::prepare(RuntimeState* state) {
 }
 
 Status VSelectNode::open(RuntimeState* state) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
@@ -44,7 +43,6 @@ Status VSelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
 
 Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     do {
         RETURN_IF_CANCELLED(state);

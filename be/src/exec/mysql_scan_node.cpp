@@ -113,7 +113,6 @@ Status MysqlScanNode::open(RuntimeState* state) {
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_mysql_scanner->open());
     RETURN_IF_ERROR(_mysql_scanner->query(_table_name, _columns, _filters, _limit));
@@ -158,7 +157,6 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
@@ -244,7 +242,6 @@ Status MysqlScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();

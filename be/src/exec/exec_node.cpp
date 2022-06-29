@@ -144,8 +144,6 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _tuple_ids(tnode.row_tuples),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _resource_profile(tnode.resource_profile),
-          _debug_phase(TExecNodePhase::INVALID),
-          _debug_action(TDebugAction::WAIT),
           _limit(tnode.limit),
           _num_rows_returned(0),
           _rows_returned_counter(nullptr),
@@ -200,7 +198,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status ExecNode::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::PREPARE));
     DCHECK(_runtime_profile.get() != nullptr);
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
     _rows_returned_rate = runtime_profile()->add_derived_counter(
@@ -231,7 +228,6 @@ Status ExecNode::prepare(RuntimeState* state) {
 
 Status ExecNode::open(RuntimeState* state) {
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
@@ -259,7 +255,6 @@ Status ExecNode::close(RuntimeState* state) {
         return Status::OK();
     }
     _is_closed = true;
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
@@ -611,19 +606,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     return Status::OK();
 }
 
-void ExecNode::set_debug_options(int node_id, TExecNodePhase::type phase, TDebugAction::type action,
-                                 ExecNode* root) {
-    if (root->_id == node_id) {
-        root->_debug_phase = phase;
-        root->_debug_action = action;
-        return;
-    }
-
-    for (int i = 0; i < root->_children.size(); ++i) {
-        set_debug_options(node_id, phase, action, root->_children[i]);
-    }
-}
-
 std::string ExecNode::debug_string() const {
     std::stringstream out;
     this->debug_string(0, &out);
@@ -700,26 +682,6 @@ void ExecNode::init_runtime_profile(const std::string& name) {
     _runtime_profile->set_metadata(_id);
 }
 
-Status ExecNode::exec_debug_action(TExecNodePhase::type phase) {
-    DCHECK(phase != TExecNodePhase::INVALID);
-
-    if (_debug_phase != phase) {
-        return Status::OK();
-    }
-
-    if (_debug_action == TDebugAction::FAIL) {
-        return Status::InternalError("Debug Action: FAIL");
-    }
-
-    if (_debug_action == TDebugAction::WAIT) {
-        while (true) {
-            sleep(1);
-        }
-    }
-
-    return Status::OK();
-}
-
 Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     DCHECK(!_buffer_pool_client.is_registered());
     BufferPool* buffer_pool = ExecEnv::GetInstance()->buffer_pool();
@@ -771,24 +733,6 @@ void ExecNode::reached_limit(vectorized::Block* block, bool* eos) {
     _num_rows_returned += block->rows();
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
-
-/*
-Status ExecNode::enable_deny_reservation_debug_action() {
-  DCHECK_EQ(debug_action_, TDebugAction::SET_DENY_RESERVATION_PROBABILITY);
-  DCHECK(_buffer_pool_client.is_registered());
-  // Parse [0.0, 1.0] probability.
-  StringParser::ParseResult parse_result;
-  double probability = StringParser::StringToFloat<double>(
-      debug_action_param_.c_str(), debug_action_param_.size(), &parse_result);
-  if (parse_result != StringParser::PARSE_SUCCESS || probability < 0.0
-      || probability > 1.0) {
-    return Status::InternalError(strings::Substitute(
-        "Invalid SET_DENY_RESERVATION_PROBABILITY param: '$0'", debug_action_param_));
-  }
-  _buffer_pool_client.SetDebugDenyIncreaseReservation(probability);
-  return Status::OK()();
-}
-*/
 
 Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
     // TODO chenhao , when introduce latest AnalyticEvalNode open it

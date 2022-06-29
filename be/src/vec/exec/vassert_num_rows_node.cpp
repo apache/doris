@@ -47,7 +47,6 @@ Status VAssertNumRowsNode::open(RuntimeState* state) {
 }
 
 Status VAssertNumRowsNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(child(0)->get_next(state, block, eos));
     _num_rows_returned += block->rows();

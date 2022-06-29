@@ -1511,8 +1511,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
-
     // change done status
     {
         std::unique_lock<std::mutex> l(_blocks_lock);
@@ -1557,7 +1555,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
