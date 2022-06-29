@@ -194,7 +194,7 @@ public class Group {
      * Get the first Plan from Memo.
      */
     public PhysicalPlan extractPlan() throws AnalysisException {
-        GroupExpression groupExpression = this.logicalExpressionsAt(0);
+        GroupExpression groupExpression = this.physicalExpressions.get(0);
 
         List<Plan> planChildren = com.google.common.collect.Lists.newArrayList();
         for (int i = 0; i < groupExpression.arity(); i++) {
