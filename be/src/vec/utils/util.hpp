@@ -40,12 +40,6 @@ public:
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                LOG(INFO) << "slot type is " << slot_desc->get_data_type_ptr()->get_name();
-                if (is_array(slot_desc->get_data_type_ptr())) {
-                    auto array_type = check_and_get_data_type<DataTypeArray>(slot_desc->get_data_type_ptr().get());
-                    LOG(INFO) << "slot nested type is " << array_type->get_nested_type()->get_name();
-                }
-                LOG(INFO) << "slot name is " << slot_desc->col_name();
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name());
             }
