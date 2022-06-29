@@ -656,10 +656,16 @@ public:
     using LookupResult = Cell*;
     using ConstLookupResult = const Cell*;
 
-    void reset_resize_timer() { _resize_timer_ns = 0; }
-    int64_t get_resize_timer_value() const { return _resize_timer_ns; }
+    void reset_resize_timer() {
+        _resize_timer_ns = 0;
+    }
+    int64_t get_resize_timer_value() const {
+        return _resize_timer_ns;
+    }
 
-    size_t hash(const Key& x) const { return Hash::operator()(x); }
+    size_t hash(const Key& x) const {
+        return Hash::operator()(x);
+    }
 
     HashTable() {
         if (Cell::need_zero_value_storage) this->zero_value()->set_zero();
@@ -672,7 +678,9 @@ public:
         alloc(grower);
     }
 
-    HashTable(HashTable&& rhs) : buf(nullptr) { *this = std::move(rhs); }
+    HashTable(HashTable&& rhs) : buf(nullptr) {
+        *this = std::move(rhs);
+    }
 
     ~HashTable() {
         destroy_elements();
@@ -717,7 +725,9 @@ public:
         return const_iterator(this, ptr);
     }
 
-    const_iterator cbegin() const { return begin(); }
+    const_iterator cbegin() const {
+        return begin();
+    }
 
     iterator begin() {
         if (!buf) return end();
@@ -731,15 +741,29 @@ public:
         return iterator(this, ptr);
     }
 
-    const_iterator end() const { return const_iterator(this, buf + grower.buf_size()); }
-    const_iterator cend() const { return end(); }
-    iterator end() { return iterator(this, buf + grower.buf_size()); }
+    const_iterator end() const {
+        return const_iterator(this, buf + grower.buf_size());
+    }
+    const_iterator cend() const {
+        return end();
+    }
+    iterator end() {
+        return iterator(this, buf + grower.buf_size());
+    }
 
 protected:
-    const_iterator iterator_to(const Cell* ptr) const { return const_iterator(this, ptr); }
-    iterator iterator_to(Cell* ptr) { return iterator(this, ptr); }
-    const_iterator iterator_to_zero() const { return iterator_to(this->zero_value()); }
-    iterator iterator_to_zero() { return iterator_to(this->zero_value()); }
+    const_iterator iterator_to(const Cell* ptr) const {
+        return const_iterator(this, ptr);
+    }
+    iterator iterator_to(Cell* ptr) {
+        return iterator(this, ptr);
+    }
+    const_iterator iterator_to_zero() const {
+        return iterator_to(this->zero_value());
+    }
+    iterator iterator_to_zero() {
+        return iterator_to(this->zero_value());
+    }
 
     /// If the key is zero, insert it into a special place and return true.
     /// We don't have to persist a zero key, because it's not actually inserted.
@@ -953,13 +977,21 @@ public:
         }
     }
 
-    size_t size() const { return m_size; }
+    size_t size() const {
+        return m_size;
+    }
 
-    bool empty() const { return 0 == m_size; }
+    bool empty() const {
+        return 0 == m_size;
+    }
 
-    float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
+    float get_factor() const {
+        return MAX_BUCKET_OCCUPANCY_FRACTION;
+    }
 
-    bool should_be_shrink(int64_t valid_row) { return valid_row < get_factor() * (size() / 2.0); }
+    bool should_be_shrink(int64_t valid_row) {
+        return valid_row < get_factor() * (size() / 2.0);
+    }
 
     void init_buf_size(size_t reserve_for_num_elements) {
         free();
@@ -991,14 +1023,20 @@ public:
         free();
     }
 
-    size_t get_buffer_size_in_bytes() const { return grower.buf_size() * sizeof(Cell); }
+    size_t get_buffer_size_in_bytes() const {
+        return grower.buf_size() * sizeof(Cell);
+    }
 
-    size_t get_buffer_size_in_cells() const { return grower.buf_size(); }
+    size_t get_buffer_size_in_cells() const {
+        return grower.buf_size();
+    }
 
     bool add_elem_size_overflow(size_t add_size) const {
         return grower.overflow(add_size + m_size);
     }
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t getCollisions() const { return collisions; }
+    size_t getCollisions() const {
+        return collisions;
+    }
 #endif
 };

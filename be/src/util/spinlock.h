@@ -49,10 +49,14 @@ public:
         }
     }
 
-    void unlock() { _locked.clear(std::memory_order_release); }
+    void unlock() {
+        _locked.clear(std::memory_order_release);
+    }
 
     // Tries to acquire the lock
-    bool try_lock() { return !_locked.test_and_set(std::memory_order_acquire); }
+    bool try_lock() {
+        return !_locked.test_and_set(std::memory_order_acquire);
+    }
 
 private:
     static const int NUM_SPIN_CYCLES = 70;

@@ -387,8 +387,12 @@ public:
         return Status::OK();
     }
 
-    uint64_t size() const override { return _filesize; }
-    const string& filename() const override { return _filename; }
+    uint64_t size() const override {
+        return _filesize;
+    }
+    const string& filename() const override {
+        return _filename;
+    }
 
 private:
     std::string _filename;
@@ -441,7 +445,9 @@ public:
         return Status::OK();
     }
 
-    Status sync() override { return do_sync(_fd, _filename); }
+    Status sync() override {
+        return do_sync(_fd, _filename);
+    }
 
     Status close() override {
         if (_closed) {
@@ -476,7 +482,9 @@ public:
         return Status::OK();
     }
 
-    const string& filename() const override { return _filename; }
+    const string& filename() const override {
+        return _filename;
+    }
 
 private:
     const std::string _filename;

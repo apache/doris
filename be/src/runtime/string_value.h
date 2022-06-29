@@ -137,27 +137,49 @@ struct StringValue {
         return string_compare(this->ptr, this->len, other.ptr, other.len, this->len) == 0;
     }
 
-    bool operator==(const StringValue& other) const { return eq(other); }
+    bool operator==(const StringValue& other) const {
+        return eq(other);
+    }
     // !=
-    bool ne(const StringValue& other) const { return !eq(other); }
+    bool ne(const StringValue& other) const {
+        return !eq(other);
+    }
     // <=
-    bool le(const StringValue& other) const { return compare(other) <= 0; }
+    bool le(const StringValue& other) const {
+        return compare(other) <= 0;
+    }
     // >=
-    bool ge(const StringValue& other) const { return compare(other) >= 0; }
+    bool ge(const StringValue& other) const {
+        return compare(other) >= 0;
+    }
     // <
-    bool lt(const StringValue& other) const { return compare(other) < 0; }
+    bool lt(const StringValue& other) const {
+        return compare(other) < 0;
+    }
     // >
-    bool gt(const StringValue& other) const { return compare(other) > 0; }
+    bool gt(const StringValue& other) const {
+        return compare(other) > 0;
+    }
 
-    bool operator!=(const StringValue& other) const { return ne(other); }
+    bool operator!=(const StringValue& other) const {
+        return ne(other);
+    }
 
-    bool operator<=(const StringValue& other) const { return le(other); }
+    bool operator<=(const StringValue& other) const {
+        return le(other);
+    }
 
-    bool operator>=(const StringValue& other) const { return ge(other); }
+    bool operator>=(const StringValue& other) const {
+        return ge(other);
+    }
 
-    bool operator<(const StringValue& other) const { return lt(other); }
+    bool operator<(const StringValue& other) const {
+        return lt(other);
+    }
 
-    bool operator>(const StringValue& other) const { return gt(other); }
+    bool operator>(const StringValue& other) const {
+        return gt(other);
+    }
 
     std::string debug_string() const;
 

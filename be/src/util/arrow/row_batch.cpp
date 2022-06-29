@@ -189,8 +189,10 @@ public:
     // Use base class function
     using arrow::TypeVisitor::Visit;
 
-#define PRIMITIVE_VISIT(TYPE) \
-    arrow::Status Visit(const arrow::TYPE& type) override { return _visit(type); }
+#define PRIMITIVE_VISIT(TYPE)                               \
+    arrow::Status Visit(const arrow::TYPE& type) override { \
+        return _visit(type);                                \
+    }
 
     PRIMITIVE_VISIT(Int8Type);
     PRIMITIVE_VISIT(Int16Type);
@@ -368,8 +370,10 @@ public:
     ToRowBatchConverter(const arrow::RecordBatch& batch, const RowDescriptor& row_desc)
             : _batch(batch), _row_desc(row_desc) {}
 
-#define PRIMITIVE_VISIT(TYPE) \
-    arrow::Status Visit(const arrow::TYPE& array) override { return _visit(array); }
+#define PRIMITIVE_VISIT(TYPE)                                \
+    arrow::Status Visit(const arrow::TYPE& array) override { \
+        return _visit(array);                                \
+    }
 
     PRIMITIVE_VISIT(Int8Array);
     PRIMITIVE_VISIT(Int16Array);

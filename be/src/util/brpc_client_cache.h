@@ -103,11 +103,17 @@ public:
         return std::make_shared<T>(channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
     }
 
-    size_t size() { return _stub_map.size(); }
+    size_t size() {
+        return _stub_map.size();
+    }
 
-    void clear() { _stub_map.clear(); }
+    void clear() {
+        _stub_map.clear();
+    }
 
-    size_t erase(const std::string& host_port) { return _stub_map.erase(host_port); }
+    size_t erase(const std::string& host_port) {
+        return _stub_map.erase(host_port);
+    }
 
     size_t erase(const std::string& host, int port) {
         std::string host_port = fmt::format("{}:{}", host, port);

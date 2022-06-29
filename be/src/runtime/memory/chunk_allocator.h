@@ -57,7 +57,9 @@ public:
 #ifdef BE_TEST
     static ChunkAllocator* instance();
 #else
-    static ChunkAllocator* instance() { return _s_instance; }
+    static ChunkAllocator* instance() {
+        return _s_instance;
+    }
 #endif
 
     ChunkAllocator(size_t reserve_limit);
