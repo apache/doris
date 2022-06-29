@@ -21,11 +21,16 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -38,6 +43,13 @@ public class HMSExternalTable extends ExternalTable {
     private final String metastoreUri;
     private final String dbName;
     private org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    private DLAType dlaType = null;
+
+    public enum DLAType {
+        HIVE,
+        HUDI,
+        ICEBERG
+    }
 
     /**
      * Create hive metastore external table.
@@ -51,6 +63,7 @@ public class HMSExternalTable extends ExternalTable {
         super(id, name);
         this.dbName = dbName;
         this.metastoreUri = uri;
+        this.type = TableType.HMS_EXTERNAL_TABLE;
         init();
     }
 
@@ -58,11 +71,11 @@ public class HMSExternalTable extends ExternalTable {
         getRemoteTable();
         if (remoteTable.getParameters().containsKey("table_type")
                 && remoteTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG")) {
-            type = TableType.ICEBERG;
+            dlaType = DLAType.ICEBERG;
         } else if (remoteTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
-            type = TableType.HUDI;
+            dlaType = DLAType.HUDI;
         } else {
-            type = TableType.HIVE;
+            dlaType = DLAType.HIVE;
         }
     }
 
@@ -92,6 +105,7 @@ public class HMSExternalTable extends ExternalTable {
         if (fullSchema == null) {
             synchronized (this) {
                 if (fullSchema == null) {
+                    fullSchema = new ArrayList<>();
                     try {
                         for (FieldSchema field : HiveMetaStoreClientHelper.getSchema(dbName, name, metastoreUri)) {
                             fullSchema.add(new Column(field.getName(),
@@ -190,5 +204,25 @@ public class HMSExternalTable extends ExternalTable {
      */
     public String getDbName() {
         return dbName;
+    }
+
+    /**
+     * get the dla type for scan node to get right information.
+     */
+    public DLAType getDlaType() {
+        return dlaType;
+    }
+
+    @Override
+    public TTableDescriptor toThrift() {
+        THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE,
+                fullSchema.size(), 0, getName(), "");
+        tTableDescriptor.setHiveTable(tHiveTable);
+        return tTableDescriptor;
+    }
+
+    public String getMetastoreUri() {
+        return metastoreUri;
     }
 }
