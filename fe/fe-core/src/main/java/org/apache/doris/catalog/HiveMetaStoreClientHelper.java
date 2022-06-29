@@ -698,6 +698,10 @@ public class HiveMetaStoreClientHelper {
                 return Type.DATE;
             case "timestamp":
                 return Type.DATETIME;
+            case "float":
+                return Type.FLOAT;
+            case "double":
+                return Type.DOUBLE;
             default:
                 break;
         }

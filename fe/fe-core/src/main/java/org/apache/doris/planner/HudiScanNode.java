@@ -292,11 +292,9 @@ public class HudiScanNode extends BrokerScanNode {
             return;
         }
 
-        THdfsParams hdfsParams = new THdfsParams();
         String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
-        hdfsParams.setFsName(fsName);
         Log.debug("Hudi path's host is " + fsName);
 
         TFileFormatType fileFormatType = null;
@@ -319,7 +317,7 @@ public class HudiScanNode extends BrokerScanNode {
 
             TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(fileSplit, fileFormatType,
                     partitionValuesFromPath, numberOfColumnsFromFile, brokerDesc);
-            rangeDesc.setHdfsParams(hdfsParams);
+            rangeDesc.getHdfsParams().setFsName(fsName);
             rangeDesc.setReadByColumnDef(true);
 
             curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
@@ -350,7 +348,8 @@ public class HudiScanNode extends BrokerScanNode {
         // set hdfs params for hdfs file type.
         switch (brokerDesc.getFileType()) {
             case FILE_HDFS:
-                BrokerUtil.generateHdfsParam(brokerDesc.getProperties(), rangeDesc);
+                THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(brokerDesc.getProperties());
+                rangeDesc.setHdfsParams(tHdfsParams);
                 break;
             default:
                 break;

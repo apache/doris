@@ -63,6 +63,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -1725,6 +1726,9 @@ public class SingleNodePlanner {
             case TABLE_VALUED_FUNCTION:
                 scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
                         "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
+                break;
+            case HMS_EXTERNAL_TABLE:
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HMS_FILE_SCAN_NODE");
                 break;
             default:
                 break;

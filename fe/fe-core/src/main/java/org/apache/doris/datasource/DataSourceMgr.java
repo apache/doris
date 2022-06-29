@@ -117,6 +117,10 @@ public class DataSourceMgr implements Writable {
         return dbNames;
     }
 
+    public DataSourceIf getExternalDatasource(String name) {
+        return nameToCatalogs.get(name);
+    }
+
     private void writeLock() {
         lock.writeLock().lock();
     }

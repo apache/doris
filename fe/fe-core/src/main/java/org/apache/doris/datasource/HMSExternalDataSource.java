@@ -48,8 +48,9 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     //Cache of db name to db id.
     private ConcurrentHashMap<String, Long> dbNameToId = new ConcurrentHashMap();
-    private AtomicLong nextId = new AtomicLong(0);
+    private static final AtomicLong nextId = new AtomicLong(0);
 
+    private boolean initialized = false;
     protected String hiveMetastoreUris;
     protected HiveMetaStoreClient client;
 
@@ -57,34 +58,21 @@ public class HMSExternalDataSource extends ExternalDataSource {
      * Default constructor for HMSExternalDataSource.
      */
     public HMSExternalDataSource(String name, Map<String, String> props) {
-        setName(name);
-        getDsProperty().setProperties(props);
-        setType("hms");
-    }
-
-    /**
-     * Hive metastore data source implementation.
-     *
-     * @param hiveMetastoreUris e.g. thrift://127.0.0.1:9083
-     */
-    public HMSExternalDataSource(long id, String name, String type, DataSourceProperty dsProperty,
-            String hiveMetastoreUris) throws DdlException {
-        this.id = id;
+        this.id = nextId.incrementAndGet();
         this.name = name;
-        this.type = type;
-        this.dsProperty = dsProperty;
-        this.hiveMetastoreUris = hiveMetastoreUris;
-        init();
+        this.type = "hms";
+        this.dsProperty = new DataSourceProperty();
+        this.dsProperty.setProperties(props);
+        this.hiveMetastoreUris = props.getOrDefault("hive.metastore.uris", "thrift://127.0.0.1:9083");
     }
 
-    private void init() throws DdlException {
+    private void init() {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, hiveMetastoreUris);
         try {
             client = new HiveMetaStoreClient(hiveConf);
         } catch (MetaException e) {
             LOG.warn("Failed to create HiveMetaStoreClient: {}", e.getMessage());
-            throw new DdlException("Create HMSExternalDataSource failed.", e);
         }
         List<String> allDatabases;
         try {
@@ -102,8 +90,20 @@ public class HMSExternalDataSource extends ExternalDataSource {
         }
     }
 
+    /**
+     * Datasource can't be init when creating because the external datasource may depend on third system.
+     * So you have to make sure the client of third system is initialized before any method was called.
+     */
+    private synchronized void makeSureInitialized() {
+        if (!initialized) {
+            init();
+            initialized = true;
+        }
+    }
+
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
+        makeSureInitialized();
         try {
             List<String> allDatabases = client.getAllDatabases();
             // Update the db name to id map.
@@ -119,6 +119,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
         try {
             return client.getAllTables(dbName);
         } catch (MetaException e) {
@@ -129,6 +130,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
+        makeSureInitialized();
         try {
             return client.tableExists(dbName, tblName);
         } catch (TException e) {
@@ -140,6 +142,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
+        makeSureInitialized();
         try {
             client.getDatabase(dbName);
         } catch (TException e) {
@@ -156,6 +159,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
+        makeSureInitialized();
         for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
             if (entry.getValue() == dbId) {
                 return new HMSExternalDatabase(this, dbId, entry.getKey(), hiveMetastoreUris);
@@ -230,6 +234,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<Long> getDbIds() {
+        makeSureInitialized();
         return Lists.newArrayList(dbNameToId.values());
     }
 }

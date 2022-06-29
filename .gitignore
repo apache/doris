@@ -71,6 +71,7 @@ fe/fe-core/src/main/resources/static/
 
 # BE
 be/build*/
+be/cmake-build*/
 be/ut_build*/
 be/src/gen_cpp/*.[cc, cpp, h]
 be/src/gen_cpp/opcode

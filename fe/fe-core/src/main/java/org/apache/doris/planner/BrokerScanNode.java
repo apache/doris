@@ -605,7 +605,8 @@ public class BrokerScanNode extends LoadScanNode {
         rangeDesc.setHeaderType(headerType);
         // set hdfs params for hdfs file type.
         if (brokerDesc.getFileType() == TFileType.FILE_HDFS) {
-            BrokerUtil.generateHdfsParam(brokerDesc.getProperties(), rangeDesc);
+            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(brokerDesc.getProperties());
+            rangeDesc.setHdfsParams(tHdfsParams);
         }
         return rangeDesc;
     }

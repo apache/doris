@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -77,8 +76,8 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public String getMetaStoreUrl() throws MetaNotFoundException {
-        return getTableProperties().get(HiveConf.ConfVars.METASTOREURIS.name());
+    public String getMetaStoreUrl() {
+        return hmsTable.getMetastoreUri();
     }
 
     @Override
@@ -145,5 +144,10 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     @Override
     public Map<String, String> getTableProperties() throws MetaNotFoundException {
         return hmsTable.getRemoteTable().getParameters();
+    }
+
+    @Override
+    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
+        return getRemoteHiveTable().getPartitionKeys().stream().map(FieldSchema::getName).collect(Collectors.toList());
     }
 }
