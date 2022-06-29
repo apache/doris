@@ -41,11 +41,6 @@ public class UnboundAlias<CHILD_TYPE extends Expression>
     }
 
     @Override
-    public String sql() {
-        return child().sql();
-    }
-
-    @Override
     public DataType getDataType() throws UnboundException {
         return child().getDataType();
     }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids;
 
-import com.alibaba.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
@@ -28,6 +27,7 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.ssb.SSBUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -143,6 +144,7 @@ public class AnalyzeSSBTest extends TestWithFeService {
         executeRewriteBottomUpJob(plannerContext, new BindFunction());
         executeRewriteBottomUpJob(plannerContext, new BindRelation());
         executeRewriteBottomUpJob(plannerContext, new BindSlotReference());
+        executeRewriteBottomUpJob(plannerContext, new ProjectToGlobalAggregate());
         return (LogicalPlan) memo.copyOut();
     }
 

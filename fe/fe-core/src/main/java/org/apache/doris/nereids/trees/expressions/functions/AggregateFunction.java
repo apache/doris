@@ -19,12 +19,16 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 
 /** AggregateFunction. */
-public class AggregateFunction extends BoundFunction {
+public abstract class AggregateFunction extends BoundFunction {
+
     public AggregateFunction(String name, Expression... arguments) {
         super(name, arguments);
     }
+
+    public abstract DataType getIntermediateType();
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

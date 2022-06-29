@@ -173,4 +173,9 @@ public abstract class Arithmetic extends Expression {
     public int hashCode() {
         return Objects.hash(op);
     }
+
+    @Override
+    public String toString() {
+        return sql();
+    }
 }

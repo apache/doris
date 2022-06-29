@@ -35,6 +35,7 @@ public enum RuleType {
     BINDING_AGGREGATE_FUNCTION(RuleTypeClass.REWRITE),
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
+    PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
 
     // rewrite rules
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),

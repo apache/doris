@@ -41,6 +41,6 @@ public class And<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Ex
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Add<>(children.get(0), children.get(1));
+        return new And<>(children.get(0), children.get(1));
     }
 }

@@ -34,7 +34,7 @@ public class Between<
             FIRST_CHILD_TYPE extends Expression,
             SECOND_CHILD_TYPE extends Expression,
             THIRD_CHILD_TYPE extends Expression>
-        extends Expression implements TripleExpression<FIRST_CHILD_TYPE, SECOND_CHILD_TYPE, THIRD_CHILD_TYPE> {
+        extends Expression implements TernaryExpression<FIRST_CHILD_TYPE, SECOND_CHILD_TYPE, THIRD_CHILD_TYPE> {
 
     private Expression compareExpr;
     private Expression lowerBound;
@@ -62,9 +62,12 @@ public class Between<
 
     @Override
     public String sql() {
-        return compareExpr.sql()
-                + " BETWEEN "
-                + lowerBound.sql() + " AND " + upperBound.sql();
+        return compareExpr.sql() + " BETWEEN " + lowerBound.sql() + " AND " + upperBound.sql();
+    }
+
+    @Override
+    public String toString() {
+        return compareExpr + " BETWEEN " + lowerBound + " AND " + upperBound;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

@@ -59,4 +59,9 @@ public class Sum extends AggregateFunction implements UnaryExpression<Expression
         Preconditions.checkArgument(children.size() == 1);
         return new Sum(children.get(0));
     }
+
+    @Override
+    public DataType getIntermediateType() {
+        return getDataType();
+    }
 }
