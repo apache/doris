@@ -1652,8 +1652,11 @@ Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
     {
         std::lock_guard<std::mutex> l(_free_blocks_lock);
         if (!_free_blocks.empty()) {
-            auto block = new Block(_tuple_desc->slots(), _block_size);
+            auto block = _free_blocks.back();
+            delete block;
             _free_blocks.pop_back();
+
+            block = new Block(_tuple_desc->slots(), _block_size);
             return block;
         }
     }
