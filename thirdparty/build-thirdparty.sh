@@ -1336,9 +1336,10 @@ build_sse2neon() {
 build_avro(){
     check_if_source_exist $AVRO_SOURCE
     cd $TP_SOURCE_DIR/$AVRO_SOURCE
-    #sed -i "121ilink_libraries(z)" CMakeLists.txt
+    sed '132d' CMakeLists.txt
+    sed '132 i target_link_libraries (avrocpp ${Boost_LIBRARIES} ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARY})' CMakeLists.txt
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBoost_USE_STATIC_RUNTIME=ON
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBoost_USE_STATIC_RUNTIME=ON -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
