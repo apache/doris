@@ -201,7 +201,7 @@ public:
         return Status::OK();
     }
 
-    void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override {
+    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override {
         if (column.is_nullable()) {
             auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -211,15 +211,15 @@ public:
             auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
-                _base_evaluate<true, true>(&nested_col, &null_bitmap, sel, size);
+                return _base_evaluate<true, true>(&nested_col, &null_bitmap, sel, size);
             } else {
-                _base_evaluate<true, false>(&nested_col, &null_bitmap, sel, size);
+                return _base_evaluate<true, false>(&nested_col, &null_bitmap, sel, size);
             }
         } else {
             if (_opposite) {
-                _base_evaluate<false, true>(&column, nullptr, sel, size);
+                return _base_evaluate<false, true>(&column, nullptr, sel, size);
             } else {
-                _base_evaluate<false, false>(&column, nullptr, sel, size);
+                return _base_evaluate<false, false>(&column, nullptr, sel, size);
             }
         }
     }
@@ -285,20 +285,49 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite>
-    void _base_evaluate(const vectorized::IColumn* column,
-                        const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                        uint16_t* sel, uint16_t* size) const {
+    uint16_t _base_evaluate(const vectorized::IColumn* column,
+                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+                            uint16_t* sel, uint16_t size) const {
         uint16_t new_size = 0;
 
-        if (column->is_column_dictionary()) {
+        if constexpr (std::is_same_v<T, uint24_t>) {
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<uint32_t>>(
+                            column);
+            auto& data_array = nested_col_ptr->get_data();
+
+            uint24_t tmp_uint24_value;
+            for (uint16_t i = 0; i < size; i++) {
+                uint16_t idx = sel[i];
+                if constexpr (is_nullable) {
+                    if ((*null_map)[idx]) {
+                        if constexpr (is_opposite) {
+                            sel[new_size++] = idx;
+                        }
+                        continue;
+                    }
+                }
+
+                memcpy((char*)(&tmp_uint24_value), (char*)(&(data_array[idx])), sizeof(uint24_t));
+                if constexpr (!is_opposite) {
+                    if (_operator(_values.find(tmp_uint24_value), _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                } else {
+                    if (!_operator(_values.find(tmp_uint24_value), _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                }
+            }
+
+        } else if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringValue>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                std::vector<vectorized::UInt8> selected;
-                nested_col_ptr->find_codes(_values, selected);
+                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
 
-                for (uint16_t i = 0; i < *size; i++) {
+                for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
                     if constexpr (is_nullable) {
                         if ((*null_map)[idx]) {
@@ -310,11 +339,11 @@ private:
                     }
 
                     if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
-                        if (selected[data_array[idx]]) {
+                        if (_value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     } else {
-                        if (!selected[data_array[idx]]) {
+                        if (!_value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     }
@@ -327,7 +356,7 @@ private:
                     vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 if constexpr (is_nullable) {
                     if ((*null_map)[idx]) {
@@ -352,10 +381,11 @@ private:
             }
         }
 
-        *size = new_size;
+        return new_size;
     }
 
     phmap::flat_hash_set<T> _values;
+    mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
 };
 
 template <class T>

@@ -56,8 +56,8 @@ public class OlapTableTest {
                 continue;
             }
             OlapTable tbl = (OlapTable) table;
-            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"), IndexDef.IndexType.BITMAP
-                    , "xxxxxx")));
+            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"),
+                    IndexDef.IndexType.BITMAP, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -29,8 +28,8 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -54,16 +53,16 @@ public class RewriteTopDownJobTest implements Plans {
         @Override
         public Rule<Plan> build() {
             return unboundRelation().then(unboundRelation -> plan(
-                new LogicalRelation(new Table(0, "test", Table.TableType.OLAP, ImmutableList.of(
+                new LogicalOlapScan(new Table(0, "test", Table.TableType.OLAP, ImmutableList.of(
                     new Column("id", Type.INT),
                     new Column("name", Type.STRING)
                 )), Lists.newArrayList("test"))
-            )).toRule(RuleType.BINDING_UNBOUND_RELATION_RULE);
+            )).toRule(RuleType.BINDING_RELATION);
         }
     }
 
     @Test
-    public void testSimplestScene() throws AnalysisException {
+    public void testSimplestScene() {
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         Plan leaf = plan(unboundRelation);
         LogicalProject project = new LogicalProject(ImmutableList.of(

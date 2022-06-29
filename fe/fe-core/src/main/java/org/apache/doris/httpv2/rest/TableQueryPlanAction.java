@@ -78,7 +78,8 @@ import javax.servlet.http.HttpServletResponse;
 public class TableQueryPlanAction extends RestBaseController {
     public static final Logger LOG = LogManager.getLogger(TableQueryPlanAction.class);
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan", method = {RequestMethod.GET, RequestMethod.POST})
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",
+            method = {RequestMethod.GET, RequestMethod.POST})
     public Object query_plan(
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
@@ -110,7 +111,7 @@ public class TableQueryPlanAction extends RestBaseController {
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Table table;
             try {
-                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
                 table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
@@ -160,29 +161,34 @@ public class TableQueryPlanAction extends RestBaseController {
         StatementBase query = stmtExecutor.getParsedStmt();
         // only process select semantic
         if (!(query instanceof SelectStmt)) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement needed, but found [" + sql + " ]");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "Select statement needed, but found [" + sql + " ]");
         }
         SelectStmt stmt = (SelectStmt) query;
         // just only process sql like `select * from table where <predicate>`, only support executing scan semantic
         if (stmt.hasAggInfo() || stmt.hasAnalyticInfo()
                 || stmt.hasOrderByClause() || stmt.hasOffset() || stmt.hasLimit() || stmt.isExplain()) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "only support single table filter-prune-scan, but found [ " + sql + "]");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "only support single table filter-prune-scan, but found [ " + sql + "]");
         }
         // process only one table by one http query
         List<TableRef> fromTables = stmt.getTableRefs();
         if (fromTables.size() != 1) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must have only one table");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "Select statement must have only one table");
         }
 
         TableRef fromTable = fromTables.get(0);
         if (fromTable instanceof InlineViewRef) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must not embed another statement");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "Select statement must not embed another statement");
         }
         // check consistent http requested resource with sql referenced
         // if consistent in this way, can avoid check privilege
         TableName tableAndDb = fromTables.get(0).getName();
         if (!(tableAndDb.getDb().equals(requestDb) && tableAndDb.getTbl().equals(requestTable))) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "requested database and table must consistent with sql: request [ "
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "requested database and table must consistent with sql: request [ "
                     + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString() + "]");
         }
 
@@ -192,13 +198,15 @@ public class TableQueryPlanAction extends RestBaseController {
         // in this way, just retrieve only one scannode
         List<ScanNode> scanNodes = planner.getScanNodes();
         if (scanNodes.size() != 1) {
-            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, "Planner should plan just only one ScanNode but found [ " + scanNodes.size() + "]");
+            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                    "Planner should plan just only one ScanNode but found [ " + scanNodes.size() + "]");
         }
         List<TScanRangeLocations> scanRangeLocations = scanNodes.get(0).getScanRangeLocations(0);
         // acquire the PlanFragment which the executable template
         List<PlanFragment> fragments = planner.getFragments();
         if (fragments.size() != 1) {
-            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, "Planner should plan just only one PlanFragment but found [ " + fragments.size() + "]");
+            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                    "Planner should plan just only one PlanFragment but found [ " + fragments.size() + "]");
         }
 
         TQueryPlanInfo tQueryPlanInfo = new TQueryPlanInfo();
@@ -234,7 +242,8 @@ public class TableQueryPlanAction extends RestBaseController {
             byte[] queryPlanStream = serializer.serialize(tQueryPlanInfo);
             opaquedQueryPlan = Base64.getEncoder().encodeToString(queryPlanStream);
         } catch (TException e) {
-            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, "TSerializer failed to serialize PlanFragment, reason [ " + e.getMessage() + " ]");
+            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                    "TSerializer failed to serialize PlanFragment, reason [ " + e.getMessage() + " ]");
         }
         result.put("partitions", tabletRoutings);
         result.put("opaqued_query_plan", opaquedQueryPlan);

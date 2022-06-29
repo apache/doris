@@ -90,6 +90,8 @@ public:
                          uint64_t num_rows, const FilePathDesc& path_desc,
                          std::unique_ptr<ColumnReader>* reader);
 
+    enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
+
     ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
@@ -134,6 +136,14 @@ public:
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
+    uint64_t num_rows() { return _num_rows; }
+
+    void set_dict_encoding_type(DictEncodingType type) {
+        std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
+    }
+
+    DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  FilePathDesc path_desc);
@@ -174,6 +184,8 @@ private:
     uint64_t _num_rows;
     FilePathDesc _path_desc;
 
+    DictEncodingType _dict_encoding_type;
+
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
@@ -192,6 +204,8 @@ private:
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
+
+    std::once_flag _set_dict_encoding_type_flag;
 };
 
 // Base iterator to read one column data
@@ -244,6 +258,8 @@ public:
         return Status::OK();
     }
 
+    virtual bool is_all_dict_encoding() const { return false; }
+
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -281,6 +297,8 @@ public:
 
     bool is_nullable() { return _reader->is_nullable(); }
 
+    bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
+
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
@@ -309,6 +327,8 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
+
+    bool _is_all_dict_encoding = false;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
 };
@@ -369,7 +389,7 @@ public:
                                            : size_to_read;
                 ColumnBlockView ordinal_view(&ordinal_block);
                 RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-                auto* ordinals = reinterpret_cast<uint32_t*>(_length_batch->data());
+                auto* ordinals = reinterpret_cast<uint64_t*>(_length_batch->data());
                 for (int i = 0; i < this_read; ++i) {
                     item_ordinal += ordinals[i];
                 }

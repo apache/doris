@@ -29,8 +29,9 @@
 
 namespace doris::vectorized {
 
+template <typename DateValueType, typename NativeType>
 struct WindowFunnelState {
-    std::vector<std::pair<VecDateTimeValue, int>> events;
+    std::vector<std::pair<DateValueType, int>> events;
     int max_event_level;
     bool sorted;
     int64_t window;
@@ -48,7 +49,7 @@ struct WindowFunnelState {
         events.shrink_to_fit();
     }
 
-    void add(const VecDateTimeValue& timestamp, int event_idx, int event_num, int64_t win) {
+    void add(const DateValueType& timestamp, int event_idx, int event_num, int64_t win) {
         window = win;
         max_event_level = event_num;
         if (sorted && events.size() > 0) {
@@ -69,17 +70,17 @@ struct WindowFunnelState {
     }
 
     int get() const {
-        std::vector<std::optional<VecDateTimeValue>> events_timestamp(max_event_level);
+        std::vector<std::optional<DateValueType>> events_timestamp(max_event_level);
         for (int64_t i = 0; i < events.size(); i++) {
             const int& event_idx = events[i].second;
-            const VecDateTimeValue& timestamp = events[i].first;
+            const DateValueType& timestamp = events[i].first;
             if (event_idx == 0) {
                 events_timestamp[0] = timestamp;
                 continue;
             }
             if (events_timestamp[event_idx - 1].has_value()) {
-                const VecDateTimeValue& first_timestamp = events_timestamp[event_idx - 1].value();
-                VecDateTimeValue last_timestamp = first_timestamp;
+                const DateValueType& first_timestamp = events_timestamp[event_idx - 1].value();
+                DateValueType last_timestamp = first_timestamp;
                 TimeInterval interval(SECOND, window, false);
                 last_timestamp.date_add_interval(interval, SECOND);
 
@@ -132,8 +133,7 @@ struct WindowFunnelState {
         write_var_int(events.size(), out);
 
         for (int64_t i = 0; i < events.size(); i++) {
-            int64_t timestamp =
-                    binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(events[i].first);
+            int64_t timestamp = binary_cast<DateValueType, NativeType>(events[i].first);
             int event_idx = events[i].second;
             write_var_int(timestamp, out);
             write_var_int(event_idx, out);
@@ -153,19 +153,23 @@ struct WindowFunnelState {
 
             read_var_int(timestamp, in);
             read_var_int(event_idx, in);
-            VecDateTimeValue time_value =
-                    binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(timestamp);
+            DateValueType time_value = binary_cast<NativeType, DateValueType>(timestamp);
             add(time_value, (int)event_idx, max_event_level, window);
         }
     }
 };
 
+template <typename DateValueType, typename NativeType>
 class AggregateFunctionWindowFunnel
-        : public IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel> {
+        : public IAggregateFunctionDataHelper<
+                  WindowFunnelState<DateValueType, NativeType>,
+                  AggregateFunctionWindowFunnel<DateValueType, NativeType>> {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>(
-                      argument_types_, {}) {}
+            : IAggregateFunctionDataHelper<
+                      WindowFunnelState<DateValueType, NativeType>,
+                      AggregateFunctionWindowFunnel<DateValueType, NativeType>>(argument_types_,
+                                                                                {}) {}
 
     String get_name() const override { return "window_funnel"; }
 
@@ -180,14 +184,15 @@ public:
         // TODO: handle mode in the future.
         // be/src/olap/row_block2.cpp copy_data_to_column
         const auto& timestamp =
-                static_cast<const ColumnVector<VecDateTimeValue>&>(*columns[2]).get_data()[row_num];
+                static_cast<const ColumnVector<DateValueType>&>(*columns[2]).get_data()[row_num];
         const int NON_EVENT_NUM = 3;
-        for (int i = NON_EVENT_NUM; i < get_argument_types().size(); i++) {
+        for (int i = NON_EVENT_NUM; i < IAggregateFunction::get_argument_types().size(); i++) {
             const auto& is_set =
                     static_cast<const ColumnVector<UInt8>&>(*columns[i]).get_data()[row_num];
             if (is_set) {
-                this->data(place).add(timestamp, i - NON_EVENT_NUM,
-                                      get_argument_types().size() - NON_EVENT_NUM, window);
+                this->data(place).add(
+                        timestamp, i - NON_EVENT_NUM,
+                        IAggregateFunction::get_argument_types().size() - NON_EVENT_NUM, window);
             }
         }
     }
@@ -208,7 +213,11 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).sort();
-        assert_cast<ColumnInt32&>(to).get_data().push_back(data(place).get());
+        assert_cast<ColumnInt32&>(to).get_data().push_back(
+                IAggregateFunctionDataHelper<
+                        WindowFunnelState<DateValueType, NativeType>,
+                        AggregateFunctionWindowFunnel<DateValueType, NativeType>>::data(place)
+                        .get());
     }
 };
 

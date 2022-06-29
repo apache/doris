@@ -366,7 +366,8 @@ public class Repository implements Writable {
 
     // create remote tablet snapshot path
     // eg:
-    // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
+    // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/
+    // __db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
     public String assembleRemoteSnapshotPath(String label, SnapshotInfo info) {
         String path = Joiner.on(PATH_DELIMITER).join(location,
                 joinPrefix(PREFIX_REPO, name),
@@ -453,7 +454,8 @@ public class Repository implements Writable {
         if (storage instanceof BrokerStorage) {
             // this may be a retry, so we should first delete remote file
             String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}", localFilePath, tmpRemotePath, finalRemotePath);
+            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
+                    localFilePath, tmpRemotePath, finalRemotePath);
             st = storage.delete(tmpRemotePath);
             if (!st.ok()) {
                 return st;
@@ -477,6 +479,18 @@ public class Repository implements Writable {
             }
         } else if (storage instanceof S3Storage) {
             LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            st = storage.delete(finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+
+            // upload final file
+            st = storage.upload(localFilePath, finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+        } else if (storage instanceof HdfsStorage) {
+            LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
             st = storage.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;

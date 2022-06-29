@@ -23,10 +23,10 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -71,7 +71,7 @@ import java.util.stream.Collectors;
  * clauses.
  */
 public class SelectStmt extends QueryStmt {
-    private final static Logger LOG = LogManager.getLogger(SelectStmt.class);
+    private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
     private UUID id = UUID.randomUUID();
 
     // ///////////////////////////////////////
@@ -291,13 +291,18 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
+            throws AnalysisException {
         getWithClauseTables(analyzer, tableMap, parentViewNameSet);
         for (TableRef tblRef : fromClause) {
             if (tblRef instanceof InlineViewRef) {
                 // Inline view reference
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
                 inlineStmt.getTables(analyzer, tableMap, parentViewNameSet);
+            } else if (tblRef instanceof TableValuedFunctionRef) {
+                TableValuedFunctionRef tblFuncRef = (TableValuedFunctionRef) tblRef;
+                tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
+                         tblFuncRef.getTableFunction().getTable());
             } else {
                 String dbName = tblRef.getName().getDb();
                 String tableName = tblRef.getName().getTbl();
@@ -315,16 +320,14 @@ public class SelectStmt extends QueryStmt {
                 if (Strings.isNullOrEmpty(tableName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
-                Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-                Table table = db.getTableOrAnalysisException(tableName);
+                DatabaseIf db = analyzer.getCatalog().getCurrentDataSource().getDbOrAnalysisException(dbName);
+                TableIf table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                        tableName,
-                        PrivPredicate.SELECT)) {
+                if (!Catalog.getCurrentCatalog().getAuth()
+                        .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.SELECT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(),
+                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                             dbName + ": " + tableName);
                 }
                 tableMap.put(table.getId(), table);
@@ -962,7 +965,8 @@ public class SelectStmt extends QueryStmt {
 
         if (groupByClause == null && !selectList.isDistinct()
                 && !TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
-                && (havingClauseAfterAnaylzed == null || !havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate()))
+                && (havingClauseAfterAnaylzed == null || !havingClauseAfterAnaylzed.contains(
+                        Expr.isAggregatePredicate()))
                 && (sortInfo == null || !TreeNode.contains(sortInfo.getOrderingExprs(),
                 Expr.isAggregatePredicate()))) {
             // We're not computing aggregates but we still need to register the HAVING
@@ -993,7 +997,8 @@ public class SelectStmt extends QueryStmt {
         if (selectList.isDistinct()
                 && (groupByClause != null
                 || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
-                || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate())))) {
+                || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(
+                        Expr.isAggregatePredicate())))) {
             throw new AnalysisException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY");
         }
 
@@ -1063,7 +1068,8 @@ public class SelectStmt extends QueryStmt {
                         ? aggInfo.getSecondPhaseDistinctAggInfo()
                         : aggInfo;
         groupingByTupleIds.add(finalAggInfo.getOutputTupleId());
-        ExprSubstitutionMap combinedSmap = ExprSubstitutionMap.compose(countAllMap, finalAggInfo.getOutputSmap(), analyzer);
+        ExprSubstitutionMap combinedSmap = ExprSubstitutionMap.compose(
+                countAllMap, finalAggInfo.getOutputSmap(), analyzer);
         // change select list, having and ordering exprs to point to agg output. We need
         // to reanalyze the exprs at this point.
         if (LOG.isDebugEnabled()) {
@@ -1084,7 +1090,8 @@ public class SelectStmt extends QueryStmt {
         }
 
         /*
-         * All of columns of result and having clause are replaced by new slot ref which is bound by top tuple of agg info.
+         * All of columns of result and having clause are replaced by new slot ref
+         * which is bound by top tuple of agg info.
          * For example:
          * ResultExprs: SlotRef(k1), FunctionCall(sum(SlotRef(k2)))
          * Having predicate: FunctionCall(sum(SlotRef(k2))) > subquery
@@ -1448,9 +1455,9 @@ public class SelectStmt extends QueryStmt {
                      * Aliases information of groupBy and orderBy clauses is recorded in `QueryStmt.aliasSMap`.
                      * The select clause has its own alias info in `SelectListItem.alias`.
                      *
-                     * Aliases expr in the `group by` and `order by` clauses are not analyzed, i.e. `Expr.isAnalyzed=false`
-                     * Subsequent constant folding will analyze the unanalyzed Expr before collecting the constant
-                     * expressions, preventing the `INVALID_TYPE` expr from being sent to BE.
+                     * Aliases expr in the `group by` and `order by` clauses are not analyzed,
+                     * i.e. `Expr.isAnalyzed=false`. Subsequent constant folding will analyze the unanalyzed Expr before
+                     * collecting the constant expressions, preventing the `INVALID_TYPE` expr from being sent to BE.
                      *
                      * But when analyzing the alias, the meta information corresponding to the slot cannot be found
                      * in the catalog, an error will be reported.

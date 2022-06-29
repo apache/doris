@@ -116,7 +116,8 @@ public abstract class AlterHandler extends MasterDaemon {
             AlterJobV2 alterJobV2 = iterator.next().getValue();
             if (alterJobV2.isExpire()) {
                 iterator.remove();
-                RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(alterJobV2.getJobId(), alterJobV2.getType());
+                RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(
+                        alterJobV2.getJobId(), alterJobV2.getType());
                 Catalog.getCurrentCatalog().getEditLog().logRemoveExpiredAlterJobV2(log);
                 LOG.info("remove expired {} job {}. finish at {}", alterJobV2.getType(),
                         alterJobV2.getJobId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
@@ -169,7 +170,7 @@ public abstract class AlterHandler extends MasterDaemon {
      * entry function. handle alter ops for external table
      */
     public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
-            throws UserException {};
+            throws UserException {}
 
     /*
      * cancel alter ops
@@ -183,11 +184,13 @@ public abstract class AlterHandler extends MasterDaemon {
      * We assume that the specified version is X.
      * Case 1:
      *      After alter table process starts, there is no new load job being submitted. So the new replica
-     *      should be with version (0-1). So we just modify the replica's version to partition's visible version, which is X.
+     *      should be with version (0-1). So we just modify the replica's version to
+     *      partition's visible version, which is X.
      * Case 2:
      *      After alter table process starts, there are some load job being processed.
      * Case 2.1:
-     *      None of them succeed on this replica. so the version is still 1. We should modify the replica's version to X.
+     *      None of them succeed on this replica. so the version is still 1.
+     *      We should modify the replica's version to X.
      * Case 2.2
      *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
      *      So the replica's version should be larger than X. So we don't need to modify the replica version
@@ -195,7 +198,7 @@ public abstract class AlterHandler extends MasterDaemon {
      * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(task.getDbId());
 
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLockOrMetaException();

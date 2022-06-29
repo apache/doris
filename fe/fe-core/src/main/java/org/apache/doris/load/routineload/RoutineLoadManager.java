@@ -114,7 +114,8 @@ public class RoutineLoadManager implements Writable {
     // return the map of be id -> running tasks num
     private Map<Long, Integer> getBeCurrentTasksNumMap() {
         Map<Long, Integer> beCurrentTaskNumMap = Maps.newHashMap();
-        for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.RUNNING))) {
+        for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(
+                Sets.newHashSet(RoutineLoadJob.JobState.RUNNING))) {
             Map<Long, Integer> jobBeCurrentTasksNumMap = routineLoadJob.getBeCurrentTasksNumMap();
             for (Map.Entry<Long, Integer> entry : jobBeCurrentTasksNumMap.entrySet()) {
                 if (beCurrentTaskNumMap.containsKey(entry.getKey())) {
@@ -165,7 +166,8 @@ public class RoutineLoadManager implements Writable {
                         + dbName);
             }
             if (getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE,
-                    RoutineLoadJob.JobState.RUNNING, RoutineLoadJob.JobState.PAUSED)).size() > Config.max_routine_load_job_num) {
+                    RoutineLoadJob.JobState.RUNNING, RoutineLoadJob.JobState.PAUSED)).size()
+                    > Config.max_routine_load_job_num) {
                 throw new DdlException("There are more than " + Config.max_routine_load_job_num
                         + " routine load jobs are running. exceed limit.");
             }
@@ -245,7 +247,7 @@ public class RoutineLoadManager implements Writable {
             throws MetaNotFoundException, DdlException, AnalysisException {
 
         List<RoutineLoadJob> result = Lists.newArrayList();
-        Database database = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         long dbId = database.getId();
         Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
         if (jobMap == null) {
@@ -436,7 +438,8 @@ public class RoutineLoadManager implements Writable {
                     if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
                         idleTaskNum = 0;
                     } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
-                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId) - beIdToConcurrentTasks.get(previousBeId);
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId)
+                                - beIdToConcurrentTasks.get(previousBeId);
                     } else {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
@@ -507,7 +510,7 @@ public class RoutineLoadManager implements Writable {
 
     private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(tblId, Table.TableType.OLAP);
             tbl.readLock();
             try {
@@ -547,7 +550,8 @@ public class RoutineLoadManager implements Writable {
       if includeHistory is false, filter not running job in result
       else return all of result
      */
-    public List<RoutineLoadJob> getJob(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher)
+    public List<RoutineLoadJob> getJob(String dbFullName, String jobName,
+            boolean includeHistory, PatternMatcher matcher)
             throws MetaNotFoundException {
         Preconditions.checkArgument(jobName == null || matcher == null,
                 "jobName and matcher cannot be not null at the same time");
@@ -561,7 +565,7 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
 
-            Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbFullName);
+            Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbFullName);
             long dbId = database.getId();
             if (!dbToNameToRoutineLoadJob.containsKey(dbId)) {
                 result = new ArrayList<>();

@@ -160,6 +160,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("databases", new Integer(SqlParserSymbols.KW_DATABASES));
         keywordMap.put("date", new Integer(SqlParserSymbols.KW_DATE));
         keywordMap.put("datetime", new Integer(SqlParserSymbols.KW_DATETIME));
+        keywordMap.put("time", new Integer(SqlParserSymbols.KW_TIME));
         keywordMap.put("day", new Integer(SqlParserSymbols.KW_DAY));
         keywordMap.put("decimal", new Integer(SqlParserSymbols.KW_DECIMAL));
         keywordMap.put("decommission", new Integer(SqlParserSymbols.KW_DECOMMISSION));
@@ -435,6 +436,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("not_null", new Integer(SqlParserSymbols.KW_NOT_NULL));
         keywordMap.put("catalog", new Integer(SqlParserSymbols.KW_CATALOG));
         keywordMap.put("catalogs", new Integer(SqlParserSymbols.KW_CATALOGS));
+        keywordMap.put("switch", new Integer(SqlParserSymbols.KW_SWITCH));
    }
     
   // map from token id to token description

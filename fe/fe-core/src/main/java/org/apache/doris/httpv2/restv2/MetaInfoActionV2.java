@@ -92,7 +92,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         // 1. get all database with privilege
         List<String> dbNames = null;
         try {
-            dbNames = Catalog.getCurrentCatalog().getClusterDbNames(ns);
+            dbNames = Catalog.getCurrentInternalCatalog().getClusterDbNames(ns);
         } catch (AnalysisException e) {
             return ResponseEntityBuilder.okWithCommonError("namespace does not exist: " + ns);
         }
@@ -139,7 +139,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -211,7 +211,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             db.readLock();
             try {
                 Table tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);

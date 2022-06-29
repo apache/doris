@@ -520,7 +520,8 @@ module.exports = [
               "explode-bitmap",
               "explode-split",
               "explode-json-array",
-              "outer-combinator"
+              "outer-combinator",
+              "numbers"
             ],
           },
           {
@@ -608,6 +609,7 @@ module.exports = [
                   "ALTER-DATABASE",
                   "ALTER-RESOURCE",
                   "ALTER-SQL-BLOCK-RULE",
+                  "ALTER-TABLE-BITMAP",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",
                   "ALTER-TABLE-PROPERTY",

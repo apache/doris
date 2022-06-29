@@ -231,9 +231,9 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 
 ### `chunk_reserved_bytes_limit`
 
-默认值：2147483648
+默认值：20%
 
-Chunk Allocator的reserved bytes限制，默认为2GB，增加这个变量可以提高性能，但是会获得更多其他模块无法使用的空闲内存
+Chunk Allocator的reserved bytes限制，通常被设置为 mem_limit 的百分比。默认单位字节，值必须是2的倍数，且必须大于0，如果大于物理内存，将被设置为物理内存大小。增加这个变量可以提高性能，但是会获得更多其他模块无法使用的空闲内存。
 
 ### `clear_transaction_task_worker_count`
 
@@ -330,12 +330,6 @@ BE创建tablet的工作线程数
 默认值：104857600
 
 BaseCompaction触发条件之一：Singleton文件大小限制，100MB
-
-### `cumulative_compaction_skip_window_seconds`
-
-默认值：30 （s）
-
-CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查询的版本（以防查询计划阶段花费一些时间）。改参数是设置跳过的窗口时间大小
 
 ### `cumulative_compaction_trace_threshold`
 

@@ -54,7 +54,7 @@ import java.util.UUID;
 //          [PROPERTIES("key"="value")]
 //          BY BROKER 'broker_name' [( $broker_attrs)]
 public class ExportStmt extends StatementBase {
-    private final static Logger LOG = LogManager.getLogger(ExportStmt.class);
+    private static final Logger LOG = LogManager.getLogger(ExportStmt.class);
 
     public static final String TABLET_NUMBER_PER_TASK_PROP = "tablet_num_per_task";
     public static final String LABEL = "label";
@@ -190,7 +190,7 @@ public class ExportStmt extends StatementBase {
     }
 
     private void checkTable(Catalog catalog) throws AnalysisException {
-        Database db = catalog.getDbOrAnalysisException(tblName.getDb());
+        Database db = catalog.getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
         Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {

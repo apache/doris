@@ -164,14 +164,14 @@ public class SmallFileMgr implements Writable {
 
     public void createFile(CreateFileStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         downloadAndAddFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(),
                 stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
     }
 
     public void dropFile(DropFileStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         removeFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(), false);
     }
 
@@ -300,7 +300,8 @@ public class SmallFileMgr implements Writable {
 
             int contentLength = urlConnection.getContentLength();
             if (contentLength == -1 || contentLength > Config.max_small_file_size_bytes) {
-                throw new DdlException("Failed to download file from url: " + url + ", invalid content length: " + contentLength);
+                throw new DdlException("Failed to download file from url: " + url
+                        + ", invalid content length: " + contentLength);
             }
 
             int bytesRead = 0;
@@ -309,7 +310,7 @@ public class SmallFileMgr implements Writable {
             if (saveContent) {
                 // download from url, and check file size
                 bytesRead = 0;
-                byte buf[] = new byte[contentLength];
+                byte[] buf = new byte[contentLength];
                 try (BufferedInputStream in = new BufferedInputStream(url.openStream())) {
                     while (bytesRead < contentLength) {
                         bytesRead += in.read(buf, bytesRead, contentLength - bytesRead);
@@ -449,11 +450,12 @@ public class SmallFileMgr implements Writable {
     }
 
     private File getAbsoluteFile(long dbId, String catalog, String fileName) {
-        return Paths.get(Config.small_file_dir, String.valueOf(dbId), catalog, fileName).normalize().toAbsolutePath().toFile();
+        return Paths.get(Config.small_file_dir, String.valueOf(dbId), catalog, fileName)
+                .normalize().toAbsolutePath().toFile();
     }
 
     public List<List<String>> getInfo(String dbName) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         List<List<String>> infos = Lists.newArrayList();
         synchronized (files) {
             if (files.containsRow(db.getId())) {

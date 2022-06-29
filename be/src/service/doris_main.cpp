@@ -399,7 +399,7 @@ int main(int argc, char** argv) {
     exec_env->set_storage_engine(engine);
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
-    // start all backgroud threads of storage engine.
+    // start all background threads of storage engine.
     // SHOULD be called after exec env is initialized.
     EXIT_IF_ERROR(engine->start_bg_threads());
 

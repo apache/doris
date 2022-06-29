@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -130,13 +129,14 @@ public class DataDescription {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction
+            = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
 
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     private final Expr deleteCondition;
-    private Map<String, String> properties;
+    private final Map<String, String> properties;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -378,7 +378,7 @@ public class DataDescription {
     }
 
     private static void validateNowFunction(Column mappingColumn) throws AnalysisException {
-        if (!mappingColumn.getOriginType().equals(Type.DATE) && !mappingColumn.getOriginType().equals(Type.DATETIME)) {
+        if (!mappingColumn.getOriginType().isDateType()) {
             throw new AnalysisException("Now() function is only support for DATE/DATETIME column");
         }
     }
@@ -572,7 +572,8 @@ public class DataDescription {
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
-        if ((fileFieldNames == null || fileFieldNames.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
+        if ((fileFieldNames == null || fileFieldNames.isEmpty())
+                && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
         }
 
@@ -711,7 +712,7 @@ public class DataDescription {
     }
 
     private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(fullDbName);
         OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
         // no sequence column in load and table schema
         if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
@@ -719,7 +720,8 @@ public class DataDescription {
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
-            throw new AnalysisException("Table " + olapTable.getName() + " has sequence column, need to specify the sequence column");
+            throw new AnalysisException("Table " + olapTable.getName()
+                    + " has sequence column, need to specify the sequence column");
         }
         if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
             throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());

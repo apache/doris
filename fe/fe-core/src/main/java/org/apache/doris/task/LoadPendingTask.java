@@ -68,7 +68,7 @@ public abstract class LoadPendingTask extends MasterTask {
 
         // get db
         long dbId = job.getDbId();
-        db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, "db does not exist. id: " + dbId);
             return;

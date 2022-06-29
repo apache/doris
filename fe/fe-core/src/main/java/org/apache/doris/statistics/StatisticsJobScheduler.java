@@ -62,7 +62,8 @@ public class StatisticsJobScheduler extends MasterDaemon {
      * and normal query services may be affected. Therefore, we put the jobs into the queue
      * and schedule them one by one, and finally divide each job to several subtasks and execute them.
      */
-    public final Queue<StatisticsJob> pendingJobQueue = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
+    public final Queue<StatisticsJob> pendingJobQueue
+            = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
 
     public StatisticsJobScheduler() {
         super("Statistics job scheduler", 0);
@@ -130,7 +131,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
     private void divide(StatisticsJob statisticsJob) throws DdlException {
         long jobId = statisticsJob.getId();
         long dbId = statisticsJob.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         Set<Long> tblIds = statisticsJob.getTblIds();
         Map<Long, List<String>> tableIdToColumnName = statisticsJob.getTableIdToColumnName();
         List<StatisticsTask> tasks = statisticsJob.getTasks();
@@ -183,8 +184,10 @@ public class StatisticsJobScheduler extends MasterDaemon {
                     for (Long partitionId : partitionIds) {
                         StatsCategoryDesc columnCategory = getColStatsCategoryDesc(dbId, tblId, columnName);
                         StatsGranularityDesc columnGranularity = getPartitionStatsGranularityDesc(tblId, partitionId);
-                        List<StatsType> statsTypes = Arrays.asList(StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
-                        SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
+                        List<StatsType> statsTypes = Arrays.asList(
+                                StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
+                        SQLStatisticsTask sqlTask = new SQLStatisticsTask(
+                                jobId, columnGranularity, columnCategory, statsTypes);
                         tasks.add(sqlTask);
                     }
                 });
@@ -193,7 +196,8 @@ public class StatisticsJobScheduler extends MasterDaemon {
                     StatsCategoryDesc columnCategory = getColStatsCategoryDesc(dbId, tblId, columnName);
                     StatsGranularityDesc columnGranularity = getTblStatsGranularityDesc(tblId);
                     List<StatsType> statsTypes = Arrays.asList(StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
-                    SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
+                    SQLStatisticsTask sqlTask = new SQLStatisticsTask(
+                            jobId, columnGranularity, columnCategory, statsTypes);
                     tasks.add(sqlTask);
                 }
             }
@@ -215,10 +219,12 @@ public class StatisticsJobScheduler extends MasterDaemon {
                 Column column = tbl.getColumn(columnName);
                 Type colType = column.getType();
                 if (colType.isStringType()) {
-                    SQLStatisticsTask sampleSqlTask = new SampleSQLStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
+                    SQLStatisticsTask sampleSqlTask = new SampleSQLStatisticsTask(
+                            jobId, columnGranularity, columnCategory, statsTypes);
                     tasks.add(sampleSqlTask);
                 } else {
-                    MetaStatisticsTask metaTask = new MetaStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
+                    MetaStatisticsTask metaTask = new MetaStatisticsTask(
+                            jobId, columnGranularity, columnCategory, statsTypes);
                     tasks.add(metaTask);
                 }
             }

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -48,7 +49,7 @@ import java.util.List;
  * Computation of analytic exprs.
  */
 public class AnalyticEvalNode extends PlanNode {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
 
     private List<Expr> analyticFnCalls;
 
@@ -81,7 +82,7 @@ public class AnalyticEvalNode extends PlanNode {
             AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
             TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
             Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
-        super(id, input.getTupleIds(), "ANALYTIC", NodeType.ANALYTIC_EVAL_NODE);
+        super(id, input.getTupleIds(), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
         tupleIds.add(outputTupleDesc.getId());
@@ -102,6 +103,7 @@ public class AnalyticEvalNode extends PlanNode {
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }
+
     public List<OrderByElement> getOrderByElements() {
         return orderByElements;
     }
@@ -261,6 +263,7 @@ public class AnalyticEvalNode extends PlanNode {
 
         return output.toString();
     }
+
     public void computeCosts(TQueryOptions queryOptions) {
         Preconditions.checkNotNull(fragmentId,
                                    "PlanNode must be placed into a fragment before calling this method.");

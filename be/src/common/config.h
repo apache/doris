@@ -144,6 +144,7 @@ CONF_String(doris_cgroups, "");
 CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
 CONF_mBool(compress_rowbatches, "true");
+CONF_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
 // if true, each disk will have a separate thread pool for scanner
@@ -165,7 +166,7 @@ CONF_mInt64(thrift_client_retry_interval_ms, "1000");
 // max row count number for single scan range, used in segmentv1
 CONF_mInt32(doris_scan_range_row_count, "524288");
 // max bytes number for single scan range, used in segmentv2
-CONF_mInt32(doris_scan_range_max_mb, "0");
+CONF_mInt32(doris_scan_range_max_mb, "1024");
 // size of scanner queue between scanner thread and compute thread
 CONF_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number
@@ -425,10 +426,14 @@ CONF_Bool(disable_mem_pools, "false");
 // to a relative large number or the performance is very very bad.
 CONF_Bool(use_mmap_allocate_chunk, "false");
 
-// Chunk Allocator's reserved bytes limit,
-// Default value is 2GB, increase this variable can improve performance, but will
-// acquire more free memory which can not be used by other modules
-CONF_Int64(chunk_reserved_bytes_limit, "2147483648");
+// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
+// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
+// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
+// increase this variable can improve performance,
+// but will acquire more free memory which can not be used by other modules.
+CONF_mString(chunk_reserved_bytes_limit, "20%");
+// 1024, The minimum chunk allocator size (in bytes)
+CONF_Int32(min_chunk_reserved_bytes, "1024");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -635,7 +640,14 @@ CONF_Bool(track_new_delete, "true");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
-CONF_Bool(memory_verbose_track, "true");
+//
+// At present, there is a performance problem in the frequent switch thread mem tracker.
+// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
+// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
+// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
+// TODO: 1. Reduce unnecessary thread mem tracker switches,
+//       2. Consider using raw pointers for mem tracker in thread local
+CONF_Bool(memory_verbose_track, "false");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:

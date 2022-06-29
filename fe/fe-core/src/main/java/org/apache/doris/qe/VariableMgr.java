@@ -249,19 +249,19 @@ public class VariableMgr {
 
         if (setVar.getType() == SetType.GLOBAL) {
             setGlobalVarAndWriteEditLog(ctx, attr.name(), setVar.getValue().getStringValue());
-        } else {
-            // set session variable
-            Field field = ctx.getField();
-            // if stmt is "Select /*+ SET_VAR(...)*/"
-            if (sessionVariable.getIsSingleSetVar()) {
-                try {
-                    sessionVariable.addSessionOriginValue(field, field.get(sessionVariable).toString());
-                } catch (Exception e) {
-                    LOG.warn("failed to collect origin session value ", e);
-                }
-            }
-            setValue(sessionVariable, field, value);
         }
+
+        // No matter this is a global setting or not, always set session variable.
+        Field field = ctx.getField();
+        // if stmt is "Select /*+ SET_VAR(...)*/"
+        if (sessionVariable.getIsSingleSetVar()) {
+            try {
+                sessionVariable.addSessionOriginValue(field, field.get(sessionVariable).toString());
+            } catch (Exception e) {
+                LOG.warn("failed to collect origin session value ", e);
+            }
+        }
+        setValue(sessionVariable, field, value);
     }
 
     private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
@@ -552,7 +552,8 @@ public class VariableMgr {
 
     public static void createDefaultSessionVariableForCkpt() {
         defaultSessionVariableForCkpt = new SessionVariable();
-        ImmutableSortedMap.Builder<String, VarContext> builder = getStringVarContextBuilder(defaultSessionVariableForCkpt);
+        ImmutableSortedMap.Builder<String, VarContext> builder
+                = getStringVarContextBuilder(defaultSessionVariableForCkpt);
         ctxByVarNameForCkpt = builder.build();
     }
 
@@ -562,7 +563,8 @@ public class VariableMgr {
     }
 
     @NotNull
-    private static ImmutableSortedMap.Builder<String, VarContext> getStringVarContextBuilder(SessionVariable sessionVariable) {
+    private static ImmutableSortedMap.Builder<String, VarContext> getStringVarContextBuilder(
+            SessionVariable sessionVariable) {
         ImmutableSortedMap.Builder<String, VarContext> builder =
                 ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (Field field : SessionVariable.class.getDeclaredFields()) {

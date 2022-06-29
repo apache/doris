@@ -55,7 +55,7 @@ import java.util.Set;
  * 4. Construct additional numerical connections and isNullPredicate.
  */
 public class InferFiltersRule implements ExprRewriteRule {
-    private final static Logger LOG = LogManager.getLogger(InferFiltersRule.class);
+    private static final Logger LOG = LogManager.getLogger(InferFiltersRule.class);
     public static InferFiltersRule INSTANCE = new InferFiltersRule();
 
     @Override
@@ -72,15 +72,15 @@ public class InferFiltersRule implements ExprRewriteRule {
         List<Expr> slotEqSlotExpr = analyzer.getOnSlotEqSlotExpr();
 
         // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
-        Set<Pair<Expr, Expr>> slotEqSlotDeDuplication =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnSlotEqSlotDeDuplication() : Sets.newHashSet();
+        Set<Pair<Expr, Expr>> slotEqSlotDeDuplication = (clauseType == ExprRewriter.ClauseType.ON_CLAUSE)
+                ? analyzer.getOnSlotEqSlotDeDuplication() : Sets.newHashSet();
 
         // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
         List<Expr> slotToLiteralExpr = analyzer.getOnSlotToLiteralExpr();
 
         // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
-        Set<Pair<Expr, Expr>> slotToLiteralDeDuplication =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnSlotToLiteralDeDuplication() : Sets.newHashSet();
+        Set<Pair<Expr, Expr>> slotToLiteralDeDuplication = (clauseType == ExprRewriter.ClauseType.ON_CLAUSE)
+                ? analyzer.getOnSlotToLiteralDeDuplication() : Sets.newHashSet();
 
         // newExprWithState: just record infer expr which slot and literal are equal and which is not null predicate
         // false : Unexecutable intermediate results will be produced during the derivation process.
@@ -91,8 +91,8 @@ public class InferFiltersRule implements ExprRewriteRule {
         List<Expr> isNullExpr = analyzer.getOnIsNullExpr();
 
         // isNullDeDuplication: De-Duplication for isNullExpr
-        Set<Expr> isNullDeDuplication =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnIsNullDeDuplication() : Sets.newHashSet();
+        Set<Expr> isNullDeDuplication = (clauseType == ExprRewriter.ClauseType.ON_CLAUSE)
+                ? analyzer.getOnIsNullDeDuplication() : Sets.newHashSet();
 
         // inExpr: Record existing and infer in predicate
         List<Expr> inExpr = analyzer.getInExpr();
@@ -101,7 +101,8 @@ public class InferFiltersRule implements ExprRewriteRule {
         Set<Expr> inDeDuplication =
                 (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getInDeDuplication() : Sets.newHashSet();
 
-        // exprToWarshallArraySubscript/warshallArraySubscriptToExpr: function is easy to build warshall and newExprWithState
+        // exprToWarshallArraySubscript/warshallArraySubscriptToExpr:
+        // function is easy to build warshall and newExprWithState
         Map<Expr, Integer> exprToWarshallArraySubscript = new HashMap<>();
         Map<Integer, Expr> warshallArraySubscriptToExpr = new HashMap<>();
 
@@ -182,7 +183,8 @@ public class InferFiltersRule implements ExprRewriteRule {
                     }
                     analyzer.registerGlobalSlotToLiteralDeDuplication(pair);
                 }
-            } else if (conjunct.getChild(0).unwrapSlotRef() instanceof SlotRef
+            } else if (((BinaryPredicate) conjunct).getOp().isEquivalence()
+                    && conjunct.getChild(0).unwrapSlotRef() instanceof SlotRef
                     && conjunct.getChild(1).unwrapSlotRef() instanceof SlotRef) {
                 Pair<Expr, Expr> pair = new Pair<>(conjunct.getChild(0).unwrapSlotRef(),
                                                    conjunct.getChild(1).unwrapSlotRef());
@@ -244,7 +246,7 @@ public class InferFiltersRule implements ExprRewriteRule {
                                            Analyzer analyzer,
                                            ExprRewriter.ClauseType clauseType) {
         int arrayMaxSize = slotEqSlotExpr.size() * 2;
-        int warshall[][] = new int[arrayMaxSize][arrayMaxSize];
+        int[][] warshall = new int[arrayMaxSize][arrayMaxSize];
         for (int index = 0; index < arrayMaxSize; index++) {
             warshall[index] = new int[arrayMaxSize];
             Arrays.fill(warshall[index], 0);
@@ -261,7 +263,8 @@ public class InferFiltersRule implements ExprRewriteRule {
 
     /**
      * Initialize warshall array.
-     * Specify a corresponding array_id for each slot, and add the two slots in slotEqSlotExpr to the array in rows and columns
+     * Specify a corresponding array_id for each slot, and add the two slots in slotEqSlotExpr
+     * to the array in rows and columns
      *
      * @param warshall: Two-dimensional array
      * @param arrayMaxSize: slotEqSlotExpr.size() * 2
@@ -270,7 +273,7 @@ public class InferFiltersRule implements ExprRewriteRule {
      * @param warshallArraySubscriptToExpr
      * @return needGenWarshallArray. True:needGen; False:don't needGen
      */
-    private boolean initWarshallArray(int warshall[][],
+    private boolean initWarshallArray(int[][] warshall,
                                       int arrayMaxSize,
                                       List<Expr> slotEqSlotExpr,
                                       Map<Expr, Integer> exprToWarshallArraySubscript,
@@ -312,7 +315,7 @@ public class InferFiltersRule implements ExprRewriteRule {
         return needGenWarshallArray;
     }
 
-    private void genWarshallArray(int warshall[][], int arrayMaxSize, List<Pair<Integer, Integer>> newSlotsArray) {
+    private void genWarshallArray(int[][] warshall, int arrayMaxSize, List<Pair<Integer, Integer>> newSlotsArray) {
         for (int k = 0; k < arrayMaxSize; k++) {
             for (int i = 0; i < arrayMaxSize; i++) {
                 if (warshall[i][k] == 0) {
@@ -418,7 +421,8 @@ public class InferFiltersRule implements ExprRewriteRule {
      * @param checkSlot: t2.id
      * @return needInfer.    True: needInfer. False: not needInfer
      */
-    private boolean isNeedInfer(SlotRef newSlot, SlotRef checkSlot, Analyzer analyzer, ExprRewriter.ClauseType clauseType) {
+    private boolean isNeedInfer(SlotRef newSlot, SlotRef checkSlot, Analyzer analyzer,
+            ExprRewriter.ClauseType clauseType) {
         boolean ret = false;
         TupleId newTid = newSlot.getDesc().getParent().getRef().getId();
         TupleId checkTid = checkSlot.getDesc().getParent().getRef().getId();

@@ -306,7 +306,7 @@ public:
       * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
       * It is necessary in ARRAY JOIN operation.
       */
-    using Offset = UInt32;
+    using Offset = UInt64;
     using Offsets = PaddedPODArray<Offset>;
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
@@ -391,10 +391,10 @@ public:
 
     virtual bool is_bitmap() const { return false; }
 
-    // true iff column has null element
+    // true if column has null element
     virtual bool has_null() const { return false; }
 
-    // true iff column has null element [0,size)
+    // true if column has null element [0,size)
     virtual bool has_null(size_t size) const { return false; }
 
     /// It's a special kind of column, that contain single value, but is not a ColumnConst.
@@ -475,14 +475,17 @@ public:
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
     virtual bool is_date_type() const { return is_date; }
+    virtual bool is_date_v2_type() const { return is_date_v2; }
     virtual bool is_datetime_type() const { return is_date_time; }
 
     virtual void set_date_type() { is_date = true; }
+    virtual void set_date_v2_type() { is_date_v2 = true; }
     virtual void set_datetime_type() { is_date_time = true; }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
+    bool is_date_v2 = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.

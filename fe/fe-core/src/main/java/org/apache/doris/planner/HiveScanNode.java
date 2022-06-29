@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
@@ -29,12 +28,13 @@ import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
@@ -102,7 +102,7 @@ public class HiveScanNode extends BrokerScanNode {
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                         List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded, NodeType.HIVE_SCAN_NODE);
+        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded, StatisticalType.HIVE_SCAN_NODE);
         this.hiveTable = (HiveTable) destTupleDesc.getTable();
     }
 

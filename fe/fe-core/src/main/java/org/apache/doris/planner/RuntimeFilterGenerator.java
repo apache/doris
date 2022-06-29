@@ -70,7 +70,7 @@ import java.util.Set;
  * to prune tuples of T2 that cannot be part of the join result.
  */
 public final class RuntimeFilterGenerator {
-    private final static Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
 
     // Map of base table tuple ids to a list of runtime filters that
     // can be applied at the corresponding scan nodes.
@@ -131,9 +131,8 @@ public final class RuntimeFilterGenerator {
         Preconditions.checkState(maxNumBloomFilters >= 0);
         RuntimeFilterGenerator filterGenerator = new RuntimeFilterGenerator(analyzer);
         Preconditions.checkState(runtimeFilterType >= 0, "runtimeFilterType not expected");
-        Preconditions.checkState(runtimeFilterType
-                <= Arrays.stream(TRuntimeFilterType.values()).mapToInt(TRuntimeFilterType::getValue).sum()
-                , "runtimeFilterType not expected");
+        Preconditions.checkState(runtimeFilterType <= Arrays.stream(TRuntimeFilterType.values())
+                .mapToInt(TRuntimeFilterType::getValue).sum(), "runtimeFilterType not expected");
         filterGenerator.generateFilters(plan);
         List<RuntimeFilter> filters = filterGenerator.getRuntimeFilters();
         if (filters.size() > maxNumBloomFilters) {

@@ -47,6 +47,7 @@ public class BeSelectionPolicy {
 
     public static class Builder {
         private BeSelectionPolicy policy;
+
         public Builder() {
             policy = new BeSelectionPolicy();
         }

@@ -139,9 +139,11 @@ public class TabletInvertedIndex {
                         Replica replica = entry.getValue();
                         tabletFoundInMeta.add(tabletId);
                         TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
-                        if (partitionIdInMemorySet.contains(backendTabletInfo.getPartitionId()) != backendTabletInfo.isIsInMemory()) {
+                        if (partitionIdInMemorySet.contains(
+                                backendTabletInfo.getPartitionId()) != backendTabletInfo.isIsInMemory()) {
                             synchronized (tabletToInMemory) {
-                                tabletToInMemory.add(new ImmutableTriple<>(tabletId, backendTabletInfo.getSchemaHash(), !backendTabletInfo.isIsInMemory()));
+                                tabletToInMemory.add(new ImmutableTriple<>(tabletId, backendTabletInfo.getSchemaHash(),
+                                        !backendTabletInfo.isIsInMemory()));
                             }
                         }
                         // 1. (intersection)
@@ -183,7 +185,9 @@ public class TabletInvertedIndex {
                         if (!Config.disable_storage_medium_check) {
                             // check if need migration
                             TStorageMedium storageMedium = storageMediumMap.get(partitionId);
-                            if (storageMedium != null && backendTabletInfo.isSetStorageMedium()) {
+                            if (storageMedium != null && backendTabletInfo.isSetStorageMedium()
+                                    && isLocal(storageMedium) && isLocal(backendTabletInfo.getStorageMedium())
+                                    && isLocal(tabletMeta.getStorageMedium())) {
                                 if (storageMedium != backendTabletInfo.getStorageMedium()) {
                                     synchronized (tabletMigrationMap) {
                                         tabletMigrationMap.put(storageMedium, tabletId);
@@ -200,21 +204,27 @@ public class TabletInvertedIndex {
                             List<Long> transactionIds = backendTabletInfo.getTransactionIds();
                             GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
                             for (Long transactionId : transactionIds) {
-                                TransactionState transactionState = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
-                                if (transactionState == null || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
+                                TransactionState transactionState
+                                        = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
+                                if (transactionState == null
+                                        || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
                                     synchronized (transactionsToClear) {
                                         transactionsToClear.put(transactionId, tabletMeta.getPartitionId());
                                     }
                                     LOG.debug("transaction id [{}] is not valid any more, "
                                             + "clear it from backend [{}]", transactionId, backendId);
                                 } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                                    TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
-                                    PartitionCommitInfo partitionCommitInfo = tableCommitInfo == null ? null : tableCommitInfo.getPartitionCommitInfo(partitionId);
+                                    TableCommitInfo tableCommitInfo
+                                            = transactionState.getTableCommitInfo(tabletMeta.getTableId());
+                                    PartitionCommitInfo partitionCommitInfo = tableCommitInfo == null
+                                            ? null : tableCommitInfo.getPartitionCommitInfo(partitionId);
                                     if (partitionCommitInfo != null) {
-                                        TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
+                                        TPartitionVersionInfo versionInfo
+                                                = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
                                                 partitionCommitInfo.getVersion(), 0);
                                         synchronized (transactionsToPublish) {
-                                            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
+                                            ListMultimap<Long, TPartitionVersionInfo> map
+                                                    = transactionsToPublish.get(transactionState.getDbId());
                                             if (map == null) {
                                                 map = ArrayListMultimap.create();
                                                 transactionsToPublish.put(transactionState.getDbId(), map);
@@ -246,11 +256,13 @@ public class TabletInvertedIndex {
         }
 
         long end = System.currentTimeMillis();
-        LOG.info("finished to do tablet diff with backend[{}]. sync: {}. metaDel: {}. foundInMeta: {}. migration: {}. "
+        LOG.info("finished to do tablet diff with backend[{}]. sync: {}."
+                        + " metaDel: {}. foundInMeta: {}. migration: {}. "
                         + "found invalid transactions {}. found republish transactions {}. tabletInMemorySync: {}."
-                        + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(), tabletDeleteFromMeta.size(),
-                tabletFoundInMeta.size(), tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(),
-                tabletToInMemory.size(), tabletRecoveryMap.size(), (end - start));
+                        + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(),
+                tabletDeleteFromMeta.size(), tabletFoundInMeta.size(), tabletMigrationMap.size(),
+                transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(),
+                tabletRecoveryMap.size(), (end - start));
     }
 
     public Long getTabletIdByReplica(long replicaId) {
@@ -302,7 +314,8 @@ public class TabletInvertedIndex {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
         } else if (versionInFe == backendTabletInfo.getVersion() && replicaInFe.isBad()) {
-            // backend replica's version is equal to replica in FE, but replica in FE is bad, while backend replica is good, sync it
+            // backend replica's version is equal to replica in FE, but replica in FE is bad,
+            // while backend replica is good, sync it
             return true;
         }
 
@@ -546,7 +559,8 @@ public class TabletInvertedIndex {
     }
 
     // Only build from available bes, exclude colocate tables
-    public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(List<Long> availableBeIds) {
+    public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
+            List<Long> availableBeIds) {
         readLock();
 
         // 1. gen <partitionId-indexId, <beId, replicaCount>>
@@ -567,12 +581,14 @@ public class TabletInvertedIndex {
                     Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
                     Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
-                    Preconditions.checkState(!Catalog.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
+                    Preconditions.checkState(
+                            !Catalog.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
                             "should not be the colocate table");
 
                     TStorageMedium medium = tabletMeta.getStorageMedium();
                     Table<Long, Long, Map<Long, Long>> partitionReplicasInfo = partitionReplicasInfoMaps.get(medium);
-                    Map<Long, Long> countMap = partitionReplicasInfo.get(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
+                    Map<Long, Long> countMap = partitionReplicasInfo.get(
+                            tabletMeta.getPartitionId(), tabletMeta.getIndexId());
                     if (countMap == null) {
                         // If one be doesn't have any replica of one partition, it should be counted too.
                         countMap = availableBeIds.stream().collect(Collectors.toMap(i -> i, i -> 0L));
@@ -597,8 +613,10 @@ public class TabletInvertedIndex {
         //      put <max_count-min_count, TableBalanceInfo> to table_info_by_skew
         Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> skewMaps = Maps.newHashMap();
         for (TStorageMedium medium : TStorageMedium.values()) {
-            TreeMultimap<Long, PartitionBalanceInfo> partitionInfoBySkew = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
-            Set<Table.Cell<Long, Long, Map<Long, Long>>> mapCells = partitionReplicasInfoMaps.getOrDefault(medium, HashBasedTable.create()).cellSet();
+            TreeMultimap<Long, PartitionBalanceInfo> partitionInfoBySkew
+                    = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
+            Set<Table.Cell<Long, Long, Map<Long, Long>>> mapCells
+                    = partitionReplicasInfoMaps.getOrDefault(medium, HashBasedTable.create()).cellSet();
             for (Table.Cell<Long, Long, Map<Long, Long>> cell : mapCells) {
                 Map<Long, Long> countMap = cell.getValue();
                 Preconditions.checkNotNull(countMap);
@@ -655,4 +673,9 @@ public class TabletInvertedIndex {
     public Map<Long, TabletMeta> getTabletMetaMap() {
         return tabletMetaMap;
     }
+
+    private boolean isLocal(TStorageMedium storageMedium) {
+        return storageMedium == TStorageMedium.HDD || storageMedium == TStorageMedium.SSD;
+    }
+
 }

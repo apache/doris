@@ -58,16 +58,17 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
 
     // Iceberg databases, used to list remote iceberg tables
     // dbId -> database
-    private Map<Long, Database> icebergDbs = new ConcurrentHashMap<>();
+    private final Map<Long, Database> icebergDbs = new ConcurrentHashMap<>();
     // database -> table identifier -> properties
     // used to create table
-    private Map<Database, Map<TableIdentifier, IcebergProperty>> dbToTableIdentifiers = Maps.newConcurrentMap();
+    private final Map<Database, Map<TableIdentifier, IcebergProperty>> dbToTableIdentifiers = Maps.newConcurrentMap();
     // table creation records, used for show stmt
     // dbId -> tableId -> create msg
-    private Map<Long, Map<Long, IcebergTableCreationRecord>> dbToTableToCreationRecord = Maps.newConcurrentMap();
+    private final Map<Long, Map<Long, IcebergTableCreationRecord>> dbToTableToCreationRecord = Maps.newConcurrentMap();
 
-    private Queue<IcebergTableCreationRecord> tableCreationRecordQueue = new PriorityQueue<>(new TableCreationComparator());
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Queue<IcebergTableCreationRecord> tableCreationRecordQueue
+            = new PriorityQueue<>(new TableCreationComparator());
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
 
     public IcebergTableCreationRecordMgr() {
@@ -115,7 +116,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     // remove already created tables or failed tables
     private void removeDuplicateTables() {
         for (Map.Entry<Long, Map<Long, IcebergTableCreationRecord>> entry : dbToTableToCreationRecord.entrySet()) {
-            Catalog.getCurrentCatalog().getDb(entry.getKey()).ifPresent(db -> {
+            Catalog.getCurrentInternalCatalog().getDb(entry.getKey()).ifPresent(db -> {
                 if (dbToTableIdentifiers.containsKey(db)) {
                     for (Map.Entry<Long, IcebergTableCreationRecord> innerEntry : entry.getValue().entrySet()) {
                         String tableName = innerEntry.getValue().getTable();
@@ -199,8 +200,10 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             while (isQueueFull()) {
                 IcebergTableCreationRecord record = tableCreationRecordQueue.poll();
                 if (record != null) {
-                    Map<Long, IcebergTableCreationRecord> tableRecords = dbToTableToCreationRecord.get(record.getDbId());
-                    Iterator<Map.Entry<Long, IcebergTableCreationRecord>> tableRecordsIterator = tableRecords.entrySet().iterator();
+                    Map<Long, IcebergTableCreationRecord> tableRecords
+                            = dbToTableToCreationRecord.get(record.getDbId());
+                    Iterator<Map.Entry<Long, IcebergTableCreationRecord>> tableRecordsIterator
+                            = tableRecords.entrySet().iterator();
                     while (tableRecordsIterator.hasNext()) {
                         long t = tableRecordsIterator.next().getKey();
                         if (t == record.getTableId()) {

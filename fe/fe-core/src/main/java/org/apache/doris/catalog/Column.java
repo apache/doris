@@ -83,7 +83,8 @@ public class Column implements Writable {
     @SerializedName(value = "children")
     private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
-    // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
+    // Currently, analyzed define expr is only used when creating materialized views,
+    // so the define expr in RollupJob must be analyzed.
     // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
     private Expr defineExpr; // use to define column in materialize view
     @SerializedName(value = "visible")
@@ -123,6 +124,7 @@ public class Column implements Writable {
                   String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null);
     }
+
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef) {
         this.name = name;
@@ -368,7 +370,8 @@ public class Column implements Writable {
         // And CreateReplicaTask does not need `defineExpr` field.
         // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in `AlterReplicaTask`.
         // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
-        // If we need to use `defineExpr` and call defineExpr.treeToThrift(), make sure it is analyzed, or NPE will thrown.
+        // If we need to use `defineExpr` and call defineExpr.treeToThrift(),
+        // make sure it is analyzed, or NPE will thrown.
         return tColumn;
     }
 
@@ -451,14 +454,6 @@ public class Column implements Writable {
         if (getDataType() == PrimitiveType.DECIMALV2 && (other.getDataType() == PrimitiveType.VARCHAR
                 || other.getDataType() == PrimitiveType.STRING)) {
             return;
-        }
-
-        if (this.getPrecision() != other.getPrecision()) {
-            throw new DdlException("Cannot change precision");
-        }
-
-        if (this.getScale() != other.getScale()) {
-            throw new DdlException("Cannot change scale");
         }
     }
 

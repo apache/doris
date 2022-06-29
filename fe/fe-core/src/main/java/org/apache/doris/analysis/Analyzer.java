@@ -22,11 +22,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -98,7 +99,7 @@ import java.util.stream.Collectors;
  * simple.
  */
 public class Analyzer {
-    private final static Logger LOG = LogManager.getLogger(Analyzer.class);
+    private static final Logger LOG = LogManager.getLogger(Analyzer.class);
     // used for contains inlineview analytic function's tuple changed
     private ExprSubstitutionMap changeResSmap = new ExprSubstitutionMap();
 
@@ -658,14 +659,14 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
 
-        Database database = globalState.catalog.getDbOrAnalysisException(dbName);
-        Table table = database.getTableOrAnalysisException(tableName.getTbl());
+        DatabaseIf database = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(dbName);
+        TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream().filter(
-                    partition -> partition.getState() == PartitionState.RESTORE
-            ).collect(Collectors.toList()).isEmpty();
+            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream()
+                    .filter(partition -> partition.getState() == PartitionState.RESTORE).collect(Collectors.toList())
+                    .isEmpty();
 
             if (!isNotRestoring) {
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
@@ -696,8 +697,8 @@ public class Analyzer {
         }
     }
 
-    public Table getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        Database db = globalState.catalog.getDbOrAnalysisException(tblName.getDb());
+    public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
+        DatabaseIf db = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
@@ -763,7 +764,7 @@ public class Analyzer {
          * The inner subquery: select k1 from table c where a.k1=k1;
          * There is a associated column (a.k1) which belongs to the outer query appears in the inner subquery.
          * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
-         * The exception of this query like that: Unknown column 'k1' in 'a'
+         * The exception to this query like that: Unknown column 'k1' in 'a'
          */
         if (d == null && hasAncestors() && isSubquery) {
             // analyzer father for subquery
@@ -969,7 +970,8 @@ public class Analyzer {
      *     At this time, vectorization cannot support this situation,
      *     so it is necessary to fall back to non-vectorization for processing.
      *     For example:
-     *       Query: select * from t1 left join (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
+     *       Query: select * from t1 left join
+     *              (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
      *       Origin: tmp.k1 not null, tmp.count_k2 not null
      *       Result: throw VecNotImplException
      */
@@ -1364,10 +1366,13 @@ public class Analyzer {
      * is already fully qualified, returns tableName.
      */
     public TableName getFqTableName(TableName tableName) {
-        if (tableName.isFullyQualified()) {
-            return tableName;
+        if (Strings.isNullOrEmpty(tableName.getCtl())) {
+            tableName.setCtl(getDefaultCatalog());
         }
-        return new TableName(getDefaultDb(), tableName.getTbl());
+        if (Strings.isNullOrEmpty(tableName.getDb())) {
+            tableName.setDb(getDefaultDb());
+        }
+        return tableName;
     }
 
     public TupleId getTupleId(SlotId slotId) {
@@ -1528,6 +1533,7 @@ public class Analyzer {
     public Set<Expr> getGlobalInDeDuplication() {
         return Sets.newHashSet(globalState.globalInDeDuplication);
     }
+
     /**
      * Makes the given semi-joined tuple visible such that its slots can be referenced.
      * If tid is null, makes the currently visible semi-joined tuple invisible again.
@@ -1933,6 +1939,10 @@ public class Analyzer {
         return globalState.context.getConnectionId();
     }
 
+    public String getDefaultCatalog() {
+        return globalState.context.getDefaultCatalog();
+    }
+
     public String getDefaultDb() {
         return globalState.context.getDatabase();
     }
@@ -2000,7 +2010,8 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost()
+                && !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
 
     public boolean enableInferPredicate() {
@@ -2028,7 +2039,8 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost()
+                && !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
 
     public boolean safeIsEnableFoldConstantByBe() {
@@ -2176,6 +2188,7 @@ public class Analyzer {
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
         return getUnassignedConjuncts(node.getTblRefIds());
     }
+
     /**
      * Returns true if e must be evaluated by a join node. Note that it may still be
      * safe to evaluate e elsewhere as well, but in any case the join must evaluate e.
@@ -2196,6 +2209,7 @@ public class Analyzer {
 
         return false;
     }
+
     /**
      * Mark all slots that are referenced in exprs as materialized.
      */

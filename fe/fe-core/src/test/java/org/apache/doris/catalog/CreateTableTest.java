@@ -208,7 +208,7 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
@@ -485,6 +485,36 @@ public class CreateTableTest {
                                 + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
                                 + ");"));
 
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Create unique keys table should not contain random distribution desc",
+                () -> createTable("CREATE TABLE test.tbl21\n"
+                            + "(\n"
+                            + "  `k1` bigint(20) NULL COMMENT \"\",\n"
+                            + "  `k2` largeint(40) NULL COMMENT \"\",\n"
+                            + "  `v1` varchar(204) NULL COMMENT \"\",\n"
+                            + "  `v2` smallint(6) NULL DEFAULT \"10\" COMMENT \"\"\n"
+                            + ") ENGINE=OLAP\n"
+                            + "UNIQUE KEY(`k1`, `k2`)\n"
+                            + "DISTRIBUTED BY RANDOM BUCKETS 32\n"
+                            + "PROPERTIES (\n"
+                            + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                            + ");"));
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Create aggregate keys table with value columns of which aggregate type"
+                    + " is REPLACE should not contain random distribution desc",
+                () -> createTable("CREATE TABLE test.tbl22\n"
+                    + "(\n"
+                    + "  `k1` bigint(20) NULL COMMENT \"\",\n"
+                    + "  `k2` largeint(40) NULL COMMENT \"\",\n"
+                    + "  `v1` bigint(20) REPLACE NULL COMMENT \"\",\n"
+                    + "  `v2` smallint(6) REPLACE_IF_NOT_NULL NULL DEFAULT \"10\" COMMENT \"\"\n"
+                    + ") ENGINE=OLAP\n"
+                    + "AGGREGATE KEY(`k1`, `k2`)\n"
+                    + "DISTRIBUTED BY RANDOM BUCKETS 32\n"
+                    + "PROPERTIES (\n"
+                    + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                    + ");"));
     }
 
     @Test

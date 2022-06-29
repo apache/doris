@@ -51,7 +51,7 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();
@@ -71,7 +71,8 @@ public class MetadataViewer {
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
                 long visibleVersion = partition.getVisibleVersion();
-                short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+                short replicationNum = olapTable.getPartitionInfo()
+                        .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
@@ -158,7 +159,8 @@ public class MetadataViewer {
         return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
-    private static List<List<String>> getTabletDistribution(String dbName, String tblName, PartitionNames partitionNames)
+    private static List<List<String>> getTabletDistribution(
+            String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
 
@@ -167,7 +169,7 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
         olapTable.readLock();
         try {
@@ -209,7 +211,8 @@ public class MetadataViewer {
                                 continue;
                             }
                             countMap.put(replica.getBackendId(), countMap.get(replica.getBackendId()) + 1);
-                            sizeMap.put(replica.getBackendId(), sizeMap.get(replica.getBackendId()) + replica.getDataSize());
+                            sizeMap.put(replica.getBackendId(),
+                                    sizeMap.get(replica.getBackendId()) + replica.getDataSize());
                             totalReplicaNum++;
                             totalReplicaSize += replica.getDataSize();
                         }
@@ -225,9 +228,11 @@ public class MetadataViewer {
                 row.add(String.valueOf(countMap.get(beId)));
                 row.add(String.valueOf(sizeMap.get(beId)));
                 row.add(graph(countMap.get(beId), totalReplicaNum));
-                row.add(totalReplicaNum == countMap.get(beId) ? "100.00%" : df.format((double) countMap.get(beId) / totalReplicaNum));
+                row.add(totalReplicaNum == countMap.get(beId)
+                        ? "100.00%" : df.format((double) countMap.get(beId) / totalReplicaNum));
                 row.add(graph(sizeMap.get(beId), totalReplicaSize));
-                row.add(totalReplicaSize == sizeMap.get(beId) ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
+                row.add(totalReplicaSize == sizeMap.get(beId)
+                        ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 result.add(row);
             }
 
@@ -262,7 +267,7 @@ public class MetadataViewer {
             throw new DdlException("Should specify one and only one partitions");
         }
 
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();
@@ -299,7 +304,8 @@ public class MetadataViewer {
                 row.add(String.valueOf(i));
                 row.add(tabletInfos.get(i).toString());
                 row.add(graph(tabletInfos.get(i), totalSize));
-                row.add(totalSize == tabletInfos.get(i) ? "100.00%" : df.format((double) tabletInfos.get(i) / totalSize));
+                row.add(totalSize == tabletInfos.get(i)
+                        ? "100.00%" : df.format((double) tabletInfos.get(i) / totalSize));
                 result.add(row);
             }
         } finally {

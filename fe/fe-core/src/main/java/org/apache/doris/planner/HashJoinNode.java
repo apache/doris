@@ -38,6 +38,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
@@ -65,7 +66,7 @@ import java.util.stream.Collectors;
  * a single input tuple.
  */
 public class HashJoinNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(HashJoinNode.class);
+    private static final Logger LOG = LogManager.getLogger(HashJoinNode.class);
 
     private TableRef innerRef;
     private final JoinOperator joinOp;
@@ -89,7 +90,7 @@ public class HashJoinNode extends PlanNode {
      */
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef, List<Expr> eqJoinConjuncts,
             List<Expr> otherJoinConjuncts) {
-        super(id, "HASH JOIN", NodeType.HASH_JOIN_NODE);
+        super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE);
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
         tblRefIds.addAll(outer.getTblRefIds());
@@ -148,7 +149,7 @@ public class HashJoinNode extends PlanNode {
      */
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp, List<Expr> eqJoinConjuncts,
             List<Expr> otherJoinConjuncts) {
-        super(id, "HASH JOIN", NodeType.HASH_JOIN_NODE);
+        super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE);
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
         tblRefIds.addAll(outer.getTblRefIds());
@@ -362,13 +363,13 @@ public class HashJoinNode extends PlanNode {
         }
 
         public double lhsNumRows() {
-            Table table = lhs.getParent().getTable();
+            Table table = (Table) lhs.getParent().getTable();
             Preconditions.checkState(table instanceof OlapTable);
             return ((OlapTable) (table)).getRowCount();
         }
 
         public double rhsNumRows() {
-            Table table = rhs.getParent().getTable();
+            Table table = (Table) rhs.getParent().getTable();
             Preconditions.checkState(table instanceof OlapTable);
             return ((OlapTable) (table)).getRowCount();
         }
@@ -477,8 +478,8 @@ public class HashJoinNode extends PlanNode {
      * - we adjust the NDVs from both sides to account for predicates that may
      * might have reduce the cardinality and NDVs
      */
-    private long getGenericJoinCardinality(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots, long lhsCard,
-            long rhsCard) {
+    private long getGenericJoinCardinality(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots,
+            long lhsCard, long rhsCard) {
         Preconditions.checkState(joinOp.isInnerJoin() || joinOp.isOuterJoin());
         Preconditions.checkState(!eqJoinConjunctSlots.isEmpty());
         Preconditions.checkState(lhsCard >= 0 && rhsCard >= 0);
@@ -768,8 +769,8 @@ public class HashJoinNode extends PlanNode {
             output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix).append("other join predicates: ").append(getExplainString(otherJoinConjuncts))
-                    .append("\n");
+            output.append(detailPrefix).append("other join predicates: ")
+                    .append(getExplainString(otherJoinConjuncts)).append("\n");
         }
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");

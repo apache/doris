@@ -379,9 +379,25 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
-if (USE_LLD)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
-endif ()
+function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
+    if (CUSTUM_LINKER_COMMAND STREQUAL "ld")
+        execute_process(COMMAND ${CMAKE_C_COMPILER} -fuse-ld=${LINKER_COMMAND} -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
+        if ("${LD_VERSION}" MATCHES ${LINKER_NAME})
+            message("Linker ${LINKER_NAME} is available, change linker to ${LINKER_NAME}")
+            set(CUSTUM_LINKER_COMMAND "${LINKER_COMMAND}" PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
+
+# In terms of performance, mold> lld> gold> ld
+set(CUSTUM_LINKER_COMMAND "ld")
+# TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
+# TRY_TO_CHANGE_LINKER("mold" "mold")
+TRY_TO_CHANGE_LINKER("lld" "LLD")
+TRY_TO_CHANGE_LINKER("gold" "GNU gold")
+if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
@@ -461,7 +477,7 @@ SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined")
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
-# If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/incubator-doris/issues/8868
+# If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/doris/issues/8868
 SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
 
 # Set compile flags based on the build type.

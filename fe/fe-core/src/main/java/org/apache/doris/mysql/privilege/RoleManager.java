@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -34,6 +35,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class RoleManager implements Writable {
     private Map<String, PaloRole> roles = Maps.newHashMap();
@@ -132,60 +136,26 @@ public class RoleManager implements Writable {
             info.add(role.getRoleName());
             info.add(Joiner.on(", ").join(role.getUsers()));
 
-            // global
-            boolean hasGlobal = false;
-            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.GLOBAL) {
-                    hasGlobal = true;
-                    info.add(entry.getValue().toString());
-                    // global priv should only has one
-                    break;
-                }
-            }
-            if (!hasGlobal) {
-                info.add(FeConstants.null_string);
-            }
-
-            // db
-            List<String> tmp = Lists.newArrayList();
-            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.DATABASE) {
-                    tmp.add(entry.getKey().toString() + ": " + entry.getValue().toString());
-                }
-            }
-            if (tmp.isEmpty()) {
-                info.add(FeConstants.null_string);
-            } else {
-                info.add(Joiner.on("; ").join(tmp));
-            }
-
-
-            // tbl
-            tmp.clear();
-            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.TABLE) {
-                    tmp.add(entry.getKey().toString() + ": " + entry.getValue().toString());
-                }
-            }
-            if (tmp.isEmpty()) {
-                info.add(FeConstants.null_string);
-            } else {
-                info.add(Joiner.on("; ").join(tmp));
-            }
-
-            // resource
-            tmp.clear();
-            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.RESOURCE) {
-                    tmp.add(entry.getKey().toString() + ": " + entry.getValue().toString());
-                }
-            }
-            if (tmp.isEmpty()) {
-                info.add(FeConstants.null_string);
-            } else {
-                info.add(Joiner.on("; ").join(tmp));
-            }
-
+            Map<PrivLevel, String> infoMap = role.getTblPatternToPrivs().entrySet().stream()
+                    .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet().stream()
+                    .collect(Collectors.toMap(Entry::getKey, entry -> {
+                        if (entry.getKey() == PrivLevel.GLOBAL) {
+                            return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
+                                    .orElse(FeConstants.null_string);
+                        } else {
+                            return entry.getValue().stream()
+                                    .map(priv -> priv.getKey() + ": " + priv.getValue())
+                                    .collect(Collectors.joining("; "));
+                        }
+                    }));
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+                    .forEach(level -> {
+                        String infoItem = infoMap.get(level);
+                        if (Strings.isNullOrEmpty(infoItem)) {
+                            infoItem = FeConstants.null_string;
+                        }
+                        info.add(infoItem);
+                    });
             results.add(info);
         }
     }

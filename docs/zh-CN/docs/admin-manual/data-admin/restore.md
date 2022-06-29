@@ -55,7 +55,7 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 ## 开始恢复
 
 1. 从 example_repo 中恢复备份 snapshot_1 中的表 backup_tbl 到数据库 example_db1，时间版本为 "2018-05-04-16-45-08"。恢复为 1 个副本：
-   
+
     ```sql
     RESTORE SNAPSHOT example_db1.`snapshot_1`
     FROM `example_repo`
@@ -66,9 +66,9 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
         "replication_num" = "1"
     );
     ```
-    
+
 2. 从 example_repo 中恢复备份 snapshot_2 中的表 backup_tbl 的分区 p1,p2，以及表 backup_tbl2 到数据库 example_db1，并重命名为 new_tbl，时间版本为 "2018-05-04-17-11-01"。默认恢复为 3 个副本：
-   
+
     ```sql
     RESTORE SNAPSHOT example_db1.`snapshot_2`
     FROM `example_repo`
@@ -118,9 +118,9 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
    SnapshotFinishedTime: 2022-04-08 15:59:05
    DownloadFinishedTime: 2022-04-08 15:59:12
            FinishedTime: 2022-04-08 15:59:18
-        UnfinishedTasks: 
-               Progress: 
-             TaskErrMsg: 
+        UnfinishedTasks:
+               Progress:
+             TaskErrMsg:
                  Status: [OK]
                 Timeout: 86400
    1 row in set (0.01 sec)
@@ -134,7 +134,7 @@ RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference/Data-Def
 
 1. CREATE REPOSITORY
 
-   创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../../advanced/broker.md)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，具体参考 [创建远程仓库文档](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md)
+   创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../../advanced/broker.md)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，也可以直接备份到HDFS，具体参考 [创建远程仓库文档](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md)
 
 2. RESTORE
 

@@ -73,7 +73,9 @@ public:
 
     // evaluate predicate on IColumn
     // a short circuit eval way
-    virtual void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {};
+    virtual uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
+        return size;
+    };
     virtual void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
                               bool* flags) const {};
     virtual void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,

@@ -117,7 +117,7 @@ public abstract class SyncJob implements Writable {
 
     public static SyncJob fromStmt(long jobId, CreateDataSyncJobStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         SyncJob syncJob;
         try {
             switch (stmt.getDataSyncJobType()) {
@@ -207,7 +207,7 @@ public abstract class SyncJob implements Writable {
     }
 
     public void checkAndDoUpdate() throws UserException {
-        Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database database = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (database == null) {
             if (!isCompleted()) {
                 String msg = "The database has been deleted. Change job state to cancelled";
@@ -294,7 +294,8 @@ public abstract class SyncJob implements Writable {
         @SerializedName(value = "failMsg")
         protected SyncFailMsg failMsg;
 
-        public SyncJobUpdateStateInfo(long id, JobState jobState, long lastStartTimeMs, long lastStopTimeMs, long finishTimeMs, SyncFailMsg failMsg) {
+        public SyncJobUpdateStateInfo(long id, JobState jobState, long lastStartTimeMs,
+                long lastStopTimeMs, long finishTimeMs, SyncFailMsg failMsg) {
             this.id = id;
             this.jobState = jobState;
             this.lastStartTimeMs = lastStartTimeMs;

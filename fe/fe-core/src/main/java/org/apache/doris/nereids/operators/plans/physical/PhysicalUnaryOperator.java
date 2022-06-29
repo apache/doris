@@ -22,7 +22,7 @@ import org.apache.doris.nereids.operators.AbstractOperator;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import java.util.Optional;
@@ -37,12 +37,15 @@ public abstract class PhysicalUnaryOperator extends AbstractOperator
         super(type);
     }
 
+    public PhysicalUnaryOperator(OperatorType type, long limit) {
+        super(type, limit);
+    }
+
     @Override
     public PhysicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        LogicalProperties childProperties = groupExpression.child(0).getLogicalProperties();
         return new PhysicalUnaryPlan(this, Optional.of(groupExpression),
-            logicalProperties, new PlaceHolderPlan(childProperties)
+            logicalProperties, new GroupPlan(groupExpression.child(0))
         );
     }
 }

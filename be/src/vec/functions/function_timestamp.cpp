@@ -29,16 +29,17 @@
 
 namespace doris::vectorized {
 
+template <typename DateType, typename NativeType>
 struct StrToDate {
     static constexpr auto name = "str_to_date";
-    using ReturnType = DataTypeDateTime;
-    using ColumnType = ColumnVector<Int64>;
+    using ReturnType = DateType;
+    using ColumnType = ColumnVector<NativeType>;
 
     static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets, ColumnType::Container& res,
-                              NullMap& null_map) {
+                              const ColumnString::Offsets& roffsets,
+                              PaddedPODArray<NativeType>& res, NullMap& null_map) {
         size_t size = loffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
@@ -48,15 +49,23 @@ struct StrToDate {
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1] - 1;
 
-            auto& ts_val = *reinterpret_cast<VecDateTimeValue*>(&res[i]);
-            if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
-                null_map[i] = 1;
-            }
-            if (context->impl()->get_return_type().type ==
-                doris_udf::FunctionContext::Type::TYPE_DATETIME) {
-                ts_val.to_datetime();
+            if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                          std::is_same_v<DateType, DataTypeDate>) {
+                auto& ts_val = *reinterpret_cast<VecDateTimeValue*>(&res[i]);
+                if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
+                    null_map[i] = 1;
+                }
+                if (context->impl()->get_return_type().type ==
+                    doris_udf::FunctionContext::Type::TYPE_DATETIME) {
+                    ts_val.to_datetime();
+                } else {
+                    ts_val.cast_to_date();
+                }
             } else {
-                ts_val.cast_to_date();
+                auto& ts_val = *reinterpret_cast<DateV2Value*>(&res[i]);
+                if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
+                    null_map[i] = 1;
+                }
             }
         }
     }
@@ -66,16 +75,17 @@ struct NameMakeDate {
     static constexpr auto name = "makedate";
 };
 
-template <typename LeftDataType, typename RightDataType>
+template <typename LeftDataType, typename RightDataType, typename ResultDateType,
+          typename ReturnType>
 struct MakeDateImpl {
-    using ResultDataType = DataTypeDateTime;
+    using ResultDataType = ResultDateType;
     using LeftDataColumnType = ColumnVector<typename LeftDataType::FieldType>;
     using RightDataColumnType = ColumnVector<typename RightDataType::FieldType>;
-    using ColumnType = ColumnVector<Int64>;
+    using ColumnType = ColumnVector<ReturnType>;
 
-    static void vector_vector(const typename LeftDataColumnType::Container& ldata,
-                              const typename RightDataColumnType::Container& rdata,
-                              ColumnType::Container& res, NullMap& null_map) {
+    static void vector_vector(const PaddedPODArray<typename LeftDataType::FieldType>& ldata,
+                              const PaddedPODArray<typename RightDataType::FieldType>& rdata,
+                              PaddedPODArray<ReturnType>& res, NullMap& null_map) {
         auto len = ldata.size();
         res.resize(len);
 
@@ -87,29 +97,40 @@ struct MakeDateImpl {
                 continue;
             }
 
-            auto& res_val = *reinterpret_cast<VecDateTimeValue*>(&res[i]);
+            if constexpr (std::is_same_v<ResultDataType, DataTypeDateTime> ||
+                          std::is_same_v<ResultDataType, DataTypeDate>) {
+                auto& res_val = *reinterpret_cast<VecDateTimeValue*>(&res[i]);
 
-            VecDateTimeValue ts_value = VecDateTimeValue();
-            ts_value.set_time(l, 1, 1, 0, 0, 0);
+                VecDateTimeValue ts_value = VecDateTimeValue();
+                ts_value.set_time(l, 1, 1, 0, 0, 0);
 
-            DateTimeVal ts_val;
-            ts_value.to_datetime_val(&ts_val);
-            if (ts_val.is_null) {
-                null_map[i] = 1;
-                continue;
+                DateTimeVal ts_val;
+                ts_value.to_datetime_val(&ts_val);
+                if (ts_val.is_null) {
+                    null_map[i] = 1;
+                    continue;
+                }
+
+                TimeInterval interval(DAY, r - 1, false);
+                res_val = VecDateTimeValue::from_datetime_val(ts_val);
+                if (!res_val.date_add_interval(interval, DAY)) {
+                    null_map[i] = 1;
+                    continue;
+                }
+                res_val.cast_to_date();
+            } else {
+                DateV2Value* value = new (&res[i]) DateV2Value();
+                value->set_time(l, 1, 1);
+                TimeInterval interval(DAY, r - 1, false);
+                if (!value->date_add_interval(interval, DAY)) {
+                    null_map[i] = 1;
+                }
             }
-
-            TimeInterval interval(DAY, r - 1, false);
-            res_val = VecDateTimeValue::from_datetime_val(ts_val);
-            if (!res_val.date_add_interval(interval, DAY)) {
-                null_map[i] = 1;
-                continue;
-            }
-            res_val.cast_to_date();
         }
     }
 };
 
+template <typename DateType>
 class FromDays : public IFunction {
 public:
     static constexpr auto name = "from_days";
@@ -125,7 +146,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeDate>());
+        return make_nullable(std::make_shared<DateType>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -138,15 +159,23 @@ public:
 
         auto data_col = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
         for (int i = 0; i < input_rows_count; i++) {
-            const auto& cur_data = data_col->get_data()[i];
-            auto& ts_value = *reinterpret_cast<VecDateTimeValue*>(&res_data[i]);
-            if (!ts_value.from_date_daynr(cur_data)) {
-                null_map->get_data()[i] = 1;
-                continue;
+            if constexpr (std::is_same_v<DateType, DataTypeDate>) {
+                const auto& cur_data = data_col->get_data()[i];
+                auto& ts_value = *reinterpret_cast<VecDateTimeValue*>(&res_data[i]);
+                if (!ts_value.from_date_daynr(cur_data)) {
+                    null_map->get_data()[i] = 1;
+                    continue;
+                }
+                DateTimeVal ts_val;
+                ts_value.to_datetime_val(&ts_val);
+                ts_value = VecDateTimeValue::from_datetime_val(ts_val);
+            } else {
+                const auto& cur_data = data_col->get_data()[i];
+                auto& ts_value = *reinterpret_cast<DateV2Value*>(&res_data[i]);
+                if (!ts_value.get_date_from_daynr(cur_data)) {
+                    null_map->get_data()[i] = 1;
+                }
             }
-            DateTimeVal ts_val;
-            ts_value.to_datetime_val(&ts_val);
-            ts_value = VecDateTimeValue::from_datetime_val(ts_val);
         }
         block.replace_by_position(
                 result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
@@ -154,9 +183,10 @@ public:
     }
 };
 
-using FunctionStrToDate = FunctionBinaryStringOperateToNullType<StrToDate>;
-using FunctionMakeDate =
-        FunctionBinaryToNullType<DataTypeInt32, DataTypeInt32, MakeDateImpl, NameMakeDate>;
+using FunctionStrToDate = FunctionBinaryStringOperateToNullType<StrToDate<DataTypeDateTime, Int64>>;
+
+using FunctionMakeDate = FunctionBinaryToNullType<DataTypeInt32, DataTypeInt32, DataTypeDateTime,
+                                                  Int64, MakeDateImpl, NameMakeDate>;
 
 struct UnixTimeStampImpl {
     static Int32 trim_timestamp(Int64 timestamp) {
@@ -182,8 +212,9 @@ struct UnixTimeStampImpl {
     }
 };
 
+template <typename DateType>
 struct UnixTimeStampDateImpl {
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeDate>()}; }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
         return make_nullable(std::make_shared<DataTypeInt32>());
@@ -210,14 +241,27 @@ struct UnixTimeStampDateImpl {
             }
 
             StringRef source = col_source->get_data_at(i);
-            const VecDateTimeValue& ts_value =
-                    reinterpret_cast<const VecDateTimeValue&>(*source.data);
-            int64_t timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone_obj())) {
-                null_map_data[i] = true;
+            if constexpr (std::is_same_v<DateType, DataTypeDate>) {
+                const VecDateTimeValue& ts_value =
+                        reinterpret_cast<const VecDateTimeValue&>(*source.data);
+                int64_t timestamp;
+                if (!ts_value.unix_timestamp(&timestamp,
+                                             context->impl()->state()->timezone_obj())) {
+                    null_map_data[i] = true;
+                } else {
+                    null_map_data[i] = false;
+                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                }
             } else {
-                null_map_data[i] = false;
-                col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                const DateV2Value& ts_value = reinterpret_cast<const DateV2Value&>(*source.data);
+                int64_t timestamp;
+                if (!ts_value.unix_timestamp(&timestamp,
+                                             context->impl()->state()->timezone_obj())) {
+                    null_map_data[i] = true;
+                } else {
+                    null_map_data[i] = false;
+                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                }
             }
         }
 
@@ -228,10 +272,9 @@ struct UnixTimeStampDateImpl {
     }
 };
 
-struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDateTime>()};
-    }
+template <typename DateType>
+struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl<DateType> {
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
 struct UnixTimeStampStrImpl {
@@ -320,11 +363,13 @@ public:
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionMakeDate>();
-    factory.register_function<FromDays>();
+    factory.register_function<FromDays<DataTypeDate>>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
-    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl>>();
-    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateV2>>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDate>>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl>>();
 }
 

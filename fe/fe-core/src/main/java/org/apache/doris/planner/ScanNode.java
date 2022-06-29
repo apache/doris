@@ -35,6 +35,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -53,8 +54,8 @@ import java.util.Set;
 /**
  * Representation of the common elements of all scan nodes.
  */
-abstract public class ScanNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(ScanNode.class);
+public abstract class ScanNode extends PlanNode {
+    private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected final TupleDescriptor desc;
     // Use this if partition_prune_algorithm_version is 1.
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
@@ -63,8 +64,8 @@ abstract public class ScanNode extends PlanNode {
     protected String sortColumn = null;
     protected Analyzer analyzer;
 
-    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
-        super(id, desc.getId().asList(), planNodeName, nodeType);
+    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
+        super(id, desc.getId().asList(), planNodeName, statisticalType);
         this.desc = desc;
     }
 
@@ -117,7 +118,7 @@ abstract public class ScanNode extends PlanNode {
      *                           only applicable to HDFS; less than or equal to zero means no
      *                           maximum.
      */
-    abstract public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
+    public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
 
     // TODO(ML): move it into PrunerOptimizer
     public void computeColumnFilter() {

@@ -31,7 +31,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -74,16 +73,21 @@ import java.util.UUID;
 public class UtFrameUtils {
 
     // Help to create a mocked ConnectContext.
-    public static ConnectContext createDefaultCtx() throws IOException {
+    public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         SocketChannel channel = SocketChannel.open();
         ConnectContext ctx = new ConnectContext(channel);
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setQualifiedUser(PaloAuth.ROOT_USER);
-        ctx.setRemoteIP("127.0.0.1");
+        ctx.setCurrentUserIdentity(userIdentity);
+        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
+        ctx.setRemoteIP(remoteIp);
         ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.setThreadLocalInfo();
         return ctx;
+    }
+
+    // Help to create a mocked ConnectContext for root.
+    public static ConnectContext createDefaultCtx() throws IOException {
+        return createDefaultCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.
@@ -192,9 +196,11 @@ public class UtFrameUtils {
 
     // Create multi backends with different host for unit test.
     // the host of BE will be "127.0.0.1", "127.0.0.2"
-    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
-        // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
+    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum)
+            throws EnvVarNotSetException, IOException, FeStartException,
+            NotInitException, DdlException, InterruptedException {
+        // set runningUnitTest to true, so that for ut,
+        // the agent task will be sent to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
         int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
@@ -220,7 +226,8 @@ public class UtFrameUtils {
         backend.start();
 
         // add be
-        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(),
+                backend.getHost(), backend.getHeartbeatPort());
         Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
@@ -275,7 +282,7 @@ public class UtFrameUtils {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), new ExplainOptions(isVerbose, false));
+            return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
         }

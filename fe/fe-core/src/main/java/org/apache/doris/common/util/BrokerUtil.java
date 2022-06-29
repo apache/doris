@@ -49,7 +49,6 @@ import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPReadRequest;
 import org.apache.doris.thrift.TBrokerPWriteRequest;
-import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
@@ -91,25 +90,26 @@ public class BrokerUtil {
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 
-    public static void generateHdfsParam(Map<String, String> properties, TBrokerRangeDesc rangeDesc) {
-        rangeDesc.setHdfsParams(new THdfsParams());
-        rangeDesc.hdfs_params.setHdfsConf(new ArrayList<>());
+    public static THdfsParams generateHdfsParam(Map<String, String> properties) {
+        THdfsParams tHdfsParams = new THdfsParams();
+        tHdfsParams.setHdfsConf(new ArrayList<>());
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
-                rangeDesc.hdfs_params.setFsName(property.getValue());
+                tHdfsParams.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_USER_NAME)) {
-                rangeDesc.hdfs_params.setUser(property.getValue());
+                tHdfsParams.setUser(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_PRINCIPAL)) {
-                rangeDesc.hdfs_params.setHdfsKerberosPrincipal(property.getValue());
+                tHdfsParams.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_KEYTAB)) {
-                rangeDesc.hdfs_params.setHdfsKerberosKeytab(property.getValue());
+                tHdfsParams.setHdfsKerberosKeytab(property.getValue());
             } else {
                 THdfsConf hdfsConf = new THdfsConf();
                 hdfsConf.setKey(property.getKey());
                 hdfsConf.setValue(property.getValue());
-                rangeDesc.hdfs_params.hdfs_conf.add(hdfsConf);
+                tHdfsParams.hdfs_conf.add(hdfsConf);
             }
         }
+        return tHdfsParams;
     }
 
     /**
@@ -172,7 +172,7 @@ public class BrokerUtil {
             }
         } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.HDFS) {
             if (!brokerDesc.getProperties().containsKey(HADOOP_FS_NAME)
-                || !brokerDesc.getProperties().containsKey(HADOOP_USER_NAME)) {
+                    || !brokerDesc.getProperties().containsKey(HADOOP_USER_NAME)) {
                 throw new UserException(String.format(
                     "The properties of hdfs is invalid. %s and %s are needed", HADOOP_FS_NAME, HADOOP_USER_NAME));
             }
@@ -183,7 +183,7 @@ public class BrokerUtil {
             for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
                 conf.set(propEntry.getKey(), propEntry.getValue());
                 if (propEntry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
-                    && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
+                        && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
                     isSecurityEnabled = true;
                 }
             }
@@ -191,15 +191,15 @@ public class BrokerUtil {
                 if (isSecurityEnabled) {
                     UserGroupInformation.setConfiguration(conf);
                     UserGroupInformation.loginUserFromKeytab(
-                        brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
-                        brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
+                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
+                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
                 }
                 FileSystem fs = FileSystem.get(new URI(fsName), conf, userName);
                 FileStatus[] statusList = fs.globStatus(new Path(path));
                 for (FileStatus status : statusList) {
                     if (status.isFile()) {
                         fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
-                            status.isDirectory(), status.getLen(), status.isFile()));
+                                status.isDirectory(), status.getLen(), status.isFile()));
                     }
                 }
             } catch (IOException | InterruptedException | URISyntaxException e) {
@@ -213,13 +213,15 @@ public class BrokerUtil {
         return brokerName + "[" + address.toString() + "]";
     }
 
-    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
+    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
+            throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new UserException("Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
@@ -229,11 +231,13 @@ public class BrokerUtil {
                 continue;
             }
             if (str == null || !str.contains("=")) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new UserException("Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new UserException("Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             int index = columnsFromPath.indexOf(pair[0]);
             if (index == -1) {
@@ -246,7 +250,8 @@ public class BrokerUtil {
             }
         }
         if (size != columnsFromPath.size()) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new UserException("Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         return Lists.newArrayList(columns);
     }
@@ -503,8 +508,9 @@ public class BrokerUtil {
         }
     }
 
-    public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc) throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = new Pair<TPaloBrokerService.Client, TNetworkAddress>(null, null);
+    public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc)
+            throws UserException {
+        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = new Pair<>(null, null);
         TNetworkAddress address = getAddress(brokerDesc);
         TPaloBrokerService.Client client = borrowClient(address);
         pair.first = client;
@@ -600,7 +606,8 @@ public class BrokerUtil {
 
         public void write(ByteBuffer byteBuffer, long bufferSize) throws UserException {
             if (!isReady) {
-                throw new UserException("Broker writer is not ready. filePath=" + brokerFilePath + ", broker=" + address);
+                throw new UserException("Broker writer is not ready. filePath="
+                        + brokerFilePath + ", broker=" + address);
             }
 
             failed = true;

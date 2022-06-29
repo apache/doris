@@ -23,7 +23,7 @@ import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.PlaceHolderPlan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
@@ -45,7 +45,7 @@ public abstract class LogicalUnaryOperator extends AbstractOperator
     @Override
     public LogicalProperties computeLogicalProperties(Plan... inputs) {
         Preconditions.checkArgument(inputs.length == 1);
-        return new LogicalProperties(computeOutput(inputs[0]));
+        return new LogicalProperties(() -> computeOutput(inputs[0]));
     }
 
     public abstract List<Slot> computeOutput(Plan input);
@@ -53,9 +53,8 @@ public abstract class LogicalUnaryOperator extends AbstractOperator
     @Override
     public LogicalUnaryPlan toTreeNode(GroupExpression groupExpression) {
         LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
-        LogicalProperties childProperties = groupExpression.child(0).getLogicalProperties();
         return new LogicalUnaryPlan(this, Optional.of(groupExpression),
-            Optional.of(logicalProperties), new PlaceHolderPlan(childProperties)
+            Optional.of(logicalProperties), new GroupPlan(groupExpression.child(0))
         );
     }
 }

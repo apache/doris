@@ -644,12 +644,6 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>javax.annotation</groupId>
-            <artifactId>javax.annotation-api</artifactId>
-            <version>1.3.2</version>
-        </dependency>
-
-        <dependency>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-compiler-plugin</artifactId>
             <version>3.10.1</version>
@@ -657,7 +651,7 @@ under the License.
 
     </dependencies>
     <build>
-        <finalName>palo-fe</finalName>
+        <finalName>doris-fe</finalName>
         <plugins>
             <!--jcup-->
             <plugin>

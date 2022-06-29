@@ -367,7 +367,7 @@ public class Load {
     public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
         // get db
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
         LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
@@ -608,7 +608,7 @@ public class Load {
      * This is only used for hadoop load
      */
     public static void checkAndCreateSource(Database db, DataDescription dataDescription,
-                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
+            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
         Source source = new Source(dataDescription.getFilePaths());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -673,7 +673,8 @@ public class Load {
             source.setColumnNames(columnNames);
 
             // check default value
-            Map<String, Pair<String, List<String>>> columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction
+                    = dataDescription.getColumnToHadoopFunction();
             List<ImportColumnDesc> parsedColumnExprList = dataDescription.getParsedColumnExprList();
             Map<String, Expr> parsedColumnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
@@ -722,7 +723,8 @@ public class Load {
             // their names. These columns are invisible to user, but we need to generate data for these columns.
             // So we add column mappings for these column.
             // eg1:
-            // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
+            // base schema is (A, B, C), and B is under schema change,
+            // so there will be a shadow column: '__doris_shadow_B'
             // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
             for (Column column : table.getFullSchema()) {
                 if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
@@ -748,16 +750,21 @@ public class Load {
                              * ->
                              * (A, B, C) SET (__doris_shadow_B = substitute(B))
                              */
-                            columnToHadoopFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
-                            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
+                            columnToHadoopFunction.put(column.getName(),
+                                    Pair.create("substitute", Lists.newArrayList(originCol)));
+                            ImportColumnDesc importColumnDesc
+                                    = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
                             parsedColumnExprList.add(importColumnDesc);
                         }
                     } else {
                         /*
                          * There is a case that if user does not specify the related origin column, eg:
-                         * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
-                         * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
-                         * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
+                         * COLUMNS (A, C), and B is not specified, but B is being modified
+                         * so there is a shadow column '__doris_shadow_B'.
+                         * We can not just add a mapping function "__doris_shadow_B = substitute(B)",
+                         * because Doris can not find column B.
+                         * In this case, __doris_shadow_B can use its default value,
+                         * so no need to add it to column mapping
                          */
                         // do nothing
                     }
@@ -770,7 +777,8 @@ public class Load {
                      * ->
                      * (A, B, C) SET (__DORIS_DELETE_SIGN__ = 0)
                      */
-                    columnToHadoopFunction.put(column.getName(), Pair.create("default_value", Lists.newArrayList(column.getDefaultValue())));
+                    columnToHadoopFunction.put(column.getName(), Pair.create("default_value",
+                            Lists.newArrayList(column.getDefaultValue())));
                     ImportColumnDesc importColumnDesc = null;
                     try {
                         importColumnDesc = new ImportColumnDesc(column.getName(),
@@ -913,8 +921,10 @@ public class Load {
             } else {
                 /*
                  * There is a case that if user does not specify the related origin column, eg:
-                 * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
-                 * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
+                 * COLUMNS (A, C), and B is not specified, but B is being modified
+                 * so there is a shadow column '__doris_shadow_B'.
+                 * We can not just add a mapping function "__doris_shadow_B = substitute(B)",
+                 * because Doris can not find column B.
                  * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
                  */
                 // do nothing
@@ -928,7 +938,7 @@ public class Load {
      * not init slot desc and analyze exprs
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
-                                   Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
         initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, false, false);
     }
 
@@ -1597,7 +1607,7 @@ public class Load {
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1624,7 +1634,7 @@ public class Load {
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1862,7 +1872,7 @@ public class Load {
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
-                                                            boolean accurateMatch, Set<JobState> states) throws AnalysisException {
+            boolean accurateMatch, Set<JobState> states) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         readLock();
         try {
@@ -2068,7 +2078,7 @@ public class Load {
         }
 
         long dbId = loadJob.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }
@@ -2240,7 +2250,7 @@ public class Load {
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
@@ -2330,7 +2340,8 @@ public class Load {
                         updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
 
                         // update table row count
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        for (MaterializedIndex materializedIndex
+                                : partition.getMaterializedIndices(IndexExtState.ALL)) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : materializedIndex.getTablets()) {
                                 long tabletRowCount = 0L;
@@ -2356,7 +2367,7 @@ public class Load {
 
     public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDbOrMetaException(job.getDbId());
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(job.getDbId());
 
         List<Long> tableIds = Lists.newArrayList();
         long tblId = job.getTableId();
@@ -2434,7 +2445,7 @@ public class Load {
 
     public void replayFinishLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDbOrMetaException(job.getDbId());
+        Database db = catalog.getCurrentInternalCatalog().getDbOrMetaException(job.getDbId());
         // After finish, the idToTableLoadInfo in load job will be set to null.
         // We lost table info. So we have to use db lock here.
         db.writeLock();
@@ -2451,7 +2462,7 @@ public class Load {
     }
 
     public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) throws MetaNotFoundException {
-        Database db = catalog.getDbOrMetaException(info.getDbId());
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -2639,7 +2650,7 @@ public class Load {
                     }
 
                     long dbId = job.getDbId();
-                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+                    Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
                     if (db == null) {
                         LOG.warn("db does not exist. id: {}", dbId);
                         break;
@@ -2672,7 +2683,7 @@ public class Load {
 
         long jobId = job.getId();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled
@@ -2868,8 +2879,8 @@ public class Load {
         long jobId = job.getId();
         JobState srcState = job.getState();
         CancelType tmpCancelType = CancelType.UNKNOWN;
-        // should abort in transaction manager first because it maybe abort job successfully and abort in transaction manager failed
-        // then there will be rubbish transactions in transaction manager
+        // should abort in transaction manager first because it maybe aborts job successfully
+        // and abort in transaction manager failed then there will be rubbish transactions in transaction manager
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
                     job.getDbId(),

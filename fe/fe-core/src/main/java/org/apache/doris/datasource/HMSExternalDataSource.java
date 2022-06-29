@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -48,8 +48,9 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     //Cache of db name to db id.
     private ConcurrentHashMap<String, Long> dbNameToId = new ConcurrentHashMap();
-    private AtomicLong nextId = new AtomicLong(0);
+    private static final AtomicLong nextId = new AtomicLong(0);
 
+    private boolean initialized = false;
     protected String hiveMetastoreUris;
     protected HiveMetaStoreClient client;
 
@@ -57,34 +58,21 @@ public class HMSExternalDataSource extends ExternalDataSource {
      * Default constructor for HMSExternalDataSource.
      */
     public HMSExternalDataSource(String name, Map<String, String> props) {
-        setName(name);
-        getDsProperty().setProperties(props);
-        setType("hms");
-    }
-
-    /**
-     * Hive metastore data source implementation.
-     *
-     * @param hiveMetastoreUris e.g. thrift://127.0.0.1:9083
-     */
-    public HMSExternalDataSource(long id, String name, String type, DataSourceProperty dsProperty,
-            String hiveMetastoreUris) throws DdlException {
-        this.id = id;
+        this.id = nextId.incrementAndGet();
         this.name = name;
-        this.type = type;
-        this.dsProperty = dsProperty;
-        this.hiveMetastoreUris = hiveMetastoreUris;
-        init();
+        this.type = "hms";
+        this.dsProperty = new DataSourceProperty();
+        this.dsProperty.setProperties(props);
+        this.hiveMetastoreUris = props.getOrDefault("hive.metastore.uris", "thrift://127.0.0.1:9083");
     }
 
-    private void init() throws DdlException {
+    private void init() {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, hiveMetastoreUris);
         try {
             client = new HiveMetaStoreClient(hiveConf);
         } catch (MetaException e) {
             LOG.warn("Failed to create HiveMetaStoreClient: {}", e.getMessage());
-            throw new DdlException("Create HMSExternalDataSource failed.", e);
         }
         List<String> allDatabases;
         try {
@@ -102,8 +90,20 @@ public class HMSExternalDataSource extends ExternalDataSource {
         }
     }
 
+    /**
+     * Datasource can't be init when creating because the external datasource may depend on third system.
+     * So you have to make sure the client of third system is initialized before any method was called.
+     */
+    private synchronized void makeSureInitialized() {
+        if (!initialized) {
+            init();
+            initialized = true;
+        }
+    }
+
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
+        makeSureInitialized();
         try {
             List<String> allDatabases = client.getAllDatabases();
             // Update the db name to id map.
@@ -119,6 +119,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
         try {
             return client.getAllTables(dbName);
         } catch (MetaException e) {
@@ -129,6 +130,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
+        makeSureInitialized();
         try {
             return client.tableExists(dbName, tblName);
         } catch (TException e) {
@@ -139,7 +141,8 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(String dbName) {
+    public ExternalDatabase getDbNullable(String dbName) {
+        makeSureInitialized();
         try {
             client.getDatabase(dbName);
         } catch (TException e) {
@@ -155,7 +158,8 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(long dbId) {
+    public ExternalDatabase getDbNullable(long dbId) {
+        makeSureInitialized();
         for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
             if (entry.getValue() == dbId) {
                 return new HMSExternalDatabase(this, dbId, entry.getKey(), hiveMetastoreUris);
@@ -165,18 +169,18 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(String dbName) {
+    public Optional<ExternalDatabase> getDb(String dbName) {
         return Optional.ofNullable(getDbNullable(dbName));
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(long dbId) {
+    public Optional<ExternalDatabase> getDb(long dbId) {
         return Optional.ofNullable(getDbNullable(dbId));
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbName);
+    public <E extends Exception> ExternalDatabase getDbOrException(String dbName, Function<String, E> e) throws E {
+        ExternalDatabase db = getDbNullable(dbName);
         if (db == null) {
             throw e.apply(dbName);
         }
@@ -184,8 +188,8 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbId);
+    public <E extends Exception> ExternalDatabase getDbOrException(long dbId, Function<Long, E> e) throws E {
+        ExternalDatabase db = getDbNullable(dbId);
         if (db == null) {
             throw e.apply(dbId);
         }
@@ -193,38 +197,44 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
+    public ExternalDatabase getDbOrMetaException(String dbName) throws MetaNotFoundException {
         return getDbOrException(dbName,
                 s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
+    public ExternalDatabase getDbOrMetaException(long dbId) throws MetaNotFoundException {
         return getDbOrException(dbId,
                 s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
+    public ExternalDatabase getDbOrDdlException(String dbName) throws DdlException {
         return getDbOrException(dbName,
                 s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
+    public ExternalDatabase getDbOrDdlException(long dbId) throws DdlException {
         return getDbOrException(dbId,
                 s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
+    public ExternalDatabase getDbOrAnalysisException(String dbName) throws AnalysisException {
         return getDbOrException(dbName,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
-    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
+    public ExternalDatabase getDbOrAnalysisException(long dbId) throws AnalysisException {
         return getDbOrException(dbId,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    @Override
+    public List<Long> getDbIds() {
+        makeSureInitialized();
+        return Lists.newArrayList(dbNameToId.values());
     }
 }

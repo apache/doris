@@ -126,7 +126,7 @@ public class MockedBackendFactory {
 
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
-    public static abstract class BeThriftService implements BackendService.Iface {
+    public abstract static class BeThriftService implements BackendService.Iface {
         protected MockedBackend backend;
 
         public void setBackend(MockedBackend backend) {
@@ -164,7 +164,6 @@ public class MockedBackendFactory {
                             TTaskType taskType = request.getTaskType();
                             switch (taskType) {
                                 case CREATE:
-                                case PUSH:
                                 case ALTER:
                                     ++reportVersion;
                                     break;

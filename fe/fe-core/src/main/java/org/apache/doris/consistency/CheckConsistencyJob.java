@@ -112,7 +112,7 @@ public class CheckConsistencyJob {
             return false;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
@@ -144,7 +144,8 @@ public class CheckConsistencyJob {
             }
 
             // check partition's replication num. if 1 replication. skip
-            short replicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+            short replicaNum = olapTable.getPartitionInfo()
+                    .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
             if (replicaNum == (short) 1) {
                 LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
                 return false;
@@ -252,7 +253,7 @@ public class CheckConsistencyJob {
             return -1;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;

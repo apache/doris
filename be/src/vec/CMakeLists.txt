@@ -78,6 +78,7 @@ set(VEC_FILES
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
+  data_types/data_type_time_v2.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/ves_http_scan_node.cpp
@@ -108,6 +109,8 @@ set(VEC_FILES
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
+  exec/tablefunction/vnumbers_tbf.cpp
+  exec/vtable_valued_function_scannode.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
   exprs/vexpr.cpp
@@ -115,6 +118,8 @@ set(VEC_FILES
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
   exprs/vin_predicate.cpp
+  exprs/vbloom_predicate.cpp
+  exprs/vruntimefilter_wrapper.cpp
   exprs/vtuple_is_null_predicate.cpp
   exprs/vslot_ref.cpp
   exprs/vcast_expr.cpp
@@ -201,7 +206,11 @@ set(VEC_FILES
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
   utils/arrow_column_to_doris_column.cpp
-  runtime/vsorted_run_merger.cpp)
+  runtime/vsorted_run_merger.cpp
+  exec/file_arrow_scanner.cpp
+  exec/file_scanner.cpp
+  exec/file_scan_node.cpp
+  exec/file_text_scanner.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}

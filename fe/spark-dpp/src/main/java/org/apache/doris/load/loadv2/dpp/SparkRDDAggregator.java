@@ -75,6 +75,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "decimalv2":
                     case "date":
                     case "datetime":
+                    case "datev2":
+                    case "datetimev2":
                         return new NumberMaxAggregator();
                     case "char":
                     case "varchar":
@@ -82,7 +84,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "largeint":
                         return new LargeIntMaxAggregator();
                     default:
-                        throw new SparkDppException(String.format("unsupported max aggregator for column type:%s", columnType));
+                        throw new SparkDppException(
+                                String.format("unsupported max aggregator for column type:%s", columnType));
                 }
             case "min":
                 switch (columnType) {
@@ -95,6 +98,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "decimalv2":
                     case "date":
                     case "datetime":
+                    case "datev2":
+                    case "datetimev2":
                         return new NumberMinAggregator();
                     case "char":
                     case "varchar":
@@ -102,7 +107,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "largeint":
                         return new LargeIntMinAggregator();
                     default:
-                        throw new SparkDppException(String.format("unsupported min aggregator for column type:%s", columnType));
+                        throw new SparkDppException(
+                                String.format("unsupported min aggregator for column type:%s", columnType));
                 }
             case "sum":
                 switch (columnType) {
@@ -123,7 +129,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "decimalv2":
                         return new BigDecimalSumAggregator();
                     default:
-                        throw new SparkDppException(String.format("unsupported sum aggregator for column type:%s", columnType));
+                        throw new SparkDppException(
+                                String.format("unsupported sum aggregator for column type:%s", columnType));
                 }
             case "replace_if_not_null":
                 return new ReplaceIfNotNullAggregator();
@@ -165,7 +172,8 @@ class EncodeBaseAggregateTableFunction implements PairFunction<Tuple2<List<Objec
 }
 
 // just map column from parent rollup index to child rollup index,used for child rollup
-class EncodeRollupAggregateTableFunction implements PairFunction<Tuple2<List<Object>, Object[]>, List<Object>, Object[]> {
+class EncodeRollupAggregateTableFunction
+        implements PairFunction<Tuple2<List<Object>, Object[]>, List<Object>, Object[]> {
 
     Pair<Integer[], Integer[]> columnIndexInParentRollup;
 
@@ -174,7 +182,8 @@ class EncodeRollupAggregateTableFunction implements PairFunction<Tuple2<List<Obj
     }
 
     @Override
-    public Tuple2<List<Object>, Object[]> call(Tuple2<List<Object>, Object[]> parentRollupKeyValuePair) throws Exception {
+    public Tuple2<List<Object>, Object[]> call(Tuple2<List<Object>, Object[]> parentRollupKeyValuePair)
+            throws Exception {
         Integer[] keyColumnIndexMap = columnIndexInParentRollup.getKey();
         Integer[] valueColumnIndexMap = columnIndexInParentRollup.getValue();
 

@@ -22,7 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
@@ -182,7 +182,8 @@ public class StmtRewriter {
          * For example:
          * Query: select cs_item_sk, sum(cs_sales_price) from catalog_sales a group by cs_item_sk having ...;
          * Inline view:
-         *     from (select cs_item_sk $ColumnA, sum(cs_sales_price) $ColumnB from catalog_sales a group by cs_item_sk) $TableA
+         *     from (select cs_item_sk $ColumnA, sum(cs_sales_price) $ColumnB
+         *     from catalog_sales a group by cs_item_sk) $TableA
          *
          * Add missing aggregation columns in select list
          * For example:
@@ -595,7 +596,7 @@ public class StmtRewriter {
                     lhsExprs, rhsExprs, updateGroupBy);
         }
 
-        /**
+        /*
          * Situation: The expr is a uncorrelated subquery for outer stmt.
          * Rewrite: Add a limit 1 for subquery.
          * origin stmt: select * from t1 where exists (select * from table2);
@@ -1185,12 +1186,12 @@ public class StmtRewriter {
                 }
                 continue;
             }
-            Table table = tableRef.getTable();
+            TableIf table = tableRef.getTable();
             String dbName = tableRef.getName().getDb();
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
             }
-            Database db = currentCatalog.getDbOrAnalysisException(dbName);
+            Database db = currentCatalog.getInternalDataSource().getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
             RowPolicy matchPolicy = currentCatalog.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);

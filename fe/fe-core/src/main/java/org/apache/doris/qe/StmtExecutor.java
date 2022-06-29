@@ -44,6 +44,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
@@ -57,6 +58,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -85,7 +87,10 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
@@ -359,7 +364,8 @@ public class StmtExecutor implements ProfileWriter {
                 if (!((QueryStmt) parsedStmt).isExplain()) {
                     // sql/sqlHash block
                     try {
-                        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+                        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(
+                                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
                     } catch (AnalysisException e) {
                         LOG.warn(e.getMessage());
                         context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -386,8 +392,10 @@ public class StmtExecutor implements ProfileWriter {
                         //reset query id for each retry
                         if (i > 0) {
                             UUID uuid = UUID.randomUUID();
-                            TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                            AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
+                            TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
+                                    uuid.getLeastSignificantBits());
+                            AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
+                                    DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
@@ -413,6 +421,8 @@ public class StmtExecutor implements ProfileWriter {
                 handleSetStmt();
             } else if (parsedStmt instanceof EnterStmt) {
                 handleEnterStmt();
+            } else if (parsedStmt instanceof SwitchStmt) {
+                handleSwitchStmt();
             } else if (parsedStmt instanceof UseStmt) {
                 handleUseStmt();
             } else if (parsedStmt instanceof TransactionStmt) {
@@ -539,12 +549,14 @@ public class StmtExecutor implements ProfileWriter {
     // Analyze one statement to structure in memory.
     public void analyze(TQueryOptions tQueryOptions) throws UserException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(), context.getForwardedStmtId());
+            LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}",
+                    context.getStmtId(), context.getForwardedStmtId());
         }
 
         parse();
 
-        // yiguolei: insert stmt's grammar analysis will write editlog, so that we check if the stmt should be forward to master here
+        // yiguolei: insert stmt's grammar analysis will write editlog,
+        // so that we check if the stmt should be forward to master here
         // if the stmt should be forward to master, then just return here and the master will do analysis again
         if (isForwardToMaster()) {
             return;
@@ -562,7 +574,7 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
-            Map<Long, Table> tableMap = Maps.newTreeMap();
+            Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
@@ -577,7 +589,7 @@ public class StmtExecutor implements ProfileWriter {
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
             // table id in tableList is in ascending order because that table map is a sorted map
-            List<Table> tables = Lists.newArrayList(tableMap.values());
+            List<TableIf> tables = Lists.newArrayList(tableMap.values());
             int analyzeTimes = 2;
             for (int i = 1; i <= analyzeTimes; i++) {
                 MetaLockUtils.readLockTables(tables);
@@ -585,8 +597,9 @@ public class StmtExecutor implements ProfileWriter {
                     analyzeAndGenerateQueryPlan(tQueryOptions);
                     break;
                 } catch (MVSelectFailedException e) {
-                    /**
-                     * If there is MVSelectFailedException after the first planner, there will be error mv rewritten in query.
+                    /*
+                     * If there is MVSelectFailedException after the first planner,
+                     * there will be error mv rewritten in query.
                      * So, the query should be reanalyzed without mv rewritten and planner again.
                      * Attention: Only error rewritten tuple is forbidden to mv rewrite in the second time.
                      */
@@ -627,7 +640,8 @@ public class StmtExecutor implements ProfileWriter {
         // parsedStmt may already by set when constructing this StmtExecutor();
         if (parsedStmt == null) {
             // Parse statement with parser generated by CUP&FLEX
-            SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt), context.getSessionVariable().getSqlMode());
+            SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt),
+                    context.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
             try {
                 parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
@@ -728,10 +742,14 @@ public class StmtExecutor implements ProfileWriter {
         }
         plannerProfile.setQueryAnalysisFinishTime();
 
-        // create plan
-        planner = new Planner();
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            // create plan
+            planner = new NereidsPlanner(context);
+        } else {
+            planner = new OriginalPlanner(analyzer);
+        }
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-            planner.plan(parsedStmt, analyzer, tQueryOptions);
+            planner.plan(parsedStmt, tQueryOptions);
         }
         // TODO(zc):
         // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
@@ -745,7 +763,8 @@ public class StmtExecutor implements ProfileWriter {
         parsedStmt.reset();
 
         // DORIS-7361
-        // Need to reset selectList before second-round analyze, because exprs in selectList could be rewritten by mvExprRewriter
+        // Need to reset selectList before second-round analyze,
+        // because exprs in selectList could be rewritten by mvExprRewriter
         // in first-round analyze, which could cause analyze failure.
         if (parsedStmt instanceof QueryStmt) {
             ((QueryStmt) parsedStmt).resetSelectList();
@@ -835,7 +854,8 @@ public class StmtExecutor implements ProfileWriter {
 
         if (isEos) {
             if (batch != null) {
-                statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
+                statisticsForAuditLog = batch.getQueryStatistics() == null
+                        ? null : batch.getQueryStatistics().toBuilder();
             }
             if (!isSend) {
                 sendFields(selectStmt.getColLabels(), exprToType(selectStmt.getResultExprs()));
@@ -849,8 +869,8 @@ public class StmtExecutor implements ProfileWriter {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel, SelectStmt selectStmt) throws Exception {
-        RowBatch batch = null;
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel, SelectStmt selectStmt)
+            throws Exception {
         InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
         CacheMode mode = cacheAnalyzer.getCacheMode();
         SelectStmt newSelectStmt = selectStmt;
@@ -864,54 +884,22 @@ public class StmtExecutor implements ProfileWriter {
             // rewrite sql
             if (mode == CacheMode.Partition) {
                 if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
-                    isSendFields = sendCachedValues(channel, cacheResult.getValuesList(), newSelectStmt, isSendFields, false);
+                    isSendFields = sendCachedValues(channel, cacheResult.getValuesList(),
+                            newSelectStmt, isSendFields, false);
                 }
                 newSelectStmt = cacheAnalyzer.getRewriteStmt();
                 newSelectStmt.reset();
                 analyzer = new Analyzer(context.getCatalog(), context);
                 newSelectStmt.analyze(analyzer);
-                planner = new Planner();
-                planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
-            }
-        }
-
-        coord = new Coordinator(context, analyzer, planner);
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-        coord.exec();
-
-        while (true) {
-            batch = coord.getNext();
-            if (batch.getBatch() != null) {
-                cacheAnalyzer.copyRowBatch(batch);
-                if (!isSendFields) {
-                    sendFields(newSelectStmt.getColLabels(), exprToType(newSelectStmt.getResultExprs()));
-                    isSendFields = true;
+                if (parsedStmt instanceof LogicalPlanAdapter) {
+                    planner = new NereidsPlanner(context);
+                } else {
+                    planner = new OriginalPlanner(analyzer);
                 }
-                for (ByteBuffer row : batch.getBatch().getRows()) {
-                    channel.sendOnePacket(row);
-                }
-                context.updateReturnRows(batch.getBatch().getRows().size());
-            }
-            if (batch.isEos()) {
-                break;
+                planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
-
-        if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
-            isSendFields = sendCachedValues(channel, cacheResult.getValuesList(), newSelectStmt, isSendFields, false);
-        }
-
-        cacheAnalyzer.updateCache();
-
-        if (!isSendFields) {
-            sendFields(newSelectStmt.getColLabels(), exprToType(newSelectStmt.getResultExprs()));
-            isSendFields = true;
-        }
-
-        statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
-        context.getState().setEof();
-        return;
+        sendResult(false, isSendFields, newSelectStmt, channel, cacheAnalyzer, cacheResult);
     }
 
     private boolean handleSelectRequestInFe(SelectStmt parsedSelectStmt) throws IOException {
@@ -933,7 +921,7 @@ public class StmtExecutor implements ProfileWriter {
             }
         }
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-        sendResult(resultSet);
+        sendResultSet(resultSet);
         return true;
     }
 
@@ -962,12 +950,12 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.getExplainOptions());
+            String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString);
             return;
         }
 
-        RowBatch batch;
+
         MysqlChannel channel = context.getMysqlChannel();
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
 
@@ -977,8 +965,12 @@ public class StmtExecutor implements ProfileWriter {
             handleCacheStmt(cacheAnalyzer, channel, (SelectStmt) queryStmt);
             return;
         }
+        sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+    }
 
-        // send result
+
+    private void sendResult(boolean isOutfileQuery, boolean isSendFields, QueryStmt queryStmt, MysqlChannel channel,
+            CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
         //    number of rows selected. For example:
@@ -986,7 +978,7 @@ public class StmtExecutor implements ProfileWriter {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
-        boolean isSendFields = false;
+        RowBatch batch;
         coord = new Coordinator(context, analyzer, planner);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
@@ -998,7 +990,11 @@ public class StmtExecutor implements ProfileWriter {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
             if (batch.getBatch() != null) {
-                // For some language driver, getting error packet after fields packet will be recognized as a success result
+                if (cacheAnalyzer != null) {
+                    cacheAnalyzer.copyRowBatch(batch);
+                }
+                // For some language driver, getting error packet after fields packet
+                // will be recognized as a success result
                 // so We need to send fields after first batch arrived
                 if (!isSendFields) {
                     if (!isOutfileQuery) {
@@ -1017,6 +1013,14 @@ public class StmtExecutor implements ProfileWriter {
                 break;
             }
         }
+        if (cacheAnalyzer != null) {
+            if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
+                isSendFields = sendCachedValues(channel, cacheResult.getValuesList(), (SelectStmt) queryStmt,
+                        isSendFields, false);
+            }
+
+            cacheAnalyzer.updateCache();
+        }
         if (!isSendFields) {
             if (!isOutfileQuery) {
                 sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
@@ -1029,7 +1033,6 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setEof();
         plannerProfile.setQueryFetchResultFinishTime();
     }
-
 
     private TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request) throws Exception {
         TWaitingTxnStatusResult statusResult = null;
@@ -1194,7 +1197,8 @@ public class StmtExecutor implements ProfileWriter {
         TTxnParams txnConf = txnEntry.getTxnConf();
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
-        Database dbObj = Catalog.getCurrentCatalog().getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
+        Database dbObj = Catalog.getCurrentInternalCatalog()
+                .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
         Table tblObj = dbObj.getTableOrException(tblName, s -> new TException("table is invalid: " + s));
         txnConf.setDbId(dbObj.getId()).setTbl(tblName).setDb(dbName);
         txnEntry.setTable(tblObj);
@@ -1262,7 +1266,7 @@ public class StmtExecutor implements ProfileWriter {
         if (insertStmt.getQueryStmt().isExplain()) {
             ExplainOptions explainOptions = insertStmt.getQueryStmt().getExplainOptions();
             insertStmt.setIsExplain(explainOptions);
-            String explainString = planner.getExplainString(planner.getFragments(), explainOptions);
+            String explainString = planner.getExplainString(explainOptions);
             handleExplainStmt(explainString);
             return;
         }
@@ -1303,7 +1307,8 @@ public class StmtExecutor implements ProfileWriter {
                     coord.cancel();
                     if (notTimeout) {
                         errMsg = coord.getExecStatus().getErrorMsg();
-                        ErrorReport.reportDdlException("There exists unhealthy backend. " + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                        ErrorReport.reportDdlException("There exists unhealthy backend. "
+                                + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
                     }
@@ -1341,7 +1346,8 @@ public class StmtExecutor implements ProfileWriter {
                 }
 
                 if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                        insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
+                        insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()),
+                        insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                         context.getSessionVariable().getInsertVisibleTimeoutMs())) {
                     txnStatus = TransactionStatus.VISIBLE;
@@ -1428,6 +1434,18 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setOk();
     }
 
+    // Process switch catalog
+    private void handleSwitchStmt() throws AnalysisException {
+        SwitchStmt switchStmt = (SwitchStmt) parsedStmt;
+        try {
+            context.getCatalog().changeCatalog(context, switchStmt.getCatalogName());
+        } catch (DdlException e) {
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            return;
+        }
+        context.getState().setOk();
+    }
+
     // Process use statement.
     private void handleUseStmt() throws AnalysisException {
         UseStmt useStmt = (UseStmt) parsedStmt;
@@ -1480,7 +1498,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
 
-    public void sendResult(ResultSet resultSet) throws IOException {
+    public void sendResultSet(ResultSet resultSet) throws IOException {
         context.updateReturnRows(resultSet.getResultRows().size());
         // Send meta data.
         sendMetaData(resultSet.getMetaData());
@@ -1514,7 +1532,7 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-        sendResult(resultSet);
+        sendResultSet(resultSet);
     }
 
     private void handleUnlockTablesStmt() {
@@ -1580,7 +1598,7 @@ public class StmtExecutor implements ProfileWriter {
             // create table
             DdlExecutor.execute(context.getCatalog(), ctasStmt);
             context.getState().setOk();
-        }  catch (Exception e) {
+        } catch (Exception e) {
             // Maybe our bug
             LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());

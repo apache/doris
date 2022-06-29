@@ -108,7 +108,7 @@ public class ShowPartitionsStmt extends ShowStmt {
                                                 ConnectContext.get().getRemoteIP(),
                                                 dbName + ": " + tableName);
         }
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         table.readLock();
         try {

@@ -1312,6 +1312,7 @@ public class FunctionSet<T> {
 
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1935,7 +1936,6 @@ public class FunctionSet<T> {
                         false, true, false));
             }
         }
-
 
         // Sum
         String []sumNames = {"sum", "sum_distinct"};

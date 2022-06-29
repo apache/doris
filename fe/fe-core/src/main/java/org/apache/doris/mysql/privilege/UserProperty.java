@@ -450,7 +450,8 @@ public class UserProperty implements Writable {
         result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(commonProperties.getMaxConn())));
 
         // max query instance
-        result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES, String.valueOf(commonProperties.getMaxQueryInstances())));
+        result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES,
+                String.valueOf(commonProperties.getMaxQueryInstances())));
 
         // sql block rules
         result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, commonProperties.getSqlBlockRules()));

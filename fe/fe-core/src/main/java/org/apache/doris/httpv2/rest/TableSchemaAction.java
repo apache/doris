@@ -65,7 +65,7 @@ public class TableSchemaAction extends RestBaseController {
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             OlapTable table;
             try {
-                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
                 table = (OlapTable) db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
@@ -88,7 +88,8 @@ public class TableSchemaAction extends RestBaseController {
                         baseInfo.put("comment", column.getComment());
                         baseInfo.put("name", column.getDisplayName());
                         Optional aggregationType = Optional.ofNullable(column.getAggregationType());
-                        baseInfo.put("aggregation_type", aggregationType.isPresent() ? column.getAggregationType().toSql() : "");
+                        baseInfo.put("aggregation_type", aggregationType.isPresent()
+                                ? column.getAggregationType().toSql() : "");
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);

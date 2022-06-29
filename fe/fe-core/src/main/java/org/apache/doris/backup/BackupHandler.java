@@ -192,7 +192,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
         if (!catalog.getBrokerMgr().containsBroker(stmt.getBrokerName())
                 && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "broker does not exist: " + stmt.getBrokerName());
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "broker does not exist: " + stmt.getBrokerName());
         }
 
         BlobStorage storage = BlobStorage.create(stmt.getBrokerName(), stmt.getStorageType(), stmt.getProperties());
@@ -244,7 +245,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // check if db exist
         String dbName = stmt.getDbName();
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
 
         // Try to get sequence lock.
         // We expect at most one operation on a repo at same time.
@@ -328,13 +329,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
             tbl.readLock();
             try {
                 if (olapTbl.existTempPartitions()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup table with temp partitions");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Do not support backup table with temp partitions");
                 }
 
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
                     if (partitionNames.isTemp()) {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup temp partitions");
+                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                "Do not support backup temp partitions");
                     }
 
                     for (String partName : partitionNames.getPartitionNames()) {
@@ -537,7 +540,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
 
         AbstractJob job = getCurrentJob(db.getId());
         if (job == null || (job instanceof BackupJob && stmt.isRestore())
@@ -671,7 +674,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public void write(DataOutput out) throws IOException {
         repoMgr.write(out);
 
-        List<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.values().stream().flatMap(Deque::stream).collect(Collectors.toList());
+        List<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.values()
+                .stream().flatMap(Deque::stream).collect(Collectors.toList());
         out.writeInt(jobs.size());
         for (AbstractJob job : jobs) {
             job.write(out);

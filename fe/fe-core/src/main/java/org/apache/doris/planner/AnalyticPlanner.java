@@ -71,7 +71,7 @@ import java.util.List;
  * ...
  */
 public class AnalyticPlanner {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticPlanner.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticPlanner.class);
 
     private final AnalyticInfo analyticInfo;
     private final Analyzer analyzer;
@@ -654,11 +654,10 @@ public class AnalyticPlanner {
             for (int i = 0; i < analyticExprs.size(); ++i) {
                 SlotDescriptor logicalOutputSlot = logicalOutputSlots.get(i);
 
-                //        SlotDescriptor physicalOutputSlot =analyzer.getDescTbl().copySlotDescriptor(logicalOutputSlot, physicalOutputTuple);
                 SlotDescriptor physicalOutputSlot = analyzer.getDescTbl().copySlotDescriptor(physicalOutputTuple,
                                                     logicalOutputSlot);
                 physicalOutputSlot.setIsMaterialized(true);
-                //        in impala setIntermediateType only used in uda
+                // in impala setIntermediateType only used in uda
 
                 if (requiresIntermediateTuple) {
                     SlotDescriptor logicalIntermediateSlot = logicalIntermediateSlots.get(i);
@@ -806,6 +805,7 @@ public class AnalyticPlanner {
         }
 
         private static final SizeLt SIZE_LT;
+
         static {
             SIZE_LT = new SizeLt();
         }

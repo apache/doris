@@ -143,6 +143,7 @@ public class IsNullPredicate extends Predicate {
     public boolean isNullable() {
         return false;
     }
+
     /**
      * fix issue 6390
      */

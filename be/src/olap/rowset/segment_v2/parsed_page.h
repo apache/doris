@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -55,6 +56,11 @@ struct ParsedPage {
         PageDecoderOptions opts;
         RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
         RETURN_IF_ERROR(page->data_decoder->init());
+
+        if (encoding->encoding() == DICT_ENCODING) {
+            auto dict_decoder = static_cast<BinaryDictPageDecoder*>(page->data_decoder);
+            page->is_dict_encoding = dict_decoder->is_dict_encoding();
+        }
 
         page->first_ordinal = footer.first_ordinal();
         page->num_rows = footer.num_values();
@@ -92,6 +98,8 @@ struct ParsedPage {
     // current offset when read this page
     // this means next row we will read
     ordinal_t offset_in_page = 0;
+
+    bool is_dict_encoding = false;
 
     bool contains(ordinal_t ord) {
         return ord >= first_ordinal && ord < (first_ordinal + num_rows);

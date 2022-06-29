@@ -133,7 +133,8 @@ public class Function implements Writable {
         this(0, name, args, retType, varArgs, vectorized, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized, NullableMode mode) {
+    public Function(FunctionName name, List<Type> args, Type retType,
+            boolean varArgs, boolean vectorized, NullableMode mode) {
         this(0, name, args, retType, varArgs, vectorized, mode);
     }
 
@@ -495,6 +496,7 @@ public class Function implements Writable {
                 return "float_val";
             case DOUBLE:
             case TIME:
+            case TIMEV2:
                 return "double_val";
             case VARCHAR:
             case CHAR:
@@ -505,6 +507,8 @@ public class Function implements Writable {
                 return "string_val";
             case DATE:
             case DATETIME:
+            case DATEV2:
+            case DATETIMEV2:
                 return "datetime_val";
             case DECIMALV2:
                 return "decimalv2_val";
@@ -534,6 +538,7 @@ public class Function implements Writable {
                 return "FloatVal";
             case DOUBLE:
             case TIME:
+            case TIMEV2:
                 return "DoubleVal";
             case VARCHAR:
             case CHAR:
@@ -544,6 +549,8 @@ public class Function implements Writable {
                 return "StringVal";
             case DATE:
             case DATETIME:
+            case DATEV2:
+            case DATETIMEV2:
                 return "DateTimeVal";
             case DECIMALV2:
                 return "DecimalV2Val";
@@ -606,6 +613,7 @@ public class Function implements Writable {
         FunctionType(int code) {
             this.code = code;
         }
+
         public int getCode() {
             return code;
         }
@@ -627,10 +635,11 @@ public class Function implements Writable {
         public void write(DataOutput output) throws IOException {
             output.writeInt(code);
         }
+
         public static FunctionType read(DataInput input) throws IOException {
             return fromCode(input.readInt());
         }
-    };
+    }
 
     protected void writeFields(DataOutput output) throws IOException {
         output.writeLong(id);

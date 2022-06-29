@@ -43,7 +43,8 @@
 
 #define TIME_TYPE_TO_COLUMN_TYPE(M) \
     M(Date, ColumnInt64)            \
-    M(DateTime, ColumnInt64)
+    M(DateTime, ColumnInt64)        \
+    M(DateV2, ColumnUInt32)
 
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(BitMap, ColumnBitmap)            \

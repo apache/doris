@@ -50,8 +50,8 @@ public class ColumnDef {
      *     k1 INT NULL DEFAULT NULL
      *
      * ColumnnDef will be transformed to Column in Analysis phase, and in Column, default value is a String.
-     * No matter does the user set the default value as NULL explicitly, or not set default value,
-     * the default value in Column will be "null", so that Doris can not distinguish between "not set" and "set as null".
+     * No matter does the user set the default value as NULL explicitly, or not set default value, the default value
+     * in Column will be "null", so that Doris can not distinguish between "not set" and "set as null".
      *
      * But this is OK because Column has another attribute "isAllowNull".
      * If the column is not allowed to be null, and user does not set the default value,
@@ -113,6 +113,7 @@ public class ColumnDef {
         this.comment = "";
         this.defaultValue = DefaultValue.NOT_SET;
     }
+
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
                      boolean isAllowNull, DefaultValue defaultValue, String comment) {
         this(name, typeDef, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
@@ -146,7 +147,8 @@ public class ColumnDef {
     }
 
     public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, true, DefaultValue.NULL_DEFAULT_VALUE,
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false,
+                aggregateType, true, DefaultValue.NULL_DEFAULT_VALUE,
                 "sequence column hidden column", false);
     }
 
@@ -336,11 +338,13 @@ public class ColumnDef {
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
-                new DateLiteral(defaultValue, type);
+            case DATEV2:
+                new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
                 break;
             case DATETIME:
+            case DATETIMEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, type);
+                    new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         break;
@@ -358,11 +362,8 @@ public class ColumnDef {
                 }
                 break;
             case BITMAP:
-                break;
             case ARRAY:
-                break;
             case MAP:
-                break;
             case STRUCT:
                 break;
             case BOOLEAN:

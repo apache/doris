@@ -34,13 +34,10 @@ suite("test_compaction_dup_keys") {
         def configList = parseJson(out.trim())
         assert configList instanceof List
 
-        int cumulativeCompactionSkipWindowSeconds = -1
         boolean disableAutoCompaction = true
         for (Object ele in (List) configList) {
             assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "cumulative_compaction_skip_window_seconds") {
-                cumulativeCompactionSkipWindowSeconds = Integer.parseInt(((List<String>) ele)[2])
-            } else if (((List<String>) ele)[0] == "disable_auto_compaction") {
+            if (((List<String>) ele)[0] == "disable_auto_compaction") {
                 disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
             }
         }
@@ -97,11 +94,6 @@ suite("test_compaction_dup_keys") {
 
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
         String[][] tablets = sql """ show tablets from ${tableName}; """
-
-        if (cumulativeCompactionSkipWindowSeconds > 0) {
-            logger.info("Config `cumulative_compaction_skip_window_seconds` is set to " + cumulativeCompactionSkipWindowSeconds + " seconds so sleep for a while.")
-            Thread.sleep(cumulativeCompactionSkipWindowSeconds * 1000)
-        }
 
         // trigger compactions for all tablets in ${tableName}
         for (String[] tablet in tablets) {

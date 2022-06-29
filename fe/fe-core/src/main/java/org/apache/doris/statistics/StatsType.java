@@ -29,9 +29,11 @@ public enum StatsType {
     MAX_COL_LENS("max_col_lens"),
     AVG_COL_LENS("avg_col_lens");
     private final String value;
+
     StatsType(String value) {
         this.value = value;
     }
+
     public String getValue() {
         return value;
     }

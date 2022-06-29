@@ -99,6 +99,8 @@ public class CloneTask extends AgentTask {
                 .append(schemaHash);
         sb.append(", storageMedium: ").append(storageMedium.name());
         sb.append(", visible version(hash): ").append(visibleVersion);
+        sb.append(", src backend: ").append(srcBackends.get(0).getHost())
+                .append(", src path hash: ").append(srcPathHash);
         sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path hash: ")
                 .append(srcPathHash);
         sb.append(", dest backend: ").append(backendId).append(", dest path hash: ").append(destPathHash);

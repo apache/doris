@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -55,7 +56,7 @@ import java.util.stream.Collectors;
  * tuples.
  */
 public abstract class SetOperationNode extends PlanNode {
-    private final static Logger LOG = LoggerFactory.getLogger(SetOperationNode.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SetOperationNode.class);
 
     // List of set operation result exprs of the originating SetOperationStmt. Used for
     // determining passthrough-compatibility of children.
@@ -83,23 +84,23 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId;
 
-    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, NodeType nodeType) {
-        super(id, tupleId.asList(), planNodeName, nodeType);
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, StatisticalType statisticalType) {
+        super(id, tupleId.asList(), planNodeName, statisticalType);
         this.setOpResultExprs = Lists.newArrayList();
         this.tupleId = tupleId;
         this.isInSubplan = false;
     }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
-                               List<Expr> setOpResultExprs, boolean isInSubplan, NodeType nodeType) {
-        super(id, tupleId.asList(), planNodeName, nodeType);
+                               List<Expr> setOpResultExprs, boolean isInSubplan, StatisticalType statisticalType) {
+        super(id, tupleId.asList(), planNodeName, statisticalType);
         this.setOpResultExprs = setOpResultExprs;
         this.tupleId = tupleId;
         this.isInSubplan = isInSubplan;
     }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
-        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        super(id, tupleId.asList(), planNodeName, StatisticalType.SET_OPERATION_NODE);
         this.setOpResultExprs = Lists.newArrayList();
         this.tupleId = tupleId;
         this.isInSubplan = false;
@@ -107,7 +108,7 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
                                List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        super(id, tupleId.asList(), planNodeName, StatisticalType.SET_OPERATION_NODE);
         this.setOpResultExprs = setOpResultExprs;
         this.tupleId = tupleId;
         this.isInSubplan = isInSubplan;
@@ -143,8 +144,9 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
-        // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs from this.init()
-        // to this.finalize(), and will not call SetOperationNode::init() again at the end of createSetOperationNodeFragment().
+        // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs
+        // from this.init() to this.finalize(), and will not call SetOperationNode::init() again at the end
+        // of createSetOperationNodeFragment().
         //
         // Reasons for move computePassthrough():
         //      Because the byteSize of the tuple corresponding to OlapScanNode is updated after
@@ -154,10 +156,10 @@ public abstract class SetOperationNode extends PlanNode {
         //      at the end of createSetOperationNodeFragment().
         //
         // Reasons for move materialized position of resultExprs/constExprs:
-        //      Because the output slot is materialized at various positions in the planner stage, this is to ensure that
-        //      eventually the resultExprs/constExprs and the corresponding output slot have the same materialized state.
-        //      And the order of materialized resultExprs must be the same as the order of child adjusted by
-        //      computePassthrough(), so resultExprs materialized must be placed after computePassthrough().
+        //     Because the output slot is materialized at various positions in the planner stage, this is to ensure that
+        //     eventually the resultExprs/constExprs and the corresponding output slot have the same materialized state.
+        //     And the order of materialized resultExprs must be the same as the order of child adjusted by
+        //     computePassthrough(), so resultExprs materialized must be placed after computePassthrough().
 
         // except Node must not reorder the child
         if (!(this instanceof ExceptNode)) {

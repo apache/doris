@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.parser.SqlParser;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressionRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -29,12 +29,12 @@ import org.junit.Test;
  * all expr rewrite rule test case.
  */
 public class ExpressionRewriteTest {
-    private static final SqlParser PARSER = new SqlParser();
-    private ExpressionRewriter rewriter;
+    private static final NereidsParser PARSER = new NereidsParser();
+    private ExpressionRuleExecutor executor;
 
     @Test
     public void testNotRewrite() {
-        rewriter = new ExpressionRewriter(SimplifyNotExprRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(SimplifyNotExprRule.INSTANCE);
 
         assertRewrite("not x > y", "x <= y");
         assertRewrite("not x < y", "x >= y");
@@ -47,7 +47,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNormalizeExpressionRewrite() {
-        rewriter = new ExpressionRewriter(NormalizeExpressionRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(NormalizeExpressionRule.INSTANCE);
 
         assertRewrite("2 > x", "x < 2");
         assertRewrite("2 >= x", "x <= 2");
@@ -59,7 +59,7 @@ public class ExpressionRewriteTest {
     private void assertRewrite(String expression, String expected) {
         Expression needRewriteExpression = PARSER.createExpression(expression);
         Expression expectedExpression = PARSER.createExpression(expected);
-        Expression rewrittenExpression = rewriter.rewrite(needRewriteExpression);
+        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
         Assert.assertEquals(expectedExpression, rewrittenExpression);
     }
 }

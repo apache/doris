@@ -58,7 +58,8 @@ public class EsRepository extends MasterDaemon {
         }
         esTables.put(esTable.getId(), esTable);
         esClients.put(esTable.getId(),
-                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(), esTable.isHttpSslEnabled()));
+                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(),
+                        esTable.isHttpSslEnabled()));
         LOG.info("register a new table [{}] to sync list", esTable);
     }
 
@@ -74,7 +75,8 @@ public class EsRepository extends MasterDaemon {
             try {
                 esTable.syncTableMetaData(esClients.get(esTable.getId()));
             } catch (Throwable e) {
-                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
+                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
+                        esTable.getName(), e);
                 esTable.setEsTablePartitions(null);
                 esTable.setLastMetaDataSyncException(e);
             }
@@ -88,9 +90,9 @@ public class EsRepository extends MasterDaemon {
         if (Catalog.isCheckpointThread()) {
             return;
         }
-        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+        List<Long> dbIds = Catalog.getCurrentCatalog().getInternalDataSource().getDbIds();
         for (Long dbId : dbIds) {
-            Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database database = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
             if (database == null) {
                 continue;
             }

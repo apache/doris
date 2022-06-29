@@ -45,9 +45,11 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         super.setUp();
         ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/es_table";
     }
+
     @Test
     public void testQueryPlanAction() throws IOException, TException {
-        RequestBody body = RequestBody.create("{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }", JSON);
+        RequestBody body = RequestBody.create(
+                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }", JSON);
         Request request = new Request.Builder()
                 .post(body)
                 .addHeader("Authorization", rootAuth)
@@ -117,7 +119,8 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     @Test
     public void testInconsistentResource() throws IOException {
-        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + 1 + " \" }");
+        RequestBody body = RequestBody.create(JSON,
+                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + 1 + " \" }");
         Request request = new Request.Builder()
                 .post(body)
                 .addHeader("Authorization", rootAuth)
@@ -136,7 +139,8 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     @Test
     public void testMalformedJson() throws IOException {
-        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \"");
+        RequestBody body = RequestBody.create(JSON,
+                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \"");
         Request request = new Request.Builder()
                 .post(body)
                 .addHeader("Authorization", rootAuth)
@@ -154,7 +158,8 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     @Test
     public void testNotOlapTableFailure() throws IOException {
-        RequestBody body = RequestBody.create("{ \"sql\" :  \" select k1,k2 from " + DB_NAME + ".es_table" + " \" }", JSON);
+        RequestBody body = RequestBody.create(
+                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + ".es_table" + " \" }", JSON);
         Request request = new Request.Builder()
                 .post(body)
                 .addHeader("Authorization", rootAuth)

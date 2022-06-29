@@ -138,8 +138,7 @@ public class CastExpr extends Expr {
 
     private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
         // Disable casting from boolean to decimal or datetime or date
-        if (fromType.isBoolean()
-                && (toType.equals(Type.DECIMALV2) || toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
+        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDateType())) {
             return true;
         }
 
@@ -160,12 +159,15 @@ public class CastExpr extends Expr {
                 if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
+                String beClass = toType.isDecimalV2()
+                        || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
                 if (fromType.isTime()) {
                     beClass = "TimeOperators";
                 }
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
-                if (toType.getPrimitiveType() == PrimitiveType.DATE) {
+                // only refactor date/datetime for vectorized engine.
+                if (toType.getPrimitiveType() == PrimitiveType.DATE
+                        || toType.getPrimitiveType() == PrimitiveType.DATEV2) {
                     typeName = "date_val";
                 }
                 String beSymbol = "doris::" + beClass + "::cast_to_"

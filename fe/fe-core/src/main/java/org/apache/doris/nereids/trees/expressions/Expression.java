@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.DataType;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -29,6 +31,8 @@ import java.util.List;
  * Abstract class for all Expression in Nereids.
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
+
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     public Expression(NodeType type, Expression... children) {
         super(type, children);
@@ -47,7 +51,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitExpression(this, context);
+        logger.warn("accept() is not implemented by " + this.getClass());
+        return visitor.visit(this, context);
     }
 
     @Override
@@ -76,4 +81,5 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         }
         return false;
     }
+
 }

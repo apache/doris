@@ -53,6 +53,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
@@ -90,7 +91,7 @@ public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
 
     // average compression ratio in doris storage engine
-    private final static int COMPRESSION_RATIO = 5;
+    private static final int COMPRESSION_RATIO = 5;
 
     private List<TScanRangeLocations> result = new ArrayList<>();
     /*
@@ -146,7 +147,7 @@ public class OlapScanNode extends ScanNode {
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, NodeType.OLAP_SCAN_NODE);
+        super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
         olapTable = (OlapTable) desc.getTable();
     }
 
@@ -238,7 +239,8 @@ public class OlapScanNode extends ScanNode {
      * @param reasonOfDisable
      * @throws UserException
      */
-    public void updateScanRangeInfoByNewMVSelector(long selectedIndexId, boolean isPreAggregation, String reasonOfDisable)
+    public void updateScanRangeInfoByNewMVSelector(long selectedIndexId,
+            boolean isPreAggregation, String reasonOfDisable)
             throws UserException {
         if (selectedIndexId == this.selectedIndexId && isPreAggregation == this.isPreAggregation) {
             return;
@@ -366,7 +368,8 @@ public class OlapScanNode extends ScanNode {
             final MaterializedIndex baseIndex = partition.getBaseIndex();
             cardinality += baseIndex.getRowCount();
         }
-        Catalog.getCurrentCatalog().getStatisticsManager().getStatistics().mockTableStatsWithRowCount(tableId, cardinality);
+        Catalog.getCurrentCatalog().getStatisticsManager()
+                .getStatistics().mockTableStatsWithRowCount(tableId, cardinality);
     }
 
     @Override
@@ -427,7 +430,8 @@ public class OlapScanNode extends ScanNode {
         cardinality = statsDeriveResult.getRowCount();
     }
 
-    private Collection<Long> partitionPrune(PartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
+    private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
+            PartitionNames partitionNames) throws AnalysisException {
         PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
         if (partitionNames != null) {
@@ -532,7 +536,8 @@ public class OlapScanNode extends ScanNode {
                     continue;
                 }
                 if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getTag())) {
-                    String err = String.format("Replica on backend %d with tag %s, which is not in user's resource tags: %s",
+                    String err = String.format("Replica on backend %d with tag %s,"
+                                    + " which is not in user's resource tags: %s",
                             backend.getId(), backend.getTag(), allowedTags);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(err);
@@ -604,7 +609,8 @@ public class OlapScanNode extends ScanNode {
         for (long id : selectedPartitionIds) {
             Partition partition = olapTable.getPartition(id);
             if (partition.getState() == PartitionState.RESTORE) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), "RESTORING");
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_PARTITION_STATE,
+                        partition.getName(), "RESTORING");
             }
         }
         LOG.debug("partition prune cost: {} ms, partitions: {}",

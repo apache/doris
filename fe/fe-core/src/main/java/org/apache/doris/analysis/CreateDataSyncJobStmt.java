@@ -93,13 +93,15 @@ public class CreateDataSyncJobStmt extends DdlStmt {
         for (ChannelDescription channelDescription : channelDescriptions) {
             channelDescription.analyze(dbName);
             String tableName = channelDescription.getTargetTable();
-            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
             OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
             if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Table: " + tableName + " is not a unique table, key type: " + olapTable.getKeysType());
+                throw new AnalysisException("Table: " + tableName
+                        + " is not a unique table, key type: " + olapTable.getKeysType());
             }
             if (!olapTable.hasDeleteSign()) {
-                throw new AnalysisException("Table: " + tableName + " don't support batch delete. Please upgrade it to support, see `help alter table`.");
+                throw new AnalysisException("Table: " + tableName
+                        + " don't support batch delete. Please upgrade it to support, see `help alter table`.");
             }
         }
     }

@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
@@ -60,7 +61,8 @@ import java.util.Set;
 /**
  * Root of the expr node hierarchy.
  */
-abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneable, Writable {
+public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneable, Writable, ExprStats {
+
     private static final Logger LOG = LogManager.getLogger(Expr.class);
 
     // Name of the function that needs to be implemented by every Expr that
@@ -70,10 +72,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
 
-    public final static float FUNCTION_CALL_COST = 10;
+    public static final float FUNCTION_CALL_COST = 10;
 
     // returns true if an Expr is a non-analytic aggregate.
-    private final static com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
+    private static final com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 public boolean apply(Expr arg) {
                     return arg instanceof FunctionCallExpr
@@ -82,7 +84,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
     // Returns true if an Expr is a NOT CompoundPredicate.
-    public final static com.google.common.base.Predicate<Expr> IS_NOT_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_NOT_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -92,7 +94,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
     // Returns true if an Expr is an OR CompoundPredicate.
-    public final static com.google.common.base.Predicate<Expr> IS_OR_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_OR_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -102,7 +104,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
     // Returns true if an Expr is a scalar subquery
-    public final static com.google.common.base.Predicate<Expr> IS_SCALAR_SUBQUERY =
+    public static final com.google.common.base.Predicate<Expr> IS_SCALAR_SUBQUERY =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -112,7 +114,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     // Returns true if an Expr is an aggregate function that returns non-null on
     // an empty set (e.g. count).
-    public final static com.google.common.base.Predicate<Expr> NON_NULL_EMPTY_AGG =
+    public static final com.google.common.base.Predicate<Expr> NON_NULL_EMPTY_AGG =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -121,7 +123,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
     // Returns true if an Expr is a builtin aggregate function.
-    public final static com.google.common.base.Predicate<Expr> CORRELATED_SUBQUERY_SUPPORT_AGG_FN =
+    public static final com.google.common.base.Predicate<Expr> CORRELATED_SUBQUERY_SUPPORT_AGG_FN =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -139,7 +141,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
 
-    public final static com.google.common.base.Predicate<Expr> IS_TRUE_LITERAL =
+    public static final com.google.common.base.Predicate<Expr> IS_TRUE_LITERAL =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -147,7 +149,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
 
-    public final static com.google.common.base.Predicate<Expr> IS_FALSE_LITERAL =
+    public static final com.google.common.base.Predicate<Expr> IS_FALSE_LITERAL =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -155,7 +157,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
 
-    public final static com.google.common.base.Predicate<Expr> IS_EQ_BINARY_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_EQ_BINARY_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -163,7 +165,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
 
-    public final static com.google.common.base.Predicate<Expr> IS_BINARY_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_BINARY_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -423,7 +425,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     /**
      * Does subclass-specific analysis. Subclasses should override analyzeImpl().
      */
-    abstract protected void analyzeImpl(Analyzer analyzer) throws AnalysisException;
+    protected abstract void analyzeImpl(Analyzer analyzer) throws AnalysisException;
 
     /**
      * Set the expr to be analyzed and computes isConstant_.
@@ -665,6 +667,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
     }
+
     /**
      * Returns true if the list contains an aggregate expr.
      */
@@ -828,6 +831,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             child.markAgg();
         }
     }
+
     /**
      * Returns the product of the given exprs' number of distinct values or -1 if any of
      * the exprs have an invalid number of distinct values.
@@ -1354,7 +1358,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 && (this.type.isStringType() || this.type.isHllType())) {
             return this;
         }
-        // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType), "cast %s to %s", this.type, targetType);
+        // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType),
+        // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
         if (!Type.canCastTo(this.type, targetType)) {
             throw new AnalysisException("type not match, originType=" + this.type

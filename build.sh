@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Apache Doris(incubating).
+# This script is used to compile Apache Doris
 # Usage:
 #    sh build.sh --help
 #
@@ -135,7 +135,7 @@ if [ $# == 1 ] ; then
     BUILD_FE=1
     BUILD_BE=1
     BUILD_BROKER=1
-    BUILD_META_TOOL=ON
+    BUILD_META_TOOL=OFF
     BUILD_SPARK_DPP=1
     BUILD_JAVA_UDF=0 # TODO: open it when ready
     BUILD_HIVE_UDF=1
@@ -205,9 +205,6 @@ fi
 if [[ -z ${USE_LIBCPP} ]]; then
     USE_LIBCPP=OFF
 fi
-if [[ -z ${USE_LLD} ]]; then
-    USE_LLD=OFF
-fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
@@ -234,7 +231,6 @@ echo "Get params:
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
     USE_LIBCPP          -- $USE_LIBCPP
-    USE_LLD             -- $USE_LLD
     USE_DWARF           -- $USE_DWARF
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
     USE_MEM_TRACKER     -- $USE_MEM_TRACKER
@@ -247,7 +243,6 @@ fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 # DO NOT using parallel make(-j) for gensrc
-python --version
 make
 
 # Assesmble FE modules
@@ -295,7 +290,6 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
-            -DUSE_LLD=${USE_LLD} \
             -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_DWARF=${USE_DWARF} \
@@ -371,7 +365,8 @@ if [ ${BUILD_FE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
     rm -rf ${DORIS_OUTPUT}/fe/lib/*
     cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
-    cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+    rm -f ${DORIS_OUTPUT}/fe/lib/palo-fe.jar
+    cp -r -p ${DORIS_HOME}/fe/fe-core/target/doris-fe.jar ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/webroot/static ${DORIS_OUTPUT}/fe/webroot/
 
@@ -396,7 +391,9 @@ if [ ${BUILD_BE} -eq 1 ]; then
 
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
-    cp -r -p ${DORIS_HOME}/be/output/lib/palo_be ${DORIS_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/lib/doris_be ${DORIS_OUTPUT}/be/lib/
+    # make a soft link palo_be point to doris_be, for forward compatibility
+    cd ${DORIS_OUTPUT}/be/lib && rm -f palo_be && ln -s doris_be palo_be && cd -
 
     if [ "${BUILD_META_TOOL}" = "ON" ]; then
         cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/
@@ -417,8 +414,6 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
     mkdir -p ${DORIS_OUTPUT}/be/log
     mkdir -p ${DORIS_OUTPUT}/be/storage
-
-
 fi
 
 if [ ${BUILD_BROKER} -eq 1 ]; then
