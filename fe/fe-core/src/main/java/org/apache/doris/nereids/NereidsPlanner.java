@@ -21,9 +21,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.nereids.jobs.Job;
-import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
-import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -39,8 +36,6 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -106,28 +101,13 @@ public class NereidsPlanner extends Planner {
      * @return PhysicalPlan.
      */
     private PhysicalPlan doPlan() {
-        List<Job> batchRuleJobs = addPlanJobs();
-        for (Job job : batchRuleJobs) {
-            plannerContext.getOptimizerContext().pushJob(job);
-            plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
-        }
-        return getRoot().extractPlan();
-    }
+        AnalyzeRulesJob analyzeRulesJob = new AnalyzeRulesJob(plannerContext);
+        analyzeRulesJob.execute();
 
-    /**
-     * Add tasks, each task will be executed separately,
-     * so when adding, you need to clarify the order of the jobs and whether they need to be executed in batches.
-     * @return List of Jobs.
-     */
-    private List<Job> addPlanJobs() {
-        Preconditions.checkState(plannerContext != null);
-        return new ImmutableList.Builder<Job>()
-                .add(new RewriteBottomUpJob(
-                        getRoot(),
-                        plannerContext.getOptimizerContext().getRuleSet().getAnalysisRules(),
-                        plannerContext))
-                .add(new OptimizeGroupJob(getRoot(), plannerContext))
-                .build();
+        OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
+        optimizeRulesJob.execute();
+
+        return getRoot().extractPlan();
     }
 
     @Override
