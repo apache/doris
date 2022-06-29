@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/vbroker_scan_node.h"
+#include "vec/exec/file_scan_node.h"
 
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/mem_tracker.h"
@@ -26,18 +26,15 @@
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/types.h"
-#include "vec/exec/vbroker_scanner.h"
-#include "vec/exec/vjson_scanner.h"
-#include "vec/exec/vorc_scanner.h"
-#include "vec/exec/vparquet_scanner.h"
+#include "vec/exec/file_arrow_scanner.h"
+#include "vec/exec/file_text_scanner.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
-VBrokerScanNode::VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                                 const DescriptorTbl& descs)
+FileScanNode::FileScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ScanNode(pool, tnode, descs),
-          _tuple_id(tnode.broker_scan_node.tuple_id),
+          _tuple_id(tnode.file_scan_node.tuple_id),
           _runtime_state(nullptr),
           _tuple_desc(nullptr),
           _num_running_scanners(0),
@@ -45,19 +42,19 @@ VBrokerScanNode::VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode,
           _max_buffered_batches(32),
           _wait_scanner_timer(nullptr) {}
 
-Status VBrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode, state));
-    auto& broker_scan_node = tnode.broker_scan_node;
+    auto& file_scan_node = tnode.file_scan_node;
 
-    if (broker_scan_node.__isset.pre_filter_exprs) {
-        _pre_filter_texprs = broker_scan_node.pre_filter_exprs;
+    if (file_scan_node.__isset.pre_filter_exprs) {
+        _pre_filter_texprs = file_scan_node.pre_filter_exprs;
     }
 
     return Status::OK();
 }
 
-Status VBrokerScanNode::prepare(RuntimeState* state) {
-    VLOG_QUERY << "VBrokerScanNode prepare";
+Status FileScanNode::prepare(RuntimeState* state) {
+    VLOG_QUERY << "FileScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     // get tuple desc
@@ -85,7 +82,7 @@ Status VBrokerScanNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VBrokerScanNode::open(RuntimeState* state) {
+Status FileScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -96,16 +93,16 @@ Status VBrokerScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VBrokerScanNode::start_scanners() {
+Status FileScanNode::start_scanners() {
     {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
         _num_running_scanners = 1;
     }
-    _scanner_threads.emplace_back(&VBrokerScanNode::scanner_worker, this, 0, _scan_ranges.size());
+    _scanner_threads.emplace_back(&FileScanNode::scanner_worker, this, 0, _scan_ranges.size());
     return Status::OK();
 }
 
-Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // check if CANCELLED.
     if (state->is_cancelled()) {
@@ -152,7 +149,7 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
             if (_mutable_block && !_mutable_block->empty()) {
                 *block = _mutable_block->to_block();
                 reached_limit(block, eos);
-                LOG_IF(INFO, *eos) << "VBrokerScanNode ReachedLimit.";
+                LOG_IF(INFO, *eos) << "FileScanNode ReachedLimit.";
             }
             _scan_finished.store(true);
             *eos = true;
@@ -187,7 +184,7 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     if (*eos) {
         _scan_finished.store(true);
         _queue_writer_cond.notify_all();
-        LOG(INFO) << "VBrokerScanNode ReachedLimit.";
+        LOG(INFO) << "FileScanNode ReachedLimit.";
     } else {
         *eos = false;
     }
@@ -195,7 +192,7 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     return Status::OK();
 }
 
-Status VBrokerScanNode::close(RuntimeState* state) {
+Status FileScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
@@ -212,9 +209,9 @@ Status VBrokerScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, ScannerCounter* counter) {
+Status FileScanNode::scanner_scan(const TFileScanRange& scan_range, ScannerCounter* counter) {
     //create scanner object and open
-    std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
+    std::unique_ptr<FileScanner> scanner = create_scanner(scan_range, counter);
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;
     while (!scanner_eof) {
@@ -267,13 +264,13 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
     return Status::OK();
 }
 
-void VBrokerScanNode::scanner_worker(int start_idx, int length) {
-    Thread::set_self_name("vbroker_scanner");
+void FileScanNode::scanner_worker(int start_idx, int length) {
+    Thread::set_self_name("file_scanner");
     Status status = Status::OK();
     ScannerCounter counter;
     for (int i = 0; i < length && status.ok(); ++i) {
-        const TBrokerScanRange& scan_range =
-                _scan_ranges[start_idx + i].scan_range.broker_scan_range;
+        const TFileScanRange& scan_range =
+                _scan_ranges[start_idx + i].scan_range.ext_scan_range.file_scan_range;
         status = scanner_scan(scan_range, &counter);
         if (!status.ok()) {
             LOG(WARNING) << "Scanner[" << start_idx + i
@@ -301,42 +298,35 @@ void VBrokerScanNode::scanner_worker(int start_idx, int length) {
     }
 }
 
-std::unique_ptr<BaseScanner> VBrokerScanNode::create_scanner(const TBrokerScanRange& scan_range,
-                                                             ScannerCounter* counter) {
-    BaseScanner* scan = nullptr;
+std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& scan_range,
+                                                          ScannerCounter* counter) {
+    FileScanner* scan = nullptr;
     switch (scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scan = new vectorized::VParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                               scan_range.ranges, scan_range.broker_addresses,
-                                               _pre_filter_texprs, counter);
+        scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                       scan_range.ranges, _pre_filter_texprs, counter);
         break;
     case TFileFormatType::FORMAT_ORC:
-        scan = new vectorized::VORCScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                           scan_range.ranges, scan_range.broker_addresses,
-                                           _pre_filter_texprs, counter);
+        scan = new VFileORCScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                   scan_range.ranges, _pre_filter_texprs, counter);
         break;
-    case TFileFormatType::FORMAT_JSON:
-        scan = new vectorized::VJsonScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                            scan_range.ranges, scan_range.broker_addresses,
-                                            _pre_filter_texprs, counter);
-        break;
+
     default:
-        scan = new vectorized::VBrokerScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                              scan_range.ranges, scan_range.broker_addresses,
-                                              _pre_filter_texprs, counter);
+        scan = new FileTextScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                   scan_range.ranges, _pre_filter_texprs, counter);
     }
-    std::unique_ptr<BaseScanner> scanner(scan);
+    std::unique_ptr<FileScanner> scanner(scan);
     return scanner;
 }
 
 // This function is called after plan node has been prepared.
-Status VBrokerScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status FileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     _scan_ranges = scan_ranges;
     return Status::OK();
 }
 
-void VBrokerScanNode::debug_string(int ident_level, std::stringstream* out) const {
-    (*out) << "VBrokerScanNode";
+void FileScanNode::debug_string(int ident_level, std::stringstream* out) const {
+    (*out) << "FileScanNode";
 }
 
 } // namespace doris::vectorized

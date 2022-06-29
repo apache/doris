@@ -45,4 +45,5 @@ public enum StatisticalType {
     TABLE_FUNCTION_NODE,
     UNION_NODE,
     TABLE_VALUED_FUNCTION_NODE,
+    FILE_SCAN_NODE,
 }
