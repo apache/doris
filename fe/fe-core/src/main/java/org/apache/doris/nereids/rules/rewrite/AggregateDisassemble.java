@@ -86,7 +86,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 intermediateAggExpressionList.add(namedExpression);
             }
             LogicalAggregation localAgg = new LogicalAggregation(
-                    agg.getGroupByExpressions(),
+                    agg.getGroupByExprList(),
                     intermediateAggExpressionList,
                     true
             );
