@@ -62,21 +62,18 @@ Status HdfsFileReader::open() {
     if (_hdfs_file == nullptr) {
         std::stringstream ss;
         ss << "open file failed. "
-           << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
-           << ", err: " << strerror(errno);
-        ;
+           << "(BE: " << BackendOptions::get_localhost() << ")"
+           << " namenode:" << _namenode << ", path:" << _path << ", err: " << hdfsGetLastError();
         return Status::InternalError(ss.str());
     }
-    LOG(INFO) << "open file. " << _namenode << _path;
+    VLOG_NOTICE << "open file, namenode:" << _namenode << ", path:" << _path;
     return seek(_current_offset);
 }
 
 void HdfsFileReader::close() {
     if (!closed()) {
         if (_hdfs_file != nullptr && _hdfs_fs != nullptr) {
-            std::stringstream ss;
-            ss << "close hdfs file: " << _namenode << _path;
-            LOG(INFO) << ss.str();
+            VLOG_NOTICE << "close hdfs file: " << _namenode << _path;
             //If the hdfs file was valid, the memory associated with it will
             // be freed at the end of this call, even if there was an I/O error
             hdfsCloseFile(_hdfs_fs, _hdfs_file);
@@ -125,7 +122,7 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
             std::stringstream ss;
             ss << "hdfsSeek failed. "
                << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
-               << ", err: " << strerror(errno);
+               << ", err: " << hdfsGetLastError();
             ;
             return Status::InternalError(ss.str());
         }
@@ -136,7 +133,7 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
         std::stringstream ss;
         ss << "Read hdfs file failed. "
            << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
-           << ", err: " << strerror(errno);
+           << ", err: " << hdfsGetLastError();
         ;
         return Status::InternalError(ss.str());
     }
@@ -156,7 +153,7 @@ int64_t HdfsFileReader::size() {
         hdfsFileInfo* file_info = hdfsGetPathInfo(_hdfs_fs, _path.c_str());
         if (file_info == nullptr) {
             LOG(WARNING) << "get path info failed: " << _namenode << _path
-                         << ", err: " << strerror(errno);
+                         << ", err: " << hdfsGetLastError();
             ;
             close();
             return -1;
@@ -176,7 +173,7 @@ Status HdfsFileReader::seek(int64_t position) {
         std::stringstream ss;
         ss << "Seek to offset failed. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << " offset=" << position << ", err: " << strerror(errno);
+           << " offset=" << position << ", err: " << hdfsGetLastError();
         return Status::InternalError(ss.str());
     }
     return Status::OK();
