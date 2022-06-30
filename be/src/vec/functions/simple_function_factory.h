@@ -145,6 +145,7 @@ public:
             return iter->second()->build(arguments, return_type);
         }
 
+        LOG(WARNING) << fmt::format("Function signature {} is not founded", key_str);
         return nullptr;
     }
 
