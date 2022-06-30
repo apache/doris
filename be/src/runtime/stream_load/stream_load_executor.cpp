@@ -335,17 +335,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     }
     switch (ctx->load_type) {
     case TLoadType::MINI_LOAD: {
-        attach->loadType = TLoadType::MINI_LOAD;
-
-        TMiniLoadTxnCommitAttachment ml_attach;
-        ml_attach.loadedRows = ctx->number_loaded_rows;
-        ml_attach.filteredRows = ctx->number_filtered_rows;
-        if (!ctx->error_url.empty()) {
-            ml_attach.__set_errorLogUrl(ctx->error_url);
-        }
-
-        attach->mlTxnCommitAttachment = std::move(ml_attach);
-        attach->__isset.mlTxnCommitAttachment = true;
+        LOG(FATAL) << "mini load is not supported any more";
         break;
     }
     case TLoadType::ROUTINE_LOAD: {
