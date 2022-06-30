@@ -142,9 +142,7 @@ public:
                 const_cast<AggregateFunctionBitmapData<Op>&>(this->data(place)).get());
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { 
-        this->data(place).reset(); 
-    }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 };
 
 template <bool nullable, typename ColVecType>
@@ -200,9 +198,7 @@ public:
         column.get_data().push_back(value_data.cardinality());
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { 
-        this->data(place).reset(); 
-    }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 };
 
 AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& name,
