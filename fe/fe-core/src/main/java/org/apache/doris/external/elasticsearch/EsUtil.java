@@ -73,7 +73,6 @@ public class EsUtil {
 
     /**
      * Get the json object from specified jsonObject
-     *
      */
     public static JSONObject getJsonObject(JSONObject jsonObject, String key, int fromIndex) {
         int firstOccr = key.indexOf('.', fromIndex);
@@ -145,7 +144,9 @@ public class EsUtil {
             String colName = col.getName();
             // if column exists in Doris Table but no found in ES's mapping, we choose to ignore this situation?
             if (!properties.containsKey(colName)) {
-                continue;
+                throw new DorisEsException(
+                        "index[" + searchContext.sourceIndex() + "] type[" + indexMapping + "] mapping not found column"
+                                + colName + " for the ES Cluster");
             }
             JSONObject fieldObject = (JSONObject) properties.get(colName);
             resolveKeywordFields(searchContext, fieldObject, colName);
