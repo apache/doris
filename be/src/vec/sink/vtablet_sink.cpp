@@ -17,6 +17,8 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include <sstream>
+
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/doris_metrics.h"
@@ -117,12 +119,12 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _partition_to_tablet_map.clear();
     }
     
-    //if pending bytes is more than 500M, wait
+    //if pending bytes is more than 500M, abort task
     constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
-    if ( get_pending_bytes() > MAX_PENDING_BYTES){
-        while(get_pending_bytes() < MAX_PENDING_BYTES){
-            std::this_thread::sleep_for(std::chrono::microseconds(500));
-        }
+    if (get_pending_bytes() > MAX_PENDING_BYTES) {
+        std::stringstream str;
+        str << "Load task " << _load_id << ": Memory exceed limit. ";
+        return Status::MemoryLimitExceeded(str.str());
     }
 
     for (int i = 0; i < num_rows; ++i) {
