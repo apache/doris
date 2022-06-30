@@ -67,10 +67,7 @@ using FunctionDate =
         FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl<VecDateTimeValue, Int64>>;
 using FunctionDateV2 =
         FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<DateV2Value, UInt32>>;
-using FunctionTimeStamp =
-        FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<DataTypeDateTime, Int64>>;
-using FunctionTimeStampV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeDateV2, TimeStampImpl<DataTypeDateV2, UInt32>>;
+using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<Int64>>;
 
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecond>();
@@ -96,7 +93,6 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToDaysV2>();
     factory.register_function<FunctionToDateV2>();
     factory.register_function<FunctionDateV2>();
-    factory.register_function<FunctionTimeStampV2>();
 }
 
 } // namespace doris::vectorized

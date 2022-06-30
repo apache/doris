@@ -126,14 +126,12 @@ struct DateImpl : public ToDateImpl<DateValue, ArgType> {
 
 // TODO: This function look like no need do indeed copy here, we should optimize
 // this function
-template <typename DateValueType, typename ArgType>
+template <typename ArgType>
 struct TimeStampImpl {
     using ARG_TYPE = ArgType;
     static constexpr auto name = "timestamp";
 
     static inline auto execute(const ARG_TYPE& t, bool& is_null) { return t; }
-
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateValueType>()}; }
 };
 
 template <typename DateValueType, typename ArgType>
