@@ -305,7 +305,7 @@ public class SlotRef extends Expr {
         if ((col == null) != (other.col == null)) {
             return false;
         }
-        if (col != null && !col.toLowerCase().equals(other.col.toLowerCase())) {
+        if (col != null && !col.equalsIgnoreCase(other.col)) {
             return false;
         }
         return true;
