@@ -267,8 +267,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
 
     init_doris_metrics(paths);
     init_signals();
-
-    ChunkAllocator::init_instance(config::chunk_reserved_bytes_limit);
 }
 
 void Daemon::start() {

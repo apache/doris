@@ -227,11 +227,17 @@ struct DateFormatImpl {
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
-            return std::vector<DataTypePtr> {std::make_shared<vectorized::DataTypeDateTime>(),
-                                             std::make_shared<vectorized::DataTypeString>()};
+            return std::vector<DataTypePtr> {
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeDateTime>()),
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeString>())};
         } else {
-            return std::vector<DataTypePtr> {std::make_shared<vectorized::DataTypeDateV2>(),
-                                             std::make_shared<vectorized::DataTypeString>()};
+            return std::vector<DataTypePtr> {
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeDateV2>()),
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeString>())};
         }
     }
 };

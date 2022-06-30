@@ -200,6 +200,12 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
             col_ptr = &nullable_column->get_nested_column();
         }
     }
+    return write_vec_column(slot_desc, col_ptr, data, len, copy_string, need_escape);
+}
+
+inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
+                                            vectorized::IColumn* col_ptr, const char* data,
+                                            size_t len, bool copy_string, bool need_escape) {
     StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
 
     // Parse the raw-text data. Translate the text string to internal format.
@@ -209,6 +215,7 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
                 HyperLogLog(Slice(data, len)));
         break;
     }
+    case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
         if (need_escape) {
@@ -305,8 +312,7 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
 
     if (parse_result == StringParser::PARSE_FAILURE) {
         if (true == slot_desc->is_nullable()) {
-            auto* nullable_column =
-                    reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
             size_t size = nullable_column->get_null_map_data().size();
             doris::vectorized::NullMap& null_map_data = nullable_column->get_null_map_data();
             null_map_data[size - 1] = 1;

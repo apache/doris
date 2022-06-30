@@ -110,8 +110,10 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
                                        _compress_codec.get()));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
+    PageDecoderOptions opts;
+    opts.need_check_bitmap = false;
     return ParsedPage::create(std::move(handle), body, footer.data_page_footer(),
-                              _reader->encoding_info(), pp, 0, &_data_page);
+                              _reader->encoding_info(), pp, 0, &_data_page, opts);
 }
 
 Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {

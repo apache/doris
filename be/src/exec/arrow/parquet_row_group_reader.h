@@ -17,31 +17,22 @@
 
 #pragma once
 
-#include "common/status.h"
-
-#include <unordered_set>
-#include <exprs/expr.h>
 #include <arrow/type_fwd.h>
-#include <parquet/file_reader.h>
+#include <exprs/expr.h>
 #include <parquet/arrow/reader.h>
+#include <parquet/encoding.h>
+#include <parquet/file_reader.h>
 #include <parquet/metadata.h>
 #include <parquet/statistics.h>
 #include <parquet/types.h>
-#include <parquet/encoding.h>
+
+#include <unordered_set>
+
+#include "common/status.h"
 
 namespace doris {
 
 class ParquetReaderWrap;
-
-struct ParquetPredicate {
-//    SlotRef
-//    op
-//
-};
-
-
-// binary predicate
-
 
 class RowGroupReader {
 public:
@@ -61,19 +52,20 @@ private:
                          const std::unordered_set<int>& include_column_ids);
 
     void _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
-                                       const std::string& encoded_min, const std::string& encoded_max,
-                                       bool& need_filter);
+                                     const std::string& encoded_min, const std::string& encoded_max,
+                                     bool& need_filter);
 
     void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                                  bool& need_filter);
+                                bool& need_filter);
 
     void _eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                              bool& need_filter);
+                            bool& need_filter);
 
     bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
                       const char* min_bytes, const char* max_bytes);
 
-    bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes, const char* max_bytes);
+    bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
+                  const char* max_bytes);
 
     bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes);
 
@@ -90,6 +82,4 @@ private:
     std::vector<ExprContext*> _conjunct_ctxs;
     std::shared_ptr<parquet::FileMetaData> _file_metadata;
 };
-}
-
-
+} // namespace doris

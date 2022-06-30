@@ -145,10 +145,6 @@ protected:
     vectorized::Block _src_block;
     int _num_of_columns_from_file;
 
-    // File formats based push down predicate
-    std::vector<ExprContext*> _conjunct_ctxs;
-
-    // File formats based push down predicate
     TupleId _tupleId;
     std::vector<ExprContext*> _conjunct_ctxs;
 

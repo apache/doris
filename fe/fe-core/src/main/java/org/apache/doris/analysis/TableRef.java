@@ -21,7 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -300,8 +300,8 @@ public class TableRef implements ParseNode, Writable {
         return !correlatedTupleIds.isEmpty();
     }
 
-    public Table getTable() {
-        return (Table) desc.getTable();
+    public TableIf getTable() {
+        return desc.getTable();
     }
 
     public void setUsingClause(List<String> colNames) {
