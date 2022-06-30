@@ -100,7 +100,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<Expression> groupByExpressionList = physicalAggregation.getGroupByExprList();
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
-                .map(e -> ExpressionTranslator.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
+                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
 
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
@@ -108,12 +108,12 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 )
                 .flatMap(List::stream)
                 .filter(x -> x instanceof AggregateFunction)
-                .map(x -> (FunctionCallExpr) ExpressionTranslator.convert(x, context))
+                .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         List<Expression> partitionExpressionList = physicalAggregation.getPartitionExprList();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
-                .map(e -> (FunctionCallExpr) ExpressionTranslator.convert(e, context)).collect(Collectors.toList());
+                .map(e -> (FunctionCallExpr) ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         // todo: support DISTINCT
         AggregateInfo aggInfo = null;
         switch (phase) {
@@ -150,7 +150,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<Expr> execConjunctsList = physicalOlapScan
                 .getExpressions()
                 .stream()
-                .map(e -> ExpressionTranslator.convert(e, context)).collect(Collectors.toList());
+                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextNodeId(), tupleDescriptor, olapTable.getName());
         olapScanNode.addConjuncts(execConjunctsList);
@@ -175,7 +175,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<OrderKey> orderKeyList = physicalHeapSort.getOrderKeys();
         orderKeyList.forEach(k -> {
-            execOrderingExprList.add(ExpressionTranslator.convert(k.getExpr(), context));
+            execOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
             ascOrderList.add(k.isAsc());
             nullsFirstParamList.add(k.isNullFirst());
         });
@@ -235,7 +235,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                     rightFragment.getPlanRoot(), null);
             crossJoinNode.setLimit(physicalHashJoin.getLimit());
             List<Expr> conjuncts = Utils.extractConjuncts(predicateExpr).stream()
-                    .map(e -> ExpressionTranslator.convert(e, context))
+                    .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toCollection(ArrayList::new));
             crossJoinNode.addConjuncts(conjuncts);
             ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), rightFragment.getPlanRoot(), false);
@@ -251,9 +251,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<Expression> expressionList = Utils.extractConjuncts(predicateExpr);
         expressionList.removeAll(eqExprList);
-        List<Expr> execOtherConjunctList = expressionList.stream().map(e -> ExpressionTranslator.convert(e, context))
+        List<Expr> execOtherConjunctList = expressionList.stream().map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
-        List<Expr> execEqConjunctList = eqExprList.stream().map(e -> ExpressionTranslator.convert(e, context))
+        List<Expr> execEqConjunctList = eqExprList.stream().map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,
@@ -280,7 +280,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PhysicalProject physicalProject = projectPlan.getOperator();
         List<Expr> execExprList = physicalProject.getProjects()
                 .stream()
-                .map(e -> ExpressionTranslator.convert(e, context))
+                .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         PlanFragment inputFragment = visit(projectPlan.child(0), context);
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
@@ -325,7 +325,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         Expression expression = filter.getPredicates();
         List<Expression> expressionList = Utils.extractConjuncts(expression);
         expressionList.stream().map(e -> {
-            return ExpressionTranslator.convert(e, context);
+            return ExpressionTranslator.translate(e, context);
         }).forEach(planNode::addConjunct);
         return inputFragment;
     }
