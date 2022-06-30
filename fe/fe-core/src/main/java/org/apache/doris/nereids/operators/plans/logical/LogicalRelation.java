@@ -46,7 +46,7 @@ public abstract class LogicalRelation extends LogicalLeafOperator {
     public LogicalRelation(Table table, List<String> qualifier) {
         super(OperatorType.LOGICAL_BOUND_RELATION);
         this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
     }
 
     public Table getTable() {
@@ -59,7 +59,7 @@ public abstract class LogicalRelation extends LogicalLeafOperator {
 
     @Override
     public String toString() {
-        return "Relation(" + StringUtils.join(qualifier, ".") + "." + table.getName() + ")";
+        return "LogicalRelation (" + StringUtils.join(qualifier, ".") + ")";
     }
 
     @Override

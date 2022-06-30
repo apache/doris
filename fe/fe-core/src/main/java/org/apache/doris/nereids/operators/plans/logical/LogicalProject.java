@@ -64,11 +64,28 @@ public class LogicalProject extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Project (" + StringUtils.join(projects, ", ") + ")";
+        return "LogicalProject (" + StringUtils.join(projects, ", ") + ")";
     }
 
     @Override
     public List<Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>().addAll(projects).build();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalProject that = (LogicalProject) o;
+        return projects.equals(that.projects);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(projects);
     }
 }

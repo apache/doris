@@ -68,4 +68,9 @@ public class LogicalBinaryPlan<
     public LogicalBinaryPlan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalBinaryPlan<>(operator, groupExpression, Optional.of(logicalProperties), left(), right());
     }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new LogicalBinaryPlan<>(operator, groupExpression, logicalProperties, left(), right());
+    }
 }

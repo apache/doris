@@ -22,6 +22,8 @@ import org.apache.doris.nereids.operators.Operator;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * interface for all node in Nereids, include plan node and expression.
@@ -46,4 +48,31 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     NODE_TYPE withChildren(List<NODE_TYPE> children);
 
+    /**
+     * Foreach treeNode. Top-down traverse implicitly.
+     * @param func foreach function
+     */
+    default void foreach(Consumer<TreeNode<NODE_TYPE>> func) {
+        func.accept(this);
+        for (NODE_TYPE child : children()) {
+            child.foreach(func);
+        }
+    }
+
+    /**
+     * iterate top down and test predicate if any matched. Top-down traverse implicitly.
+     * @param predicate predicate
+     * @return true if any predicate return true
+     */
+    default boolean anyMatch(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        if (predicate.test(this)) {
+            return true;
+        }
+        for (NODE_TYPE child : children()) {
+            if (child.anyMatch(predicate)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

@@ -20,6 +20,10 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * Null safe equal expression: a <=> b.
  * Unlike normal equal to expression, null <=> null is true.
@@ -49,5 +53,11 @@ public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNullSafeEqual(this, context);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new NullSafeEqual<>(children.get(0), children.get(1));
     }
 }

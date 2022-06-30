@@ -20,16 +20,13 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
-import org.apache.doris.nereids.DorisParser.AggFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
-import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
-import org.apache.doris.nereids.DorisParser.GroupByItemContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
@@ -53,32 +50,29 @@ import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
-import org.apache.doris.nereids.DorisParser.StatementContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.operators.plans.JoinType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregation;
+import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.operators.plans.logical.LogicalSort;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.trees.analysis.FunctionParams;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Arithmetic;
-import org.apache.doris.nereids.trees.expressions.BetweenPredicate;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.FunctionCall;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
@@ -96,33 +90,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
-import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
-import org.apache.commons.collections.CollectionUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.BiFunction;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * Build an logical plan tree with unbounded nodes.
  */
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
-
-    /**
-     * Create a logical plan using a where clause.
-     */
-    private final BiFunction<WhereClauseContext, LogicalPlan, LogicalPlan> withWhereClause
-            = (WhereClauseContext ctx, LogicalPlan plan) -> new LogicalUnaryPlan(
-                    new LogicalFilter(expression((ctx.booleanExpression()))), plan);
 
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
@@ -144,225 +126,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitSingleStatement(SingleStatementContext ctx) {
-        Supplier<LogicalPlan> f = () -> (LogicalPlan) visit(ctx.statement());
-        return ParserUtils.withOrigin(ctx, f);
+        return ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(ctx.statement()));
     }
 
     /**
      * Visit multi-statements.
      */
-    public Object visitMultiStatements(MultiStatementsContext ctx) {
-        List<LogicalPlan> logicalPlanList = new ArrayList<>();
-        for (StatementContext stmtCtx : ctx.statement()) {
-            LogicalPlan logicalPlan = (LogicalPlan) visit(stmtCtx);
-            logicalPlanList.add(logicalPlan);
-        }
-        return logicalPlanList;
+    @Override
+    public List<LogicalPlan> visitMultiStatements(MultiStatementsContext ctx) {
+        return visit(ctx.statement(), LogicalPlan.class);
     }
 
     /* ********************************************************************************************
      * Plan parsing
      * ******************************************************************************************** */
-    private LogicalPlan plan(ParserRuleContext tree) {
-        return (LogicalPlan) tree.accept(this);
-    }
-
     @Override
     public LogicalPlan visitQuery(QueryContext ctx) {
-        Supplier<LogicalPlan> f = () -> {
+        return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
-            LogicalPlan queryOrganization = withQueryOrganization(ctx.queryOrganization(), query);
+            LogicalPlan queryOrganization = withQueryOrganization(query, ctx.queryOrganization());
             return queryOrganization;
-        };
-        return ParserUtils.withOrigin(ctx, f);
-    }
-
-    private LogicalPlan withQueryOrganization(QueryOrganizationContext ctx, LogicalPlan children) {
-        List<OrderKey> orderKeys = visitQueryOrganization(ctx);
-        return orderKeys == null ? children : new LogicalUnaryPlan(new LogicalSort(orderKeys), children);
+        });
     }
 
     @Override
     public LogicalPlan visitRegularQuerySpecification(RegularQuerySpecificationContext ctx) {
-        Supplier<LogicalPlan> f = () -> {
+        return ParserUtils.withOrigin(ctx, () -> {
             // TODO: support on row relation
-            LogicalPlan from = visitFromClause(ctx.fromClause());
-            return withSelectQuerySpecification(ctx, ctx.selectClause(), ctx.whereClause(), from, ctx.aggClause());
-        };
-        return ParserUtils.withOrigin(ctx, f);
-    }
-
-    @Override
-    public Expression visitExpression(ExpressionContext ctx) {
-        Supplier<Expression> f = () -> (Expression) visit(ctx.booleanExpression());
-        return ParserUtils.withOrigin(ctx, f);
-    }
-
-    @Override
-    public List<Expression> visitNamedExpressionSeq(NamedExpressionSeqContext ctx) {
-        List<Expression> expressions = Lists.newArrayList();
-        if (ctx != null) {
-            for (NamedExpressionContext namedExpressionContext : ctx.namedExpression()) {
-                Expression expression = typedVisit(namedExpressionContext);
-                expressions.add(expression);
-            }
-        }
-        return expressions;
-    }
-
-    /**
-     * Add a regular (SELECT) query specification to a logical plan. The query specification
-     * is the core of the logical plan, this is where sourcing (FROM clause), projection (SELECT),
-     * aggregation (GROUP BY ... HAVING ...) and filtering (WHERE) takes place.
-     *
-     * <p>Note that query hints are ignored (both by the parser and the builder).
-     */
-    private LogicalPlan withSelectQuerySpecification(
-            ParserRuleContext ctx,
-            SelectClauseContext selectClause,
-            WhereClauseContext whereClause,
-            LogicalPlan relation,
-            AggClauseContext aggClause) {
-        Supplier<LogicalPlan> f = () -> {
-            //        Filter(expression(ctx.booleanExpression), plan);
-            LogicalPlan plan = visitCommonSelectQueryClausePlan(relation,
-                    visitNamedExpressionSeq(selectClause.namedExpressionSeq()), whereClause, aggClause);
-            // TODO: process hint
-            return plan;
-        };
-        return ParserUtils.withOrigin(ctx, f);
-    }
-
-    private LogicalPlan visitCommonSelectQueryClausePlan(
-            LogicalPlan relation,
-            List<Expression> expressions,
-            WhereClauseContext whereClause,
-            AggClauseContext aggClause) {
-        // TODO: add lateral views
-        // val withLateralView = lateralView.asScala.foldLeft(relation)(withGenerate)
-
-        // add where
-        LogicalPlan withFilter = relation.optionalMap(whereClause, withWhereClause);
-
-        List<NamedExpression> namedExpressions = expressions.stream().map(expression -> {
-            if (expression instanceof NamedExpression) {
-                return (NamedExpression) expression;
-            } else {
-                return new UnboundAlias(expression);
-            }
-        }).collect(Collectors.toList());
-
-        LogicalPlan withProject;
-        if (CollectionUtils.isNotEmpty(namedExpressions)) {
-            withProject = new LogicalUnaryPlan(new LogicalProject(namedExpressions), withFilter);
-        } else {
-            withProject = withFilter;
-        }
-
-        LogicalPlan withAgg;
-        if (aggClause != null) {
-            withAgg = withAggClause(namedExpressions, aggClause.groupByItem(), withFilter);
-        } else {
-            withAgg = withProject;
-        }
-
-        return withAgg;
-    }
-
-    @Override
-    public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        LogicalPlan left = null;
-        for (RelationContext relation : ctx.relation()) {
-            LogicalPlan right = plan(relation.relationPrimary());
-            if (left == null) {
-                left = right;
-            } else {
-                left = new LogicalBinaryPlan(new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), left, right);
-            }
-            left = withJoinRelations(left, relation);
-        }
-        // TODO: pivot and lateral view
-        return left;
-    }
-
-    /**
-     * Join one more [[LogicalPlan]]s to the current logical plan.
-     */
-    private LogicalPlan withJoinRelations(LogicalPlan base, RelationContext ctx) {
-        LogicalPlan last = base;
-        for (JoinRelationContext join : ctx.joinRelation()) {
-            JoinType joinType;
-            if (join.joinType().LEFT() != null) {
-                joinType = JoinType.LEFT_OUTER_JOIN;
-            } else if (join.joinType().RIGHT() != null) {
-                joinType = JoinType.RIGHT_OUTER_JOIN;
-            } else if (join.joinType().FULL() != null) {
-                joinType = JoinType.FULL_OUTER_JOIN;
-            } else if (join.joinType().SEMI() != null) {
-                joinType = JoinType.LEFT_SEMI_JOIN;
-            } else if (join.joinType().ANTI() != null) {
-                joinType = JoinType.LEFT_ANTI_JOIN;
-            } else if (join.joinType().CROSS() != null) {
-                joinType = JoinType.CROSS_JOIN;
-            } else {
-                joinType = JoinType.INNER_JOIN;
-            }
-
-            // TODO: natural join, lateral join, using join
-            JoinCriteriaContext joinCriteria = join.joinCriteria();
-            Expression condition;
-            if (joinCriteria == null) {
-                condition = null;
-            } else {
-                condition = expression(joinCriteria.booleanExpression());
-            }
-
-            last = new LogicalBinaryPlan(new LogicalJoin(joinType, Optional.ofNullable(condition)), last,
-                    plan(join.relationPrimary()));
-        }
-        return last;
-    }
-
-    private LogicalPlan withAggClause(List<NamedExpression> aggExpressions, GroupByItemContext ctx,
-            LogicalPlan aggClause) {
-        List<Expression> tmpExpressions = new ArrayList<>();
-        for (ExpressionContext expressionCtx : ctx.expression()) {
-            tmpExpressions.add(typedVisit(expressionCtx));
-        }
-        return new LogicalUnaryPlan(new LogicalAggregation(tmpExpressions, aggExpressions), aggClause);
-    }
-
-    /**
-     * Generate OrderKey.
-     *
-     * @param ctx SortItemContext
-     * @return OrderKey
-     */
-    public OrderKey genOrderKeys(SortItemContext ctx) {
-        boolean isAsc = ctx.DESC() == null;
-        // TODO(wj): isNullFirst
-        boolean isNullFirst = true;
-        Expression expression = typedVisit(ctx.expression());
-        return new OrderKey(expression, isAsc, isNullFirst);
-    }
-
-    /**
-     * Create OrderKey list.
-     *
-     * @param ctx QueryOrganizationContext
-     * @return List of OrderKey
-     */
-    public List<OrderKey> visitQueryOrganization(QueryOrganizationContext ctx) {
-        List<OrderKey> orderKeys = new ArrayList<>();
-        if (ctx.sortClause().ORDER() != null) {
-            for (SortItemContext sortItemContext : ctx.sortClause().sortItem()) {
-                orderKeys.add(genOrderKeys(sortItemContext));
-            }
-            return new ArrayList<>(orderKeys);
-        } else {
-            return null;
-        }
+            LogicalPlan relation = withRelation(Optional.ofNullable(ctx.fromClause()));
+            return withSelectQuerySpecification(
+                ctx, relation,
+                ctx.selectClause(),
+                Optional.ofNullable(ctx.whereClause()),
+                Optional.ofNullable(ctx.aggClause())
+            );
+        });
     }
 
     /**
@@ -377,60 +176,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /**
-     * Create a Sequence of Strings for a parenthesis enclosed alias list.
-     */
-    @Override
-    public List<String> visitIdentifierList(IdentifierListContext ctx) {
-        return visitIdentifierSeq(ctx.identifierSeq());
-    }
-
-    /**
-     * Create a Sequence of Strings for an identifier list.
-     */
-    @Override
-    public List<String> visitIdentifierSeq(IdentifierSeqContext ctx) {
-        return ctx.ident.stream().map(RuleContext::getText).collect(Collectors.toList());
-    }
-
-    /* ********************************************************************************************
-     * Table Identifier parsing
-     * ******************************************************************************************** */
-
-    @Override
-    public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
-        return ctx.parts.stream().map(RuleContext::getText).collect(Collectors.toList());
-    }
-
-    /* ********************************************************************************************
-     * Expression parsing
-     * ******************************************************************************************** */
-
-    /**
-     * Create an expression from the given context. This method just passes the context on to the
-     * visitor and only takes care of typing (We assume that the visitor returns an Expression here).
-     */
-    private Expression expression(ParserRuleContext ctx) {
-        return typedVisit(ctx);
-    }
-
-    /**
      * Create a star (i.e. all) expression; this selects all elements (in the specified object).
      * Both un-targeted (global) and targeted aliases are supported.
      */
     @Override
     public Expression visitStar(StarContext ctx) {
-        Supplier<Expression> f = () -> {
+        return ParserUtils.withOrigin(ctx, () -> {
             final QualifiedNameContext qualifiedNameContext = ctx.qualifiedName();
             List<String> target;
             if (qualifiedNameContext != null) {
-                target = qualifiedNameContext.identifier().stream().map(RuleContext::getText)
-                        .collect(Collectors.toList());
+                target = qualifiedNameContext.identifier()
+                        .stream()
+                        .map(RuleContext::getText)
+                        .collect(ImmutableList.toImmutableList());
             } else {
                 target = Lists.newArrayList();
             }
             return new UnboundStar(target);
-        };
-        return ParserUtils.withOrigin(ctx, f);
+        });
     }
 
     /**
@@ -439,12 +202,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public Expression visitNamedExpression(NamedExpressionContext ctx) {
-        final Expression expression = expression(ctx.expression());
-        if (ctx.name != null) {
-            return new Alias(expression, ctx.name.getText());
-        } else {
-            return expression;
-        }
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression expression = getExpression(ctx.expression());
+            if (ctx.name != null) {
+                return new Alias(expression, ctx.name.getText());
+            } else {
+                return expression;
+            }
+        });
     }
 
     /**
@@ -460,27 +225,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public Expression visitComparison(ComparisonContext ctx) {
-        Expression left = expression(ctx.left);
-        Expression right = expression(ctx.right);
-        TerminalNode operator = (TerminalNode) ctx.comparisonOperator().getChild(0);
-        switch (operator.getSymbol().getType()) {
-            case DorisParser.EQ:
-                return new EqualTo(left, right);
-            case DorisParser.NEQ:
-                return new Not(new EqualTo(left, right));
-            case DorisParser.LT:
-                return new LessThan(left, right);
-            case DorisParser.GT:
-                return new GreaterThan(left, right);
-            case DorisParser.LTE:
-                return new LessThanEqual(left, right);
-            case DorisParser.GTE:
-                return new GreaterThanEqual(left, right);
-            case DorisParser.NSEQ:
-                return new NullSafeEqual(left, right);
-            default:
-                return null;
-        }
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression left = getExpression(ctx.left);
+            Expression right = getExpression(ctx.right);
+            TerminalNode operator = (TerminalNode) ctx.comparisonOperator().getChild(0);
+            switch (operator.getSymbol().getType()) {
+                case DorisParser.EQ:
+                    return new EqualTo(left, right);
+                case DorisParser.NEQ:
+                    return new Not(new EqualTo(left, right));
+                case DorisParser.LT:
+                    return new LessThan(left, right);
+                case DorisParser.GT:
+                    return new GreaterThan(left, right);
+                case DorisParser.LTE:
+                    return new LessThanEqual(left, right);
+                case DorisParser.GTE:
+                    return new GreaterThanEqual(left, right);
+                case DorisParser.NSEQ:
+                    return new NullSafeEqual(left, right);
+                default:
+                    throw new IllegalStateException("Unsupported comparison expression: "
+                        + operator.getSymbol().getText());
+            }
+        });
     }
 
     /**
@@ -492,23 +260,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public Expression visitLogicalNot(LogicalNotContext ctx) {
-        Expression child = expression(ctx.booleanExpression());
-        return new Not(child);
+        return ParserUtils.withOrigin(ctx, () -> new Not(getExpression(ctx.booleanExpression())));
     }
 
     @Override
     public Expression visitLogicalBinary(LogicalBinaryContext ctx) {
-        Expression left = expression(ctx.left);
-        Expression right = expression(ctx.right);
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression left = getExpression(ctx.left);
+            Expression right = getExpression(ctx.right);
 
-        switch (ctx.operator.getType()) {
-            case DorisParser.AND:
-                return new And(left, right);
-            case DorisParser.OR:
-                return new Or(left, right);
-            default:
-                return null;
-        }
+            switch (ctx.operator.getType()) {
+                case DorisParser.AND:
+                    return new And(left, right);
+                case DorisParser.OR:
+                    return new Or(left, right);
+                default:
+                    throw new IllegalStateException("Unsupported logical binary type: " + ctx.operator.getText());
+            }
+        });
     }
 
     /**
@@ -520,108 +289,80 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public Expression visitPredicated(PredicatedContext ctx) {
-        Expression e = expression(ctx.valueExpression());
-        // TODO: add predicate(is not null ...)
-        if (ctx.predicate() != null) {
-            return withPredicate(ctx.predicate(), e);
-        }
-        return e;
-    }
-
-    /**
-     * match predicate type and generate different predicates.
-     *
-     * @param ctx PredicateContext
-     * @param e Expression
-     * @return Expression
-     */
-    public Expression withPredicate(PredicateContext ctx, Expression e) {
-        switch (ctx.kind.getType()) {
-            case DorisParser.BETWEEN:
-                return withBetween(ctx, e);
-            default:
-                return null;
-        }
-    }
-
-    /**
-     * Generate between predicate.
-     *
-     * @param ctx PredicateContext
-     * @param e Expression
-     * @return Expression
-     */
-    public Expression withBetween(PredicateContext ctx, Expression e) {
-        boolean isNotBetween = ctx.NOT() != null ? true : false;
-        BetweenPredicate betweenPredicate = new BetweenPredicate(e, expression(ctx.lower), expression(ctx.upper));
-        return isNotBetween ? new Not(betweenPredicate) : betweenPredicate;
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression e = getExpression(ctx.valueExpression());
+            // TODO: add predicate(is not null ...)
+            return ctx.predicate() == null ? e : withPredicate(e, ctx.predicate());
+        });
     }
 
     @Override
     public Expression visitArithmeticUnary(ArithmeticUnaryContext ctx) {
-        Expression e = expression(ctx);
-        switch (ctx.operator.getType()) {
-            case DorisParser.PLUS:
-                return e;
-            case DorisParser.MINUS:
-                //TODO: Add single operator subtraction
-            default:
-                return null;
-        }
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression e = getExpression(ctx);
+            switch (ctx.operator.getType()) {
+                case DorisParser.PLUS:
+                    return e;
+                case DorisParser.MINUS:
+                    //TODO: Add single operator subtraction
+                default:
+                    throw new IllegalStateException("Unsupported arithmetic unary type: " + ctx.operator.getText());
+            }
+        });
     }
 
     @Override
     public Expression visitArithmeticBinary(ArithmeticBinaryContext ctx) {
-        Expression left = expression(ctx.left);
-        Expression right = expression(ctx.right);
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression left = getExpression(ctx.left);
+            Expression right = getExpression(ctx.right);
 
-        return genArithmetic(ctx.operator, left, right);
-    }
-
-    private Arithmetic genArithmetic(Token token, Expression left, Expression right) {
-        switch (token.getType()) {
-            case DorisParser.ASTERISK:
-                return new Multiply(left, right);
-            case DorisParser.SLASH:
-                return new Divide(left, right);
-            case DorisParser.PERCENT:
-                return new Mod(left, right);
-            case DorisParser.PLUS:
-                return new Add(left, right);
-            case DorisParser.MINUS:
-                return new Subtract(left, right);
-            default:
-                return null;
-        }
+            return ParserUtils.withOrigin(ctx, () -> {
+                switch (ctx.operator.getType()) {
+                    case DorisParser.ASTERISK:
+                        return new Multiply(left, right);
+                    case DorisParser.SLASH:
+                        return new Divide(left, right);
+                    case DorisParser.PERCENT:
+                        return new Mod(left, right);
+                    case DorisParser.PLUS:
+                        return new Add(left, right);
+                    case DorisParser.MINUS:
+                        return new Subtract(left, right);
+                    default:
+                        throw new IllegalStateException("Unsupported arithmetic binary type: "
+                            + ctx.operator.getText());
+                }
+            });
+        });
     }
 
     @Override
-    public Expression visitAggFunctions(AggFunctionsContext ctx) {
-        // TODO:In the future, instead of specifying the function name,
-        //      the function information is obtained by parsing the catalog. This method is more scalable.
-        String functionName = "";
-        if (ctx.aggFunction().SUM() != null) {
-            functionName = "sum";
-        } else if (ctx.aggFunction().AVG() != null) {
-            functionName = "avg";
-        }
-
-        return new FunctionCall(functionName,
-                new FunctionParams(ctx.aggFunction().DISTINCT() != null, expression(ctx.aggFunction().expression())));
+    public UnboundFunction visitFunctionCall(DorisParser.FunctionCallContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            // TODO:In the future, instead of specifying the function name,
+            //      the function information is obtained by parsing the catalog. This method is more scalable.
+            String functionName = ctx.identifier().getText();
+            boolean isDistinct = ctx.DISTINCT() != null;
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            return new UnboundFunction(functionName, isDistinct, params);
+        });
     }
 
     @Override
     public Expression visitDereference(DereferenceContext ctx) {
-        Expression e = expression(ctx.base);
-        if (e instanceof UnboundSlot) {
-            UnboundSlot unboundAttribute = (UnboundSlot) e;
-            List<String> nameParts = Lists.newArrayList(unboundAttribute.getNameParts());
-            nameParts.add(ctx.fieldName.getText());
-            return new UnboundSlot(nameParts);
-        } else {
-            // todo: base is an expression, may be not a table name.
-            return null;
-        }
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression e = getExpression(ctx.base);
+            if (e instanceof UnboundSlot) {
+                UnboundSlot unboundAttribute = (UnboundSlot) e;
+                List<String> nameParts = Lists.newArrayList(unboundAttribute.getNameParts());
+                nameParts.add(ctx.fieldName.getText());
+                return new UnboundSlot(nameParts);
+            } else {
+                // todo: base is an expression, may be not a table name.
+                throw new IllegalStateException("Unsupported dereference expression: " + ctx.getText());
+            }
+        });
     }
 
     @Override
@@ -653,7 +394,273 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
-        String s = ctx.STRING().stream().map(ParseTree::getText).reduce((s1, s2) -> s1 + s2).orElse("");
+        String s = ctx.STRING().stream()
+                .map(ParseTree::getText)
+                .reduce((s1, s2) -> s1 + s2)
+                .orElse("");
         return new Literal(s);
+    }
+
+    @Override
+    public Expression visitParenthesizedExpression(DorisParser.ParenthesizedExpressionContext ctx) {
+        return getExpression(ctx.expression());
+    }
+
+    @Override
+    public List<Expression> visitNamedExpressionSeq(NamedExpressionSeqContext namedCtx) {
+        return visit(namedCtx.namedExpression(), Expression.class);
+    }
+
+    /**
+     * Create OrderKey list.
+     *
+     * @param ctx QueryOrganizationContext
+     * @return List of OrderKey
+     */
+    @Override
+    public List<OrderKey> visitQueryOrganization(QueryOrganizationContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            if (ctx.sortClause().ORDER() != null) {
+                return visit(ctx.sortClause().sortItem(), OrderKey.class);
+            } else {
+                return ImmutableList.of();
+            }
+        });
+    }
+
+    @Override
+    public LogicalPlan visitFromClause(FromClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan left = null;
+            // build left deep join tree
+            for (RelationContext relation : ctx.relation()) {
+                LogicalPlan right = plan(relation.relationPrimary());
+                if (left == null) {
+                    left = right;
+                } else {
+                    LogicalJoin logicalJoin = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty());
+                    left = new LogicalBinaryPlan(logicalJoin, left, right);
+                }
+                left = withJoinRelations(left, relation);
+            }
+            // TODO: pivot and lateral view
+            return left;
+        });
+    }
+
+    /* ********************************************************************************************
+     * Table Identifier parsing
+     * ******************************************************************************************** */
+
+    @Override
+    public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
+        return ctx.parts.stream()
+            .map(RuleContext::getText)
+            .collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * Create a Sequence of Strings for a parenthesis enclosed alias list.
+     */
+    @Override
+    public List<String> visitIdentifierList(IdentifierListContext ctx) {
+        return visitIdentifierSeq(ctx.identifierSeq());
+    }
+
+    /**
+     * Create a Sequence of Strings for an identifier list.
+     */
+    @Override
+    public List<String> visitIdentifierSeq(IdentifierSeqContext ctx) {
+        return ctx.ident.stream()
+            .map(RuleContext::getText)
+            .collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * get OrderKey.
+     *
+     * @param ctx SortItemContext
+     * @return SortItems
+     */
+    @Override
+    public OrderKey visitSortItem(SortItemContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            boolean isAsc = ctx.DESC() == null;
+            // TODO(wj): isNullFirst
+            boolean isNullFirst = true;
+            Expression expression = typedVisit(ctx.expression());
+            return new OrderKey(expression, isAsc, isNullFirst);
+        });
+    }
+
+    private <T> List<T> visit(List<? extends ParserRuleContext> contexts, Class<T> clazz) {
+        return contexts.stream()
+            .map(this::visit)
+            .map(clazz::cast)
+            .collect(ImmutableList.toImmutableList());
+    }
+
+    private LogicalPlan plan(ParserRuleContext tree) {
+        return (LogicalPlan) tree.accept(this);
+    }
+
+    /* ********************************************************************************************
+     * Expression parsing
+     * ******************************************************************************************** */
+
+    /**
+     * Create an expression from the given context. This method just passes the context on to the
+     * visitor and only takes care of typing (We assume that the visitor returns an Expression here).
+     */
+    private Expression getExpression(ParserRuleContext ctx) {
+        return typedVisit(ctx);
+    }
+
+    private LogicalPlan withQueryOrganization(LogicalPlan children, QueryOrganizationContext ctx) {
+        List<OrderKey> orderKeys = visitQueryOrganization(ctx);
+        return orderKeys.isEmpty() ? children : new LogicalUnaryPlan(new LogicalSort(orderKeys), children);
+    }
+
+    /**
+     * Add a regular (SELECT) query specification to a logical plan. The query specification
+     * is the core of the logical plan, this is where sourcing (FROM clause), projection (SELECT),
+     * aggregation (GROUP BY ... HAVING ...) and filtering (WHERE) takes place.
+     *
+     * <p>Note that query hints are ignored (both by the parser and the builder).
+     */
+    private LogicalPlan withSelectQuerySpecification(
+            ParserRuleContext ctx,
+            LogicalPlan inputRelation,
+            SelectClauseContext selectClause,
+            Optional<WhereClauseContext> whereClause,
+            Optional<AggClauseContext> aggClause) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            // TODO: process hint
+            // TODO: add lateral views
+
+            // from -> where -> group by -> having -> select
+
+            LogicalPlan filter = withFilter(inputRelation, whereClause);
+            LogicalPlan aggregate = withAggregate(filter, selectClause, aggClause);
+            // TODO: replace and process having at this position
+            LogicalPlan having = aggregate; // LogicalPlan having = withFilter(aggregate, havingClause);
+            LogicalPlan projection = withProjection(having, selectClause, aggClause);
+            return projection;
+        });
+    }
+
+    private LogicalPlan withRelation(Optional<FromClauseContext> ctx) {
+        if (ctx.isPresent()) {
+            return visitFromClause(ctx.get());
+        } else {
+            throw new IllegalStateException("Unsupported one row relation");
+        }
+    }
+
+    /**
+     * Join one more [[LogicalPlan]]s to the current logical plan.
+     */
+    private LogicalPlan withJoinRelations(LogicalPlan input, RelationContext ctx) {
+        LogicalPlan last = input;
+        for (JoinRelationContext join : ctx.joinRelation()) {
+            JoinType joinType;
+            if (join.joinType().LEFT() != null) {
+                joinType = JoinType.LEFT_OUTER_JOIN;
+            } else if (join.joinType().RIGHT() != null) {
+                joinType = JoinType.RIGHT_OUTER_JOIN;
+            } else if (join.joinType().FULL() != null) {
+                joinType = JoinType.FULL_OUTER_JOIN;
+            } else if (join.joinType().SEMI() != null) {
+                joinType = JoinType.LEFT_SEMI_JOIN;
+            } else if (join.joinType().ANTI() != null) {
+                joinType = JoinType.LEFT_ANTI_JOIN;
+            } else if (join.joinType().CROSS() != null) {
+                joinType = JoinType.CROSS_JOIN;
+            } else {
+                joinType = JoinType.INNER_JOIN;
+            }
+
+            // TODO: natural join, lateral join, using join
+            JoinCriteriaContext joinCriteria = join.joinCriteria();
+            Expression condition;
+            if (joinCriteria == null) {
+                condition = null;
+            } else {
+                condition = getExpression(joinCriteria.booleanExpression());
+            }
+
+            last = new LogicalBinaryPlan(
+                    new LogicalJoin(joinType, Optional.ofNullable(condition)),
+                    last, plan(join.relationPrimary())
+            );
+        }
+        return last;
+    }
+
+    private LogicalPlan withProjection(LogicalPlan input, SelectClauseContext selectCtx,
+                                       Optional<AggClauseContext> aggCtx) {
+        return ParserUtils.withOrigin(selectCtx, () -> {
+            // TODO: skip if havingClause exists
+            if (aggCtx.isPresent()) {
+                return input;
+            } else {
+                List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
+                return new LogicalUnaryPlan(new LogicalProject(projects), input);
+            }
+        });
+    }
+
+    private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
+        return input.optionalMap(whereCtx, () ->
+            new LogicalUnaryPlan(new LogicalFilter(getExpression((whereCtx.get().booleanExpression()))), input)
+        );
+    }
+
+    private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
+                                      Optional<AggClauseContext> aggCtx) {
+        return input.optionalMap(aggCtx, () -> {
+            List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
+            List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
+            return new LogicalUnaryPlan(new LogicalAggregate(groupByExpressions, namedExpressions), input);
+        });
+    }
+
+    /**
+     * match predicate type and generate different predicates.
+     *
+     * @param ctx PredicateContext
+     * @param valueExpression valueExpression
+     * @return Expression
+     */
+    private Expression withPredicate(Expression valueExpression, PredicateContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            switch (ctx.kind.getType()) {
+                case DorisParser.BETWEEN:
+                    boolean isNotBetween = ctx.NOT() != null ? true : false;
+                    Between between = new Between(
+                            valueExpression,
+                            getExpression(ctx.lower),
+                            getExpression(ctx.upper)
+                    );
+                    return isNotBetween ? new Not(between) : between;
+                default:
+                    throw new IllegalStateException("Unsupported predicate type: " + ctx.kind.getText());
+            }
+        });
+    }
+
+    private List<NamedExpression> getNamedExpressions(NamedExpressionSeqContext namedCtx) {
+        return ParserUtils.withOrigin(namedCtx, () -> {
+            List<Expression> expressions = visit(namedCtx.namedExpression(), Expression.class);
+            List<NamedExpression> namedExpressions = expressions.stream().map(expression -> {
+                if (expression instanceof NamedExpression) {
+                    return (NamedExpression) expression;
+                } else {
+                    return new UnboundAlias(expression);
+                }
+            }).collect(ImmutableList.toImmutableList());
+            return namedExpressions;
+        });
     }
 }

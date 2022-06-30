@@ -40,9 +40,16 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
     @Override
     public String sql() {
         String nodeType = getType().toString();
-        return left().sql() + ' ' + nodeType + ' ' + right().sql();
+        return "(" + left().sql() + " " + nodeType + " " + right().sql() + ")";
     }
 
+    @Override
+    public String toString() {
+        String nodeType = getType().toString();
+        return nodeType + "(" + left() + ", " + right() + ")";
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCompoundPredicate(this, context);
     }

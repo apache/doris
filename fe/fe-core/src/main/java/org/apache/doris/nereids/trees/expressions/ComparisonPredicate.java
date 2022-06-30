@@ -73,30 +73,4 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
         return (type == other.getType()) && Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
     }
-
-    /**
-     * create new ComparisonPredicate with new children.
-     *
-     * @param left left child
-     * @param right right child
-     * @return Corresponding comparisonPredicate child class.
-     */
-    public ComparisonPredicate withChildren(Expression left, Expression right) {
-        switch (type) {
-            case EQUAL_TO:
-                return new EqualTo(left, right);
-            case GREATER_THAN:
-                return new GreaterThan(left, right);
-            case GREATER_THAN_EQUAL:
-                return new GreaterThanEqual(left, right);
-            case LESS_THAN:
-                return new LessThan(left, right);
-            case LESS_THAN_EQUAL:
-                return new LessThanEqual(left, right);
-            case NULL_SAFE_EQUAL:
-                return new NullSafeEqual(left, right);
-            default:
-                throw new IllegalStateException("Invalid type for ComparisonPredicate: " + type);
-        }
-    }
 }

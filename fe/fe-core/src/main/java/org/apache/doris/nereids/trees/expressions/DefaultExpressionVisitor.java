@@ -17,35 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
-
 /**
- * Add Expression.
+ * Use the visitor to iterate over all expressions for expression.
  */
-public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Add(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(ArithmeticOperator.ADD, left, right);
-    }
-
+public class DefaultExpressionVisitor<R, C> extends ExpressionVisitor<R, C> {
     @Override
-    public String sql() {
-        return left().sql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().sql();
+    public R visit(Expression expr, C context) {
+        for (Expression child : expr.children()) {
+            child.accept(this, context);
+        }
+        return null;
     }
-
-    @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Add<>(children.get(0), children.get(1));
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitAdd(this, context);
-    }
-
-
 }

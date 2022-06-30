@@ -65,4 +65,9 @@ public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalLeafPlan<>(operator, groupExpression, Optional.of(logicalProperties));
     }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new LogicalLeafPlan<>(operator, groupExpression, logicalProperties);
+    }
 }

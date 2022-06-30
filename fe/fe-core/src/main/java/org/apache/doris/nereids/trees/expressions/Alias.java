@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -42,9 +44,9 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
      */
     public Alias(CHILD_TYPE child, String name) {
         super(NodeType.ALIAS, child);
-        exprId = NamedExpressionUtil.newExprId();
+        this.exprId = NamedExpressionUtil.newExprId();
         this.name = name;
-        qualifier = Lists.newArrayList();
+        this.qualifier = ImmutableList.of();
     }
 
     @Override
@@ -68,12 +70,28 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
+    public DataType getDataType() throws UnboundException {
+        return child().getDataType();
+    }
+
+    @Override
     public String sql() {
         return null;
     }
 
     @Override
+    public boolean nullable() throws UnboundException {
+        return child().nullable();
+    }
+
+    @Override
     public String toString() {
         return child().toString() + " AS " + name;
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Alias<>(children.get(0), name);
     }
 }

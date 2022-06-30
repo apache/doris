@@ -200,6 +200,26 @@ public class GroupExpressionMatchingTest implements Plans {
         Assertions.assertFalse(iterator.hasNext());
     }
 
+    @Test
+    public void testTopMatchButChildrenNotMatch() {
+        Plan root = plan(new LogicalJoin(JoinType.LEFT_OUTER_JOIN),
+                plan(new UnboundRelation(ImmutableList.of("a"))),
+                plan(new UnboundRelation(ImmutableList.of("b")))
+        );
+
+
+        Memo memo = new Memo();
+        memo.initialize(root);
+
+        Pattern pattern = patterns()
+                .innerLogicalJoin(patterns().logicalFilter(), patterns().any()).pattern;
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
+        Iterator<Plan> iterator = groupExpressionMatching.iterator();
+
+        Assertions.assertFalse(iterator.hasNext());
+    }
+
     private org.apache.doris.nereids.pattern.GeneratedPatterns patterns() {
         return () -> RulePromise.REWRITE;
     }

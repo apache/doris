@@ -19,6 +19,7 @@ package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
@@ -28,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Get all pattern matching subtree in query plan from a group expression.
@@ -102,9 +104,13 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     Group childGroup = groupExpression.child(i);
                     List<Plan> childrenPlan = matchingChildGroup(pattern, childGroup, i);
                     childrenPlans.add(childrenPlan);
+                    if (childrenPlan.isEmpty()) {
+                        // current pattern is match but children patterns not match
+                        return;
+                    }
                 }
 
-                assembleAllCombinationPlanTree(root, pattern, childrenPlans);
+                assembleAllCombinationPlanTree(root, pattern, groupExpression, childrenPlans);
             }
         }
 
@@ -129,6 +135,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
         }
 
         private void assembleAllCombinationPlanTree(Plan root, Pattern<Plan, Plan> rootPattern,
+                                                    GroupExpression groupExpression,
                                                     List<List<Plan>> childrenPlans) {
             int[] childrenPlanIndex = new int[childrenPlans.size()];
             int offset = 0;
@@ -139,11 +146,14 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 for (int i = 0; i < childrenPlans.size(); i++) {
                     children.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }
+
+                LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
                 // assemble children: replace GroupPlan to real plan,
                 // withChildren will erase groupExpression, so we must
                 // withGroupExpression too.
                 Plan rootWithChildren = root.withChildren(children)
-                        .withGroupExpression(root.getGroupExpression());
+                        .withGroupExpression(root.getGroupExpression())
+                        .withLogicalProperties(Optional.of(logicalProperties));
                 if (rootPattern.matchPredicates(rootWithChildren)) {
                     results.add(rootWithChildren);
                 }

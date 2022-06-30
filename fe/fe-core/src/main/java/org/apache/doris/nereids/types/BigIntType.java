@@ -15,21 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.catalog.Type;
 
 /**
- * Abstract class for all slot in expression.
+ * BigInt data type in Nereids.
  */
-public abstract class Slot extends NamedExpression implements LeafExpression {
-
-    public Slot(NodeType type) {
-        super(type);
-    }
+public class BigIntType extends IntegralType {
+    public static BigIntType INSTANCE = new BigIntType();
 
     @Override
-    public Slot toSlot() {
-        return this;
+    public Type toCatalogDataType() {
+        return Type.BIGINT;
     }
 }
+

@@ -49,7 +49,7 @@ public class LogicalFilter extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Filter (" + predicates + ")";
+        return "LogicalFilter (" + predicates + ")";
     }
 
     @Override

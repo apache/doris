@@ -15,49 +15,53 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.analyzer;
+package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.UnaryExpression;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FractionalType;
+import org.apache.doris.nereids.types.IntegralType;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 
-/**
- * Expression for unbound alias.
- */
-public class UnboundAlias<CHILD_TYPE extends Expression>
-        extends NamedExpression
-        implements UnaryExpression<CHILD_TYPE>, Unbound {
+/** sum agg function. */
+public class Sum extends AggregateFunction implements UnaryExpression<Expression> {
 
-    public UnboundAlias(CHILD_TYPE child) {
-        super(NodeType.UNBOUND_ALIAS, child);
+    public Sum(Expression child) {
+        super("sum", child);
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
-        return child().getDataType();
+    public DataType getDataType() {
+        DataType dataType = child().getDataType();
+        if (dataType instanceof IntegralType) {
+            return BigIntType.INSTANCE;
+        } else if (dataType instanceof FractionalType) {
+            // TODO: precision + 10
+            return DoubleType.INSTANCE;
+        } else {
+            throw new IllegalStateException("Unsupported sum type: " + dataType);
+        }
     }
 
     @Override
-    public String toString() {
-        return "UnboundAlias(" + child() + ")";
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundAlias(this, context);
+    public boolean nullable() {
+        return false;
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UnboundAlias<>(children.get(0));
+        return new Sum(children.get(0));
+    }
+
+    @Override
+    public DataType getIntermediateType() {
+        return getDataType();
     }
 }
