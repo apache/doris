@@ -639,6 +639,80 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &d
     return Status::OK();
 }
 
+Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                          vectorized::MutableColumnPtr& dst) {
+    size_t remaining = count;
+    size_t total_read_count = 0;
+    size_t nrows_to_read = 0;
+    while (remaining > 0) {
+        RETURN_IF_ERROR(seek_to_ordinal(rowids[total_read_count]));
+
+        // number of rows to be read from this page
+        nrows_to_read = std::min(remaining, _page.remaining());
+
+        if (_page.has_null) {
+            size_t already_read = 0;
+            while ((nrows_to_read - already_read) > 0) {
+                bool is_null = false;
+                size_t this_run = std::min(nrows_to_read - already_read, _page.remaining());
+                if (UNLIKELY(this_run == 0)) {
+                    break;
+                }
+                this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
+                size_t offset = total_read_count + already_read;
+                size_t this_read_count = 0;
+                rowid_t current_ordinal_in_page = _page.offset_in_page + _page.first_ordinal;
+                for (size_t i = 0; i < this_run; ++i) {
+                    if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
+                        break;
+                    }
+                    this_read_count++;
+                }
+
+                auto origin_index = _page.data_decoder->current_index();
+                if (this_read_count > 0) {
+                    if (is_null) {
+                        auto* null_col =
+                                vectorized::check_and_get_column<vectorized::ColumnNullable>(dst);
+                        if (UNLIKELY(null_col == nullptr)) {
+                            return Status::InternalError("unexpected column type in column reader");
+                        }
+
+                        const_cast<vectorized::ColumnNullable*>(null_col)->insert_null_elements(
+                                this_read_count);
+                    } else {
+                        size_t read_count = this_read_count;
+
+                        // ordinal in nullable columns' data buffer maybe be not continuously(the data doesn't contain null value),
+                        // so we need use `page_start_off_in_decoder` to calculate the actual offset in `data_decoder`
+                        size_t page_start_off_in_decoder =
+                                _page.first_ordinal + _page.offset_in_page - origin_index;
+                        RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
+                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
+                        DCHECK_EQ(read_count, this_read_count);
+                    }
+                }
+
+                if (!is_null) _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+
+                already_read += this_read_count;
+                _page.offset_in_page += this_run;
+                DCHECK(_page.offset_in_page <= _page.num_rows);
+            }
+
+            nrows_to_read = already_read;
+            total_read_count += nrows_to_read;
+            remaining -= nrows_to_read;
+        } else {
+            _page.data_decoder->read_by_rowids(&rowids[total_read_count], _page.first_ordinal,
+                                               &nrows_to_read, dst);
+            total_read_count += nrows_to_read;
+            remaining -= nrows_to_read;
+        }
+    }
+    return Status::OK();
+}
+
 Status FileColumnIterator::_load_next_page(bool* eos) {
     _page_iter.next();
     if (!_page_iter.valid()) {

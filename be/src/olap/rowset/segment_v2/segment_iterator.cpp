@@ -901,17 +901,13 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
                                               std::vector<rowid_t>& rowid_vector,
                                               uint16_t* sel_rowid_idx, size_t select_size,
                                               vectorized::MutableColumns* mutable_columns) {
-    size_t start_idx = 0;
-    while (start_idx < select_size) {
-        size_t end_idx = start_idx + 1;
-        while (end_idx < select_size && (rowid_vector[sel_rowid_idx[end_idx - 1]] ==
-                                         rowid_vector[sel_rowid_idx[end_idx]] - 1)) {
-            end_idx++;
-        }
-        size_t range = end_idx - start_idx;
-        _seek_columns(read_column_ids, rowid_vector[sel_rowid_idx[start_idx]]);
-        _read_columns(read_column_ids, *mutable_columns, range);
-        start_idx += range;
+    std::vector<rowid_t> rowids(select_size);
+    for (size_t i = 0; i < select_size; ++i) {
+        rowids[i] = rowid_vector[sel_rowid_idx[i]];
+    }
+    for (auto cid : read_column_ids) {
+        auto& column = (*mutable_columns)[cid];
+        _column_iterators[cid]->read_by_rowids(rowids.data(), select_size, column);
     }
 }
 
