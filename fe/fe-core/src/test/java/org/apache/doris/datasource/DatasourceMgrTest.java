@@ -28,13 +28,21 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.util.List;
+import java.util.Map;
 
 public class DatasourceMgrTest extends TestWithFeService {
     private DataSourceMgr mgr;
+    private static final String MY_CATALOG = "my_catalog";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -55,21 +63,21 @@ public class DatasourceMgrTest extends TestWithFeService {
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(2, showResultSet.getResultRows().size());
 
-        String alterCatalogNameSql = "ALTER CATALOG hms_catalog RENAME my_catalog;";
+        String alterCatalogNameSql = "ALTER CATALOG hms_catalog RENAME " + MY_CATALOG + ";";
         AlterCatalogNameStmt alterNameStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameSql);
         mgr.alterCatalogName(alterNameStmt);
 
-        String alterCatalogProps = "ALTER CATALOG my_catalog SET PROPERTIES"
+        String alterCatalogProps = "ALTER CATALOG " + MY_CATALOG + " SET PROPERTIES"
                 + " (\"type\" = \"hms\", \"k\" = \"v\");";
         AlterCatalogPropertyStmt alterPropStmt = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogProps);
         mgr.alterCatalogProps(alterPropStmt);
 
         showResultSet = mgr.showCatalogs(showStmt);
         for (List<String> row : showResultSet.getResultRows()) {
-            if (row.get(1).equals("internal")) {
+            if (row.get(1).equals(InternalDataSource.INTERNAL_DS_NAME)) {
                 continue;
             }
-            Assertions.assertEquals("my_catalog", row.get(0));
+            Assertions.assertEquals(MY_CATALOG, row.get(0));
         }
 
         String showDetailCatalog = "SHOW CATALOG my_catalog";
@@ -87,10 +95,48 @@ public class DatasourceMgrTest extends TestWithFeService {
             }
         }
 
-        String dropCatalogSql = "DROP CATALOG my_catalog";
+        testDataSourceMgrPersist();
+
+        String dropCatalogSql = "DROP CATALOG " + MY_CATALOG;
         DropCatalogStmt dropCatalogStmt = (DropCatalogStmt) parseAndAnalyzeStmt(dropCatalogSql);
         mgr.dropCatalog(dropCatalogStmt);
         showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(1, showResultSet.getResultRows().size());
+    }
+
+    private void testDataSourceMgrPersist() throws Exception {
+        File file = new File("./CatalogMgrTest");
+        file.createNewFile();
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+
+        mgr.write(dos);
+        dos.flush();
+        dos.close();
+
+        DataSourceIf internalCatalog = mgr.getCatalog(InternalDataSource.INTERNAL_DS_ID);
+        DataSourceIf internalCatalog2 = mgr.getInternalDataSource();
+        Assert.assertTrue(internalCatalog == internalCatalog2);
+        DataSourceIf myCatalog = mgr.getCatalog(MY_CATALOG);
+        Assert.assertNotNull(myCatalog);
+
+        // 2. Read objects from file
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataSourceMgr mgr2 = DataSourceMgr.read(dis);
+
+        Assert.assertEquals(2, mgr2.listCatalogs().size());
+        Assert.assertEquals(myCatalog.getId(), mgr2.getCatalog(MY_CATALOG).getId());
+        Assert.assertEquals(0, mgr2.getInternalDataSource().getId());
+        Assert.assertEquals(0, mgr2.getCatalog(InternalDataSource.INTERNAL_DS_ID).getId());
+        Assert.assertEquals(0, mgr2.getCatalog(InternalDataSource.INTERNAL_DS_NAME).getId());
+
+        DataSourceIf hms = mgr2.getCatalog(MY_CATALOG);
+        Map<String, String> properties = hms.getProperties();
+        Assert.assertEquals(2, properties.size());
+        Assert.assertEquals("hms", properties.get("type"));
+        Assert.assertEquals("v", properties.get("k"));
+
+        // 3. delete files
+        dis.close();
+        file.delete();
     }
 }

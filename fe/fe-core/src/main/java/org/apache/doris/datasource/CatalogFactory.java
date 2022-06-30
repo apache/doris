@@ -57,18 +57,18 @@ public class CatalogFactory {
      * create the datasource instance from data source log.
      */
     public static DataSourceIf constructorFromLog(CatalogLog log) {
-        return constructorDataSource(log.getCatalogName(), log.getProps());
+        return constructorDataSource(log.getCatalogId(), log.getCatalogName(), log.getProps());
     }
 
-    private static DataSourceIf constructorDataSource(String name, Map<String, String> props) {
+    private static DataSourceIf constructorDataSource(long catalogId, String name, Map<String, String> props) {
         String type = props.get("type");
         DataSourceIf dataSource;
         switch (type) {
             case "hms":
-                dataSource = new HMSExternalDataSource(name, props);
+                dataSource = new HMSExternalDataSource(catalogId, name, props);
                 break;
             case "es":
-                dataSource = new EsExternalDataSource(name, props);
+                dataSource = new EsExternalDataSource(catalogId, name, props);
                 break;
             default:
                 throw new RuntimeException("Unknown datasource type for " + type);

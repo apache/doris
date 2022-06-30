@@ -33,6 +33,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -58,14 +59,14 @@ import java.util.stream.Collectors;
  * Note: Catalog in sql syntax will be treated as  datasource interface in code level.
  * TODO: Change the package name into catalog.
  */
-public class DataSourceMgr implements Writable {
+public class DataSourceMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(DataSourceMgr.class);
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
     private final Map<Long, DataSourceIf> idToCatalog = Maps.newConcurrentMap();
-    @SerializedName(value = "nameToCatalog")
+    // this map will be regenerated from idToCatalog, so not need to persist.
     private final Map<String, DataSourceIf> nameToCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
@@ -150,10 +151,6 @@ public class DataSourceMgr implements Writable {
             dbNames.addAll(ds.getDbNames());
         }
         return dbNames;
-    }
-
-    public DataSourceIf getExternalDatasource(String name) {
-        return nameToCatalog.get(name);
     }
 
     private void writeLock() {
@@ -244,7 +241,7 @@ public class DataSourceMgr implements Writable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
-            if (catalog.getType().equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
+            if (!catalog.getType().equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
@@ -274,6 +271,7 @@ public class DataSourceMgr implements Writable {
                     if (Catalog.getCurrentCatalog().getAuth()
                             .checkCtlPriv(ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
                         List<String> row = Lists.newArrayList();
+                        row.add(String.valueOf(ds.getId()));
                         row.add(ds.getName());
                         row.add(ds.getType());
                         rows.add(row);
@@ -361,11 +359,20 @@ public class DataSourceMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static DataSourceMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, DataSourceMgr.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        for (DataSourceIf catalog : idToCatalog.values()) {
+            nameToCatalog.put(catalog.getName(), catalog);
+        }
+        internalDataSource = (InternalDataSource) idToCatalog.get(InternalDataSource.INTERNAL_DS_ID);
     }
 }
