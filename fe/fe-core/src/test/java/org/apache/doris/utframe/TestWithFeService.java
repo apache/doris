@@ -366,7 +366,7 @@ public abstract class TestWithFeService {
         return executor.execute();
     }
 
-    public void createTable(String sql) throws Exception {
+    protected void createTable(String sql) throws Exception {
         createTables(sql);
     }
 
