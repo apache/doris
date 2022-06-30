@@ -233,9 +233,9 @@ public:
                            _node_info.brpc_port);
     }
 
-protected:
     size_t get_pending_bytes() { return _pending_batches_bytes; }
 
+protected:
     void _cancel_with_msg(const std::string& msg);
 
     virtual void _close_check();
