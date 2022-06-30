@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.Operator;
 
+import com.alibaba.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -74,5 +76,15 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
         }
         return false;
+    }
+
+    default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        ImmutableList.Builder<TreeNode<NODE_TYPE>> result = ImmutableList.builder();
+        foreach(node -> {
+            if (predicate.test(node)) {
+                result.add(node);
+            }
+        });
+        return (T) result.build();
     }
 }

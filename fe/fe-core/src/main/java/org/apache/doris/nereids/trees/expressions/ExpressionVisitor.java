@@ -21,7 +21,7 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction_;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 
 /**
@@ -95,7 +95,7 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(boundFunction, context);
     }
 
-    public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
+    public R visitAggregateFunction(AggregateFunction_ aggregateFunction, C context) {
         return visitBoundFunction(aggregateFunction, context);
     }
 

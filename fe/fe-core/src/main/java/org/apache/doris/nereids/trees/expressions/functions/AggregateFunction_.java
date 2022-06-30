@@ -22,16 +22,26 @@ import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 /** AggregateFunction. */
-public abstract class AggregateFunction extends BoundFunction {
+public abstract class AggregateFunction_ extends BoundFunction {
 
-    public AggregateFunction(String name, Expression... arguments) {
+    public AggregateFunction_(String name, Expression... arguments) {
         super(name, arguments);
     }
 
     public abstract DataType getIntermediateType();
 
+    private DataType intermediate;
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAggregateFunction(this, context);
+    }
+
+    public DataType getIntermediate() {
+        return intermediate;
+    }
+
+    public void setIntermediate(DataType intermediate) {
+        this.intermediate = intermediate;
     }
 }
