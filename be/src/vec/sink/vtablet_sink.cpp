@@ -436,12 +436,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     }
 
     //if pending bytes is more than 500M, wait
-    constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
-    if (get_pending_bytes() > MAX_PENDING_BYTES) {
-        while (get_pending_bytes() < MAX_PENDING_BYTES) {
-            std::this_thread::sleep_for(std::chrono::microseconds(500));
-        }
-    }
+    //constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
+    //while (get_pending_bytes() > MAX_PENDING_BYTES) {
+    //    std::this_thread::sleep_for(std::chrono::microseconds(500));
+    //}
 
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
