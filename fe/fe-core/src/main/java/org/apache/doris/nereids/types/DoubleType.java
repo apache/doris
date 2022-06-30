@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Type;
  * Double data type in Nereids.
  */
 public class DoubleType extends FractionalType {
-    public static IntegerType INSTANCE = new IntegerType();
+    public static DoubleType INSTANCE = new DoubleType();
 
     @Override
     public Type toCatalogDataType() {
