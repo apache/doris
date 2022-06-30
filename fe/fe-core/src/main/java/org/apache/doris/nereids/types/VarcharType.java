@@ -20,15 +20,18 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
+/**
+ * Varchar data type in Nereids.
+ */
 public class VarcharType extends DataType {
     private final int len;
 
-    public static VarcharType createVarcharType(int len) {
-        return new VarcharType(len);
-    }
-
     public VarcharType(int len) {
         this.len = len;
+    }
+
+    public static VarcharType createVarcharType(int len) {
+        return new VarcharType(len);
     }
 
     @Override

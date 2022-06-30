@@ -22,6 +22,9 @@ import org.apache.doris.analysis.Expr;
 
 import java.util.List;
 
+/**
+ * Glue interface for QueryStmt and LogicalPlanAdaptor
+ */
 public interface Queriable {
     boolean hasOutFileClause();
 
