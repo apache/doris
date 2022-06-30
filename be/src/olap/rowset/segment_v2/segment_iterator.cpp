@@ -699,28 +699,12 @@ void SegmentIterator::_vec_init_lazy_materialization() {
 
     // Step 2: check non-predicate read costs to determine whether need lazy materialization
     // fill _non_predicate_columns.
-    // note(wb) For block schema, query layer and storage layer may have some diff
-    //   query layer block schema not contains delete column, but storage layer appends delete column to end of block schema
-    //   When output block to query layer, delete column can be skipped.
-    //  _schema.column_ids() stands for storage layer block schema, so it contains delete columnid
-    //  we just regard delete column as common pred column here.
+    // After some optimization, we suppose lazy materialization is better performance.
     if (_schema.column_ids().size() > pred_column_ids.size()) {
         for (auto cid : _schema.column_ids()) {
             if (!_is_pred_column[cid]) {
                 _non_predicate_columns.push_back(cid);
-                FieldType type = _schema.column(cid)->type();
-
-                // todo(wb) maybe we can make read char type faster
-                // todo(wb) support map/array type
-                // todo(wb) consider multiple integer columns cost, such as 1000 columns, maybe lazy materialization faster
-                if (!_lazy_materialization_read &&
-                    (_is_need_vec_eval ||
-                     _is_need_short_eval) && // only when pred exists, we need to consider lazy materialization
-                    (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
-                     type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
-                     type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_BOOL ||
-                     type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DATETIME ||
-                     type == OLAP_FIELD_TYPE_DECIMAL)) {
+                if (_is_need_vec_eval || _is_need_short_eval) {
                     _lazy_materialization_read = true;
                 }
             }
@@ -971,21 +955,13 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
                                               uint16_t* sel_rowid_idx, size_t select_size,
                                               vectorized::MutableColumns* mutable_columns) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
-    size_t start_idx = 0;
-    while (start_idx < select_size) {
-        size_t end_idx = start_idx + 1;
-        while (end_idx < select_size && (rowid_vector[sel_rowid_idx[end_idx - 1]] ==
-                                         rowid_vector[sel_rowid_idx[end_idx]] - 1)) {
-            end_idx++;
-        }
-        size_t range = end_idx - start_idx;
-        {
-            _opts.stats->block_lazy_read_seek_num += 1;
-            SCOPED_RAW_TIMER(&_opts.stats->block_lazy_read_seek_ns);
-            _seek_columns(read_column_ids, rowid_vector[sel_rowid_idx[start_idx]]);
-        }
-        _read_columns(read_column_ids, *mutable_columns, range);
-        start_idx += range;
+    std::vector<rowid_t> rowids(select_size);
+    for (size_t i = 0; i < select_size; ++i) {
+        rowids[i] = rowid_vector[sel_rowid_idx[i]];
+    }
+    for (auto cid : read_column_ids) {
+        auto& column = (*mutable_columns)[cid];
+        _column_iterators[cid]->read_by_rowids(rowids.data(), select_size, column);
     }
 }
 

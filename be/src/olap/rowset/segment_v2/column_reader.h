@@ -247,6 +247,11 @@ public:
         return Status::NotSupported("not implement");
     }
 
+    virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                                  vectorized::MutableColumnPtr& dst) {
+        return Status::NotSupported("not implement");
+    }
+
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
@@ -282,6 +287,9 @@ public:
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
