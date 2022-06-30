@@ -458,18 +458,6 @@ struct TMasterOpResult {
     4: optional Types.TUniqueId queryId;
 }
 
-struct TLoadCheckRequest {
-    1: required FrontendServiceVersion protocolVersion
-    2: required string user
-    3: required string passwd
-    4: required string db
-    5: optional string label
-    6: optional string cluster
-    7: optional i64 timestamp
-    8: optional string user_ip
-    9: optional string tbl
-}
-
 struct TUpdateExportTaskStatusRequest {
     1: required FrontendServiceVersion protocolVersion
     2: required Types.TUniqueId taskId

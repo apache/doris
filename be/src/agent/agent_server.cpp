@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/snapshot_manager.h"
-#include "runtime/etl_job_mgr.h"
 
 using std::string;
 using std::vector;
