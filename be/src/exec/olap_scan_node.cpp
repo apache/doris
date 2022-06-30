@@ -57,7 +57,6 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _start(false),
           _scanner_done(false),
           _transfer_done(false),
-          _output_slot_ids(tnode.output_slot_ids),
           _status(Status::OK()),
           _resource_info(nullptr),
           _buffered_bytes(0),
@@ -224,7 +223,6 @@ Status OlapScanNode::prepare(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->init_profile(_runtime_profile.get());
     }
-    init_output_slots();
     return Status::OK();
 }
 
@@ -370,7 +368,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         delete materialized_batch;
         return Status::OK();
     }
-
     // all scanner done, change *eos to true
     *eos = true;
     std::lock_guard<SpinLock> guard(_status_mutex);
@@ -1744,15 +1741,6 @@ Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
     // remove one batch, notify main thread
     _row_batch_added_cv.notify_one();
     return Status::OK();
-}
-
-void OlapScanNode::init_output_slots() {
-    for (const auto& slot_desc : _tuple_desc->slots()) {
-        _output_slot_flags.emplace_back(
-                _output_slot_ids.empty() ||
-                std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
-                          slot_desc->id()) != _output_slot_ids.end());
-    }
 }
 
 } // namespace doris

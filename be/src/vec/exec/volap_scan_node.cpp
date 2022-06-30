@@ -47,6 +47,7 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _start(false),
           _scanner_done(false),
           _transfer_done(false),
+          _output_slot_ids(tnode.output_slot_ids),
           _status(Status::OK()),
           _resource_info(nullptr),
           _buffered_bytes(0),
@@ -229,6 +230,7 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->init_profile(_runtime_profile.get());
     }
+    init_output_slots();
     return Status::OK();
 }
 
@@ -1640,15 +1642,14 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(materialized_block);
         }
-        {
-            std::lock_guard<std::mutex> l(_free_blocks_lock);
-            auto columns = block->get_columns();
-            auto slots = _tuple_desc->slots();
-            for (int i = 0; i < slots.size(); i++) {
-                if (!_output_slot_flags[i]) {
-                    auto temp = slots[i]->get_data_type_ptr()->create_column_const_with_default_value(1);
-                    (*std::move(columns[i])).assume_mutable()->clear();
-                }
+
+        auto columns = block->get_columns();
+        auto slots = _tuple_desc->slots();
+        for (int i = 0; i < slots.size(); i++) {
+            if (!_output_slot_flags[i]) {
+                auto temp =
+                        slots[i]->get_data_type_ptr()->create_column_const_with_default_value(1);
+                (*std::move(columns[i])).assume_mutable()->clear();
             }
         }
         return Status::OK();
@@ -1833,6 +1834,15 @@ Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& sca
     }
 
     return Status::OK();
+}
+
+void VOlapScanNode::init_output_slots() {
+    for (const auto& slot_desc : _tuple_desc->slots()) {
+        _output_slot_flags.emplace_back(
+                _output_slot_ids.empty() ||
+                std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
+                          slot_desc->id()) != _output_slot_ids.end());
+    }
 }
 
 } // namespace doris::vectorized

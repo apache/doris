@@ -108,6 +108,9 @@ private:
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
     // according to the calling relationship
     void init_scan_profile();
+
+    void init_output_slots();
+
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const {
         return _runtime_filter_descs;
     }
@@ -190,6 +193,10 @@ private:
 
     int _total_assign_num;
     int _nice;
+
+    std::vector<SlotId> _output_slot_ids;
+
+    std::vector<bool> _output_slot_flags;
 
     // protect _status, for many thread may change _status
     SpinLock _status_mutex;

@@ -936,8 +936,8 @@ public class OlapScanNode extends ScanNode {
         outputSlotIds = Lists.newArrayList();
         for (TupleId tupleId : tupleIds) {
             for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
-                if (slotDescriptor.isMaterialized() &&
-                    (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                if (slotDescriptor.isMaterialized() && (requiredSlotIdSet == null || requiredSlotIdSet.contains(
+                        slotDescriptor.getId()))) {
                     outputSlotIds.add(slotDescriptor.getId());
                 }
             }

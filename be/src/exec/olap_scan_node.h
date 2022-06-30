@@ -239,10 +239,6 @@ protected:
     int _total_assign_num;
     int _nice;
 
-    std::vector<SlotId> _output_slot_ids;
-
-    std::vector<bool> _output_slot_flags;
-
     // protect _status, for many thread may change _status
     SpinLock _status_mutex;
     Status _status;
