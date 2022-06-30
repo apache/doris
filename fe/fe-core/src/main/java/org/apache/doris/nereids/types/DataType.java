@@ -63,5 +63,4 @@ public abstract class DataType {
     }
 
     public abstract Type toCatalogDataType();
-
 }
