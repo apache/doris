@@ -47,7 +47,7 @@ public class PhysicalProject extends PhysicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Project (" + StringUtils.join(projects, ", ") + ")";
+        return "PhysicalProject (" + StringUtils.join(projects, ", ") + ")";
     }
 
     @Override

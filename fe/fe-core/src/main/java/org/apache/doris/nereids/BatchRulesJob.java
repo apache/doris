@@ -46,7 +46,7 @@ public class BatchRulesJob {
     protected Job<Plan> bottomUpBatch(List<RuleFactory> ruleFactories) {
         List<Rule<Plan>> rules = new ArrayList<>();
         for (RuleFactory ruleFactory : ruleFactories) {
-            rules.add((Rule<Plan>) ruleFactory.buildRules());
+            rules.addAll(ruleFactory.buildRules());
         }
         Collections.reverse(rules);
         return new RewriteBottomUpJob(
@@ -58,7 +58,7 @@ public class BatchRulesJob {
     protected Job<Plan> topDownBatch(List<RuleFactory> ruleFactories) {
         List<Rule<Plan>> rules = new ArrayList<>();
         for (RuleFactory ruleFactory : ruleFactories) {
-            rules.add((Rule<Plan>) ruleFactory.buildRules());
+            rules.addAll(ruleFactory.buildRules());
         }
         Collections.reverse(rules);
         return new RewriteTopDownJob(

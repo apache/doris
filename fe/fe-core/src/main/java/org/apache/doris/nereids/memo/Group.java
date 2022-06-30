@@ -230,6 +230,6 @@ public class Group {
 
     @Override
     public String toString() {
-        return "Group{" + getLogicalExpression().getOperator() + "}";
+        return "Group[" + groupId + "]";
     }
 }

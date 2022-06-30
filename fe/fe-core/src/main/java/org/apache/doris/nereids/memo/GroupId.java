@@ -56,4 +56,9 @@ public class GroupId {
     public int hashCode() {
         return Objects.hash(id, jvmId);
     }
+
+    @Override
+    public String toString() {
+        return "" + id;
+    }
 }
