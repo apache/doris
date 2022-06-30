@@ -146,6 +146,8 @@ protected:
     // according to the calling relationship
     void init_scan_profile();
 
+    void init_output_slots();
+
     bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
 
     template <typename T, typename ChangeFixedValueRangeFunc>
@@ -236,6 +238,10 @@ protected:
 
     int _total_assign_num;
     int _nice;
+
+    std::vector<SlotId> _output_slot_ids;
+
+    std::vector<bool> _output_slot_flags;
 
     // protect _status, for many thread may change _status
     SpinLock _status_mutex;

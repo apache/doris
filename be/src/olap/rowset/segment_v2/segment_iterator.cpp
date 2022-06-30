@@ -824,7 +824,9 @@ void SegmentIterator::_init_current_block(
         // the column in block must clear() here to insert new data
         if (_is_pred_column[cid] ||
             i >= block->columns()) { //todo(wb) maybe we can release it after output block
-            current_columns[cid]->clear();
+            if (current_columns[cid] != nullptr) {
+                current_columns[cid]->clear();
+            }
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
 

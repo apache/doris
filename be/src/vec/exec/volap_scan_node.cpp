@@ -31,6 +31,7 @@
 #include "vec/exec/volap_scanner.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 using doris::operator<<;
@@ -1638,6 +1639,17 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             // ReThink whether the SpinLock Better
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(materialized_block);
+        }
+        {
+            std::lock_guard<std::mutex> l(_free_blocks_lock);
+            auto columns = block->get_columns();
+            auto slots = _tuple_desc->slots();
+            for (int i = 0; i < slots.size(); i++) {
+                if (!_output_slot_flags[i]) {
+                    auto temp = slots[i]->get_data_type_ptr()->create_column_const_with_default_value(1);
+                    (*std::move(columns[i])).assume_mutable()->clear();
+                }
+            }
         }
         return Status::OK();
     }
