@@ -94,4 +94,6 @@ else
     echo "httpclient 4.5.13 exists in $DATAX_CORE_POM"  
 fi
 
+cp $DATAX_POM $DATAX_EXTENSION_HOME
+
 echo "Finish DataX environment initialization"
