@@ -180,16 +180,16 @@ ODBC_SOURCE=unixODBC-2.3.7
 ODBC_MD5SUM="274a711b0c77394e052db6493840c6f9"
 
 # leveldb
-LEVELDB_DOWNLOAD="https://github.com/google/leveldb/archive/v1.20.tar.gz"
-LEVELDB_NAME=leveldb-1.20.tar.gz
-LEVELDB_SOURCE=leveldb-1.20
-LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
+LEVELDB_DOWNLOAD="https://github.com/google/leveldb/archive/refs/tags/1.23.tar.gz"
+LEVELDB_NAME=leveldb-1.23.tar.gz
+LEVELDB_SOURCE=leveldb-1.23
+LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.0.0.tar.gz"
-BRPC_NAME="incubator-brpc-1.0.0.tar.gz"
-BRPC_SOURCE="incubator-brpc-1.0.0"
-BRPC_MD5SUM="73b201192a10107628e3af5ccd643676"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.1.0.tar.gz"
+BRPC_NAME="incubator-brpc-1.1.0.tar.gz"
+BRPC_SOURCE="incubator-brpc-1.1.0"
+BRPC_MD5SUM="e1439fd70e37a2bcffcf05b2526cacdd"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -410,8 +410,6 @@ SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.5.
 SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
 SSE2NEON_SOURCE=sse2neon-1.5.1
 SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
-
-
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
