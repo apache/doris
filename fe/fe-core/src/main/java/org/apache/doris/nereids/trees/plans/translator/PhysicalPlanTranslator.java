@@ -104,8 +104,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
-                .map(FindFunction::find
-                )
+                .map(FindFunction::find)
                 .flatMap(List::stream)
                 .filter(x -> x instanceof AggregateFunction)
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))

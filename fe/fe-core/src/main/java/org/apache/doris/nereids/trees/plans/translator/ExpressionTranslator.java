@@ -60,10 +60,10 @@ import java.util.List;
 @SuppressWarnings("rawtypes")
 public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTranslatorContext> {
 
-    public static ExpressionTranslator TRANSLATOR = new ExpressionTranslator();
+    public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
 
     public static Expr translate(Expression expression, PlanTranslatorContext planContext) {
-        return expression.accept(TRANSLATOR, planContext);
+        return expression.accept(INSTANCE, planContext);
     }
 
     @Override

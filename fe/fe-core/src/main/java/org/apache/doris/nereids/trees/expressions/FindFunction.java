@@ -27,11 +27,11 @@ import java.util.List;
  */
 public class FindFunction extends ExpressionVisitor<Void, List<BoundFunction>> {
 
-    private static final FindFunction FIND_FUNCTION = new FindFunction();
+    private static final FindFunction INSTANCE = new FindFunction();
 
     public static List<BoundFunction> find(Expression expression) {
         List<BoundFunction> functionList = new ArrayList<>();
-        FIND_FUNCTION.visit(expression, functionList);
+        INSTANCE.visit(expression, functionList);
         return functionList;
     }
 
