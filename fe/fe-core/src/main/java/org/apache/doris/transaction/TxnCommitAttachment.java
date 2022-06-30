@@ -47,8 +47,6 @@ public abstract class TxnCommitAttachment implements Writable {
             switch (txnCommitAttachment.getLoadType()) {
                 case ROUTINE_LOAD:
                     return new RLTaskTxnCommitAttachment(txnCommitAttachment.getRlTaskTxnCommitAttachment());
-                case MINI_LOAD:
-                    return new MiniLoadTxnCommitAttachment(txnCommitAttachment.getMlTxnCommitAttachment());
                 default:
                     return null;
             }
