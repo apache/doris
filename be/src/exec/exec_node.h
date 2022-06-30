@@ -142,10 +142,6 @@ public:
     static Status create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
                               const DescriptorTbl& descs, ExecNode** root);
 
-    // Set debug action for node with given id in 'tree'
-    static void set_debug_options(int node_id, TExecNodePhase::type phase,
-                                  TDebugAction::type action, ExecNode* tree);
-
     // Collect all nodes of given 'node_type' that are part of this subtree, and return in
     // 'nodes'.
     void collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode*>* nodes);
@@ -227,11 +223,6 @@ protected:
     // and add block rows for profile
     void reached_limit(vectorized::Block* block, bool* eos);
 
-    /// Enable the increase reservation denial probability on 'buffer_pool_client_' based on
-    /// the 'debug_action_' set on this node. Returns an error if 'debug_action_param_' is
-    /// invalid.
-    //Status enable_deny_reservation_debug_action();
-
     /// Extends blocking queue for row batches. Row batches have a property that
     /// they must be processed in the order they were produced, even in cancellation
     /// paths. Preceding row batches can contain ptrs to memory in subsequent row batches
@@ -291,11 +282,6 @@ protected:
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
 
-    // debug-only: if _debug_action is not INVALID, node will perform action in
-    // _debug_phase
-    TExecNodePhase::type _debug_phase;
-    TDebugAction::type _debug_action;
-
     int64_t _limit; // -1: no limit
     int64_t _num_rows_returned;
 
@@ -348,10 +334,6 @@ protected:
     virtual bool is_scan_node() const { return false; }
 
     void init_runtime_profile(const std::string& name);
-
-    // Executes _debug_action if phase matches _debug_phase.
-    // 'phase' must not be INVALID.
-    Status exec_debug_action(TExecNodePhase::type phase);
 
     // Appends option to '_runtime_exec_options'
     void add_runtime_exec_option(const std::string& option);

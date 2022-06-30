@@ -92,9 +92,9 @@ public class TrashProcDir implements ProcDirInterface {
                 }
             }
 
-            List<String> backendInfo = new ArrayList<String>();
+            List<String> backendInfo = new ArrayList<>();
             backendInfo.add(String.valueOf(backend.getId()));
-            backendInfo.add(backend.getHost() + ":" + String.valueOf(backend.getHeartbeatPort()));
+            backendInfo.add(backend.getHost() + ":" + backend.getHeartbeatPort());
             if (trashUsedCapacityB != null) {
                 Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
                 backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " "

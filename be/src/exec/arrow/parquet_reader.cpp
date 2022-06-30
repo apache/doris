@@ -97,11 +97,6 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
             _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata));
             _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
         }
-        _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata));
-        _row_group_reader->init_filter_groups(tuple_slot_descs, conjunct_ctxs)
-
-        _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata));
-        _row_group_reader->init_filter_groups(tuple_slot_descs, _map_column, _include_column_ids);
         std::thread thread(&ParquetReaderWrap::prefetch_batch, this);
         thread.detach();
 
@@ -555,27 +550,7 @@ void ParquetReaderWrap::prefetch_batch() {
         if (_closed || current_group >= _total_groups) {
             return;
         }
-        if (config::parquet_predicate_push_down) {
-            if (!_row_group_reader->has_filter_groups()) {
-                continue;
-            }
-            auto filter_group_set = _row_group_reader->filter_groups();
-            if (filter_group_set.end() != filter_group_set.find(current_group)) {
-                // find filter group, skip
-                // LOG(INFO) << ""
-                continue;
-            }
-        }
-        if (config::parquet_predicate_push_down) {
-            if (!_row_group_reader->has_filter_groups()) {
-                continue;
-            }
-            auto filter_group_set = _row_group_reader->filter_groups();
-            if (filter_group_set.end() != filter_group_set.find(current_group)) {
-                // find filter group, skip
-                continue;
-            }
-        }
+
         if (config::parquet_predicate_push_down) {
             auto filter_group_set = _row_group_reader->filter_groups();
             if (filter_group_set.end() != filter_group_set.find(current_group)) {
@@ -583,19 +558,6 @@ void ParquetReaderWrap::prefetch_batch() {
                 LOG(INFO) << "Skip row group id: " << current_group;
                 _skip_empty_batch = true;
                 _queue_reader_cond.notify_one();
-                LOG(INFO) << "Skip row _skip_empty_batch: " << _skip_empty_batch;
-                current_group++;
-                continue;
-            }
-        }
-        if (config::parquet_predicate_push_down) {
-            auto filter_group_set = _row_group_reader->filter_groups();
-            if (filter_group_set.end() != filter_group_set.find(current_group)) {
-                // find filter group, skip
-                LOG(INFO) << "Skip row group id: " << current_group;
-                _skip_empty_batch = true;
-                _queue_reader_cond.notify_one();
-                LOG(INFO) << "Skip row _skip_empty_batch: " << _skip_empty_batch;
                 current_group++;
                 continue;
             }

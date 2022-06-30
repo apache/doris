@@ -98,7 +98,6 @@ Status VOdbcScanNode::open(RuntimeState* state) {
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_odbc_scanner->open());
     RETURN_IF_ERROR(_odbc_scanner->query());
@@ -130,8 +129,6 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (!is_init()) {
         return Status::InternalError("used before initialize.");
     }
-
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
 
     auto odbc_scanner = get_odbc_scanner();
@@ -223,7 +220,6 @@ Status VOdbcScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();
