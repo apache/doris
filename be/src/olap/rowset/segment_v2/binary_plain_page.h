@@ -44,6 +44,7 @@
 namespace doris {
 namespace segment_v2 {
 
+template <FieldType Type>
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
@@ -64,6 +65,11 @@ public:
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
             auto src = reinterpret_cast<const Slice*>(vals);
+            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+                if (_options.need_check_bitmap) {
+                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
+                }
+            }
             size_t offset = _buffer.size();
             _offsets.push_back(offset);
             _buffer.append(src->data, src->size);
@@ -154,6 +160,7 @@ private:
     faststring _last_value;
 };
 
+template <FieldType Type>
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
     BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) {}
@@ -204,6 +211,11 @@ public:
         size_t mem_len[max_fetch];
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             *out = string_at_index(_cur_idx);
+            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+                if (_options.need_check_bitmap) {
+                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(out->data)));
+                }
+            }
             mem_len[i] = out->size;
         }
 
@@ -246,6 +258,11 @@ public:
             uint32_t len = offset(_cur_idx + 1) - start_offset;
             len_array[i] = len;
             start_offset_array[i] = start_offset;
+            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+                if (_options.need_check_bitmap) {
+                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
+                }
+            }
         }
         dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
                                      max_fetch);
@@ -271,8 +288,9 @@ public:
     }
 
     void get_dict_word_info(StringRef* dict_word_info) {
-        if (_num_elems <= 0) [[unlikely]]
+        if (UNLIKELY(_num_elems <= 0)) {
             return;
+        }
 
         char* data_begin = (char*)&_data[0];
         char* offset_ptr = (char*)&_data[_offsets_pos];
