@@ -48,6 +48,10 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     NODE_TYPE withChildren(List<NODE_TYPE> children);
 
+    /**
+     * Foreach treeNode. Top-down traverse implicitly.
+     * @param func foreach function
+     */
     default void foreach(Consumer<TreeNode<NODE_TYPE>> func) {
         func.accept(this);
         for (NODE_TYPE child : children()) {
@@ -56,7 +60,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
-     * iterate top down and test predicate if any matched.
+     * iterate top down and test predicate if any matched. Top-down traverse implicitly.
      * @param predicate predicate
      * @return true if any predicate return true
      */

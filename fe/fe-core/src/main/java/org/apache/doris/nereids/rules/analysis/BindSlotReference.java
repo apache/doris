@@ -56,21 +56,21 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_PROJECT_SLOT.build(
                 logicalProject().then(project -> {
                     List<NamedExpression> boundSlots =
-                            bind(project.operator.getProjects(), project.children(), true);
+                            bind(project.operator.getProjects(), project.children(), project);
                     return plan(new LogicalProject(flatBoundStar(boundSlots)), project.child());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().then(filter -> {
                     Expression boundPredicates = bind(
-                            filter.operator.getPredicates(), filter.children(), false);
+                            filter.operator.getPredicates(), filter.children(), filter);
                     return plan(new LogicalFilter(boundPredicates), filter.child());
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
                 logicalJoin().then(join -> {
                     Optional<Expression> cond = join.operator.getCondition()
-                            .map(expr -> bind(expr, join.children(), false));
+                            .map(expr -> bind(expr, join.children(), join));
                     LogicalJoin op = new LogicalJoin(join.operator.getJoinType(), cond);
                     return plan(op, join.left(), join.right());
                 })
@@ -78,9 +78,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_AGGREGATE_SLOT.build(
                 logicalAggregate().then(agg -> {
                     List<Expression> groupBy = bind(
-                            agg.operator.getGroupByExprList(), agg.children(), false);
+                            agg.operator.getGroupByExprList(), agg.children(), agg);
                     List<NamedExpression> output = bind(
-                            agg.operator.getOutputExpressionList(), agg.children(), false);
+                            agg.operator.getOutputExpressionList(), agg.children(), agg);
                     LogicalAggregate op = new LogicalAggregate(groupBy, output);
                     return plan(op, agg.child());
                 })
@@ -90,7 +90,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     List<OrderKey> sortItemList = sort.operator.getOrderKeys()
                             .stream()
                             .map(orderKey -> {
-                                Expression item = bind(orderKey.getExpr(), sort.children(), false);
+                                Expression item = bind(orderKey.getExpr(), sort.children(), sort);
                                 return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                             }).collect(Collectors.toList());
 
@@ -113,26 +113,26 @@ public class BindSlotReference implements AnalysisRuleFactory {
             }).collect(Collectors.toList());
     }
 
-    private <E extends Expression> List<E> bind(List<E> exprList, List<Plan> inputs, boolean isProjection) {
+    private <E extends Expression> List<E> bind(List<E> exprList, List<Plan> inputs, Plan plan) {
         return exprList.stream()
-            .map(expr -> bind(expr, inputs, isProjection))
+            .map(expr -> bind(expr, inputs, plan))
             .collect(Collectors.toList());
     }
 
-    private <E extends Expression> E bind(E expr, List<Plan> inputs, boolean isProjection) {
+    private <E extends Expression> E bind(E expr, List<Plan> inputs, Plan plan) {
         List<Slot> boundedSlots = inputs.stream()
                 .flatMap(input -> input.getOutput().stream())
                 .collect(Collectors.toList());
-        return (E) new SlotBinder(boundedSlots, isProjection).bind(expr);
+        return (E) new SlotBinder(boundedSlots, plan).bind(expr);
     }
 
     private class SlotBinder extends DefaultExpressionRewriter<Void> {
         private List<Slot> boundSlots;
-        private boolean isProjection;
+        private Plan plan;
 
-        public SlotBinder(List<Slot> boundSlots, boolean isProjection) {
+        public SlotBinder(List<Slot> boundSlots, Plan plan) {
             this.boundSlots = boundSlots;
-            this.isProjection = isProjection;
+            this.plan = plan;
         }
 
         public Expression bind(Expression expression) {
@@ -168,7 +168,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Expression visitUnboundStar(UnboundStar unboundStar, Void context) {
-            if (!isProjection) {
+            if (!(plan instanceof LogicalProject)) {
                 throw new AnalysisException("UnboundStar must exists in Projection");
             }
             List<String> qualifier = unboundStar.getQualifier();
@@ -185,6 +185,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         private BoundStar bindQualifiedStar(List<String> qualifierStar, Void context) {
+            // FIXME: compatible with previous behavior:
+            // https://github.com/apache/doris/pull/10415/files/3fe9cb0c3f805ab3a9678033b281b16ad93ec60a#r910239452
             List<Slot> slots = boundSlots.stream().filter(boundSlot -> {
                 switch (qualifierStar.size()) {
                     // table.*

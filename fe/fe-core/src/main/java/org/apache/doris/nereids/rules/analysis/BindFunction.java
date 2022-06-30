@@ -60,15 +60,13 @@ public class BindFunction implements AnalysisRuleFactory {
 
     private <E extends Expression> List<E> bind(List<E> exprList) {
         return exprList.stream()
-            .map(expr -> bind(expr))
+            .map(expr -> FunctionBinder.INSTANCE.bind(expr))
             .collect(Collectors.toList());
     }
 
-    private <E extends Expression> E bind(E expr) {
-        return new FunctionBinder().bind(expr);
-    }
+    private static class FunctionBinder extends DefaultExpressionRewriter<Void> {
+        public static final FunctionBinder INSTANCE = new FunctionBinder();
 
-    private class FunctionBinder extends DefaultExpressionRewriter<Void> {
         public <E extends Expression> E bind(E expression) {
             return (E) expression.accept(this, null);
         }

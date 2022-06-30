@@ -123,6 +123,7 @@ public class AnalyzeSSBTest extends TestWithFeService {
 
     private void checkAnalyze(String sql) {
         LogicalPlan analyzed = analyze(sql);
+        System.out.println(analyzed.treeString());
         Assertions.assertTrue(checkBound(analyzed));
     }
 

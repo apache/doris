@@ -104,7 +104,8 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     Group childGroup = groupExpression.child(i);
                     List<Plan> childrenPlan = matchingChildGroup(pattern, childGroup, i);
                     childrenPlans.add(childrenPlan);
-                    if (childrenPlans.isEmpty()) {
+                    if (childrenPlan.isEmpty()) {
+                        // current pattern is match but children patterns not match
                         return;
                     }
                 }
