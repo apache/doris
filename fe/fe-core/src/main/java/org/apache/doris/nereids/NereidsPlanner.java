@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.PhysicalPlanTranslator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;

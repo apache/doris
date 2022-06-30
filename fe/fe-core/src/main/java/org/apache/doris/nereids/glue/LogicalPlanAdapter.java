@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,16 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.glue;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import java.util.List;
 
 /**
  * This class is used for the compatibility and code reuse in.
  * @see org.apache.doris.qe.ConnectProcessor
  */
-public class LogicalPlanAdapter extends StatementBase {
+public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     private final LogicalPlan logicalPlan;
 
@@ -41,4 +45,14 @@ public class LogicalPlanAdapter extends StatementBase {
         return logicalPlan;
     }
 
+    @Override
+    public boolean hasOutFileClause() {
+        return false;
+    }
+
+    // TODO: set result expr from planner
+    @Override
+    public List<Expr> getResultExprs() {
+        return super.getResultExprs();
+    }
 }

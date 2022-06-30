@@ -88,7 +88,8 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.Queriable;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -932,7 +933,7 @@ public class StmtExecutor implements ProfileWriter {
     private void handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
-        QueryStmt queryStmt = (QueryStmt) parsedStmt;
+        Queriable queryStmt = (Queriable) parsedStmt;
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
                 DebugUtil.printId(context.queryId()),
@@ -972,7 +973,7 @@ public class StmtExecutor implements ProfileWriter {
     }
 
 
-    private void sendResult(boolean isOutfileQuery, boolean isSendFields, QueryStmt queryStmt, MysqlChannel channel,
+    private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with

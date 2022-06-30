@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.glue.Queriable;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -50,7 +51,7 @@ import java.util.stream.Collectors;
  * Used for sharing members/methods and some of the analysis code, in particular the
  * analysis of the ORDER BY and LIMIT clauses.
  */
-public abstract class QueryStmt extends StatementBase {
+public abstract class QueryStmt extends StatementBase implements Queriable {
     private static final Logger LOG = LogManager.getLogger(QueryStmt.class);
 
     /////////////////////////////////////////
