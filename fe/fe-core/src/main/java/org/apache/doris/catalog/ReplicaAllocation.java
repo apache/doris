@@ -23,8 +23,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
@@ -35,8 +35,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-// ReplicaAllocation is used to describe the distribution of replicas of a tablet.
-// By default, 3 replicas of a tablet are distributed on 3 BE nodes with Tag "default".
+/**
+ * ReplicaAllocation is used to describe the distribution of replicas of a tablet.
+ * By default, 3 replicas of a tablet are distributed on 3 BE nodes with Tag "default".
+ */
 public class ReplicaAllocation implements Writable {
 
     public static final ReplicaAllocation DEFAULT_ALLOCATION;

@@ -34,7 +34,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
