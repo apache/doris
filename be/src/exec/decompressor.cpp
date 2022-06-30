@@ -259,9 +259,6 @@ Status Lz4FrameDecompressor::decompress(uint8_t* input, size_t input_len, size_t
 
         _expect_dec_buf_size = get_block_size(&info);
         if (_expect_dec_buf_size == -1) {
-            std::stringstream ss;
-            ss << "Impossible lz4 block size unless more block sizes are allowed"
-               << std::string(LZ4F_getErrorName(ret));
             return Status::InternalError(
                     "Impossible lz4 block size unless more block sizes are allowed {}",
                     std::string(LZ4F_getErrorName(ret)));

@@ -280,114 +280,117 @@ public:
     static Status OK() { return Status(); }
 
     template <typename... Args>
+    static Status ErrorFmt(TStatusCode::type code, const std::string& fmt, Args&&... args) {
+        if (sizeof...(args) == 0) {
+            return Status(code, fmt);
+        }
+        return Status(code, fmt::format(fmt, std::forward<Args>(args)...));
+    }
+
+    template <typename... Args>
     static Status PublishTimeout(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::PUBLISH_TIMEOUT, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::PUBLISH_TIMEOUT, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status MemoryAllocFailed(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::MEM_ALLOC_FAILED, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::MEM_ALLOC_FAILED, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status BufferAllocFailed(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED,
-                      fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::BUFFER_ALLOCATION_FAILED, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status InvalidArgument(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::INVALID_ARGUMENT, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::INVALID_ARGUMENT, fmt, std::forward<Args>(args)...);
     }
     template <typename... Args>
     static Status MinimumReservationUnavailable(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE,
-                      fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, fmt,
+                        std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status Corruption(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::CORRUPTION, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::CORRUPTION, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status IOError(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::IO_ERROR, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::IO_ERROR, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status NotFound(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::NOT_FOUND, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::NOT_FOUND, fmt, std::forward<Args>(args)...);
     }
     template <typename... Args>
     static Status AlreadyExist(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::ALREADY_EXIST, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::ALREADY_EXIST, fmt, std::forward<Args>(args)...);
     }
     template <typename... Args>
     static Status NotSupported(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::NOT_IMPLEMENTED_ERROR,
-                      fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::NOT_IMPLEMENTED_ERROR, fmt, std::forward<Args>(args)...);
     }
     template <typename... Args>
     static Status EndOfFile(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::END_OF_FILE, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::END_OF_FILE, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status InternalError(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::INTERNAL_ERROR, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::INTERNAL_ERROR, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status RuntimeError(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::RUNTIME_ERROR, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::RUNTIME_ERROR, fmt, std::forward<Args>(args)...);
     }
     template <typename... Args>
     static Status Cancelled(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::CANCELLED, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::CANCELLED, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status MemoryLimitExceeded(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::MEM_LIMIT_EXCEEDED,
-                      fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::MEM_LIMIT_EXCEEDED, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status ThriftRpcError(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::THRIFT_RPC_ERROR, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::THRIFT_RPC_ERROR, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status TimedOut(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::TIMEOUT, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::TIMEOUT, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status TooManyTasks(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::TOO_MANY_TASKS, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::TOO_MANY_TASKS, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status ServiceUnavailable(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::SERVICE_UNAVAILABLE,
-                      fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::SERVICE_UNAVAILABLE, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status Uninitialized(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::UNINITIALIZED, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::UNINITIALIZED, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status Aborted(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::ABORTED, fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::ABORTED, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     static Status DataQualityError(const std::string& fmt, Args&&... args) {
-        return Status(TStatusCode::DATA_QUALITY_ERROR,
-                      fmt::format(fmt, std::forward<Args>(args)...));
+        return ErrorFmt(TStatusCode::DATA_QUALITY_ERROR, fmt, std::forward<Args>(args)...);
     }
 
     // A wrapper for ErrorCode

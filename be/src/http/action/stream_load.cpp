@@ -311,8 +311,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
-            std::stringstream ss;
-            ss << "body exceed max size: " << csv_max_body_bytes << ", data: " << ctx->body_bytes;
             return Status::InternalError("body exceed max size: {}, data: {}", csv_max_body_bytes,
                                          ctx->body_bytes);
         }

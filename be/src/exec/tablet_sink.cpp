@@ -176,7 +176,9 @@ Status NodeChannel::open_wait() {
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
+                                     berror(_open_closure->cntl.ErrorCode()),
+                                     _open_closure->cntl.ErrorText());
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {

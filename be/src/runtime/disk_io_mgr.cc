@@ -1152,9 +1152,6 @@ Status DiskIoMgr::write_range_helper(FILE* file_handle, WriteRange* write_range)
 
     int64_t bytes_written = fwrite(write_range->_data, 1, write_range->_len, file_handle);
     if (bytes_written < write_range->_len) {
-        stringstream error_msg;
-        error_msg << "fwrite(buffer, 1, " << write_range->_len << ", " << write_range->_file
-                  << ") failed with errno=" << errno << " description=" << get_str_err_msg();
         return Status::InternalError(
                 "fwrite(buffer, 1, {}, {}) failed with errno={} description={}", write_range->_len,
                 write_range->_file, errno, get_str_err_msg());

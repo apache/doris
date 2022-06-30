@@ -34,6 +34,7 @@ Status LocalFileReader::open() {
         char err_buf[64];
         std::stringstream ss;
         ss << "Open file failed. path=" << _path << ", error=" << strerror_r(errno, err_buf, 64);
+        return Status::InternalError(ss.str());
     }
     return seek(_current_offset);
 }
