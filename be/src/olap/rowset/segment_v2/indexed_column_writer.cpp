@@ -59,8 +59,10 @@ Status IndexedColumnWriter::init() {
     // because the default encoding of a data type can be changed in the future
     DCHECK_NE(_options.encoding, DEFAULT_ENCODING);
 
-    PageBuilder* data_page_builder;
-    RETURN_IF_ERROR(encoding_info->create_page_builder(PageBuilderOptions(), &data_page_builder));
+    PageBuilder* data_page_builder = nullptr;
+    PageBuilderOptions builder_option;
+    builder_option.need_check_bitmap = false;
+    RETURN_IF_ERROR(encoding_info->create_page_builder(builder_option, &data_page_builder));
     _data_page_builder.reset(data_page_builder);
 
     if (_options.write_ordinal_index) {

@@ -68,8 +68,9 @@ public:
         Status status = page_builder.get_dictionary_page(&dict_slice);
         EXPECT_TRUE(status.ok());
         PageDecoderOptions dict_decoder_options;
-        std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
+        std::unique_ptr<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>> dict_page_decoder(
+                new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>(dict_slice.slice(),
+                                                                    dict_decoder_options));
         status = dict_page_decoder->init();
         EXPECT_TRUE(status.ok());
         // because every slice is unique
@@ -175,8 +176,9 @@ public:
             int slice_index = random() % results.size();
             //int slice_index = 1;
             PageDecoderOptions dict_decoder_options;
-            std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
+            std::unique_ptr<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>> dict_page_decoder(
+                    new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>(dict_slice.slice(),
+                                                                        dict_decoder_options));
             status = dict_page_decoder->init();
             EXPECT_TRUE(status.ok());
 

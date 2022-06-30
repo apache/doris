@@ -56,7 +56,6 @@ using doris::RandomAccessFile;
 using strings::Substitute;
 using doris::segment_v2::SegmentFooterPB;
 using doris::segment_v2::ColumnReader;
-using doris::segment_v2::BinaryPlainPageDecoder;
 using doris::segment_v2::PageHandle;
 using doris::segment_v2::PagePointer;
 using doris::segment_v2::ColumnReaderOptions;

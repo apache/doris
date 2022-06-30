@@ -71,6 +71,16 @@ struct BitmapTypeCode {
         // added in 0.12
         BITMAP64 = 4
     };
+    Status static inline validate(int bitmap_type) {
+        if (UNLIKELY(bitmap_type < type::EMPTY || bitmap_type > type::BITMAP64)) {
+            std::string err_msg =
+                    fmt::format("BitmapTypeCode invalid, should between: {} and {} actrual is {}",
+                                BitmapTypeCode::EMPTY, BitmapTypeCode::BITMAP64, bitmap_type);
+            LOG(ERROR) << err_msg;
+            return Status::IOError(err_msg);
+        }
+        return Status::OK();
+    }
 };
 
 namespace detail {
@@ -1536,7 +1546,6 @@ public:
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
     bool deserialize(const char* src) {
-        DCHECK(*src >= BitmapTypeCode::EMPTY && *src <= BitmapTypeCode::BITMAP64);
         switch (*src) {
         case BitmapTypeCode::EMPTY:
             _type = EMPTY;
@@ -1555,6 +1564,9 @@ public:
             _bitmap = detail::Roaring64Map::read(src);
             break;
         default:
+            LOG(ERROR) << "BitmapTypeCode invalid, should between: " << BitmapTypeCode::EMPTY
+                       << " and " << BitmapTypeCode::BITMAP64 << " actrual is "
+                       << static_cast<int>(*src);
             return false;
         }
         return true;
