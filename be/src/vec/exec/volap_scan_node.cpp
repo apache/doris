@@ -511,7 +511,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             break;
         }
 
-        raw_bytes_read += block->allocated_bytes();
+        raw_bytes_read += block->bytes();
         num_rows_in_block += block->rows();
         // 4. if status not ok, change status_.
         if (UNLIKELY(block->rows() == 0)) {

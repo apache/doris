@@ -297,8 +297,7 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
             _update_realtime_counter();
             RETURN_IF_ERROR(
                     VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
-        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
-                 block->allocated_bytes() < raw_bytes_threshold);
+        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
     }
     // NOTE:
     // There is no need to check raw_bytes_threshold since block->rows() == 0 is checked first.
