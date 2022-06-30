@@ -15,35 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.functions;
 
-import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 
-import java.util.List;
+/** AggregateFunction. */
+public abstract class AggregateFunction extends BoundFunction {
 
-/**
- * Subtract Expression. BinaryExpression.
- */
-public class Subtract<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Subtract(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(ArithmeticOperator.SUBTRACT, left, right);
+    public AggregateFunction(String name, Expression... arguments) {
+        super(name, arguments);
     }
 
-    @Override
-    public String sql() {
-        return left().sql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().sql();
-    }
-
-    @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Subtract<>(children.get(0), children.get(1));
-    }
+    public abstract DataType getIntermediateType();
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitSubtract(this, context);
+        return visitor.visitAggregateFunction(this, context);
     }
 }

@@ -17,47 +17,54 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.UnaryExpression;
-import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.base.Preconditions;
+import com.google.common.base.Joiner;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Expression for unbound alias.
+ * Expression for unbound function.
  */
-public class UnboundAlias<CHILD_TYPE extends Expression>
-        extends NamedExpression
-        implements UnaryExpression<CHILD_TYPE>, Unbound {
+public class UnboundFunction extends Expression implements Unbound {
 
-    public UnboundAlias(CHILD_TYPE child) {
-        super(NodeType.UNBOUND_ALIAS, child);
+    private final String name;
+    private final boolean isDistinct;
+
+    public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
+        super(NodeType.UNBOUND_FUNCTION, arguments.toArray(new Expression[0]));
+        this.name = Objects.requireNonNull(name, "name can not be null");
+        this.isDistinct = isDistinct;
     }
 
-    @Override
-    public DataType getDataType() throws UnboundException {
-        return child().getDataType();
+    public String getName() {
+        return name;
+    }
+
+    public boolean isDistinct() {
+        return isDistinct;
+    }
+
+    public List<Expression> getArguments() {
+        return children();
     }
 
     @Override
     public String toString() {
-        return "UnboundAlias(" + child() + ")";
+        String params = Joiner.on(", ").join(children);
+        return "'" + name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundAlias(this, context);
+        return visitor.visitUnboundFunction(this, context);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new UnboundAlias<>(children.get(0));
+        return new UnboundFunction(name, isDistinct, children);
     }
 }

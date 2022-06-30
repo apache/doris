@@ -15,21 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
-
-import org.apache.doris.nereids.trees.NodeType;
+package org.apache.doris.nereids.trees;
 
 /**
- * Abstract class for all slot in expression.
+ * interface for all tree node that have two children.
  */
-public abstract class Slot extends NamedExpression implements LeafExpression {
+public interface TernaryNode<
+            NODE_TYPE extends TreeNode<NODE_TYPE>,
+            FIRST_CHILD_TYPE extends TreeNode,
+            SECOND_CHILD_TYPE extends TreeNode,
+            THIRD_CHILD_TYPE extends TreeNode>
+        extends TreeNode<NODE_TYPE> {
 
-    public Slot(NodeType type) {
-        super(type);
+    default FIRST_CHILD_TYPE first() {
+        return (FIRST_CHILD_TYPE) child(0);
+    }
+
+    default SECOND_CHILD_TYPE second() {
+        return (SECOND_CHILD_TYPE) child(1);
+    }
+
+    default THIRD_CHILD_TYPE third() {
+        return (THIRD_CHILD_TYPE) child(2);
     }
 
     @Override
-    public Slot toSlot() {
-        return this;
+    default int arity() {
+        return 3;
     }
 }
