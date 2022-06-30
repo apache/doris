@@ -67,9 +67,10 @@ using FunctionDate =
         FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl<VecDateTimeValue, Int64>>;
 using FunctionDateV2 =
         FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<DateV2Value, UInt32>>;
-using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<Int64>>;
+using FunctionTimeStamp =
+        FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<DataTypeDateTime, Int64>>;
 using FunctionTimeStampV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeDateV2, TimeStampImpl<UInt32>>;
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, TimeStampImpl<DataTypeDateV2, UInt32>>;
 
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecond>();
