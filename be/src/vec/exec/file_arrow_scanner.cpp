@@ -71,7 +71,8 @@ Status FileArrowScanner::_open_next_reader() {
                                              num_of_columns_from_file);
 
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
-        Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());
+        Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs,
+                                                      _state->timezone());
         if (status.is_end_of_file()) {
             continue;
         } else {

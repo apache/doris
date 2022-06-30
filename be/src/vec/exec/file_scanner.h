@@ -90,6 +90,7 @@ protected:
     // File formats based push down predicate
     std::vector<ExprContext*> _conjunct_ctxs;
     TupleId _tupleId;
+
 private:
     Status _init_expr_ctxes();
     Status _filter_block(vectorized::Block* output_block);
