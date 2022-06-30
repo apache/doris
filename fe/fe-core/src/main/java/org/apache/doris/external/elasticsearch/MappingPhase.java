@@ -17,15 +17,6 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsTable;
-
-import org.apache.commons.lang3.StringUtils;
-import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
-
-import java.util.Iterator;
-
 /**
  * Get index mapping from remote ES Cluster, and resolved `keyword` and `doc_values` field
  * Later we can use it to parse all relevant indexes
@@ -50,8 +41,5 @@ public class MappingPhase implements SearchPhase {
     public void postProcess(SearchContext context) {
         EsUtil.resolveFields(context, jsonMapping);
     }
-
-
-
 
 }
