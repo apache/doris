@@ -19,6 +19,11 @@
 // https://github.com/apache/kudu/blob/master/src/kudu/util/interval_tree-test.cc
 // and modified by Doris
 
+#include "util/interval_tree.h"
+
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -28,13 +33,9 @@
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-#include <gtest/gtest.h>
-
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "testutil/test_util.h"
-#include "util/interval_tree.h"
 #include "util/interval_tree-inl.h"
 
 using std::pair;
