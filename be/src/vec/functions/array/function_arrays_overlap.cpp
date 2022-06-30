@@ -14,26 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/registerFunctionsArray.cpp
-// and modified by Doris
+
+#include "vec/functions/array/function_arrays_overlap.h"
 
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-void register_function_array_element(SimpleFunctionFactory&);
-void register_function_array_index(SimpleFunctionFactory&);
-void register_function_array_size(SimpleFunctionFactory&);
-void register_function_array_aggregation(SimpleFunctionFactory&);
-void register_function_arrays_overlap(SimpleFunctionFactory&);
-
-void register_function_array(SimpleFunctionFactory& factory) {
-    register_function_array_element(factory);
-    register_function_array_index(factory);
-    register_function_array_size(factory);
-    register_function_array_aggregation(factory);
-    register_function_arrays_overlap(factory);
+void register_function_arrays_overlap(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArraysOverlap>();
 }
 
 } // namespace doris::vectorized
