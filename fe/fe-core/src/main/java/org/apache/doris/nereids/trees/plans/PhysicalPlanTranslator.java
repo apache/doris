@@ -96,7 +96,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 .map(e -> ExpressionConverter.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
 
-
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         // TODO: agg function could be other expr type either
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()

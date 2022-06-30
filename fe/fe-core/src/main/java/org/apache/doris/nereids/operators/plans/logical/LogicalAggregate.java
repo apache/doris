@@ -111,6 +111,10 @@ public class LogicalAggregate extends LogicalUnaryOperator {
     public boolean isDisassembled() {
         return disassembled;
     }
+
+    /**
+     * Determine the equality with another operator
+     */
     public boolean equals(Object o) {
         if (this == o) {
             return true;
