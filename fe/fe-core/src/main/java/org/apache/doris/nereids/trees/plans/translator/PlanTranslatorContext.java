@@ -122,4 +122,7 @@ public class PlanTranslatorContext {
         return descTable.getTupleDesc(tupleId);
     }
 
+    public DescriptorTable getDescTable() {
+        return descTable;
+    }
 }

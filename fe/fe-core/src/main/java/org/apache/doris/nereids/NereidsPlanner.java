@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -49,6 +50,7 @@ public class NereidsPlanner extends Planner {
     private PlannerContext plannerContext;
     private final ConnectContext ctx;
     private List<ScanNode> scanNodeList = null;
+    private DescriptorTable descTable;
 
     public NereidsPlanner(ConnectContext ctx) {
         this.ctx = ctx;
@@ -72,6 +74,8 @@ public class NereidsPlanner extends Planner {
             root.getPlanRoot().convertToVectoriezd();
         }
         scanNodeList = planContext.getScanNodeList();
+        descTable = planContext.getDescTable();
+        planContext.getDescTable().computeStatAndMemLayout();
     }
 
     /**
@@ -145,5 +149,10 @@ public class NereidsPlanner extends Planner {
     @Override
     public boolean isBlockQuery() {
         return true;
+    }
+
+    @Override
+    public DescriptorTable getDescTable() {
+        return descTable;
     }
 }
