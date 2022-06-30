@@ -40,6 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -69,12 +70,16 @@ public class NereidsPlanner extends Planner {
         physicalPlanTranslator.translatePlan(physicalPlan, planContext);
         fragments = new ArrayList<>(planContext.getPlanFragmentList());
         PlanFragment root = fragments.get(fragments.size() - 1);
+        for (PlanFragment fragment : fragments) {
+            fragment.finalize(queryStmt);
+        }
         root.setOutputExprs(queryStmt.getResultExprs());
         if (VectorizedUtil.isVectorized()) {
             root.getPlanRoot().convertToVectoriezd();
         }
         scanNodeList = planContext.getScanNodeList();
         descTable = planContext.getDescTable();
+        Collections.reverse(fragments);
         planContext.getDescTable().computeStatAndMemLayout();
     }
 
