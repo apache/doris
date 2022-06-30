@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -72,6 +73,8 @@ public class DeleteStmt extends DdlStmt {
         }
 
         tbl.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);

@@ -65,4 +65,9 @@ public class LogicalUnaryPlan<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE e
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalUnaryPlan<>(operator, groupExpression, Optional.of(logicalProperties), child());
     }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new LogicalUnaryPlan<>(operator, groupExpression, logicalProperties, child());
+    }
 }

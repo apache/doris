@@ -19,57 +19,121 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
+import org.apache.doris.nereids.ssb.SSBUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class AnalyzeTest extends TestWithFeService {
+public class AnalyzeSSBTest extends TestWithFeService {
 
     private final NereidsParser parser = new NereidsParser();
 
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        createTable("create table test.t1 (\n"
-                + "a int not null,\n"
-                + "b varchar(128),\n"
-                + "c int)\n"
-                + "distributed by hash(b) buckets 10\n"
-                + "properties('replication_num' = '1');");
-        createTable("create table test.t2 (\n"
-                + "d int not null, \n"
-                + "e varchar(128), \n"
-                + "f int)\n"
-                + "distributed by hash(e) buckets 10\n"
-                + "properties('replication_num' = '1');");
+        connectContext.setDatabase("default_cluster:test");
+
+        SSBUtils.createTables(this);
     }
 
     /**
      * TODO: check bound plan and expression details.
      */
     @Test
-    public void test() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
-        String sql = "select a, b, e from t1 join t2 on t1.a=t2.d";
+    public void q1_1() {
+        checkAnalyze(SSBUtils.Q1_1);
+    }
+
+    @Test
+    public void q1_2() {
+        checkAnalyze(SSBUtils.Q1_2);
+    }
+
+    @Test
+    public void q1_3() {
+        checkAnalyze(SSBUtils.Q1_3);
+    }
+
+    @Test
+    public void q2_1() {
+        checkAnalyze(SSBUtils.Q2_1);
+    }
+
+    @Test
+    public void q2_2() {
+        checkAnalyze(SSBUtils.Q2_2);
+    }
+
+    @Test
+    public void q2_3() {
+        checkAnalyze(SSBUtils.Q2_3);
+    }
+
+    @Test
+    public void q3_1() {
+        checkAnalyze(SSBUtils.Q3_1);
+    }
+
+    @Test
+    public void q3_2() {
+        checkAnalyze(SSBUtils.Q3_2);
+    }
+
+    @Test
+    public void q3_3() {
+        checkAnalyze(SSBUtils.Q3_3);
+    }
+
+    @Test
+    public void q3_4() {
+        checkAnalyze(SSBUtils.Q3_4);
+    }
+
+    @Test
+    public void q4_1() {
+        checkAnalyze(SSBUtils.Q4_1);
+    }
+
+    @Test
+    public void q4_2() {
+        checkAnalyze(SSBUtils.Q4_2);
+    }
+
+    @Test
+    public void q4_3() {
+        checkAnalyze(SSBUtils.Q4_3);
+    }
+
+    private void checkAnalyze(String sql) {
         LogicalPlan analyzed = analyze(sql);
+        System.out.println(analyzed.treeString());
         Assertions.assertTrue(checkBound(analyzed));
     }
 
-    private LogicalPlan analyze(String sql) throws Exception {
-        LogicalPlan parsed = parser.parseSingle(sql);
-        return analyze(parsed, connectContext);
+    private LogicalPlan analyze(String sql) {
+        try {
+            LogicalPlan parsed = parser.parseSingle(sql);
+            return analyze(parsed, connectContext);
+        } catch (Throwable t) {
+            throw new IllegalStateException("Analyze failed", t);
+        }
     }
 
     private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
@@ -77,24 +141,30 @@ public class AnalyzeTest extends TestWithFeService {
         memo.initialize(inputPlan);
         OptimizerContext optimizerContext = new OptimizerContext(memo);
         PlannerContext plannerContext = new PlannerContext(optimizerContext, connectContext, new PhysicalProperties());
-        optimizerContext.pushJob(
-            new RewriteBottomUpJob(memo.getRoot(), new BindSlotReference().buildRules(), plannerContext)
-        );
-        optimizerContext.pushJob(
-            new RewriteBottomUpJob(memo.getRoot(), new BindRelation().buildRules(), plannerContext)
-        );
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+
+        executeRewriteBottomUpJob(plannerContext, new BindFunction());
+        executeRewriteBottomUpJob(plannerContext, new BindRelation());
+        executeRewriteBottomUpJob(plannerContext, new BindSlotReference());
+        executeRewriteBottomUpJob(plannerContext, new ProjectToGlobalAggregate());
         return (LogicalPlan) memo.copyOut();
     }
 
+    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory<Plan> ruleFactory) {
+        OptimizerContext optimizerContext = plannerContext.getOptimizerContext();
+        Group rootGroup = optimizerContext.getMemo().getRoot();
+        RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup, plannerContext, ImmutableList.of(ruleFactory));
+        optimizerContext.pushJob(job);
+        optimizerContext.getJobScheduler().executeJobPool(plannerContext);
+    }
+
     private boolean checkBound(LogicalPlan root) {
-        if (!checkPlanNodeBound(root))  {
+        if (!checkPlanBound(root))  {
             return false;
         }
 
         List<Plan> children = root.children();
         for (Plan child : children) {
-            if (!checkBound((LogicalPlan) child)) {
+            if (!checkPlanBound((LogicalPlan) child)) {
                 return false;
             }
         }
@@ -104,7 +174,7 @@ public class AnalyzeTest extends TestWithFeService {
     /**
      * PlanNode and its expressions are all bound.
      */
-    private boolean checkPlanNodeBound(LogicalPlan plan) {
+    private boolean checkPlanBound(LogicalPlan plan) {
         if (plan instanceof Unbound) {
             return false;
         }
