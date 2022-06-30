@@ -165,8 +165,8 @@ private:
             size_t len = offsets[row] - off;
 
             if (len == 0) {
-                // case: array:[], target:1 ==> []
-                // case: array:NULL, target:1 ==> NULL
+                // case: array:[], target:'str' ==> []
+                // case: array:NULL, target:'str' ==> NULL
                 dst_offsets.push_back(cur);
                 continue;
             }
@@ -184,11 +184,11 @@ private:
 
                 if (nested_null_map) {
                     if (nested_null_map[off + pos] && !target_null_map[row]) {
-                        // case: array:[Null], target:1 ==> [Null]
+                        // case: array:[Null], target:'str' ==> [Null]
                         dst_column.insert_data(nullptr, 0);
                         continue;
                     } else if (!nested_null_map[off + pos] && target_null_map[row]) {
-                        // case: array:[1,2], target:Null ==> [1,2]
+                        // case: array:['str1','str2'], target:Null ==> ['str1','str2']
                         dst_column.insert_from_not_nullable(src_column, off + pos);
                         continue;
                     } else if (nested_null_map[off + pos] && target_null_map[row]) {
