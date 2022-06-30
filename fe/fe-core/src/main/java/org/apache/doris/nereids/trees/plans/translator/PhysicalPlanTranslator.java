@@ -157,10 +157,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
         tupleDescriptor.setTable(olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextNodeId(), tupleDescriptor, olapTable.getName());
-        List<String> tableQualifier = physicalOlapScan.getQualifier();
         // Support catalog in the future
-        Preconditions.checkState(tableQualifier.size() == 2);
-        TableName tableName = new TableName(tableQualifier.get(0), tableQualifier.get(1));
+        // TODO: Do we really need tableName here?
+        TableName tableName = new TableName("", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
