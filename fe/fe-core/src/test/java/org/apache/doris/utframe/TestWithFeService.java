@@ -307,11 +307,11 @@ public abstract class TestWithFeService {
         return port;
     }
 
-    protected String getSQLPlanOrErrorMsg(String sql) throws Exception {
+    public String getSQLPlanOrErrorMsg(String sql) throws Exception {
         return getSQLPlanOrErrorMsg(sql, false);
     }
 
-    protected String getSQLPlanOrErrorMsg(String sql, boolean isVerbose) throws Exception {
+    public String getSQLPlanOrErrorMsg(String sql, boolean isVerbose) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         connectContext.setExecutor(stmtExecutor);
@@ -325,7 +325,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected Planner getSQLPlanner(String queryStr) throws Exception {
+    public Planner getSQLPlanner(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
@@ -336,7 +336,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected StmtExecutor getSqlStmtExecutor(String queryStr) throws Exception {
+    public StmtExecutor getSqlStmtExecutor(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
@@ -347,28 +347,28 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected void createDatabase(String db) throws Exception {
+    public void createDatabase(String db) throws Exception {
         String createDbStmtStr = "CREATE DATABASE " + db;
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
     }
 
-    protected void useDatabase(String dbName) {
+    public void useDatabase(String dbName) {
         connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
     }
 
-    protected void createTable(String sql) throws Exception {
+    public void createTable(String sql) throws Exception {
         createTables(sql);
     }
 
-    protected void createTables(String... sqls) throws Exception {
+    public void createTables(String... sqls) throws Exception {
         for (String sql : sqls) {
             CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql);
             Catalog.getCurrentCatalog().createTable(stmt);
         }
     }
 
-    protected void createView(String sql) throws Exception {
+    public void createView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
         Catalog.getCurrentCatalog().createView(createViewStmt);
     }

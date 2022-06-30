@@ -17,35 +17,27 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
+import org.apache.doris.nereids.trees.TernaryNode;
 
 /**
- * Add Expression.
+ * Interface for all expression that have three children.
  */
-public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Add(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(ArithmeticOperator.ADD, left, right);
+public interface TernaryExpression<
+            FIRST_CHILD_TYPE extends Expression,
+            SECOND_CHILD_TYPE extends Expression,
+            THIRD_CHILD_TYPE extends Expression>
+        extends TernaryNode<Expression, FIRST_CHILD_TYPE, SECOND_CHILD_TYPE, THIRD_CHILD_TYPE> {
+
+
+    default FIRST_CHILD_TYPE first() {
+        return (FIRST_CHILD_TYPE) child(0);
     }
 
-    @Override
-    public String sql() {
-        return left().sql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().sql();
+    default SECOND_CHILD_TYPE second() {
+        return (SECOND_CHILD_TYPE) child(1);
     }
 
-    @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Add<>(children.get(0), children.get(1));
+    default THIRD_CHILD_TYPE third() {
+        return (THIRD_CHILD_TYPE) child(2);
     }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitAdd(this, context);
-    }
-
-
 }
