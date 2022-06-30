@@ -272,7 +272,6 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
-    int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
