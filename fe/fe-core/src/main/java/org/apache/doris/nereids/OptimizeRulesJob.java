@@ -15,23 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import com.google.common.collect.ImmutableList;
 
 /**
- * Implementation rule that convert logical join to physical hash join.
+ * cascade optimizer added.
  */
-public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
-    @Override
-    public Rule<Plan> build() {
-        return logicalJoin().then(join -> plan(
-            new PhysicalHashJoin(join.operator.getJoinType(), join.operator.getCondition()),
-            join.getLogicalProperties(),
-            join.left(), join.right()
-        )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+public class OptimizeRulesJob extends BatchRulesJob {
+    OptimizeRulesJob(PlannerContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                optimize()
+        ));
     }
 }

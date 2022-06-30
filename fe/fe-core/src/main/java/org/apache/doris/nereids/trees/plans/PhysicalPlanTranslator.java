@@ -207,7 +207,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanFragment leftFragment = visit(hashJoin.child(0), context);
         PlanFragment rightFragment = visit(hashJoin.child(0), context);
         PhysicalHashJoin physicalHashJoin = hashJoin.getOperator();
-        Expression predicateExpr = physicalHashJoin.getCondition();
+        Expression predicateExpr = physicalHashJoin.getCondition().get();
         List<Expression> eqExprList = Utils.getEqConjuncts(hashJoin.child(0).getOutput(),
                 hashJoin.child(1).getOutput(), predicateExpr);
         JoinType joinType = physicalHashJoin.getJoinType();
