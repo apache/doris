@@ -32,9 +32,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 
-template <>
-struct DefaultHash<StringRef> : public StringRefHash {};
-
 namespace doris::vectorized {
 
 using Sizes = std::vector<size_t>;

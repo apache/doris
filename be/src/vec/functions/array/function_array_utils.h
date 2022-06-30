@@ -14,26 +14,22 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/registerFunctionsArray.cpp
-// and modified by Doris
+#pragma once
 
-#include "vec/functions/simple_function_factory.h"
+#include "vec/columns/column_array.h"
+#include "vec/data_types/data_type_array.h"
 
 namespace doris::vectorized {
 
-void register_function_array_element(SimpleFunctionFactory&);
-void register_function_array_index(SimpleFunctionFactory&);
-void register_function_array_size(SimpleFunctionFactory&);
-void register_function_array_aggregation(SimpleFunctionFactory&);
-void register_function_arrays_overlap(SimpleFunctionFactory&);
+struct ColumnArrayExecutionData {
+public:
+    const UInt8* array_nullmap_data = nullptr;
+    const ColumnArray* array_col = nullptr;
+    const ColumnArray::Offsets* offsets_ptr = nullptr;
+    const UInt8* nested_nullmap_data = nullptr;
+    const IColumn* nested_col = nullptr;
+};
 
-void register_function_array(SimpleFunctionFactory& factory) {
-    register_function_array_element(factory);
-    register_function_array_index(factory);
-    register_function_array_size(factory);
-    register_function_array_aggregation(factory);
-    register_function_arrays_overlap(factory);
-}
+bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& data);
 
 } // namespace doris::vectorized

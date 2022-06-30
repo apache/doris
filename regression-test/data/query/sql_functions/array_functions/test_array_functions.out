@@ -9,3 +9,8 @@
 2	1	\N
 3	0	0
 
+-- !select --
+1	true
+2	false
+3	\N
+
