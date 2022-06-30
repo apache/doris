@@ -44,6 +44,12 @@ import java.util.stream.Collectors;
 
 /**
  * Used to generate the merge agg node for distributed execution.
+ * Do this in following steps:
+ *  1. clone output expr list, find all agg function
+ *  2. set found agg function intermediaType
+ *  3. create new child plan rooted at new local agg
+ *  4. update the slot referenced by expr of merge agg
+ *  5. create plan rooted at merge agg, return it.
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
 
