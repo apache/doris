@@ -116,13 +116,13 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
-    
-    //if pending bytes is more than 500M, wait
+
+    //if pending bytes is more than 500M, wait at most 1 min
     constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
-    if ( get_pending_bytes() > MAX_PENDING_BYTES){
-        while(get_pending_bytes() < MAX_PENDING_BYTES){
-            std::this_thread::sleep_for(std::chrono::microseconds(500));
-        }
+    constexpr int max_retry = 120;
+    int retry = 0;
+    while (get_pending_bytes() > MAX_PENDING_BYTES && retry++ < max_retry) {
+        std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
 
     for (int i = 0; i < num_rows; ++i) {
