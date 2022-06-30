@@ -478,9 +478,7 @@ public class Catalog {
     }
 
     public DataSourceIf getCurrentDataSource() {
-        // TODO: this should be got from connect context.
-        // Will be fixed later.
-        return dataSourceMgr.getInternalDataSource();
+        return ConnectContext.get().getCurrentDataSource();
     }
 
     public InternalDataSource getInternalDataSource() {
@@ -4163,7 +4161,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
-        getInternalDataSource().getDbOrDdlException(qualifiedDb);
+        ctx.getCurrentDataSource().getDbOrDdlException(qualifiedDb);
         ctx.setDatabase(qualifiedDb);
     }
 

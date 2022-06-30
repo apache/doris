@@ -90,8 +90,9 @@ public class MetaInfoAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
+        // TODO(gaoxin): Implement multi-catalog for http restful api.
         // 1. get all database with privilege
-        List<String> dbNames = Catalog.getCurrentCatalog().getCurrentDataSource().getDbNames();
+        List<String> dbNames = Catalog.getCurrentCatalog().getInternalDataSource().getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);

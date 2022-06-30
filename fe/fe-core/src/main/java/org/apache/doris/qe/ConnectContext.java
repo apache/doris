@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlCapability;
@@ -418,6 +419,10 @@ public class ConnectContext {
         return defaultCatalog;
     }
 
+    public DataSourceIf getCurrentDataSource() {
+        return catalog.getDataSourceMgr().getCatalog(defaultCatalog);
+    }
+
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
     }
@@ -428,7 +433,7 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
-        Optional<DatabaseIf> dbInstance = Catalog.getCurrentCatalog().getCurrentDataSource().getDb(db);
+        Optional<DatabaseIf> dbInstance = getCurrentDataSource().getDb(db);
         currentDbId = dbInstance.isPresent() ? dbInstance.get().getId() : -1;
     }
 
