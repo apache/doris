@@ -238,9 +238,8 @@ public class Coordinator {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-        this.descTable = planner instanceof NereidsPlanner ?
-                planner.getDescTable().toThrift() :
-                analyzer.getDescTbl().toThrift();
+        this.descTable = planner instanceof NereidsPlanner ? planner.getDescTable().toThrift()
+                : analyzer.getDescTbl().toThrift();
         this.returnedAllResults = false;
         initQueryOptions(context);
 
