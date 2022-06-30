@@ -292,7 +292,6 @@ inline void ThreadMemTrackerMgr::noncache_try_consume(int64_t size) {
 }
 
 inline void ThreadMemTrackerMgr::add_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {
-    DCHECK(_mem_trackers.find(mem_tracker->id()) == _mem_trackers.end()) << print_debug_string();
     _mem_trackers[mem_tracker->id()] = mem_tracker;
     DCHECK(_mem_trackers[mem_tracker->id()]) << print_debug_string();
     _untracked_mems[mem_tracker->id()] = 0;
