@@ -46,6 +46,8 @@ public abstract class DataType {
                     return DoubleType.INSTANCE;
                 case STRING:
                     return StringType.INSTANCE;
+                case VARCHAR:
+                    return VarcharType.createVarcharType(scalarType.getLength());
                 default:
                     return null;
             }
