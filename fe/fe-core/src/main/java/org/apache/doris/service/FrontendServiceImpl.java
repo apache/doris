@@ -43,16 +43,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.datasource.InternalDataSource;
-import org.apache.doris.load.EtlStatus;
-import org.apache.doris.load.LoadJob;
-import org.apache.doris.load.MiniEtlTaskInfo;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -77,10 +71,8 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
-import org.apache.doris.thrift.TIsMethodSupportedRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
-import org.apache.doris.thrift.TLoadCheckRequest;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
 import org.apache.doris.thrift.TLoadTxn2PCResult;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -92,10 +84,6 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
-import org.apache.doris.thrift.TMiniLoadBeginRequest;
-import org.apache.doris.thrift.TMiniLoadBeginResult;
-import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
-import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -109,9 +97,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
-import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
@@ -121,7 +107,6 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -130,8 +115,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -479,197 +462,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.fetchResource();
     }
 
-    @Deprecated
-    @Override
-    public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
-        LOG.debug("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
-                request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
-
-        ConnectContext context = new ConnectContext(null);
-        String cluster = SystemInfoService.DEFAULT_CLUSTER;
-        if (request.isSetCluster()) {
-            cluster = request.cluster;
-        }
-
-        final String fullDbName = ClusterNamespace.getFullName(cluster, request.db);
-        request.setDb(fullDbName);
-        context.setCluster(cluster);
-        context.setDatabase(ClusterNamespace.getFullName(cluster, request.db));
-        context.setQualifiedUser(ClusterNamespace.getFullName(cluster, request.user));
-        context.setCatalog(Catalog.getCurrentCatalog());
-        context.getState().reset();
-        context.setThreadLocalInfo();
-
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        try {
-            if (request.isSetSubLabel()) {
-                ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
-            } else {
-                // try to add load job, label will be checked here.
-                if (Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromRequest(request)) {
-                    try {
-                        // generate mini load audit log
-                        logMiniLoadStmt(request);
-                    } catch (Exception e) {
-                        LOG.warn("failed log mini load stmt", e);
-                    }
-                }
-            }
-        } catch (UserException e) {
-            LOG.warn("add mini load error: {}", e.getMessage());
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
-        } catch (Throwable e) {
-            LOG.warn("unexpected exception when adding mini load", e);
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-        } finally {
-            ConnectContext.remove();
-        }
-
-        LOG.debug("mini load result: {}", result);
-        return result;
-    }
-
-    private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
-        String stmt = getMiniLoadStmt(request);
-        AuditEvent auditEvent = new AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                .setClientIp(request.user_ip + ":0")
-                .setUser(request.user)
-                .setDb(request.db)
-                .setState(TStatusCode.OK.name())
-                .setQueryTime(0)
-                .setStmt(stmt).build();
-
-        Catalog.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
-    }
-
-    private String getMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("curl --location-trusted -u user:passwd -T ");
-
-        if (request.files.size() == 1) {
-            stringBuilder.append(request.files.get(0));
-        } else if (request.files.size() > 1) {
-            stringBuilder.append("\"{").append(Joiner.on(",").join(request.files)).append("}\"");
-        }
-
-        InetAddress masterAddress = FrontendOptions.getLocalHost();
-        stringBuilder.append(" http://").append(masterAddress.getHostAddress()).append(":");
-        stringBuilder.append(Config.http_port).append("/api/").append(request.db).append("/");
-        stringBuilder.append(request.tbl).append("/_load?label=").append(request.label);
-
-        if (!request.properties.isEmpty()) {
-            stringBuilder.append("&");
-            List<String> props = Lists.newArrayList();
-            for (Map.Entry<String, String> entry : request.properties.entrySet()) {
-                String prop = entry.getKey() + "=" + entry.getValue();
-                props.add(prop);
-            }
-            stringBuilder.append(Joiner.on("&").join(props));
-        }
-
-        return stringBuilder.toString();
-    }
-
-    @Override
-    public TFeResult updateMiniEtlTaskStatus(TUpdateMiniEtlTaskStatusRequest request) throws TException {
-        TFeResult result = new TFeResult();
-        result.setProtocolVersion(FrontendServiceVersion.V1);
-        TStatus status = new TStatus(TStatusCode.OK);
-        result.setStatus(status);
-
-        // get job task info
-        TUniqueId etlTaskId = request.getEtlTaskId();
-        long jobId = etlTaskId.getHi();
-        long taskId = etlTaskId.getLo();
-        LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(jobId);
-        if (job == null) {
-            String failMsg = "job does not exist. id: " + jobId;
-            LOG.warn(failMsg);
-            status.setStatusCode(TStatusCode.CANCELLED);
-            status.addToErrorMsgs(failMsg);
-            return result;
-        }
-
-        MiniEtlTaskInfo taskInfo = job.getMiniEtlTask(taskId);
-        if (taskInfo == null) {
-            String failMsg = "task info does not exist. task id: " + taskId + ", job id: " + jobId;
-            LOG.warn(failMsg);
-            status.setStatusCode(TStatusCode.CANCELLED);
-            status.addToErrorMsgs(failMsg);
-            return result;
-        }
-
-        // update etl task status
-        TMiniLoadEtlStatusResult statusResult = request.getEtlTaskStatus();
-        LOG.debug("load job id: {}, etl task id: {}, status: {}", jobId, taskId, statusResult);
-        EtlStatus taskStatus = taskInfo.getTaskStatus();
-        if (taskStatus.setState(statusResult.getEtlState())) {
-            if (statusResult.isSetCounters()) {
-                taskStatus.setCounters(statusResult.getCounters());
-            }
-            if (statusResult.isSetTrackingUrl()) {
-                taskStatus.setTrackingUrl(statusResult.getTrackingUrl());
-            }
-            if (statusResult.isSetFileMap()) {
-                taskStatus.setFileMap(statusResult.getFileMap());
-            }
-        }
-        return result;
-    }
-
-    @Override
-    public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
-        LOG.debug("receive mini load begin request. label: {}, user: {}, ip: {}",
-                request.getLabel(), request.getUser(), request.getUserIp());
-
-        TMiniLoadBeginResult result = new TMiniLoadBeginResult();
-        TStatus status = new TStatus(TStatusCode.OK);
-        result.setStatus(status);
-        try {
-            String cluster = SystemInfoService.DEFAULT_CLUSTER;
-            if (request.isSetCluster()) {
-                cluster = request.cluster;
-            }
-            // step1: check password and privs
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
-            // step2: check label and record metadata in load manager
-            if (request.isSetSubLabel()) {
-                // TODO(ml): multi mini load
-            } else {
-                // add load metadata in loadManager
-                result.setTxnId(Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromMiniLoad(request));
-            }
-            return result;
-        } catch (UserException e) {
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
-            return result;
-        } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
-            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
-        }
-    }
-
-    @Override
-    public TFeResult isMethodSupported(TIsMethodSupportedRequest request) throws TException {
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        switch (request.getFunctionName()) {
-            case "STREAMING_MINI_LOAD":
-                break;
-            default:
-                status.setStatusCode(TStatusCode.NOT_IMPLEMENTED_ERROR);
-                break;
-        }
-        return result;
-    }
-
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
         TNetworkAddress clientAddr = getClientAddr();
@@ -721,35 +513,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new AuthenticationException(
                     "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
-    }
-
-    @Override
-    public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
-        LOG.debug("receive load check request. label: {}, user: {}, ip: {}",
-                request.getLabel(), request.getUser(), request.getUserIp());
-
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        try {
-            String cluster = SystemInfoService.DEFAULT_CLUSTER;
-            if (request.isSetCluster()) {
-                cluster = request.cluster;
-            }
-
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
-        } catch (UserException e) {
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
-            return result;
-        } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
-            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
-        }
-
-        return result;
     }
 
     @Override
