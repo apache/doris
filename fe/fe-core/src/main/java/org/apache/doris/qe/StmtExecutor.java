@@ -362,7 +362,7 @@ public class StmtExecutor implements ProfileWriter {
 
             if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
                 context.getState().setIsQuery(true);
-                if (!((QueryStmt) parsedStmt).isExplain()) {
+                if (!parsedStmt.isExplain()) {
                     // sql/sqlHash block
                     try {
                         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(
