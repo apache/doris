@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -143,6 +144,8 @@ public class ExportStmt extends StatementBase {
         tableRef.analyze(analyzer);
 
         this.tblName = tableRef.getName();
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
 
         PartitionNames partitionNames = tableRef.getPartitionNames();
         if (partitionNames != null) {

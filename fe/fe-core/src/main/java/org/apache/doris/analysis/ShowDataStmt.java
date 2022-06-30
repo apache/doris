@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -34,11 +33,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -77,17 +76,15 @@ public class ShowDataStmt extends ShowStmt {
             new ImmutableList.Builder<String>().add("TableName").add("IndexName").add("Size").add("ReplicaCount")
                     .add("RowCount").build();
 
-    private String dbName;
-    private String tableName;
-
+    TableName tableName;
+    String dbName;
     List<List<String>> totalRows;
     List<List<Object>> totalRowsObject = Lists.newArrayList();
 
     private List<OrderByElement> orderByElements;
     private List<OrderByPair> orderByPairs;
 
-    public ShowDataStmt(String dbName, String tableName, List<OrderByElement> orderByElements) {
-        this.dbName = dbName;
+    public ShowDataStmt(TableName tableName, List<OrderByElement> orderByElements) {
         this.tableName = tableName;
         this.totalRows = Lists.newArrayList();
         this.orderByElements = orderByElements;
@@ -96,13 +93,12 @@ public class ShowDataStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        dbName = analyzer.getDefaultDb();
+        if (tableName != null) {
+            tableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+            dbName = tableName.getDb();
         }
 
         Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
@@ -115,7 +111,7 @@ public class ShowDataStmt extends ShowStmt {
                     throw new AnalysisException("Should order by column");
                 }
                 SlotRef slotRef = (SlotRef) orderByElement.getExpr();
-                int index = analyzeColumn(slotRef.getColumnName(), tableName);
+                int index = analyzeColumn(slotRef.getColumnName(), tableName == null ? null : tableName.getTbl());
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
             }
@@ -218,8 +214,7 @@ public class ShowDataStmt extends ShowStmt {
                 db.readUnlock();
             }
         } else {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                    tableName,
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName,
                     PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
                         ConnectContext.get().getQualifiedUser(),
@@ -227,7 +222,7 @@ public class ShowDataStmt extends ShowStmt {
                         dbName + ": " + tableName);
             }
 
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
             long totalSize = 0;
             long totalReplicaCount = 0;
 
@@ -280,7 +275,7 @@ public class ShowDataStmt extends ShowStmt {
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first)
                             + " " + tableSizePair.second;
                     if (index == 0) {
-                        result = Arrays.asList(tableName, String.valueOf(row.get(1)),
+                        result = Arrays.asList(tableName.getTbl(), String.valueOf(row.get(1)),
                                 readableSize, String.valueOf(row.get(3)),
                                 String.valueOf(row.get(4)));
                     } else {
@@ -356,13 +351,11 @@ public class ShowDataStmt extends ShowStmt {
     public String toSql() {
         StringBuilder builder = new StringBuilder();
         builder.append("SHOW DATA");
-        if (dbName == null) {
-            return builder.toString();
-        }
-
-        builder.append(" FROM `").append(dbName).append("`");
+        builder.append(" FROM ");
         if (tableName != null) {
-            builder.append(".`").append(tableName).append("`");
+            builder.append(tableName.toSql());
+        } else {
+            builder.append("`").append(dbName).append("`");
         }
 
         // Order By clause

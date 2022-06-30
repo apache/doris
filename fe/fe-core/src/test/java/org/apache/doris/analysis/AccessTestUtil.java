@@ -74,6 +74,10 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = true;
 
+                    auth.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
+                    minTimes = 0;
+                    result = true;
+
                     auth.setPassword((SetPassVar) any);
                     minTimes = 0;
                 }

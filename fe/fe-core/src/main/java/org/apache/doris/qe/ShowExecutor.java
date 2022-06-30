@@ -680,6 +680,8 @@ public class ShowExecutor {
     private void handleShowTable() throws AnalysisException {
         ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
+        // TODO(gaoxin): Whether to support "show tables from `ctl.db`" syntax in show statement?
+        String catalogName = ctx.getDefaultCatalog();
         DatabaseIf<TableIf> db =
                 ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
@@ -692,8 +694,8 @@ public class ShowExecutor {
                 continue;
             }
             // check tbl privs
-            if (!Catalog.getCurrentCatalog().getAuth()
-                    .checkTblPriv(ConnectContext.get(), db.getFullName(), tbl.getName(), PrivPredicate.SHOW)) {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+                    ConnectContext.get(), catalogName, db.getFullName(), tbl.getName(), PrivPredicate.SHOW)) {
                 continue;
             }
             if (showTableStmt.isVerbose()) {

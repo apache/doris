@@ -231,6 +231,7 @@ public class ShowExecutorTest {
             }
         };
 
+        ctx.changeDefaultCatalog(InternalDataSource.INTERNAL_DS_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setCatalog(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("testCluster:testUser");
