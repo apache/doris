@@ -90,6 +90,7 @@ public:
     Status send(RuntimeState* state, vectorized::Block* block) override;
 
     size_t get_pending_bytes() const;
+
 private:
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
