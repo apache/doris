@@ -25,7 +25,6 @@
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
 
-
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
