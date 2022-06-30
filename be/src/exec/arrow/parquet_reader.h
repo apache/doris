@@ -58,11 +58,19 @@ class MemPool;
 class FileReader;
 class RowGroupReader;
 
+struct Statistics {
+    int32_t filtered_row_groups;
+    int32_t total_groups;
+    int64_t filtered_rows;
+    int64_t total_rows;
+    int64_t filtered_total_bytes;
+};
+
 // Reader of parquet file
 class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
     // batch_size is not use here
-    ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
+    ParquetReaderWrap(RuntimeProfile* profile, FileReader* file_reader, int64_t batch_size,
                       int32_t num_of_columns_from_file);
     ~ParquetReaderWrap() override = default;
 
@@ -76,6 +84,7 @@ public:
                        const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
     void close() override;
+    std::shared_ptr<Statistics>& statistics() { return _statistics; }
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
@@ -100,12 +109,12 @@ private:
     int _rows_of_group; // rows in a group.
     int _current_line_of_group;
     int _current_line_of_batch;
-
+    RuntimeProfile* _profile;
     std::string _timezone;
 
 private:
     std::atomic<bool> _closed = false;
-    std::atomic<bool> _skip_empty_batch = false;
+    std::atomic<bool> _batch_eof = false;
     arrow::Status _status;
     std::mutex _mtx;
     std::condition_variable _queue_reader_cond;
@@ -113,6 +122,7 @@ private:
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     std::unique_ptr<doris::RowGroupReader> _row_group_reader;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
+    std::shared_ptr<Statistics> _statistics;
 };
 
 } // namespace doris

@@ -83,9 +83,14 @@
 
 namespace doris {
 
-RowGroupReader::RowGroupReader(const std::vector<ExprContext*>& conjunct_ctxs,
-                               std::shared_ptr<parquet::FileMetaData>& file_metadata)
-        : _conjunct_ctxs(conjunct_ctxs), _file_metadata(file_metadata) {}
+RowGroupReader::RowGroupReader(RuntimeProfile* profile,
+                               const std::vector<ExprContext*>& conjunct_ctxs,
+                               std::shared_ptr<parquet::FileMetaData>& file_metadata,
+                               ParquetReaderWrap* parent)
+        : _conjunct_ctxs(conjunct_ctxs),
+          _file_metadata(file_metadata),
+          _profile(profile),
+          _parent(parent) {}
 
 RowGroupReader::~RowGroupReader() {
     _slot_conjuncts.clear();
@@ -99,10 +104,17 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                                include_column_ids.end());
     _init_conjuncts(tuple_desc, map_column, parquet_column_ids);
     int total_group = _file_metadata->num_row_groups();
+    _parent->statistics()->total_groups = total_group;
+    _parent->statistics()->total_rows = _file_metadata->num_rows();
+
+    int64_t filtered_num_row_groups = 0;
+    int64_t filtered_num_rows = 0;
+    int64_t filtered_total_byte_size = 0;
+    bool need_filter = false;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
         for (SlotId slot_id = 0; slot_id < tuple_desc->slots().size(); slot_id++) {
-            std::string col_name = tuple_desc->slots()[slot_id]->col_name();
+            const std::string& col_name = tuple_desc->slots()[slot_id]->col_name();
             auto col_iter = map_column.find(col_name);
             if (col_iter == map_column.end()) {
                 continue;
@@ -121,18 +133,27 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                 continue;
             }
             // Min-max of statistic is plain-encoded value
-            std::string min = statistic->EncodeMin();
-            std::string max = statistic->EncodeMax();
+            const std::string& min = statistic->EncodeMin();
+            const std::string& max = statistic->EncodeMax();
 
-            LOG(INFO) << "Stat min:" << parquet::FormatStatValue(statistic->physical_type(), min);
-            LOG(INFO) << "Stat max:" << parquet::FormatStatValue(statistic->physical_type(), max);
-            bool need_filter = false;
-            _determine_filter_row_group(slot_iter->second, min, max, need_filter);
+            need_filter = _determine_filter_row_group(slot_iter->second, min, max);
             if (need_filter) {
+                filtered_num_row_groups++;
+                filtered_num_rows += row_group_meta->num_rows();
+                filtered_total_byte_size += row_group_meta->total_byte_size();
+                row_group_meta->schema()->name();
                 LOG(INFO) << "Filter row group id: " << row_group_id;
                 _filter_group.emplace(row_group_id);
             }
         }
+    }
+    if (need_filter) {
+        _parent->statistics()->filtered_row_groups = filtered_num_row_groups;
+        _parent->statistics()->filtered_rows = filtered_num_rows;
+        _parent->statistics()->filtered_total_bytes = filtered_total_byte_size;
+        LOG(INFO) << "Parquet file: " << _file_metadata->schema()->name()
+                  << ", Num of read row group: " << total_group
+                  << ", and num of skip row group: " << filtered_num_row_groups;
     }
     return Status::OK();
 }
@@ -140,6 +161,9 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
 void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
                                      const std::map<std::string, int>& map_column,
                                      const std::unordered_set<int>& include_column_ids) {
+    if (tuple_desc->slots().empty()) {
+        return;
+    }
     for (int i = 0; i < tuple_desc->slots().size(); i++) {
         auto col_iter = map_column.find(tuple_desc->slots()[i]->col_name());
         if (col_iter == map_column.end()) {
@@ -176,13 +200,14 @@ void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
     }
 }
 
-void RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
+bool RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
                                                  const std::string& encoded_min,
-                                                 const std::string& encoded_max,
-                                                 bool& need_filter) {
+                                                 const std::string& encoded_max) {
     const char* min_bytes = encoded_min.data();
     const char* max_bytes = encoded_max.data();
+    bool need_filter = false;
     for (int i = 0; i < conjuncts.size(); i++) {
+        // todo: duan lu
         Expr* conjunct = conjuncts[i]->root();
         if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
             _eval_binary_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
@@ -190,12 +215,17 @@ void RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>
             _eval_in_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
         }
     }
+    return need_filter;
 }
 
 void RowGroupReader::_eval_binary_predicate(ExprContext* ctx, const char* min_bytes,
                                             const char* max_bytes, bool& need_filter) {
     Expr* conjunct = ctx->root();
     Expr* expr = conjunct->get_child(1);
+    if (expr == nullptr) {
+        return;
+    }
+    // supported conjunct example: slot_ref < 123, slot_ref > func(123), ..
     auto conjunct_type = expr->type().type;
     void* conjunct_value = ctx->get_value(expr, nullptr);
     switch (conjunct->op()) {
@@ -227,6 +257,7 @@ void RowGroupReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes,
     std::vector<void*> in_pred_values;
     const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
     HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
+    // TODO: process expr: in(func(123),123)
     while (iter->has_next()) {
         if (nullptr == iter->get_value()) {
             return;
@@ -237,12 +268,10 @@ void RowGroupReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes,
     auto conjunct_type = conjunct->get_child(1)->type().type;
     switch (conjunct->op()) {
     case TExprOpcode::FILTER_IN:
-        _eval_in_val(conjunct_type, in_pred_values, min_bytes, max_bytes);
-        break;
-    case TExprOpcode::FILTER_NOT_IN:
-        break;
+        need_filter = _eval_in_val(conjunct_type, in_pred_values, min_bytes, max_bytes);
+        //            case TExprOpcode::FILTER_NOT_IN:
     default:
-        break;
+        need_filter = false;
     }
 }
 
@@ -304,7 +333,7 @@ bool RowGroupReader::_eval_eq(PrimitiveType conjunct_type, void* value, const ch
         _PLAIN_DECODE(int16_t, value, min_bytes, max_bytes, conjunct_value, min, max)
         _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
         break;
-    } break;
+    }
     case TYPE_SMALLINT: {
         _PLAIN_DECODE(int16_t, value, min_bytes, max_bytes, conjunct_value, min, max)
         _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
@@ -351,7 +380,7 @@ bool RowGroupReader::_eval_gt(PrimitiveType conjunct_type, void* value, const ch
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
         _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
         break;
-    } break;
+    }
     case TYPE_SMALLINT: {
         _PLAIN_DECODE_SINGLE(int16_t, value, max_bytes, conjunct_value, max)
         _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
@@ -399,7 +428,7 @@ bool RowGroupReader::_eval_ge(PrimitiveType conjunct_type, void* value, const ch
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
         _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
         break;
-    } break;
+    }
     case TYPE_SMALLINT: {
         _PLAIN_DECODE_SINGLE(int16_t, value, max_bytes, conjunct_value, max)
         _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
@@ -447,7 +476,7 @@ bool RowGroupReader::_eval_lt(PrimitiveType conjunct_type, void* value, const ch
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)
         _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
         break;
-    } break;
+    }
     case TYPE_SMALLINT: {
         _PLAIN_DECODE_SINGLE(int16_t, value, min_bytes, conjunct_value, min)
         _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
@@ -495,7 +524,7 @@ bool RowGroupReader::_eval_le(PrimitiveType conjunct_type, void* value, const ch
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)
         _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
         break;
-    } break;
+    }
     case TYPE_SMALLINT: {
         _PLAIN_DECODE_SINGLE(int16_t, value, min_bytes, conjunct_value, min)
         _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)

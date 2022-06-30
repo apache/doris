@@ -29,6 +29,7 @@
 #include <unordered_set>
 
 #include "common/status.h"
+#include "exec/arrow/parquet_reader.h"
 
 namespace doris {
 
@@ -36,8 +37,9 @@ class ParquetReaderWrap;
 
 class RowGroupReader {
 public:
-    RowGroupReader(const std::vector<ExprContext*>& conjunct_ctxs,
-                   std::shared_ptr<parquet::FileMetaData>& file_metadata);
+    RowGroupReader(RuntimeProfile* profile, const std::vector<ExprContext*>& conjunct_ctxs,
+                   std::shared_ptr<parquet::FileMetaData>& file_metadata,
+                   ParquetReaderWrap* parent);
     ~RowGroupReader();
 
     Status init_filter_groups(const TupleDescriptor* tuple_desc,
@@ -51,9 +53,9 @@ private:
                          const std::map<std::string, int>& _map_column,
                          const std::unordered_set<int>& include_column_ids);
 
-    void _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
-                                     const std::string& encoded_min, const std::string& encoded_max,
-                                     bool& need_filter);
+    bool _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
+                                     const std::string& encoded_min,
+                                     const std::string& encoded_max);
 
     void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
                                 bool& need_filter);
@@ -81,5 +83,7 @@ private:
 
     std::vector<ExprContext*> _conjunct_ctxs;
     std::shared_ptr<parquet::FileMetaData> _file_metadata;
+    RuntimeProfile* _profile;
+    ParquetReaderWrap* _parent;
 };
 } // namespace doris
