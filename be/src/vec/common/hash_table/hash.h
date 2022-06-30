@@ -91,6 +91,9 @@ struct DefaultHash<T, std::enable_if_t<std::is_arithmetic_v<T>>> {
     size_t operator()(T key) const { return default_hash64<T>(key); }
 };
 
+template <>
+struct DefaultHash<StringRef> : public StringRefHash {};
+
 template <typename T>
 struct HashCRC32;
 

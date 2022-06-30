@@ -24,12 +24,14 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Top down job for rewrite, use pattern match.
@@ -37,6 +39,12 @@ import java.util.Objects;
 public class RewriteTopDownJob extends Job<Plan> {
     private final Group group;
     private final List<Rule<Plan>> rules;
+
+    public RewriteTopDownJob(Group group, PlannerContext context, List<RuleFactory<Plan>> factories) {
+        this(group, factories.stream()
+                .flatMap(factory -> factory.buildRules().stream())
+                .collect(Collectors.toList()), context);
+    }
 
     /**
      * Constructor.

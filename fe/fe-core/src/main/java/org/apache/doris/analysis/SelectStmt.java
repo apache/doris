@@ -314,18 +314,13 @@ public class SelectStmt extends QueryStmt {
                 if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
                     continue;
                 }
-                if (Strings.isNullOrEmpty(dbName)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-                }
-                if (Strings.isNullOrEmpty(tableName)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
-                }
+                tblRef.getName().analyze(analyzer);
                 DatabaseIf db = analyzer.getCatalog().getCurrentDataSource().getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
                 if (!Catalog.getCurrentCatalog().getAuth()
-                        .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.SELECT)) {
+                        .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                             ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                             dbName + ": " + tableName);

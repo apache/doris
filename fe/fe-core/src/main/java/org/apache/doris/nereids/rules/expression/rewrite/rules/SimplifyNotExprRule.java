@@ -44,7 +44,6 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
 
     public static SimplifyNotExprRule INSTANCE = new SimplifyNotExprRule();
 
-
     @Override
     public Expression visitNot(Not expr, ExpressionRewriteContext context) {
 
