@@ -37,10 +37,11 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.FindFunctionCall;
+import org.apache.doris.nereids.trees.expressions.FindFunction;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
@@ -102,15 +103,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .map(e -> ExpressionTranslator.convert(e, context)).collect(Collectors.toCollection(ArrayList::new));
 
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
-        // TODO: agg function could be other expr type either
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
-                .map(e ->
-                    // TODO: assume the function is agg function by now,
-                    //       but in the future the function may actually
-                    //       is another function type.
-                    FindFunctionCall.find(e)
+                .map(FindFunction::find
                 )
                 .flatMap(List::stream)
+                .filter(x -> x instanceof AggregateFunction)
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.convert(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 

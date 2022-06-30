@@ -105,7 +105,7 @@ public class PlanTranslatorContext {
      * Create SlotDesc and add it to the mappings from expression to the stales epxr
      */
     public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
-        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc, slotReference.getId().asInt());
+        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc, slotReference.getExprId().asInt());
         slotDescriptor.setColumn(slotReference.getColumn());
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);

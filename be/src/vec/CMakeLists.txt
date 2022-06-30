@@ -134,6 +134,8 @@ set(VEC_FILES
   functions/array/function_array_register.cpp
   functions/array/function_array_size.cpp
   functions/array/function_array_aggregation.cpp
+  functions/array/function_array_utils.cpp
+  functions/array/function_arrays_overlap.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -29,19 +28,20 @@ import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Logical Aggregation plan operator.
  * <p>
  * eg:select a, sum(b), c from table group by a, c;
- * groupByExpressions: Column field after group by. eg: a, c;
- * outputExpressions: Column field after select. eg: a, sum(b), c;
+ * groupByExprList: Column field after group by. eg: a, c;
+ * outputExpressionList: Column field after select. eg: a, sum(b), c;
  * partitionExprList: Column field after partition by.
  * <p>
  * Each agg node only contains the select statement field of the same layer,
  * and other agg nodes in the subquery contain.
  */
-public class LogicalAggregation extends LogicalUnaryOperator {
+public class LogicalAggregate extends LogicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
     private final List<NamedExpression> outputExpressionList;
@@ -52,7 +52,7 @@ public class LogicalAggregation extends LogicalUnaryOperator {
     /**
      * Desc: Constructor for LogicalAggregation.
      */
-    public LogicalAggregation(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList) {
+    public LogicalAggregate(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList) {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.outputExpressionList = outputExpressionList;
@@ -80,23 +80,40 @@ public class LogicalAggregation extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "Aggregation (" + "outputExpressionList: " + StringUtils.join(outputExpressionList, ", ")
-                + ", groupByExprList: " + StringUtils.join(groupByExprList, ", ") + ")";
+        return "LogicalAggregate (" + "outputExpressionList: ["
+                + StringUtils.join(outputExpressionList, ", ")
+                + "], groupByExprList: [" + StringUtils.join(groupByExprList, ", ") + "])";
     }
 
     @Override
     public List<Slot> computeOutput(Plan input) {
-        return outputExpressionList.stream().map(namedExpr -> {
-            try {
-                return namedExpr.toSlot();
-            } catch (UnboundException e) {
-                throw new IllegalStateException(e);
-            }
-        }).collect(ImmutableList.toImmutableList());
+        return outputExpressionList.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public List<Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(outputExpressionList).build();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalAggregate that = (LogicalAggregate) o;
+        return Objects.equals(groupByExprList, that.groupByExprList)
+                && Objects.equals(outputExpressionList, that.outputExpressionList)
+                && Objects.equals(partitionExprList, that.partitionExprList)
+                && aggPhase == that.aggPhase;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(groupByExprList, outputExpressionList, partitionExprList, aggPhase);
     }
 }

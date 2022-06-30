@@ -17,26 +17,28 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Find all function call in the given expression tree.
  */
-public class FindFunctionCall extends ExpressionVisitor<Void, List<FunctionCall>> {
+public class FindFunction extends ExpressionVisitor<Void, List<BoundFunction>> {
 
-    private static final FindFunctionCall functionCall = new FindFunctionCall();
+    private static final FindFunction findFunction = new FindFunction();
 
-    public static List<FunctionCall> find(Expression expression) {
-        List<FunctionCall> functionCallList = new ArrayList<>();
-        functionCall.visit(expression, functionCallList);
-        return functionCallList;
+    public static List<BoundFunction> find(Expression expression) {
+        List<BoundFunction> functionList = new ArrayList<>();
+        findFunction.visit(expression, functionList);
+        return functionList;
     }
 
     @Override
-    public Void visit(Expression expr, List<FunctionCall> context) {
-        if (expr instanceof FunctionCall) {
-            context.add((FunctionCall) expr);
+    public Void visit(Expression expr, List<BoundFunction> context) {
+        if (expr instanceof BoundFunction) {
+            context.add((BoundFunction) expr);
             return null;
         }
         for (Expression child : expr.children()) {
@@ -46,7 +48,7 @@ public class FindFunctionCall extends ExpressionVisitor<Void, List<FunctionCall>
     }
 
     @Override
-    public Void visitFunctionCall(FunctionCall function, List<FunctionCall> context) {
+    public Void visitBoundFunction(BoundFunction function, List<BoundFunction> context) {
         context.add(function);
         return null;
     }
