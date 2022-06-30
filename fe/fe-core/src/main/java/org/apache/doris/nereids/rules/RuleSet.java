@@ -19,10 +19,12 @@ package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.join.JoinCommutative;
 import org.apache.doris.nereids.rules.exploration.join.JoinLeftAssociative;
+import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
+import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalHeapSort;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -45,6 +47,8 @@ public class RuleSet {
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalFilterToPhysicalFilter())
             .add(new LogicalOlapScanToPhysicalOlapScan())
+            .add(new LogicalAggToPhysicalHashAgg())
+            .add(new LogicalSortToPhysicalHeapSort())
             .build();
 
     public List<Rule<Plan>> getExplorationRules() {
