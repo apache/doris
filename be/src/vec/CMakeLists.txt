@@ -134,6 +134,8 @@ set(VEC_FILES
   functions/array/function_array_register.cpp
   functions/array/function_array_size.cpp
   functions/array/function_array_aggregation.cpp
+  functions/array/function_array_utils.cpp
+  functions/array/function_arrays_overlap.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -206,7 +208,11 @@ set(VEC_FILES
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
   utils/arrow_column_to_doris_column.cpp
-  runtime/vsorted_run_merger.cpp)
+  runtime/vsorted_run_merger.cpp
+  exec/file_arrow_scanner.cpp
+  exec/file_scanner.cpp
+  exec/file_scan_node.cpp
+  exec/file_text_scanner.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}
