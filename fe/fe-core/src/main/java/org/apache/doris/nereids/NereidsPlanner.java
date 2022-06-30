@@ -21,8 +21,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
-import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -94,13 +92,21 @@ public class NereidsPlanner extends Planner {
         OptimizerContext optimizerContext = new OptimizerContext(memo);
         plannerContext = new PlannerContext(optimizerContext, connectContext, outputProperties);
 
-        plannerContext.getOptimizerContext().pushJob(
-                new RewriteBottomUpJob(getRoot(), optimizerContext.getRuleSet().getAnalysisRules(), plannerContext));
-
-        plannerContext.getOptimizerContext().pushJob(new OptimizeGroupJob(getRoot(), plannerContext));
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
-
         // Get plan directly. Just for SSB.
+        return doPlan();
+    }
+
+    /**
+     * The actual execution of the plan, including the generation and execution of the job.
+     * @return PhysicalPlan.
+     */
+    private PhysicalPlan doPlan() {
+        AnalyzeRulesJob analyzeRulesJob = new AnalyzeRulesJob(plannerContext);
+        analyzeRulesJob.execute();
+
+        OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
+        optimizeRulesJob.execute();
+
         return getRoot().extractPlan();
     }
 
