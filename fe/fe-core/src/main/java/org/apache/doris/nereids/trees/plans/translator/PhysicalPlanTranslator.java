@@ -152,6 +152,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextNodeId(), tupleDescriptor, olapTable.getName());
+        exec(olapScanNode::init);
         olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);
         // Create PlanFragment
@@ -167,11 +168,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // TODO: Why doesn't the sort node translate if the childfragment is a single instance?
         PhysicalHeapSort physicalHeapSort = sort.getOperator();
         long limit = physicalHeapSort.getLimit();
-
+        // TODO: need to discuss how to process field: SortNode::resolvedTupleExprs
         List<Expr> execOrderingExprList = Lists.newArrayList();
         List<Boolean> ascOrderList = Lists.newArrayList();
         List<Boolean> nullsFirstParamList = Lists.newArrayList();
-
         List<OrderKey> orderKeyList = physicalHeapSort.getOrderKeys();
         orderKeyList.forEach(k -> {
             execOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
@@ -187,6 +187,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // TODO: notice topN
         SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, true,
                 physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
+        exec(sortNode::init);
         childFragment.addPlanRoot(sortNode);
         if (!childFragment.isPartitioned()) {
             return childFragment;
@@ -221,15 +222,16 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanFragment rightFragment = visit(hashJoin.child(0), context);
         PhysicalHashJoin physicalHashJoin = hashJoin.getOperator();
         Expression predicateExpr = physicalHashJoin.getCondition();
-        List<Expression> eqExprList = Utils.getEqConjuncts(hashJoin.child(0).getOutput(),
-                hashJoin.child(1).getOutput(), predicateExpr);
+        // List<Expression> eqExprList = Utils.getEqConjuncts(hashJoin.child(0).getOutput(),
+        //        hashJoin.child(1).getOutput(), predicateExpr);
         JoinType joinType = physicalHashJoin.getJoinType();
 
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
 
+        // TODO: support cross join later
         if (joinType.equals(JoinType.CROSS_JOIN)
-                || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN) && eqExprList.isEmpty()) {
+                || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN) && false /* eqExprList.isEmpty() */) {
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
                     rightFragment.getPlanRoot(), null);
             crossJoinNode.setLimit(physicalHashJoin.getLimit());
@@ -247,16 +249,19 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             context.addPlanFragment(leftFragment);
             return leftFragment;
         }
-
-        List<Expression> expressionList = Utils.extractConjuncts(predicateExpr);
-        expressionList.removeAll(eqExprList);
-        List<Expr> execOtherConjunctList = expressionList.stream().map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toCollection(ArrayList::new));
-        List<Expr> execEqConjunctList = eqExprList.stream().map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toCollection(ArrayList::new));
+        // TODO: For ssb, there only binary equal predicate, but we need to support more
+        // List<Expression> expressionList = Utils.extractConjuncts(predicateExpr);
+        // expressionList.removeAll(eqExprList);
+        //        List<Expr> execOtherConjunctList = expressionList.stream().
+        //        map(e -> ExpressionTranslator.translate(e, context))
+        //                .collect(Collectors.toCollection(ArrayList::new));
+        //        List<Expr> execEqConjunctList =
+        //        eqExprList.stream().map(e -> ExpressionTranslator.translate(e, context))
+        //                .collect(Collectors.toCollection(ArrayList::new));
+        List<Expr> execEqConjunctList = Lists.newArrayList(ExpressionTranslator.translate(predicateExpr, context));
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,
-                JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, execOtherConjunctList);
+                JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, Lists.newArrayList());
 
         ExchangeNode leftExch = new ExchangeNode(context.nextNodeId(), leftFragmentPlanRoot, false);
         leftExch.setNumInstances(leftFragmentPlanRoot.getNumInstances());

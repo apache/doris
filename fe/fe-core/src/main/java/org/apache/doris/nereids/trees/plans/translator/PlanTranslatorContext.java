@@ -23,6 +23,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -106,7 +107,11 @@ public class PlanTranslatorContext {
      */
     public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc, slotReference.getExprId().asInt());
-        slotDescriptor.setColumn(slotReference.getColumn());
+        Column column = slotReference.getColumn();
+        // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
+        if (column != null) {
+            slotDescriptor.setColumn(column);
+        }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
         this.addSlotRefMapping(slotReference, new SlotRef(slotDescriptor));
