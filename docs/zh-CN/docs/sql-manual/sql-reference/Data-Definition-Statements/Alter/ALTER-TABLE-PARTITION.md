@@ -59,7 +59,7 @@ partition_desc ["key"="value"]
 - partition_desc 支持以下两种写法
   - VALUES LESS THAN [MAXVALUE|("value1", ...)]
   - VALUES [("value1", ...), ("value1", ...))
-- 分区为左闭右开区间，如果用户仅指定右边界，系统会自动确定左边界
+- 分区为左闭("[")右开(")")区间，如果用户仅指定右边界，系统会自动确定左边界，不支持左开或者右闭区间
 - 如果没有指定分桶方式，则自动使用建表使用的分桶方式
 - 如指定分桶方式，只能修改分桶数，不可修改分桶方式或分桶列
 - ["key"="value"] 部分可以设置分区的一些属性，具体说明见 [CREATE TABLE](./sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
