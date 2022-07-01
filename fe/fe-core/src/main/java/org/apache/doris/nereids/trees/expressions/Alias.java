@@ -50,6 +50,11 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
+    public Slot toSlot() throws UnboundException {
+        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
+    }
+
+    @Override
     public String getName() throws UnboundException {
         return name;
     }
@@ -62,11 +67,6 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     @Override
     public List<String> getQualifier() {
         return qualifier;
-    }
-
-    @Override
-    public Slot toSlot() throws UnboundException {
-        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
     }
 
     @Override
@@ -85,13 +85,13 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
-    public String toString() {
-        return child().toString() + " AS " + name;
-    }
-
-    @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Alias<>(children.get(0), name);
+    }
+
+    @Override
+    public String toString() {
+        return child().toString() + " AS " + name;
     }
 }
