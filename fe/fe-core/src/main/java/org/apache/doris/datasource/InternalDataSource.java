@@ -2116,9 +2116,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
 
         if (baseSchema.isEmpty()) {
             baseSchema = esTable.genColumnsFromEs();
-        } else {
-            validateColumns(baseSchema);
         }
+        validateColumns(baseSchema);
         esTable.setNewFullSchema(baseSchema);
 
         // create partition info

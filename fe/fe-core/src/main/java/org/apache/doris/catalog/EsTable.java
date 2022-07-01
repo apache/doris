@@ -469,6 +469,7 @@ public class EsTable extends Table {
                     Column column = new Column();
                     column.setName(key);
                     column.setType(type);
+                    column.setIsKey(true);
                     column.setIsAllowNull(true);
                     columns.add(column);
                 }
