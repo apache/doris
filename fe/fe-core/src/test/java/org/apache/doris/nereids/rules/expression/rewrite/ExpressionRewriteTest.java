@@ -57,8 +57,8 @@ public class ExpressionRewriteTest {
     }
 
     private void assertRewrite(String expression, String expected) {
-        Expression needRewriteExpression = PARSER.createExpression(expression);
-        Expression expectedExpression = PARSER.createExpression(expected);
+        Expression needRewriteExpression = PARSER.parseExpression(expression);
+        Expression expectedExpression = PARSER.parseExpression(expected);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
         Assert.assertEquals(expectedExpression, rewrittenExpression);
     }

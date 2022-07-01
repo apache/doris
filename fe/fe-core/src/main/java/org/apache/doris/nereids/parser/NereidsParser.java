@@ -20,7 +20,6 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.exceptions.ParsingException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
@@ -39,6 +38,8 @@ import java.util.function.Function;
  * Sql parser, convert sql DSL to logical plan.
  */
 public class NereidsParser {
+    private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
+    private static final PostProcessor POST_PROCESSOR = new PostProcessor();
 
     /**
      * In MySQL protocol, client could send multi-statement in.
@@ -61,31 +62,33 @@ public class NereidsParser {
      * @param sql sql string
      * @return logical plan
      */
-    public LogicalPlan parseSingle(String sql) throws Exception {
+    public LogicalPlan parseSingle(String sql) {
         return (LogicalPlan) parse(sql, DorisParser::singleStatement);
     }
 
-    public List<LogicalPlan> parseMultiple(String sql) throws Exception {
+    public List<LogicalPlan> parseMultiple(String sql) {
         return (List<LogicalPlan>) parse(sql, DorisParser::multiStatements);
     }
 
+    public Expression parseExpression(String expression) {
+        return (Expression) parse(expression, DorisParser::expression);
+    }
+
     private Object parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
-        try {
-            ParserRuleContext tree = toAst(sql, parseFunction);
-            LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-            return logicalPlanBuilder.visit(tree);
-        } catch (StackOverflowError e) {
-            throw new ParsingException(e.getMessage());
-        }
+        ParserRuleContext tree = toAst(sql, parseFunction);
+        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
+        return logicalPlanBuilder.visit(tree);
     }
 
     private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         DorisParser parser = new DorisParser(tokenStream);
-        // parser.addParseListener(PostProcessor)
-        // parser.removeErrorListeners()
-        // parser.addErrorListener(ParseErrorListener)
+
+        parser.addParseListener(POST_PROCESSOR);
+        parser.removeErrorListeners();
+        parser.addErrorListener(PARSE_ERROR_LISTENER);
+
         ParserRuleContext tree;
         try {
             // first, try parsing with potentially faster SLL mode
@@ -100,9 +103,5 @@ public class NereidsParser {
             tree = parseFunction.apply(parser);
         }
         return tree;
-    }
-
-    public Expression createExpression(String expression) {
-        return (Expression) parse(expression, DorisParser::expression);
     }
 }
