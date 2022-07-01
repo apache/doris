@@ -108,7 +108,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     }
 
     public <E extends Exception> DataSourceIf getCatalogOrException(String name, Function<String, E> e) throws E {
-        DataSourceIf ds = nameToCatalogs.get(name);
+        DataSourceIf ds = nameToCatalog.get(name);
         if (ds == null) {
             throw e.apply(name);
         }
