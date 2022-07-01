@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
