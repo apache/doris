@@ -24,10 +24,14 @@ import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 import com.google.common.collect.ImmutableList;
 
 /**
- * Execute the analyze job.
+ * Execute the analysis job.
  */
 public class AnalyzeRulesJob extends BatchRulesJob {
 
+    /**
+     * Execute the analysis job
+     * @param plannerContext planner context for execute job
+     */
     public AnalyzeRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(

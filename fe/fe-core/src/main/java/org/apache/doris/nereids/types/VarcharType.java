@@ -20,6 +20,9 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
+/**
+ * Varchar type in Nereids.
+ */
 public class VarcharType extends DataType {
     private final int len;
 

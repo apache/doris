@@ -28,6 +28,11 @@ public class GroupId extends Id<GroupId> {
         super(id);
     }
 
+    /**
+     * create a group id generator.
+     *
+     * @return group id generator
+     */
     public static IdGenerator<GroupId> createGenerator() {
         return new IdGenerator<GroupId>() {
             @Override

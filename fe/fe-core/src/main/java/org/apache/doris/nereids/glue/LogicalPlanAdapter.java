@@ -29,9 +29,8 @@ import java.util.List;
 
 /**
  * This class is used for the compatibility and code reuse in.
- * @see org.apache.doris.qe.ConnectProcessor
- *
  * TODO: rethink it, LogicalPlanAdapter should not bind with Query yet, so we need to do some refactor in StmtExecutor
+ * @see org.apache.doris.qe.ConnectProcessor
  */
 public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
