@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.plans.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -29,8 +29,21 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.Arithmetic;
+import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.plans.PlanTranslatorContext;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -42,15 +55,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Used to convert expression of new optimizer to stale expr.
+ * Used to translate expression of new optimizer to stale expr.
  */
 @SuppressWarnings("rawtypes")
-public class ExpressionConverter extends DefaultExpressionVisitor<Expr, PlanTranslatorContext> {
+public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTranslatorContext> {
 
-    public static ExpressionConverter converter = new ExpressionConverter();
+    public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
 
-    public static Expr convert(Expression expression, PlanTranslatorContext planContext) {
-        return converter.visit(expression, planContext);
+    public static Expr translate(Expression expression, PlanTranslatorContext planContext) {
+        return expression.accept(INSTANCE, planContext);
     }
 
     @Override
@@ -61,55 +74,55 @@ public class ExpressionConverter extends DefaultExpressionVisitor<Expr, PlanTran
     @Override
     public Expr visitEqualTo(EqualTo equalTo, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.EQ,
-                visit(equalTo.child(0), context),
-                visit(equalTo.child(1), context));
+                equalTo.child(0).accept(this, context),
+                equalTo.child(1).accept(this, context));
     }
 
     @Override
     public Expr visitGreaterThan(GreaterThan greaterThan, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.GT,
-                visit(greaterThan.child(0), context),
-                visit(greaterThan.child(1), context));
+                greaterThan.child(0).accept(this, context),
+                greaterThan.child(1).accept(this, context));
     }
 
     @Override
     public Expr visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.GE,
-                visit(greaterThanEqual.child(0), context),
-                visit(greaterThanEqual.child(1), context));
+                greaterThanEqual.child(0).accept(this, context),
+                greaterThanEqual.child(1).accept(this, context));
     }
 
     @Override
     public Expr visitLessThan(LessThan lessThan, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.LT,
-                visit(lessThan.child(0), context),
-                visit(lessThan.child(1), context));
+                lessThan.child(0).accept(this, context),
+                lessThan.child(1).accept(this, context));
     }
 
     @Override
     public Expr visitLessThanEqual(LessThanEqual lessThanEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.LE,
-                visit(lessThanEqual.child(0), context),
-                visit(lessThanEqual.child(1), context));
+                lessThanEqual.child(0).accept(this, context),
+                lessThanEqual.child(1).accept(this, context));
     }
 
     @Override
     public Expr visitNot(Not not, PlanTranslatorContext context) {
         return new org.apache.doris.analysis.CompoundPredicate(
                 org.apache.doris.analysis.CompoundPredicate.Operator.NOT,
-                visit(not.child(0), context),
+                not.child(0).accept(this, context),
                 null);
     }
 
     @Override
     public Expr visitNullSafeEqual(NullSafeEqual nullSafeEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.EQ_FOR_NULL,
-                visit(nullSafeEqual.child(0), context),
-                visit(nullSafeEqual.child(1), context));
+                nullSafeEqual.child(0).accept(this, context),
+                nullSafeEqual.child(1).accept(this, context));
     }
 
     /**
-     * Convert to stale literal.
+     * translate to stale literal.
      */
     @Override
     public Expr visitLiteral(Literal literal, PlanTranslatorContext context) {
@@ -133,7 +146,7 @@ public class ExpressionConverter extends DefaultExpressionVisitor<Expr, PlanTran
     public Expr visitBoundFunction(BoundFunction function, PlanTranslatorContext context) {
         List<Expr> paramList = new ArrayList<>();
         for (Expression expr : function.getArguments()) {
-            paramList.add(visit(expr, context));
+            paramList.add(expr.accept(this, context));
         }
         return new FunctionCallExpr(function.getName(), paramList);
     }
@@ -161,16 +174,16 @@ public class ExpressionConverter extends DefaultExpressionVisitor<Expr, PlanTran
                 throw new RuntimeException(String.format("Unknown node type: %s", nodeType.name()));
         }
         return new org.apache.doris.analysis.CompoundPredicate(staleOp,
-                visit(compoundPredicate.child(0), context),
-                visit(compoundPredicate.child(1), context));
+                compoundPredicate.child(0).accept(this, context),
+                compoundPredicate.child(1).accept(this, context));
     }
 
     @Override
     public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
         Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithmeticOperator();
         return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
-                visit(arithmetic.child(0), context),
-                arithmeticOperator.isBinary() ? visit(arithmetic.child(1), context) : null);
+                arithmetic.child(0).accept(this, context),
+                arithmeticOperator.isBinary() ? arithmetic.child(1).accept(this, context) : null);
     }
 
 }

@@ -630,6 +630,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return withoutTupleIsNullOutputSmap == null ? outputSmap : withoutTupleIsNullOutputSmap;
     }
 
+    public void init() throws UserException {}
+
     public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
         createDefaultSmap(analyzer);

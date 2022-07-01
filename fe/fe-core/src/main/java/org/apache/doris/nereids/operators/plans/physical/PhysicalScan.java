@@ -39,4 +39,8 @@ public abstract class PhysicalScan extends PhysicalLeafOperator {
         super(type);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }
+
+    public List<String> getQualifier() {
+        return qualifier;
+    }
 }
