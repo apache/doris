@@ -21,14 +21,9 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Status;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentResult;
-import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
-import org.apache.doris.thrift.TDeleteEtlFilesRequest;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
-import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
-import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
-import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
@@ -50,22 +45,6 @@ public class AgentClient {
     public AgentClient(String host, int port) {
         this.host = host;
         this.port = port;
-    }
-
-    public TAgentResult submitEtlTask(TMiniLoadEtlTaskRequest request) {
-        TAgentResult result = null;
-        LOG.debug("submit etl task. request: {}", request);
-        try {
-            borrowClient();
-            // submit etl task
-            result = client.submitEtlTask(request);
-            ok = true;
-        } catch (Exception e) {
-            LOG.warn("submit etl task error", e);
-        } finally {
-            returnClient();
-        }
-        return result;
     }
 
     public TAgentResult makeSnapshot(TSnapshotRequest request) {
@@ -110,24 +89,6 @@ public class AgentClient {
             result = new Status(status);
         } catch (Exception e) {
             LOG.warn("submit export task error", e);
-        } finally {
-            returnClient();
-        }
-        return result;
-    }
-
-    public TMiniLoadEtlStatusResult getEtlStatus(long jobId, long taskId) {
-        TMiniLoadEtlStatusResult result = null;
-        TMiniLoadEtlStatusRequest request = new TMiniLoadEtlStatusRequest(TAgentServiceVersion.V1,
-                new TUniqueId(jobId, taskId));
-        LOG.debug("get mini load etl task status. request: {}", request);
-        try {
-            borrowClient();
-            // get etl status
-            result = client.getEtlStatus(request);
-            ok = true;
-        } catch (Exception e) {
-            LOG.warn("get etl status error", e);
         } finally {
             returnClient();
         }
@@ -181,22 +142,6 @@ public class AgentClient {
             returnClient();
         }
         return result;
-    }
-
-    public void deleteEtlFiles(long dbId, long jobId, String dbName, String label) {
-        TDeleteEtlFilesRequest request = new TDeleteEtlFilesRequest(TAgentServiceVersion.V1,
-                new TUniqueId(dbId, jobId), dbName, label);
-        LOG.debug("delete etl files. request: {}", request);
-        try {
-            borrowClient();
-            // delete etl files
-            client.deleteEtlFiles(request);
-            ok = true;
-        } catch (Exception e) {
-            LOG.warn("delete etl files error", e);
-        } finally {
-            returnClient();
-        }
     }
 
     private void borrowClient() throws Exception {

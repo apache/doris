@@ -359,6 +359,10 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    public void init() throws UserException {
+        computePartitionInfo();
+    }
+
     /**
      * Remove the method after statistics collection is working properly
      */

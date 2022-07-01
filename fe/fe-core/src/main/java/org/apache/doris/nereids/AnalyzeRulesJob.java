@@ -14,30 +14,25 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/Collator.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.nereids;
 
-#include <boost/noncopyable.hpp>
-#include <string>
-#include <vector>
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 
-struct UCollator;
+import com.google.common.collect.ImmutableList;
 
-class Collator : private boost::noncopyable {
-public:
-    explicit Collator(const std::string& locale_);
-    ~Collator();
+/**
+ * Execute the analyze job.
+ */
+public class AnalyzeRulesJob extends BatchRulesJob {
 
-    int compare(const char* str1, size_t length1, const char* str2, size_t length2) const;
-
-    const std::string& get_locale() const;
-
-    static std::vector<std::string> get_available_collations();
-
-private:
-    std::string locale;
-    UCollator* collator;
-};
+    AnalyzeRulesJob(PlannerContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                bottomUpBatch(ImmutableList.of(
+                        new BindRelation(),
+                        new BindSlotReference())
+                )));
+    }
+}

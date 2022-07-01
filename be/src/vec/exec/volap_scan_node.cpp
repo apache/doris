@@ -406,6 +406,10 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
+    /*
+    // the follow code may cause double free in VExprContext,
+    // temporarily disable it to avoid it
+    // TODO: fix the bug
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -475,6 +479,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                       "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
     }
+    */
 
     std::vector<Block*> blocks;
 
