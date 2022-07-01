@@ -272,25 +272,27 @@ public class SelectStmtTest {
                 + "   );";
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        String rewritedFragment1 = "((`t1`.`k2` = `t4`.`k2` AND `t3`.`k3` = `t1`.`k3` "
-                + "AND ((`t1`.`k4` >= 50 AND `t1`.`k4` <= 200) AND "
-                + "(`t3`.`k1` = 'D' OR `t3`.`k1` = 'S' OR `t3`.`k1` = 'W') "
-                + "AND (`t4`.`k3` = '2 yr Degree' OR `t4`.`k3` = 'Advanced Degree' OR `t4`.`k3` = 'Secondary') "
-                + "AND (`t4`.`k4` = 1 OR `t4`.`k4` = 3))) "
-                + "AND ((`t3`.`k1` = 'D' AND `t4`.`k3` = '2 yr Degree' "
-                + "AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 150 AND `t4`.`k4` = 3) "
-                + "OR (`t3`.`k1` = 'S' AND `t4`.`k3` = 'Secondary' AND `t1`.`k4` >= 50 "
-                + "AND `t1`.`k4` <= 100 AND `t4`.`k4` = 1) OR (`t3`.`k1` = 'W' AND `t4`.`k3` = 'Advanced Degree' "
-                + "AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 200 AND `t4`.`k4` = 1)))";
-        String rewritedFragment2 = "((`t1`.`k1` = `t5`.`k1` AND `t5`.`k2` = 'United States' "
-                + "AND ((`t1`.`k4` >= 50 AND `t1`.`k4` <= 300) "
-                + "AND `t5`.`k3` IN ('CO', 'IL', 'MN', 'OH', 'MT', 'NM', 'TX', 'MO', 'MI'))) "
-                + "AND ((`t5`.`k3` IN ('CO', 'IL', 'MN') AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 200) "
-                + "OR (`t5`.`k3` IN ('OH', 'MT', 'NM') AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 300) OR (`t5`.`k3` IN "
-                + "('TX', 'MO', 'MI') AND `t1`.`k4` >= 50 AND `t1`.`k4` <= 250)))";
-        System.out.println(stmt.toSql());
-        Assert.assertTrue(stmt.toSql().contains(rewritedFragment1));
-        Assert.assertTrue(stmt.toSql().contains(rewritedFragment2));
+        String commonExpr1 = "`t1`.`k2` = `t4`.`k2`";
+        String commonExpr2 = "`t3`.`k3` = `t1`.`k3`";
+        String commonExpr3 = "`t1`.`k1` = `t5`.`k1`";
+        String commonExpr4 = "t5`.`k2` = 'United States'";
+        String betweenExpanded1 = "`t1`.`k4` >= 100 AND `t1`.`k4` <= 150";
+        String betweenExpanded2 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 100";
+        String betweenExpanded3 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 250";
+
+        String rewrittenSql = stmt.toSql();
+        System.out.println(rewrittenSql);
+        Assert.assertTrue(rewrittenSql.contains(commonExpr1));
+        Assert.assertEquals(rewrittenSql.indexOf(commonExpr1), rewrittenSql.lastIndexOf(commonExpr1));
+        Assert.assertTrue(rewrittenSql.contains(commonExpr2));
+        Assert.assertEquals(rewrittenSql.indexOf(commonExpr2), rewrittenSql.lastIndexOf(commonExpr2));
+        Assert.assertTrue(rewrittenSql.contains(commonExpr3));
+        Assert.assertEquals(rewrittenSql.indexOf(commonExpr3), rewrittenSql.lastIndexOf(commonExpr3));
+        Assert.assertTrue(rewrittenSql.contains(commonExpr4));
+        Assert.assertEquals(rewrittenSql.indexOf(commonExpr4), rewrittenSql.lastIndexOf(commonExpr4));
+        Assert.assertTrue(rewrittenSql.contains(betweenExpanded1));
+        Assert.assertTrue(rewrittenSql.contains(betweenExpanded2));
+        Assert.assertTrue(rewrittenSql.contains(betweenExpanded3));
 
         String sql2 = "select\n"
                 + "   avg(t1.k4)\n"
