@@ -91,6 +91,8 @@ public:
 
     int32_t schema_hash() { return _tablet->schema_hash(); }
 
+    int64_t memtable_consumption() const;
+
     int64_t save_mem_consumption_snapshot();
 
     int64_t get_mem_consumption_snapshot() const;
