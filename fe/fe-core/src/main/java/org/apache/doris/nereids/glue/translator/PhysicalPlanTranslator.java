@@ -63,6 +63,8 @@ import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -79,6 +81,7 @@ import java.util.stream.Collectors;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, PlanTranslatorContext> {
+    private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
 
     public void translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
         visit(physicalPlan, context);
@@ -169,6 +172,12 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
+        olapScanNode.setSelectedPartitionIds(physicalOlapScan.getSelectedPartitionId());
+        try {
+            olapScanNode.updateScanRangeInfoByNewMVSelector(physicalOlapScan.getSelectedIndexId(), false, "");
+        } catch (Exception e) {
+            LOG.warn("set failed", e);
+        }
         exec(olapScanNode::init);
         olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);

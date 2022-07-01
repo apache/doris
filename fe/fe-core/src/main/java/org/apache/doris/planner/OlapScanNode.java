@@ -358,7 +358,12 @@ public class OlapScanNode extends ScanNode {
     }
 
     public void init() throws UserException {
-        computePartitionInfo();
+        selectedPartitionNum = selectedPartitionIds.size();
+        try {
+            getScanRangeLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
     }
 
     /**

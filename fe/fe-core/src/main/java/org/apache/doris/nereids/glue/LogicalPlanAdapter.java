@@ -17,17 +17,27 @@
 
 package org.apache.doris.nereids.glue;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * This class is used for the compatibility and code reuse in.
  * @see org.apache.doris.qe.ConnectProcessor
+ *
+ * TODO: rethink it, LogicalPlanAdapter should not bind with Query yet, so we need to do some refactor in StmtExecutor
  */
-public class LogicalPlanAdapter extends StatementBase {
+public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     private final LogicalPlan logicalPlan;
+    private List<Expr> resultExprs;
+    private ArrayList<String> colLabels;
 
     public LogicalPlanAdapter(LogicalPlan logicalPlan) {
         this.logicalPlan = logicalPlan;
@@ -42,4 +52,30 @@ public class LogicalPlanAdapter extends StatementBase {
         return logicalPlan;
     }
 
+    @Override
+    public boolean hasOutFileClause() {
+        return false;
+    }
+
+    @Override
+    public OutFileClause getOutFileClause() {
+        return null;
+    }
+
+    @Override
+    public List<Expr> getResultExprs() {
+        return resultExprs;
+    }
+
+    public ArrayList<String> getColLabels() {
+        return colLabels;
+    }
+
+    public void setResultExprs(List<Expr> resultExprs) {
+        this.resultExprs = resultExprs;
+    }
+
+    public void setColLabels(ArrayList<String> colLabels) {
+        this.colLabels = colLabels;
+    }
 }
