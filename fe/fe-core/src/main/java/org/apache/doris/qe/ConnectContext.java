@@ -420,6 +420,9 @@ public class ConnectContext {
     }
 
     public DataSourceIf getCurrentDataSource() {
+        if (catalog == null) {
+            return Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(defaultCatalog);
+        }
         return catalog.getDataSourceMgr().getCatalog(defaultCatalog);
     }
 

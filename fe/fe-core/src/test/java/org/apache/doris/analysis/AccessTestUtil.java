@@ -33,6 +33,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.DataSourceMgr;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -142,6 +143,15 @@ public class AccessTestUtil {
                 }
             };
 
+            DataSourceMgr dsMgr = new DataSourceMgr();
+            new Expectations(dsMgr) {
+                {
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = ds;
+                }
+            };
+
             new Expectations(catalog, ds) {
                 {
                     catalog.getAuth();
@@ -178,6 +188,10 @@ public class AccessTestUtil {
                     catalog.getBrokerMgr();
                     minTimes = 0;
                     result = new BrokerMgr();
+
+                    catalog.getDataSourceMgr();
+                    minTimes = 0;
+                    result = dsMgr;
                 }
             };
             return catalog;
@@ -353,6 +367,15 @@ public class AccessTestUtil {
                 }
             };
 
+            DataSourceMgr dsMgr = new DataSourceMgr();
+            new Expectations(dsMgr) {
+                {
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = ds;
+                }
+            };
+
             new Expectations(catalog) {
                 {
                     catalog.getAuth();
@@ -370,6 +393,10 @@ public class AccessTestUtil {
                     catalog.getCurrentDataSource();
                     minTimes = 0;
                     result = ds;
+
+                    catalog.getDataSourceMgr();
+                    minTimes = 0;
+                    result = dsMgr;
                 }
             };
             return catalog;

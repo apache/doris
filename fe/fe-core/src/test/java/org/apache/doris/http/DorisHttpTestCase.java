@@ -42,6 +42,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.DataSourceMgr;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
@@ -245,6 +246,15 @@ public abstract class DorisHttpTestCase {
                 }
             };
 
+            DataSourceMgr dsMgr = new DataSourceMgr();
+            new Expectations(dsMgr) {
+                {
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = internalDataSource;
+                }
+            };
+
             new Expectations(catalog) {
                 {
                     catalog.getAuth();
@@ -279,6 +289,10 @@ public abstract class DorisHttpTestCase {
 
                     catalog.initDefaultCluster();
                     minTimes = 0;
+
+                    catalog.getDataSourceMgr();
+                    minTimes = 0;
+                    result = dsMgr;
                 }
             };
             return catalog;
