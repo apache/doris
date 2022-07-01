@@ -2464,10 +2464,12 @@ public class Catalog {
 
             fe = new Frontend(role, nodeName, host, editLogPort);
             frontends.put(nodeName, fe);
+            BDBHA bdbha = (BDBHA) haProtocol;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
-                ((BDBHA) getHaProtocol()).addHelperSocket(host, editLogPort);
+                bdbha.addHelperSocket(host, editLogPort);
                 helperNodes.add(Pair.create(host, editLogPort));
             }
+            bdbha.removeConflictNodeIfExist(host, editLogPort);
             editLog.logAddFrontend(fe);
         } finally {
             unlock();
