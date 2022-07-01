@@ -168,7 +168,8 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     _cur_mutable_block->add_row(block_row.first, block_row.second);
     _cur_add_block_request.add_tablet_ids(tablet_id);
 
-    if (_cur_mutable_block->rows() == _batch_size) {
+    if (_cur_mutable_block->rows() == _batch_size ||
+        _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -373,6 +374,13 @@ Status VOlapTableSink::open(RuntimeState* state) {
     return OlapTableSink::open(state);
 }
 
+size_t VOlapTableSink::get_pending_bytes() const {
+    size_t mem_consumption = 0;
+    for (auto& indexChannel : _channels) {
+        mem_consumption += indexChannel->get_pending_bytes();
+    }
+    return mem_consumption;
+}
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status status = Status::OK();
@@ -426,6 +434,13 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
+
+    //if pending bytes is more than 500M, wait
+    //constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
+    //while (get_pending_bytes() > MAX_PENDING_BYTES) {
+    //    std::this_thread::sleep_for(std::chrono::microseconds(500));
+    //}
+
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;

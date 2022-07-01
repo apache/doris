@@ -449,6 +449,15 @@ public:
     void clear_column_data() noexcept;
 
     size_t allocated_bytes() const;
+
+    size_t bytes() const {
+        size_t res = 0;
+        for (const auto& elem : _columns) {
+            res += elem->byte_size();
+        }
+
+        return res;
+    }
 };
 
 } // namespace vectorized
