@@ -20,7 +20,6 @@
 
 #include "vec/columns/column_array.h"
 
-#include "vec/columns/collator.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
