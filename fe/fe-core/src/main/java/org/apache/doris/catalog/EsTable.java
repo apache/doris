@@ -466,7 +466,11 @@ public class EsTable extends Table {
             if (field.containsKey("type")) {
                 Type type = toDorisType(field.get("type").toString());
                 if (!type.isInvalid()) {
-                    columns.add(new Column(key, type));
+                    Column column = new Column();
+                    column.setName(key);
+                    column.setType(type);
+                    column.setIsAllowNull(true);
+                    columns.add(column);
                 }
             }
         }
@@ -493,6 +497,8 @@ public class EsTable extends Table {
             case "object":
                 return Type.STRING;
             case "date":
+                return Type.DATE;
+            case "datetime":
                 return Type.DATETIME;
             default:
                 return Type.INVALID;

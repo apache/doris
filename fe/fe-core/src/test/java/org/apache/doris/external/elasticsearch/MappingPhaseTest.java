@@ -49,11 +49,10 @@ public class MappingPhaseTest extends EsTestCase {
     @Test
     public void testExtractFieldsNormal() throws Exception {
 
-        MappingPhase mappingPhase = new MappingPhase(null);
         // ES version < 7.0
         EsTable esTableBefore7X = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext = new SearchContext(esTableBefore7X);
-        mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json"));
+        EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json"));
         Assert.assertEquals("k3.keyword", searchContext.fetchFieldsContext().get("k3"));
         Assert.assertEquals("k3.keyword", searchContext.docValueFieldsContext().get("k3"));
         Assert.assertEquals("k1", searchContext.docValueFieldsContext().get("k1"));
@@ -62,7 +61,7 @@ public class MappingPhaseTest extends EsTestCase {
         // ES version >= 7.0
         EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext1 = new SearchContext(esTableAfter7X);
-        mappingPhase.resolveFields(searchContext1, loadJsonFromFile("data/es/test_index_mapping_after_7x.json"));
+        EsUtil.resolveFields(searchContext1, loadJsonFromFile("data/es/test_index_mapping_after_7x.json"));
         Assert.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
         Assert.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
         Assert.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
@@ -71,12 +70,11 @@ public class MappingPhaseTest extends EsTestCase {
 
     @Test
     public void testTypeNotExist() throws Exception {
-        MappingPhase mappingPhase = new MappingPhase(null);
         EsTable table = fakeEsTable("fake", "test", "not_exists", columns);
         SearchContext searchContext = new SearchContext(table);
         // type not exists
         ExceptionChecker.expectThrows(DorisEsException.class,
-                () -> mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json")));
+                () -> EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json")));
     }
 
     @Test
@@ -103,11 +101,9 @@ public class MappingPhaseTest extends EsTestCase {
 
     @Test
     public void testMultTextFields() throws Exception {
-        MappingPhase mappingPhase = new MappingPhase(null);
         EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext = new SearchContext(esTableAfter7X);
-        mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
+        EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
         Assert.assertFalse(searchContext.docValueFieldsContext().containsKey("k3"));
-
     }
 }
