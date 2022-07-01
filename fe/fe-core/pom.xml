@@ -652,6 +652,14 @@ under the License.
     </dependencies>
     <build>
         <finalName>doris-fe</finalName>
+        <resources>
+            <resource>
+                <directory>target/generated-sources</directory>
+                <excludes>
+                    <exclude>cup</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <!--jcup-->
             <plugin>
