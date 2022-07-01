@@ -30,6 +30,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
@@ -176,7 +177,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         try {
             olapScanNode.updateScanRangeInfoByNewMVSelector(physicalOlapScan.getSelectedIndexId(), false, "");
         } catch (Exception e) {
-            LOG.warn("set failed", e);
+            throw new AnalysisException(e.getMessage());
         }
         exec(olapScanNode::init);
         olapScanNode.addConjuncts(execConjunctsList);
