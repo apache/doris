@@ -478,7 +478,12 @@ public class EsTable extends Table {
     }
 
     private Type toDorisType(String esType) {
+        // reference https://www.elastic.co/guide/en/elasticsearch/reference/8.3/sql-data-types.html
         switch (esType) {
+            case "null":
+                return Type.NULL;
+            case "boolean":
+                return Type.BOOLEAN;
             case "byte":
                 return Type.TINYINT;
             case "short":
@@ -486,20 +491,22 @@ public class EsTable extends Table {
             case "integer":
                 return Type.INT;
             case "long":
+            case "unsigned_long":
                 return Type.BIGINT;
             case "float":
+            case "half_float":
                 return Type.FLOAT;
             case "double":
+            case "scaled_float":
                 return Type.DOUBLE;
             case "keyword":
             case "text":
+            case "ip":
             case "nested":
             case "object":
                 return Type.STRING;
             case "date":
                 return Type.DATE;
-            case "datetime":
-                return Type.DATETIME;
             default:
                 return Type.INVALID;
         }
