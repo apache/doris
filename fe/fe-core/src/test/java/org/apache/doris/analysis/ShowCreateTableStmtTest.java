@@ -17,47 +17,33 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class ShowCreateTableStmtTest {
-    private Analyzer analyzer;
+public class ShowCreateTableStmtTest extends TestWithFeService {
 
-    @Mocked
-    private PaloAuth auth;
-    @Mocked
-    private ConnectContext ctx;
-
-    @Before
-    public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        MockedAuth.mockedAuth(auth);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+    @Override
+    protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
+        createDatabase("test");
+        useDatabase("test");
+        createTable("create table table1\n"
+                + "(k1 int comment 'test column k1', k2 int comment 'test column k2')  comment 'test table1' distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\");");
     }
+
 
     @Test
-    public void testNormal() throws AnalysisException {
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName("testDb", "testTbl"));
-        stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW CREATE TABLE testCluster:testDb.testTbl", stmt.toString());
-        Assert.assertEquals("testCluster:testDb", stmt.getDb());
-        Assert.assertEquals("testTbl", stmt.getTable());
-        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
-        Assert.assertEquals("Table", stmt.getMetaData().getColumn(0).getName());
-        Assert.assertEquals("Create Table", stmt.getMetaData().getColumn(1).getName());
+    public void testNormal() throws Exception {
+        String sql = "show create table table1";
+        ShowResultSet showResultSet = showCreateTable(sql);
+        String showSql = showResultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(showSql.contains("`k1` int(11) NULL COMMENT 'test column k1'"));
+        Assertions.assertTrue(showSql.contains("COMMENT 'test table1'"));
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testNoTbl() throws AnalysisException {
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(null);
-        stmt.analyze(analyzer);
-        Assert.fail("No Exception throws.");
-    }
 }

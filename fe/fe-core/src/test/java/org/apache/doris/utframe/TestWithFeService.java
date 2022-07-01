@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -44,6 +45,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -355,6 +358,12 @@ public abstract class TestWithFeService {
 
     public void useDatabase(String dbName) {
         connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
+    }
+
+    protected ShowResultSet showCreateTable(String sql) throws Exception {
+        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
     }
 
     public void createTable(String sql) throws Exception {
