@@ -49,6 +49,7 @@ import mockit.Expectations;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.Function;
 
 public class AccessTestUtil {
     private static FakeEditLog fakeEditLog;
@@ -147,6 +148,14 @@ public class AccessTestUtil {
             new Expectations(dsMgr) {
                 {
                     dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
                     result = ds;
                 }
@@ -371,6 +380,14 @@ public class AccessTestUtil {
             new Expectations(dsMgr) {
                 {
                     dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
                     result = ds;
                 }

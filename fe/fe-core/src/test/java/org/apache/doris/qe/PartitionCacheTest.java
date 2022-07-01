@@ -91,6 +91,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 
 public class PartitionCacheTest {
     private static final Logger LOG = LogManager.getLogger(PartitionCacheTest.class);
@@ -196,6 +197,14 @@ public class PartitionCacheTest {
         new Expectations(dsMgr) {
             {
                 dsMgr.getCatalog((String) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrException((String) any, (Function) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrAnalysisException((String) any);
                 minTimes = 0;
                 result = ds;
             }

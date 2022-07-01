@@ -71,6 +71,7 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
+import java.util.function.Function;
 
 public class ShowExecutorTest {
     private ConnectContext ctx;
@@ -194,6 +195,14 @@ public class ShowExecutorTest {
         new Expectations(dsMgr) {
             {
                 dsMgr.getCatalog((String) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrException((String) any, (Function) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrAnalysisException((String) any);
                 minTimes = 0;
                 result = ds;
             }

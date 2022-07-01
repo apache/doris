@@ -79,6 +79,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 public abstract class DorisHttpTestCase {
 
@@ -250,6 +251,14 @@ public abstract class DorisHttpTestCase {
             new Expectations(dsMgr) {
                 {
                     dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = internalDataSource;
+
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = internalDataSource;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
                     result = internalDataSource;
                 }
