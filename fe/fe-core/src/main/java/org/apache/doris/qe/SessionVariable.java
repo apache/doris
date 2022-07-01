@@ -175,8 +175,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
-    public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
-
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
