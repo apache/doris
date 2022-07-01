@@ -18,19 +18,21 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 
 /**
- * Use the visitor pattern to iterate over all expressions for expression rewriting.
+ * Use the visitor to visit expression and forward to unified method(visitExpression).
  */
 public abstract class ExpressionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
 
-
     public R visitAlias(Alias alias, C context) {
-        return visit(alias, context);
+        return visitNamedExpression(alias, context);
     }
 
     public R visitComparisonPredicate(ComparisonPredicate cp, C context) {
@@ -38,75 +40,106 @@ public abstract class ExpressionVisitor<R, C> {
     }
 
     public R visitEqualTo(EqualTo equalTo, C context) {
-        return visit(equalTo, context);
+        return visitComparisonPredicate(equalTo, context);
     }
 
     public R visitGreaterThan(GreaterThan greaterThan, C context) {
-        return visit(greaterThan, context);
+        return visitComparisonPredicate(greaterThan, context);
     }
 
     public R visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, C context) {
-        return visit(greaterThanEqual, context);
+        return visitComparisonPredicate(greaterThanEqual, context);
     }
 
     public R visitLessThan(LessThan lessThan, C context) {
-        return visit(lessThan, context);
+        return visitComparisonPredicate(lessThan, context);
     }
 
     public R visitLessThanEqual(LessThanEqual lessThanEqual, C context) {
-        return visit(lessThanEqual, context);
+        return visitComparisonPredicate(lessThanEqual, context);
     }
 
-    public R visitNamedExpression(NamedExpression namedExpression, C context) {
-        return visit(namedExpression, context);
+    public R visitNullSafeEqual(NullSafeEqual nullSafeEqual, C context) {
+        return visitComparisonPredicate(nullSafeEqual, context);
     }
 
     public R visitNot(Not not, C context) {
         return visit(not, context);
     }
 
-    public R visitNullSafeEqual(NullSafeEqual nullSafeEqual, C context) {
-        return visit(nullSafeEqual, context);
+    public R visitSlot(Slot slot, C context) {
+        return visitNamedExpression(slot, context);
+    }
+
+    public R visitNamedExpression(NamedExpression namedExpression, C context) {
+        return visit(namedExpression, context);
     }
 
     public R visitSlotReference(SlotReference slotReference, C context) {
-        return visit(slotReference, context);
+        return visitSlot(slotReference, context);
     }
 
     public R visitLiteral(Literal literal, C context) {
         return visit(literal, context);
     }
 
-    public R visitFunctionCall(FunctionCall function, C context) {
-        return visit(function, context);
-    }
-
-    public R visitBetweenPredicate(BetweenPredicate betweenPredicate, C context) {
-        return visit(betweenPredicate, context);
+    public R visitBetween(Between between, C context) {
+        return visit(between, context);
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
         return visit(compoundPredicate, context);
     }
 
+    public R visitBoundFunction(BoundFunction boundFunction, C context) {
+        return visit(boundFunction, context);
+    }
+
+    public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
+        return visitBoundFunction(aggregateFunction, context);
+    }
+
     public R visitArithmetic(Arithmetic arithmetic, C context) {
         return visit(arithmetic, context);
     }
 
+    public R visitAdd(Add add, C context) {
+        return visitArithmetic(add, context);
+    }
+
+    public R visitSubtract(Subtract subtract, C context) {
+        return visitArithmetic(subtract, context);
+    }
+
+    public R visitMultiply(Multiply multiply, C context) {
+        return visitArithmetic(multiply, context);
+    }
+
+    public R visitDivide(Divide divide, C context) {
+        return visitArithmetic(divide, context);
+    }
+
+    public R visitMod(Mod mod, C context) {
+        return visitArithmetic(mod, context);
+    }
 
     /* ********************************************************************************************
      * Unbound expressions
      * ********************************************************************************************/
 
+    public R visitUnboundFunction(UnboundFunction unboundFunction, C context) {
+        return visit(unboundFunction, context);
+    }
+
     public R visitUnboundAlias(UnboundAlias unboundAlias, C context) {
-        return visit(unboundAlias, context);
+        return visitNamedExpression(unboundAlias, context);
     }
 
     public R visitUnboundSlot(UnboundSlot unboundSlot, C context) {
-        return visit(unboundSlot, context);
+        return visitSlot(unboundSlot, context);
     }
 
     public R visitUnboundStar(UnboundStar unboundStar, C context) {
-        return visit(unboundStar, context);
+        return visitNamedExpression(unboundStar, context);
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
@@ -90,7 +91,7 @@ public class SlotReference extends Slot {
 
     @Override
     public String sql() {
-        return null;
+        return name;
     }
 
     @Override
@@ -131,5 +132,11 @@ public class SlotReference extends Slot {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSlotReference(this, context);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return this;
     }
 }

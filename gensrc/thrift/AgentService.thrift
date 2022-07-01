@@ -409,29 +409,3 @@ struct TAgentPublishRequest {
     2: required list<TTopicUpdate> updates
 }
 
-struct TMiniLoadEtlTaskRequest {
-    1: required TAgentServiceVersion protocol_version
-    2: required PaloInternalService.TExecPlanFragmentParams params
-}
-
-struct TMiniLoadEtlStatusRequest {
-    1: required TAgentServiceVersion protocol_version
-    2: required Types.TUniqueId mini_load_id
-}
-
-struct TMiniLoadEtlStatusResult {
-    1: required Status.TStatus status
-    2: required Types.TEtlState etl_state
-    3: optional map<string, i64> file_map
-    4: optional map<string, string> counters
-    5: optional string tracking_url
-    // progress
-}
-
-struct TDeleteEtlFilesRequest {
-    1: required TAgentServiceVersion protocol_version
-    2: required Types.TUniqueId mini_load_id
-    3: required string db_name
-    4: required string label
-}
-

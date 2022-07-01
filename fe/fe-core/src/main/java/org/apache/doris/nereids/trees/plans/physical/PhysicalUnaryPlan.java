@@ -62,4 +62,9 @@ public class PhysicalUnaryPlan<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalUnaryPlan<>(operator, groupExpression, logicalProperties, child());
     }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalUnaryPlan<>(operator, groupExpression, logicalProperties.get(), child());
+    }
 }

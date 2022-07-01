@@ -62,4 +62,4 @@ mysql> SELECT id,c_array,array_contains(c_array, 5) FROM `array_test`;
 
 ### keywords
 
-ARRAY_CONTAINS
+ARRAY,CONTAIN,CONTAINS,ARRAY_CONTAINS

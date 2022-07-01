@@ -234,6 +234,10 @@ public final class AggregateInfo extends AggregateInfoBase {
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, phase);
         result.outputTupleDesc = tupleDesc;
         result.intermediateTupleDesc = intermediateTupleDesc;
+        int aggExprSize = result.getAggregateExprs().size();
+        for (int i = 0; i < aggExprSize; i++) {
+            result.materializedSlots.add(i);
+        }
         return result;
     }
 
