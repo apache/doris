@@ -62,4 +62,4 @@ mysql> SELECT id,c_array,array_position(c_array, 5) FROM `array_test`;
 
 ### keywords
 
-ARRAY_POSITION
+ARRAY,POSITION,ARRAY_POSITION

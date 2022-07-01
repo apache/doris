@@ -57,5 +57,5 @@ mysql> select k2, array_max(k2) from array_type_table;
 
 ### keywords
 
-ARRAY_MAX
+ARRAY,MAX,ARRAY_MAX
 

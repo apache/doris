@@ -57,5 +57,5 @@ mysql> select k2, array_avg(k2) from array_type_table;
 
 ### keywords
 
-ARRAY_AVG
+ARRAY,AVG,ARRAY_AVG
 
