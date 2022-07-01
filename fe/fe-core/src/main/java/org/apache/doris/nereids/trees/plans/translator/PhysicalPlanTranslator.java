@@ -43,7 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunctionV2;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
@@ -116,7 +116,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
-                .map(e -> e.<List<AggregateFunction>>collect(AggregateFunction.class::isInstance))
+                .map(e -> e.<List<AggregateFunctionV2>>collect(AggregateFunctionV2.class::isInstance))
                 .flatMap(List::stream)
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));

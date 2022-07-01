@@ -30,7 +30,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction_;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunctionV2;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DataType;
 
@@ -66,9 +66,9 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             List<NamedExpression> intermediateAggExpressionList = Lists.newArrayList();
             for (NamedExpression namedExpression : outputExpressionList) {
                 namedExpression = (NamedExpression) namedExpression.clone();
-                List<AggregateFunction_> functionCallList =
+                List<AggregateFunctionV2> functionCallList =
                         namedExpression.collect(AggregateFunction.class::isInstance);
-                for (AggregateFunction_ functionCall : functionCallList) {
+                for (AggregateFunctionV2 functionCall : functionCallList) {
                     FunctionName functionName = new FunctionName(functionCall.getName());
                     List<Expression> expressionList = functionCall.getArguments();
                     List<Type> staleTypeList = expressionList.stream().map(Expression::getDataType)

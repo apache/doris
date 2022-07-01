@@ -30,7 +30,7 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /** sum agg function. */
-public class Sum extends AggregateFunction_ implements UnaryExpression<Expression> {
+public class Sum extends AggregateFunctionV2 implements UnaryExpression<Expression> {
 
     public Sum(Expression child) {
         super("sum", child);

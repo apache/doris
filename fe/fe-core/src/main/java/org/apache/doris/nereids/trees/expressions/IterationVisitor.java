@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunctionV2;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 
 /**
@@ -129,7 +129,7 @@ public abstract class IterationVisitor<C> extends DefaultExpressionVisitor<Void,
     }
 
     @Override
-    public Void visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
+    public Void visitAggregateFunction(AggregateFunctionV2 aggregateFunction, C context) {
         return visitBoundFunction(aggregateFunction, context);
     }
 

@@ -22,15 +22,15 @@ import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 /** AggregateFunction. */
-public abstract class AggregateFunction_ extends BoundFunction {
+public abstract class AggregateFunctionV2 extends BoundFunction {
 
-    public AggregateFunction_(String name, Expression... arguments) {
+    private DataType intermediate;
+
+    public AggregateFunctionV2(String name, Expression... arguments) {
         super(name, arguments);
     }
 
     public abstract DataType getIntermediateType();
-
-    private DataType intermediate;
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
