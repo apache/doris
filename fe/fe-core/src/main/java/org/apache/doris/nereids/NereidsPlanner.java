@@ -80,7 +80,6 @@ public class NereidsPlanner extends Planner {
         scanNodeList = planContext.getScanNodeList();
         descTable = planContext.getDescTable();
         Collections.reverse(fragments);
-        planContext.getDescTable().computeStatAndMemLayout();
     }
 
     /**

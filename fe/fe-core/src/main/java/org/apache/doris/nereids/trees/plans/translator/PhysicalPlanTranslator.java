@@ -40,7 +40,6 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.FindFunction;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -117,9 +116,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
-                .map(FindFunction::find)
+                .map(e -> e.<List<AggregateFunction>>collect(AggregateFunction.class::isInstance))
                 .flatMap(List::stream)
-                .filter(AggregateFunction.class::isInstance)
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
@@ -232,7 +230,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         return mergeFragment;
     }
 
-    // TODO: support broadcast join / co-locate / bucket shuffle join later
+    // TODO: 1. support broadcast join / co-locate / bucket shuffle join later
+    //       2. For ssb, there are only binary equal predicate, we shall support more in the future.
     @Override
     public PlanFragment visitPhysicalHashJoin(
             PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan> hashJoin, PlanTranslatorContext context) {
@@ -249,7 +248,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
 
-        // TODO: support cross join later
         if (joinType.equals(JoinType.CROSS_JOIN)
                 || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN) && false /* eqExprList.isEmpty() */) {
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
@@ -269,15 +267,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             context.addPlanFragment(leftFragment);
             return leftFragment;
         }
-        // TODO: For ssb, there are only binary equal predicate, we shall support more in the future.
-        // List<Expression> expressionList = Utils.extractConjuncts(predicateExpr);
-        // expressionList.removeAll(eqExprList);
-        //        List<Expr> execOtherConjunctList = expressionList.stream().
-        //        map(e -> ExpressionTranslator.translate(e, context))
-        //                .collect(Collectors.toCollection(ArrayList::new));
-        //        List<Expr> execEqConjunctList =
-        //        eqExprList.stream().map(e -> ExpressionTranslator.translate(e, context))
-        //                .collect(Collectors.toCollection(ArrayList::new));
         List<Expr> execEqConjunctList = Lists.newArrayList(ExpressionTranslator.translate(predicateExpr, context));
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,

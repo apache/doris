@@ -36,7 +36,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadJob;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -238,8 +237,7 @@ public class Coordinator {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-        this.descTable = planner instanceof NereidsPlanner ? planner.getDescTable().toThrift()
-                : analyzer.getDescTbl().toThrift();
+        this.descTable = planner.getDescTable().toThrift();
         this.returnedAllResults = false;
         initQueryOptions(context);
 
