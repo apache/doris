@@ -297,6 +297,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         return result;
     }
 
+    // TODO: generate expression mapping when be project could do in ExecNode
     @Override
     public PlanFragment visitPhysicalProject(
             PhysicalUnaryPlan<PhysicalProject, Plan> projectPlan, PlanTranslatorContext context) {
