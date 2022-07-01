@@ -281,6 +281,7 @@ public:
 
     template <typename... Args>
     static Status ErrorFmt(TStatusCode::type code, const std::string& fmt, Args&&... args) {
+        // In some cases, fmt contains '{}' but there are no args.
         if (sizeof...(args) == 0) {
             return Status(code, fmt);
         }
