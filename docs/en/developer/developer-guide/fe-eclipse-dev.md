@@ -36,6 +36,8 @@ under the License.
 
 The FE module requires part of the generated code, such as Thrift, Protobuf, Jflex, CUP and other frameworks. 
 
+#### Windows
+
 1. Under Linux, enter the source code directory `fe` and execute the following command:
 
    ```
@@ -53,7 +55,42 @@ The FE module requires part of the generated code, such as Thrift, Protobuf, Jfl
     cd /path/to/doris/fe/fe-core/target/ && tar xzf java.tar.gz
     ```
 
+#### MacOS
+
+We can use maven to do code generation or in other words build FE project
+directly on MacOS.
+
+1. Install apache thrift from source code or `brew` if you don't have one
+2. Create a directory `thirdparty/installed/bin`, and link command thrift into
+	 it.
+
+	```
+	mkdir -p thirdparty/installed/bin
+	ln -s ${thrift_installed_full_path} thirdparty/installed/bin/thrift
+	```
+3. Call `maven` to build FE project, if something went wrong, check you
+	 `$JAVA_HOME`, java version and newly installed command `thrift` work
+	 correctly.
+
+	```
+	cd fe && mvn package -DskipTests=true -Dos.arch=x86_64
+	```
+
+Option `-Dos.arch=x86_64` in step 3 is for compatibility of Apple's M series
+CPU.
+
+Note: 
+0. cup and jfex use java jar to do code generation, the process is platform
+	 independent.
+1. Code generation of protobuf is done by `protoc-jar-maven-plugin`, which uses 
+	 precompiled binaries of different archs to make it seems platform independent.
+2. thrift is the only one relies on `thirdparty/installed`, which needs to be
+	 built from source. We will make it independent on `thirdparty/installed`
+	 someday (TODO).
+
 ## Import FE project
+
+### Import as eclipse project
 
 1. In the `fe/` directory of the development environment, execute the following command to generate the Eclipse project file:
 
@@ -73,6 +110,18 @@ The FE module requires part of the generated code, such as Thrift, Protobuf, Jfl
 At this point, FE project import is complete. The project directory in Eclipse is roughly as follows:
 
 ![](/images/eclipse-import-fe-project-1.png)
+
+### Import as maven project
+
+We are able to build FE with maven, if we have done all the operations related
+to MacOS. And we are now of course able to import FE project as a maven project
+in eclipse.
+
+In eclipse menu `File` select `Import -> Maven -> Existing Maven Projects`,
+Choose doris fe directory to finish import. It's recommended to use working set
+to manage the all modules of FE.
+
+Enjoy developing and debugging FE in eclipse!
 
 ## Run Unit Test
 
@@ -128,6 +177,7 @@ To run a UT, a FE service will be started at first. And then, UT cases execute a
 
 ## Code Update
 
+### Imported as eclipse project
 1. Update lexical and grammar files or proto and thrift files
 
     If you modified `fe/src/main/cup/sql_parser.cup` or `fe/src/main/jflex/sql_scanner.flex` file or proto and thrift files. You need to execute the following commands in the `fe/` directory:
@@ -145,6 +195,17 @@ To run a UT, a FE service will be started at first. And then, UT cases execute a
     `mvn -npr eclipse:eclipse -Dskip.plugin=true`
     
     Then refresh the project in Eclipse. If it cannot be updated, it is recommended to delete the project and import it again according to this document.
+
+### Imported as maven project
+
+1. Update lexical and grammar files or proto and thrift files
+	```
+	cd fe && mvn package -DskipTests=true -Dos.arch=x86_64
+	```
+2. Update maven dependencies, in eclipse `Package Explorer` right click on the
+	 project `maven -> update project...`
+
+3. Refresh project in eclipse
 
 ## Imports Order
 
