@@ -15,15 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
+package org.apache.doris.nereids.errors;
+
+import org.apache.doris.nereids.DorisParser.ErrorIdentContext;
+import org.apache.doris.nereids.exceptions.ParseException;
 
 /**
- * sql parsing exception.
+ * Exception packaging to improve code readability.
  */
-public class ParsingException extends RuntimeException {
-
-    public ParsingException(String message) {
-        super(message);
+public class QueryParsingErrors {
+    public static ParseException unquotedIdentifierError(String ident, ErrorIdentContext ctx) {
+        return new ParseException(String.format("Possibly unquoted identifier %s detected. "
+                + "Please consider quoting it with back-quotes as `%s`", ident, ident), ctx);
     }
-
 }
