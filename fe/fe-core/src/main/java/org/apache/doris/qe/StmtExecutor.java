@@ -415,7 +415,7 @@ public class StmtExecutor implements ProfileWriter {
                         }
                         handleQueryStmt();
                         // explain query stmt do not have profile
-                        if (!((QueryStmt) parsedStmt).isExplain()) {
+                        if (!parsedStmt.isExplain()) {
                             writeProfile(true);
                         }
                         break;
