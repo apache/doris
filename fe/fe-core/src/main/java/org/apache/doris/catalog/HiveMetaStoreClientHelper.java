@@ -68,9 +68,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Deque;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Stack;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -467,9 +468,11 @@ public class HiveMetaStoreClientHelper {
                 BinaryPredicate eq = (BinaryPredicate) dorisExpr;
                 SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
                 LiteralExpr literalExpr = null;
+                boolean colFirst = true;
                 if (slotRef == null && eq.getChild(0).isLiteral()) {
                     literalExpr = (LiteralExpr) eq.getChild(0);
                     slotRef = convertDorisExprToSlotRef(eq.getChild(1));
+                    colFirst = false;
                 } else if (eq.getChild(1).isLiteral()) {
                     literalExpr = (LiteralExpr) eq.getChild(1);
                 }
@@ -484,12 +487,9 @@ public class HiveMetaStoreClientHelper {
                 PrimitiveType dorisPrimitiveType = slotRef.getType().getPrimitiveType();
                 PrimitiveTypeInfo hivePrimitiveType = convertToHiveColType(dorisPrimitiveType);
                 Object value = extractDorisLiteral(literalExpr);
-                ExprBuilder exprBuilder = new ExprBuilder(tblName);
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, "NULL")
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=", colFirst);
                     } else {
                         return null;
                     }
@@ -497,29 +497,17 @@ public class HiveMetaStoreClientHelper {
                 switch (opcode) {
                     case EQ:
                     case EQ_FOR_NULL:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "=", colFirst);
                     case NE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("!=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "!=", colFirst);
                     case GE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">=", colFirst);
                     case GT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">", colFirst);
                     case LE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<=", colFirst);
                     case LT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<", colFirst);
                     default:
                         return null;
                 }
@@ -527,6 +515,22 @@ public class HiveMetaStoreClientHelper {
                 return null;
         }
 
+    }
+
+    private static ExprNodeGenericFuncDesc genExprDesc(
+            String tblName,
+            PrimitiveTypeInfo hivePrimitiveType,
+            String colName,
+            Object value,
+            String op,
+            boolean colFirst) throws DdlException {
+        ExprBuilder exprBuilder = new ExprBuilder(tblName);
+        if (colFirst) {
+            exprBuilder.col(hivePrimitiveType, colName).val(hivePrimitiveType, value);
+        } else {
+            exprBuilder.val(hivePrimitiveType, value).col(hivePrimitiveType, colName);
+        }
+        return exprBuilder.pred(op, 2).build();
     }
 
     public static ExprNodeGenericFuncDesc getCompoundExpr(List<ExprNodeDesc> args, String op) throws DdlException {
@@ -636,17 +640,17 @@ public class HiveMetaStoreClientHelper {
      */
     public static class ExprBuilder {
         private final String tblName;
-        private final Stack<ExprNodeDesc> stack = new Stack<>();
+        private final Deque<ExprNodeDesc> queue = new LinkedList<>();
 
         public ExprBuilder(String tblName) {
             this.tblName = tblName;
         }
 
         public ExprNodeGenericFuncDesc build() throws DdlException {
-            if (stack.size() != 1) {
-                throw new DdlException("Build Hive expression Failed: " + stack.size());
+            if (queue.size() != 1) {
+                throw new DdlException("Build Hive expression Failed: " + queue.size());
             }
-            return (ExprNodeGenericFuncDesc) stack.pop();
+            return (ExprNodeGenericFuncDesc) queue.pollFirst();
         }
 
         public ExprBuilder pred(String name, int args) throws DdlException {
@@ -656,10 +660,10 @@ public class HiveMetaStoreClientHelper {
         private ExprBuilder fn(String name, TypeInfo ti, int args) throws DdlException {
             List<ExprNodeDesc> children = new ArrayList<>();
             for (int i = 0; i < args; ++i) {
-                children.add(stack.pop());
+                children.add(queue.pollFirst());
             }
             try {
-                stack.push(new ExprNodeGenericFuncDesc(ti,
+                queue.offerLast(new ExprNodeGenericFuncDesc(ti,
                         FunctionRegistry.getFunctionInfo(name).getGenericUDF(), children));
             } catch (SemanticException e) {
                 LOG.warn("Build Hive expression failed: semantic analyze exception: {}", e.getMessage());
@@ -669,12 +673,12 @@ public class HiveMetaStoreClientHelper {
         }
 
         public ExprBuilder col(TypeInfo ti, String col) {
-            stack.push(new ExprNodeColumnDesc(ti, col, tblName, true));
+            queue.offerLast(new ExprNodeColumnDesc(ti, col, tblName, true));
             return this;
         }
 
         public ExprBuilder val(TypeInfo ti, Object val) {
-            stack.push(new ExprNodeConstantDesc(ti, val));
+            queue.offerLast(new ExprNodeConstantDesc(ti, val));
             return this;
         }
     }
