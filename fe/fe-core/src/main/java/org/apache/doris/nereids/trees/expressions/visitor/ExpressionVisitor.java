@@ -113,6 +113,18 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(compoundPredicate, context);
     }
 
+    public R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
+        return visit(stringRegexPredicate, context);
+    }
+
+    public R visitLike(Like like, C context) {
+        return visitStringRegexPredicate(like, context);
+    }
+
+    public R visitRegexp(Regexp regexp, C context) {
+        return visitStringRegexPredicate(regexp, context);
+    }
+
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
         return visit(boundFunction, context);
     }
