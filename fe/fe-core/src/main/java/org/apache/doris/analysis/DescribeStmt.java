@@ -126,7 +126,7 @@ public class DescribeStmt extends ShowStmt {
         }
 
         DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr()
-                .getCatalog(dbTableName.getCtl()).getDbOrAnalysisException(dbTableName.getDb());
+                .getCatalogOrAnalysisException(dbTableName.getCtl()).getDbOrAnalysisException(dbTableName.getDb());
         TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();

@@ -650,7 +650,7 @@ public class Analyzer {
         // to replace it with.
         tableName.analyze(this);
 
-        DatabaseIf database = globalState.catalog.getDataSourceMgr().getCatalog(tableName.getCtl())
+        DatabaseIf database = globalState.catalog.getDataSourceMgr().getCatalogOrAnalysisException(tableName.getCtl())
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
@@ -690,7 +690,7 @@ public class Analyzer {
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        DatabaseIf db = globalState.catalog.getDataSourceMgr().getCatalog(tblName.getCtl())
+        DatabaseIf db = globalState.catalog.getDataSourceMgr().getCatalogOrAnalysisException(tblName.getCtl())
                 .getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }

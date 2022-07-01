@@ -420,6 +420,7 @@ public class ConnectContext {
     }
 
     public DataSourceIf getCurrentDataSource() {
+        // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
         if (catalog == null) {
             return Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(defaultCatalog);
         }

@@ -223,7 +223,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         String catalog = Strings.isNullOrEmpty(params.catalog) ? InternalDataSource.INTERNAL_DS_NAME : params.catalog;
         DatabaseIf<TableIf> db = Catalog.getCurrentCatalog().getDataSourceMgr()
-                .getCatalog(catalog).getDbNullable(params.db);
+                .getCatalogOrException(catalog, ds -> new TException("Unknown catalog " + ds)).getDbNullable(params.db);
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);

@@ -86,7 +86,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
             default:
                 // stmt must be analyzed.
                 DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr()
-                        .getCatalog(stmt.getTableName().getCtl())
+                        .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
                 UserIdentity userIdent = stmt.getUser();
                 userIdent.analyze(ConnectContext.get().getClusterName());
