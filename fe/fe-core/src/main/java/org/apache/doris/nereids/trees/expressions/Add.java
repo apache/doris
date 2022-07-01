@@ -48,4 +48,7 @@ public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Ex
     }
 
 
+    public String toString() {
+        return sql();
+    }
 }

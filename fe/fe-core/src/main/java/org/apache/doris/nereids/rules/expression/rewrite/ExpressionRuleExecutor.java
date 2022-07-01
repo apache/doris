@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressi
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -30,13 +31,18 @@ import java.util.List;
  */
 public class ExpressionRuleExecutor {
 
-    public static final List<ExpressionRewriteRule> REWRITE_RULES = Lists.newArrayList(
+    public static final List<ExpressionRewriteRule> REWRITE_RULES = ImmutableList.of(
         new SimplifyNotExprRule(),
         new NormalizeExpressionRule()
     );
 
     private final ExpressionRewriteContext ctx;
     private final List<ExpressionRewriteRule> rules;
+
+    public ExpressionRuleExecutor() {
+        this.rules = REWRITE_RULES;
+        this.ctx = new ExpressionRewriteContext();
+    }
 
     public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules) {
         this.rules = rules;

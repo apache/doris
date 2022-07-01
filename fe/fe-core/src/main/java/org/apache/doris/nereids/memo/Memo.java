@@ -98,6 +98,9 @@ public class Memo {
             childrenNode.add(groupToTreeNode(child));
         }
         Plan result = logicalExpression.getOperator().toTreeNode(logicalExpression);
+        if (result.children().size() == 0) {
+            return result;
+        }
         return result.withChildren(childrenNode);
     }
 

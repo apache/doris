@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.NodeType;
 
+import java.util.List;
+import java.util.Objects;
+
 /**
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
@@ -53,4 +56,30 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCompoundPredicate(this, context);
     }
+
+    public NodeType flip() {
+        if (getType() == NodeType.AND) {
+            return NodeType.OR;
+        }
+        return NodeType.AND;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        CompoundPredicate other = (CompoundPredicate) o;
+        return (type == other.getType()) && Objects.equals(left(), other.left())
+                && Objects.equals(right(), other.right());
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        return new CompoundPredicate<>(getType(), children.get(0), children.get(1));
+    }
 }
+

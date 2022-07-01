@@ -72,7 +72,9 @@ public class RewriteTopDownJob extends Job<Plan> {
                 Preconditions.checkArgument(afters.size() == 1);
                 Plan after = afters.get(0);
                 if (after != before) {
-                    context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
+                    GroupExpression expression = context.getOptimizerContext().getMemo()
+                            .copyIn(after, group, rule.isRewrite());
+                    expression.setApplied(rule);
                     pushTask(new RewriteTopDownJob(group, rules, context));
                     return;
                 }
@@ -80,7 +82,7 @@ public class RewriteTopDownJob extends Job<Plan> {
             logicalExpression.setApplied(rule);
         }
 
-        for (Group childGroup : logicalExpression.children()) {
+        for (Group childGroup : group.getLogicalExpression().children()) {
             pushTask(new RewriteTopDownJob(childGroup, rules, context));
         }
     }

@@ -39,6 +39,7 @@ import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
@@ -402,7 +403,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitParenthesizedExpression(DorisParser.ParenthesizedExpressionContext ctx) {
+    public Expression visitParenthesizedExpression(ParenthesizedExpressionContext ctx) {
         return getExpression(ctx.expression());
     }
 
