@@ -79,11 +79,15 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("Table", ScalarType.createVarchar(30)))
                     .build();
 
+    // The same columns in IndexSchemaProcNode.TITLE_NAMES
     private static final ShowResultSetMetaData HMS_EXTERNAL_TABLE_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Comment", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
                     .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
@@ -132,7 +136,10 @@ public class DescribeStmt extends ShowStmt {
                     hmsSchema = table.getFullSchema().stream().map(col -> Arrays.asList(
                                     col.getName(),
                                     col.getType().toSql().toUpperCase(Locale.ROOT),
-                                    Strings.nullToEmpty(col.getComment())))
+                                    Boolean.toString(col.isAllowNull()),
+                                    Boolean.toString(col.isKey()),
+                                    Strings.nullToEmpty(col.getDefaultValue()),
+                                    "" /* no extra field */))
                             .collect(Collectors.toList());
                 } else {
                     // show base table schema only

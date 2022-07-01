@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
@@ -63,22 +62,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
-    }
-
-    private void checkFromHiveTable(Analyzer analyzer) throws AnalysisException {
-        for (TableRef tblRef : tablerefs) {
-            if (!(tblRef instanceof BaseTableRef)) {
-                continue;
-            }
-
-            TableName tableName = tblRef.getName();
-            tableName.analyze(analyzer);
-
-            DatabaseIf db = analyzer.getCatalog().getDataSourceMgr()
-                    .getCatalog(tableName.getCtl()).getDbOrAnalysisException(tableName.getDb());
-            String tblName = tableName.getTbl();
-            db.getTableOrAnalysisException(tblName);
-        }
     }
 
     /**
@@ -142,9 +125,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
         }
-
-        // TODO: remove when query from hive table is supported
-        checkFromHiveTable(analyzer);
 
         analyzed = true;
     }

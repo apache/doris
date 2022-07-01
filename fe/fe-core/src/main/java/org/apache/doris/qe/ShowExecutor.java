@@ -650,13 +650,8 @@ public class ShowExecutor {
     private void handleShowDb() throws AnalysisException {
         ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        // external catalog have on cluster semantics
-        List<String> dbNames;
-        if (ctx.getDefaultCatalog().equals(InternalDataSource.INTERNAL_DS_NAME)) {
-            dbNames = ctx.getCatalog().getInternalDataSource().getClusterDbNames(ctx.getClusterName());
-        } else {
-            dbNames = ctx.getCurrentDataSource().getDbNames();
-        }
+        // cluster feature is deprecated.
+        List<String> dbNames = ctx.getCurrentDataSource().getDbNames();
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),
