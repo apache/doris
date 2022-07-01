@@ -69,8 +69,12 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
 
     const size_t alloc_size = directory_size();
     close(); // Ensure that any previously allocated memory for directory_ is released.
-    _mem_holder.reset(new char[alloc_size]);
-    _directory = (Bucket*)_mem_holder.get();
+    DCHECK(_directory == nullptr);
+    int rc = posix_memalign((void**)&_directory, 32, alloc_size);
+    if (rc != 0) {
+        return Status::InternalError("block_bloom_filter alloc fail");
+    }
+
     _hash_seed = hash_seed;
     return Status::OK();
 }
@@ -100,6 +104,7 @@ Status BlockBloomFilter::init_from_directory(int log_space_bytes, const Slice& d
 
 void BlockBloomFilter::close() {
     if (_directory != nullptr) {
+        free(_directory);
         _directory = nullptr;
     }
 }
