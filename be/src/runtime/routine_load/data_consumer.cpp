@@ -77,7 +77,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(set_conf("auto.offset.reset", "error"));
     RETURN_IF_ERROR(set_conf("socket.keepalive.enable", "true"));
     RETURN_IF_ERROR(set_conf("reconnect.backoff.jitter.ms", "100"));
-    RETURN_IF_ERROR(set_conf("api.version.request", "true"));
+    RETURN_IF_ERROR(set_conf("api.version.request", config::kafka_api_version_request));
     RETURN_IF_ERROR(set_conf("api.version.fallback.ms", "0"));
     RETURN_IF_ERROR(set_conf("broker.version.fallback", config::kafka_broker_version_fallback));
 
