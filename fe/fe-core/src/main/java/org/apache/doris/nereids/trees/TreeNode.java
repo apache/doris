@@ -78,6 +78,9 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         return false;
     }
 
+    /**
+     * Collect the nodes that satisfied the predicate.
+     */
     default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
         ImmutableList.Builder<TreeNode<NODE_TYPE>> result = ImmutableList.builder();
         foreach(node -> {
@@ -87,4 +90,5 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         });
         return (T) result.build();
     }
+
 }

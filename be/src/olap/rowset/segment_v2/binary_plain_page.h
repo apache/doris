@@ -271,6 +271,38 @@ public:
         return Status::OK();
     };
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        size_t read_count = 0;
+        uint32_t len_array[total];
+        uint32_t start_offset_array[total];
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elems)) {
+                break;
+            }
+
+            const uint32_t start_offset = offset(ord);
+            start_offset_array[read_count] = start_offset;
+            len_array[read_count] = offset(ord + 1) - start_offset;
+            read_count++;
+        }
+
+        if (LIKELY(read_count > 0))
+            dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
+                                         read_count);
+
+        *n = read_count;
+        return Status::OK();
+    }
+
     size_t count() const override {
         DCHECK(_parsed);
         return _num_elems;

@@ -40,6 +40,7 @@ public enum RuleType {
     // rewrite rules
     AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
+    PUSH_DOWN_PREDICATE_THROUGH_JOIN(RuleTypeClass.REWRITE),
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE(RuleTypeClass.EXPLORATION),

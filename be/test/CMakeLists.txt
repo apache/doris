@@ -215,7 +215,6 @@ set(RUNTIME_TEST_FILES
     # runtime/dpp_sink_internal_test.cpp
     # runtime/dpp_sink_test.cpp
     # runtime/data_spliter_test.cpp
-    # runtime/etl_job_mgr_test.cpp
     # runtime/tmp_file_mgr_test.cpp
     # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp

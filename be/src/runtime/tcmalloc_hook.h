@@ -37,17 +37,17 @@
 //  destructor to control the behavior of consume can lead to unexpected behavior,
 //  like this: if (LIKELY(doris::start_thread_mem_tracker)) {
 void new_hook(const void* ptr, size_t size) {
-    if (doris::tls_ctx()) {
+    if (doris::thread_local_ctx._init) {
         doris::tls_ctx()->consume_mem(tc_nallocx(size, 0));
-    } else if (doris::ExecEnv::GetInstance()->initialized()) {
+    } else if (doris::exec_env_existed && doris::ExecEnv::GetInstance()->initialized()) {
         doris::MemTracker::get_process_tracker()->consume(tc_nallocx(size, 0));
     }
 }
 
 void delete_hook(const void* ptr) {
-    if (doris::tls_ctx()) {
+    if (doris::thread_local_ctx._init) {
         doris::tls_ctx()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
-    } else if (doris::ExecEnv::GetInstance()->initialized()) {
+    } else if (doris::exec_env_existed && doris::ExecEnv::GetInstance()->initialized()) {
         doris::MemTracker::get_process_tracker()->release(tc_malloc_size(const_cast<void*>(ptr)));
     }
 }
