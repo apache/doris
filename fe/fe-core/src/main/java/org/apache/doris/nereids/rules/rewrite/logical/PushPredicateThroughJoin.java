@@ -124,6 +124,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
 
         Expression left = ExpressionUtils.add(leftPredicates);
         Expression right = ExpressionUtils.add(rightPredicates);
+        //todo expr should optimize again using expr rewrite
         ExpressionRuleExecutor exprRewriter = new ExpressionRuleExecutor();
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();
