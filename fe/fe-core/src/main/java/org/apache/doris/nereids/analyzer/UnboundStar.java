@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.LeafExpression;
@@ -31,21 +32,26 @@ import java.util.List;
  * Star expression.
  */
 public class UnboundStar extends NamedExpression implements LeafExpression, Unbound {
-    private final List<String> target;
+    private final List<String> qualifier;
 
-    public UnboundStar(List<String> target) {
+    public UnboundStar(List<String> qualifier) {
         super(NodeType.UNBOUND_STAR);
-        this.target = target;
+        this.qualifier = qualifier;
     }
 
     @Override
     public String sql() {
-        String targetString = target.stream().map(Utils::quoteIfNeeded).reduce((t1, t2) -> t1 + "." + t2).orElse("");
+        String targetString = qualifier.stream().map(Utils::quoteIfNeeded).reduce((t1, t2) -> t1 + "." + t2).orElse("");
         if (StringUtils.isNotEmpty(targetString)) {
             return targetString + ".*";
         } else {
             return "*";
         }
+    }
+
+    @Override
+    public List<String> getQualifier() throws UnboundException {
+        return qualifier;
     }
 
     @Override

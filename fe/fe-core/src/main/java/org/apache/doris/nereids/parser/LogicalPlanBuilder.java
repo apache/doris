@@ -99,6 +99,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -191,7 +192,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         .map(RuleContext::getText)
                         .collect(ImmutableList.toImmutableList());
             } else {
-                target = Lists.newArrayList();
+                target = Collections.emptyList();
             }
             return new UnboundStar(target);
         });
