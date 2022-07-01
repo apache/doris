@@ -53,4 +53,9 @@ public class OrderKey {
     public boolean isNullFirst() {
         return nullFirst;
     }
+
+    @Override
+    public String toString() {
+        return expr.sql();
+    }
 }
