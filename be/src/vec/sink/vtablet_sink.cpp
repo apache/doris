@@ -124,6 +124,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     while (get_pending_bytes() > MAX_PENDING_BYTES && retry++ < max_retry) {
         std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
+    if (get_pending_bytes() > MAX_PENDING_BYTES){
+        std::stringstream str;
+        str << "Load task " << _load_id << ": Memory exceed limit. ";
+        return Status::MemoryLimitExceeded(str.str());
+    }
 
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
