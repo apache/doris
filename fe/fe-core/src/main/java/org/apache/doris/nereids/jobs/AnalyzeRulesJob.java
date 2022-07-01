@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.jobs;
 
+import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 
@@ -27,7 +28,7 @@ import com.google.common.collect.ImmutableList;
  */
 public class AnalyzeRulesJob extends BatchRulesJob {
 
-    AnalyzeRulesJob(PlannerContext plannerContext) {
+    public AnalyzeRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(

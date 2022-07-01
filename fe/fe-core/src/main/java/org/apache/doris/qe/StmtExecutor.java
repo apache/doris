@@ -88,7 +88,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -301,6 +301,20 @@ public class StmtExecutor implements ProfileWriter {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
 
+    /**
+     * Used for audit in ConnectProcessor.
+     *
+     * TODO: There are three interface in StatementBase be called when doing audit:
+     *      toDigest needAuditEncryption when parsedStmt is not a query
+     *      and isValuesOrConstantSelect when parsedStmt is instance of InsertStmt.
+     *      toDigest: is used to compute Statement fingerprint
+     *      needAuditEncryption: when this interface return true,
+     *          log statement use toSql function instead of log original string
+     *      isValuesOrConstantSelect: when this interface return true, original string is truncated at 1024
+     *
+     * @return parsed and analyzed statement for Stale planner.
+     *          an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
+     */
     public StatementBase getParsedStmt() {
         return parsedStmt;
     }

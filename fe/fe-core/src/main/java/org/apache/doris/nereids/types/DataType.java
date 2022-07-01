@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 public abstract class DataType {
     /**
      * Convert data type in Doris catalog to data type in Nereids.
+     * TODO: throw exception when cannot convert catalog type to Nereids type
      *
      * @param catalogType data type in Doris catalog
      * @return data type in Nereids
@@ -44,6 +45,8 @@ public abstract class DataType {
                     return BigIntType.INSTANCE;
                 case DOUBLE:
                     return DoubleType.INSTANCE;
+                case VARCHAR:
+                    return VarcharType.createVarcharType(scalarType.getLength());
                 case STRING:
                     return StringType.INSTANCE;
                 default:
