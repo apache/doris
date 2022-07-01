@@ -214,6 +214,7 @@ public:
 
     ThreadContext* get();
 
+    // TCMalloc hook is triggered during ThreadContext construction, which may lead to deadlock.
     bool _init = false;
 
 private:
@@ -227,12 +228,7 @@ static ThreadContext* tls_ctx() {
     if (tls != nullptr) {
         return tls;
     } else {
-        if (thread_local_ctx._init) {
-            return thread_local_ctx.get();
-        } else {
-            // TCMalloc hook is triggered during ThreadContext construction, which may lead to deadlock.
-            return nullptr;
-        }
+        return thread_local_ctx.get();
     }
 }
 

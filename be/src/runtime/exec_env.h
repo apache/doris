@@ -72,6 +72,8 @@ class ClientCache;
 
 class HeartbeatFlags;
 
+static bool exec_env_existed = false;
+
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
 // singleton services. Clients must call StartServices exactly
@@ -87,6 +89,7 @@ public:
     /// we return the most recently created instance.
     static ExecEnv* GetInstance() {
         static ExecEnv s_exec_env;
+        exec_env_existed = true;
         return &s_exec_env;
     }
 
