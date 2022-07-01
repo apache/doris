@@ -205,6 +205,20 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
     return Status::OK();
 }
 
+Status ColumnNullable::filter_by_ret_flags(const uint8_t* ret_flags, uint16_t batch_size,
+                                           uint16_t selected_size, IColumn* col_ptr) {
+    const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
+    ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;
+    ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
+    RETURN_IF_ERROR(get_nested_column().filter_by_ret_flags(
+            ret_flags, batch_size, selected_size,
+            const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
+    RETURN_IF_ERROR(get_null_map_column().filter_by_ret_flags(
+            ret_flags, batch_size, selected_size,
+            const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
+    return Status::OK();
+}
+
 ColumnPtr ColumnNullable::permute(const Permutation& perm, size_t limit) const {
     ColumnPtr permuted_data = get_nested_column().permute(perm, limit);
     ColumnPtr permuted_null_map = get_null_map_column().permute(perm, limit);

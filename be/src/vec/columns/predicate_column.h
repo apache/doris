@@ -62,7 +62,56 @@ private:
             res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
         }
     }
+    void insert_date_to_res_column(const uint8_t* ret_flags, uint16_t batch_size,
+                                   uint16_t selected_size,
+                                   vectorized::ColumnVector<Int64>* res_ptr) {
+        if (0 == selected_size){
+            //pass
+        } else if (selected_size == batch_size){
+            for(uint16_t i=0; i<batch_size; i++) {
+                VecDateTimeValue date =
+                            VecDateTimeValue::create_from_olap_date(get_date_at(i));
+                    res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+            }
+        } else {
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        VecDateTimeValue date =
+                                VecDateTimeValue::create_from_olap_date(get_date_at(sel_pos + i));
+                        res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        VecDateTimeValue date =
+                                VecDateTimeValue::create_from_olap_date(get_date_at(sel_pos + bit_pos));
+                        res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+                        mask = mask & (mask - 1);
+                    }
+                }
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    VecDateTimeValue date =
+                            VecDateTimeValue::create_from_olap_date(get_date_at(sel_pos));
+                    res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+                }
+            }
+        }                                     
 
+    }
     void insert_date32_to_res_column(const uint16_t* sel, size_t sel_size,
                                      vectorized::ColumnVector<Int64>* res_ptr) {
         res_ptr->reserve(sel_size);
@@ -77,6 +126,66 @@ private:
         }
     }
 
+    void insert_date32_to_res_column(const uint8_t* ret_flags, uint16_t batch_size,
+                                     uint16_t selected_size,
+                                     vectorized::ColumnVector<Int64>* res_ptr) {
+        res_ptr->reserve(selected_size);
+        auto& res_data = res_ptr->get_data();
+        if (0 == selected_size){
+            //pass
+        } else if (selected_size == batch_size){
+            for(uint16_t i=0; i<batch_size; i++) {
+                int64_t val = data[i];
+                VecDateTimeValue date;
+                date.set_olap_date(val);
+                res_data.push_back_without_reserve(
+                        unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+            }
+        } else {
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        uint64_t val = data[sel_pos + i];
+                        VecDateTimeValue date;
+                        date.set_olap_date(val);
+                        res_data.push_back_without_reserve(
+                                unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        uint64_t val = data[sel_pos + bit_pos];
+                        VecDateTimeValue date;
+                        date.set_olap_date(val);
+                        res_data.push_back_without_reserve(
+                                unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+                        mask = mask & (mask - 1);
+                    }
+                }
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    int64_t val = data[sel_pos];
+                    VecDateTimeValue date;
+                    date.set_olap_date(val);
+                    res_data.push_back_without_reserve(
+                            unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+                }
+            }
+        }
+    }
+
     void insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size,
                                        vectorized::ColumnVector<Int64>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
@@ -84,6 +193,60 @@ private:
             vectorized::VecDateTimeValue datetime =
                     VecDateTimeValue::create_from_olap_datetime(value);
             res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
+        }
+    }
+
+    void insert_datetime_to_res_column(const uint8_t* ret_flags, uint16_t batch_size,
+                                       uint16_t selected_size,
+                                       vectorized::ColumnVector<Int64>* res_ptr) {
+        if (0 == selected_size){
+            //pass
+        } else if (selected_size == batch_size){
+            for(uint16_t i=0; i<batch_size; i++) {
+                uint64_t value = data[i];
+                vectorized::VecDateTimeValue datetime =
+                        VecDateTimeValue::create_from_olap_datetime(value);
+                res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
+            }
+        } else {
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        uint64_t value = data[sel_pos + i];
+                        vectorized::VecDateTimeValue datetime =
+                                VecDateTimeValue::create_from_olap_datetime(value);
+                        res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        uint64_t value = data[sel_pos + bit_pos];
+                        vectorized::VecDateTimeValue datetime =
+                                VecDateTimeValue::create_from_olap_datetime(value);
+                        res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
+                        mask = mask & (mask - 1);
+                    }
+                }
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    uint64_t value = data[sel_pos];
+                    vectorized::VecDateTimeValue datetime =
+                            VecDateTimeValue::create_from_olap_datetime(value);
+                    res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
+                }
+            }
         }
     }
 
@@ -96,6 +259,51 @@ private:
         }
     }
 
+    void insert_string_to_res_column(const uint8_t* ret_flags, uint16_t batch_size,
+                                     uint16_t selected_size, vectorized::ColumnString* res_ptr) {
+        if (0 == selected_size){
+            //pass
+        } else if (selected_size == batch_size){
+            for(uint16_t i=0; i<batch_size; i++) {
+                auto& sv = reinterpret_cast<StringValue&>(data[i]);
+                res_ptr->insert_data(sv.ptr, sv.len);
+            }
+        } else {
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        auto& sv = reinterpret_cast<StringValue&>(data[sel_pos + i]);
+                        res_ptr->insert_data(sv.ptr, sv.len);
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        auto& sv = reinterpret_cast<StringValue&>(data[sel_pos + bit_pos]);
+                        res_ptr->insert_data(sv.ptr, sv.len);
+                        mask = mask & (mask - 1);
+                    }
+                }
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    auto& sv = reinterpret_cast<StringValue&>(data[sel_pos]);
+                    res_ptr->insert_data(sv.ptr, sv.len);
+                }
+            }
+        }
+    }
+
     void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
                                       vectorized::ColumnDecimal<Decimal128>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
@@ -105,58 +313,117 @@ private:
             res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
         }
     }
+    void insert_decimal_to_res_column(const uint8_t* ret_flags, uint16_t batch_size,
+                                      uint16_t selected_size,
+                                      vectorized::ColumnDecimal<Decimal128>* res_ptr) {
+        if (0 == selected_size){
+            //pass
+        } else if (selected_size == batch_size){
+            for(uint16_t i=0; i<batch_size; i++) {
+                auto& dv = reinterpret_cast<const decimal12_t&>(data[i]);
+                DecimalV2Value dv_data(dv.integer, dv.fraction);
+                res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
+            }
+        } else {
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        auto& dv = reinterpret_cast<const decimal12_t&>(data[sel_pos + i]);
+                        DecimalV2Value dv_data(dv.integer, dv.fraction);
+                        res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        auto& dv = reinterpret_cast<const decimal12_t&>(data[sel_pos + bit_pos]);
+                        DecimalV2Value dv_data(dv.integer, dv.fraction);
+                        res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
+                        mask = mask & (mask - 1);
+                    }
+                }
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    auto& dv = reinterpret_cast<const decimal12_t&>(data[sel_pos]);
+                    DecimalV2Value dv_data(dv.integer, dv.fraction);
+                    res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
+                }
+            }
+        }
+    }
 
-inline uint32_t get_mask(const uint16_t* data) {
-    auto zero32 = _mm256_setzero_si256();
-    __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data));
-    uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
-    return mask;
-}
     template <typename Y>
-    void insert_default_value_res_column(const uint16_t* sel16, size_t sel_size,
+    void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
                                          vectorized::ColumnVector<Y>* res_ptr) {
         static_assert(std::is_same_v<T, Y>);
-        const uint8_t* sel = (uint8_t*) sel16;
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
         Y* y = (Y*)res_data.get_end_ptr();
+        for (size_t i = 0; i < sel_size; i++) {
+            y[i] = T(data[sel[i]]);
+        }
+        res_data.set_end_ptr(y + sel_size);
+    }
 
-        int new_size = 0;
-        uint32_t sel_pos = 0;
-        static constexpr size_t SIMD_BYTES = 32;
-        const uint32_t sel_end_simd = sel_pos + sel_size / SIMD_BYTES * SIMD_BYTES;
-        auto zero32 = _mm256_setzero_si256();
-        while (sel_pos < sel_end_simd) {
-           __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(sel + sel_pos));
-           uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
-           if (0 == mask) {
-                //pass
-            } else if (0xffffffff == mask) {
-                for (uint32_t i = 0; i < SIMD_BYTES; i++) {
-                    y[new_size++] = data[sel_pos + i];
+    template <typename Y>
+    void insert_default_value_res_column(const uint8_t* ret_flags, uint16_t batch_size,
+                                         uint16_t sel_size, vectorized::ColumnVector<Y>* res_ptr) {
+        static_assert(std::is_same_v<T, Y>);
+        auto& res_data = res_ptr->get_data();
+        DCHECK(res_data.empty());
+        res_data.reserve(sel_size);
+        Y* y = (Y*)res_data.get_end_ptr();
+        if (0 == sel_size){
+            //pass
+        } else if (sel_size == batch_size){
+            for(uint16_t i=0; i<batch_size; i++) {
+                y[i] = data[i];
+            }
+        } else {
+            int new_size = 0;
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        y[new_size++] = data[sel_pos + i];
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        y[new_size++] = data[sel_pos + bit_pos];
+                        mask = mask & (mask - 1);
+                    }
                 }
-            } else {
-                while (mask) {
-                    const size_t bit_pos = __builtin_ctzll(mask);
-                    y[new_size++] = data[sel_pos + bit_pos];
-                    mask = mask & (mask - 1);
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    y[new_size++] = data[sel_pos];
                 }
             }
-            sel_pos += SIMD_BYTES;
         }
-
-        for (; sel_pos < sel_size; sel_pos++) {
-            if (sel[sel_pos]) {
-                y[new_size++] = data[sel_pos];
-            }
-        }
-        res_data.set_end_ptr(y + new_size);
-        
-        // for (size_t i = 0; i < sel_size; i++) {
-        //     y[i] = T(data[sel[i]]);
-        // }
-        // res_data.set_end_ptr(y + sel_size);
+        res_data.set_end_ptr(y + sel_size);
     }
 
     void insert_byte_to_res_column(const uint16_t* sel, size_t sel_size,
@@ -166,6 +433,59 @@ inline uint32_t get_mask(const uint16_t* data) {
             char* ch_val = reinterpret_cast<char*>(&data[n]);
             res_ptr->insert_data(ch_val, 0);
         }
+    }
+
+    void insert_byte_to_res_column(const uint8_t* ret_flags, uint16_t batch_size, uint16_t sel_size,
+                                   vectorized::IColumn* res_ptr) {
+        for (size_t i = 0; i < batch_size; i++) {
+            if (ret_flags[i]) {
+                char* ch_val = reinterpret_cast<char*>(&data[i]);
+                res_ptr->insert_data(ch_val, 0);
+            }
+        }
+
+        if (0 == sel_size){
+            //pass
+        } else if (sel_size == batch_size){
+            for(uint16_t i=0; i<batch_size; i++) {
+                char* ch_val = reinterpret_cast<char*>(&data[i]);
+                res_ptr->insert_data(ch_val, 0);
+            }
+        } else {
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        char* ch_val = reinterpret_cast<char*>(&data[sel_pos + i]);
+                        res_ptr->insert_data(ch_val, 0);
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        char* ch_val = reinterpret_cast<char*>(&data[sel_pos + bit_pos]);
+                        res_ptr->insert_data(ch_val, 0);
+                        mask = mask & (mask - 1);
+                    }
+                }
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    char* ch_val = reinterpret_cast<char*>(&data[sel_pos]);
+                    res_ptr->insert_data(ch_val, 0);
+                }
+            }
+        }
+        
     }
 
     // note(wb): Write data one by one has a slight performance improvement than memcpy directly
@@ -497,6 +817,65 @@ public:
                             col_ptr));
         } else if (std::is_same_v<T, bool>) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
+        } else {
+            return Status::NotSupported("not supported output type in predicate_column");
+        }
+        return Status::OK();
+    }
+
+    Status filter_by_ret_flags(const uint8_t* ret_flags, uint16_t batch_size,
+                               uint16_t selected_size, IColumn* col_ptr) override {
+        if constexpr (std::is_same_v<T, StringValue>) {
+            insert_string_to_res_column(ret_flags, batch_size, selected_size,
+                                        reinterpret_cast<vectorized::ColumnString*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, decimal12_t>) {
+            insert_decimal_to_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnDecimal<Decimal128>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int8>) {
+            insert_default_value_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int8>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int16>) {
+            insert_default_value_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int16>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int32>) {
+            insert_default_value_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int32>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int64>) {
+            insert_default_value_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int64>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Float32>) {
+            insert_default_value_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float32>*>(
+                            col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Float64>) {
+            insert_default_value_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float64>*>(
+                            col_ptr));
+        } else if constexpr (std::is_same_v<T, uint64_t>) {
+            insert_datetime_to_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, uint24_t>) {
+            insert_date_to_res_column(ret_flags, batch_size, selected_size,
+                                      reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, uint32_t>) { // a trick type judge, need refactor it.
+            insert_date32_to_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
+            insert_default_value_res_column(
+                    ret_flags, batch_size, selected_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int128>*>(
+                            col_ptr));
+        } else if (std::is_same_v<T, bool>) {
+            insert_byte_to_res_column(ret_flags, batch_size, selected_size, col_ptr);
         } else {
             return Status::NotSupported("not supported output type in predicate_column");
         }

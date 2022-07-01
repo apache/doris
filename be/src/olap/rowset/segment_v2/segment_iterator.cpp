@@ -887,104 +887,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     return Status::OK();
 }
 
-uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
-                                                            uint16_t selected_size,
-                                                            uint8_t * ret_flags) {
-    SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
-    if (!_is_need_vec_eval) {
-        for (uint32_t i = 0; i < selected_size; ++i) {
-            sel_rowid_idx[i] = i;
-        }
-        return selected_size;
-    }
-
-    // uint16_t original_size = selected_size;
-
-    _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, (bool*)ret_flags);
-    return selected_size;
-    // uint16_t new_size = 0;
-
-    // uint32_t sel_pos = 0;
-    // const uint32_t sel_end = sel_pos + selected_size;
-    // static constexpr size_t SIMD_BYTES = 32;
-    // const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
-
-    // while (sel_pos < sel_end_simd) {
-    //     auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
-    //     if (0 == mask) {
-    //         //pass
-    //     } else if (0xffffffff == mask) {
-    //         for (uint32_t i = 0; i < SIMD_BYTES; i++) {
-    //             sel_rowid_idx[new_size++] = sel_pos + i;
-    //         }
-    //     } else {
-    //         while (mask) {
-    //             const size_t bit_pos = __builtin_ctzll(mask);
-    //             sel_rowid_idx[new_size++] = sel_pos + bit_pos;
-    //             mask = mask & (mask - 1);
-    //         }
-    //     }
-    //     sel_pos += SIMD_BYTES;
-    // }
-
-    // for (; sel_pos < sel_end; sel_pos++) {
-    //     if (ret_flags[sel_pos]) {
-    //         sel_rowid_idx[new_size++] = sel_pos;
-    //     }
-    // }
-
-    // _opts.stats->rows_vec_cond_filtered += original_size - new_size;
-    // return new_size;
-}
-
 uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx,
-                                                            uint16_t batch_size,
-                                                            uint8_t* ret_flags) {
-    SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
-    if (!_is_need_short_eval) {
-        return batch_size;
-    }
-    uint16_t selected_size = 0;
-    if (!_is_need_vec_eval) {
-        for (uint32_t i = 0; i < batch_size; ++i) {
-            sel_rowid_idx[i] = i;
-        }
-        selected_size = batch_size;
-    }else{
-        uint32_t sel_pos = 0;
-        const uint32_t sel_end = sel_pos + batch_size;
-        static constexpr size_t SIMD_BYTES = 32;
-        const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
-
-        while (sel_pos < sel_end_simd) {
-            auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
-            if (0 == mask) {
-                //pass
-            } else if (0xffffffff == mask) {
-                for (uint32_t i = 0; i < SIMD_BYTES; i++) {
-                    sel_rowid_idx[selected_size++] = sel_pos + i;
-                }
-            } else {
-                while (mask) {
-                    const size_t bit_pos = __builtin_ctzll(mask);
-                    sel_rowid_idx[selected_size++] = sel_pos + bit_pos;
-                    mask = mask & (mask - 1);
-                }
-            }
-            sel_pos += SIMD_BYTES;
-        }
-
-        for (; sel_pos < sel_end; sel_pos++) {
-            if (ret_flags[sel_pos]) {
-                sel_rowid_idx[selected_size++] = sel_pos;
-            }
-        }
-        //count filtered rows of vec_predicate
-        _opts.stats->rows_vec_cond_filtered += batch_size - selected_size;
-
-    }
-
-    uint16_t input_row_size = selected_size;
+                                                            uint16_t selected_size) {
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
@@ -994,21 +898,17 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* sel_rowid_
             predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
-        selected_size = predicate->evaluate(*short_cir_column, sel_rowid_idx, input_row_size);
+        selected_size = predicate->evaluate(*short_cir_column, sel_rowid_idx, selected_size);
+        if (selected_size == 0) break;
     }
-    
-    _opts.stats->rows_vec_cond_filtered += input_row_size - selected_size;
+    if (0 != selected_size) {
+        // evaluate delete condition
+        uint16_t before_del_size = selected_size;
+        selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
+                                                                    sel_rowid_idx, selected_size);
+        _opts.stats->rows_vec_del_cond_filtered += before_del_size - selected_size;
+    }
 
-    // evaluate delete condition
-    uint16_t before_del_size = selected_size;
-    selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
-                                                                sel_rowid_idx, selected_size);
-    _opts.stats->rows_vec_del_cond_filtered += before_del_size - selected_size;
-    // TODO (englefly) update ret_flags in evaluate()
-    memset(ret_flags, 0, batch_size);
-    for(int i=0; i<selected_size; i++){
-        ret_flags[ sel_rowid_idx[i] ] = 1;
-    }
     return selected_size;
 }
 
@@ -1096,38 +996,61 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         uint16_t sel_rowid_idx[nrows_read];
         uint8_t ret_flags[nrows_read];
         memset(ret_flags, 1u, nrows_read);
+        uint16_t selected_size = nrows_read;
         // step 1: evaluate vectorization predicate
         if (_is_need_vec_eval) {
             SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
-            _pre_eval_block_predicate->evaluate_vec(_current_return_columns, nrows_read, (bool*)ret_flags);
+            _pre_eval_block_predicate->evaluate_vec(_current_return_columns, nrows_read,
+                                                    (bool*)ret_flags);
         }
-        
+
         // step 2: evaluate short ciruit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
-        uint16_t selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, nrows_read, ret_flags);
+        {
+            SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
+            if (_is_need_short_eval) {
+                if (_is_need_vec_eval) {
+                    //init sel_rowid_idx by ret_flags
+                    selected_size = simd::flags_to_idx(ret_flags, nrows_read, sel_rowid_idx);
+                } else {
+                    //init sel_rowid_idx 1 to nrows_read
+                    std::iota(sel_rowid_idx, sel_rowid_idx + nrows_read, 0);
+                    selected_size = nrows_read;
+                }
+                selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
+            } else {
+                selected_size = nrows_read - simd::count_zero_num((int8_t*)ret_flags, nrows_read);
+            }
+        }
+        _opts.stats->rows_vec_cond_filtered += nrows_read - selected_size;
 
         if (!_lazy_materialization_read) {
             Status ret = Status::OK();
-            if (_is_need_short_eval){
+            if (_is_need_short_eval) {
                 //materialize by sel_idx
                 ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                    selected_size);
-
-            }else{
+                                                selected_size);
+            } else {
                 //materialize by ret_flags
-                ret = _output_column_by_ret_flags(block, _first_read_column_ids, ret_flags, nrows_read);
+                ret = _output_column_by_ret_flags(block, _first_read_column_ids, ret_flags,
+                                                  nrows_read, selected_size);
             }
             if (!ret.ok()) {
                 return ret;
-            }            
+            }
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
             return ret;
         }
 
         // step3: read non_predicate column
+        if (!_is_need_short_eval) {
+            //_is_need_vec_eval must be true
+            //init sel_rowid_idx by ret_flags
+            selected_size = simd::flags_to_idx(ret_flags, nrows_read, sel_rowid_idx);
+        }
         _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx, selected_size,
                                 &_current_return_columns);
 

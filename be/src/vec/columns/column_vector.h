@@ -30,6 +30,9 @@
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
 
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 namespace doris::vectorized {
 
 /** Stuff for comparing numbers.
@@ -299,6 +302,57 @@ public:
     // note(wb) this method is only used in storage layer now
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         insert_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<T>*>(col_ptr));
+        return Status::OK();
+    }
+
+    Status filter_by_ret_flags(const uint8_t* ret_flags, uint16_t batch_size,
+                               uint16_t selected_size, IColumn* col_ptr) override {
+        auto& res_data = reinterpret_cast<vectorized::ColumnVector<T>*>(col_ptr)->data;
+        DCHECK(res_data.empty());
+        res_data.reserve(selected_size);
+        T* t = (T*)res_data.get_end_ptr();
+        if (0 == selected_size) {
+            //pass
+        } else if (selected_size == batch_size) {
+            for (int i = 0; i < selected_size; i++) {
+                t[i] = T(data[i]);
+            }
+
+        } else {
+            int new_size = 0;
+            uint32_t sel_pos = 0;
+#ifdef __AVX2__
+            static constexpr size_t SIMD_BYTES = 32;
+            const uint32_t sel_end_simd = sel_pos + batch_size / SIMD_BYTES * SIMD_BYTES;
+            auto zero32 = _mm256_setzero_si256();
+            while (sel_pos < sel_end_simd) {
+                __m256i f =
+                        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ret_flags + sel_pos));
+                uint32_t mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, zero32));
+                if (0 == mask) {
+                    //pass
+                } else if (0xffffffff == mask) {
+                    for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                        t[new_size++] = T(data[sel_pos + i]);
+                    }
+                } else {
+                    while (mask) {
+                        const size_t bit_pos = __builtin_ctzll(mask);
+                        t[new_size++] = T(data[sel_pos + bit_pos]);
+                        mask = mask & (mask - 1);
+                    }
+                }
+                sel_pos += SIMD_BYTES;
+            }
+#endif
+            for (; sel_pos < batch_size; sel_pos++) {
+                if (ret_flags[sel_pos]) {
+                    t[new_size++] = T(data[sel_pos]);
+                }
+            }
+        }
+
+        res_data.set_end_ptr(t + selected_size);
         return Status::OK();
     }
 

@@ -97,5 +97,40 @@ inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __res
     return num;
 }
 
+// collect the true flag idx
+// example flags:[0,1,0,1]=>idx:[1, 3], return 2
+inline uint16_t flags_to_idx(const uint8_t* flags, uint16_t flag_size, uint16_t* idx) {
+    uint16_t idx_size = 0;
+    uint32_t pos = 0;
+    const uint32_t end = pos + flag_size;
+
+#if defined(__SSE2__)
+    static constexpr uint16_t SIMD_BYTES = 32;
+    const uint32_t end_simd = pos + flag_size / SIMD_BYTES * SIMD_BYTES;
+
+    while (pos < end_simd) {
+        auto mask = simd::bytes32_mask_to_bits32_mask(flags + pos);
+        if (0 == mask) {
+            //pass
+        } else if (0xffffffff == mask) {
+            for (uint32_t i = 0; i < SIMD_BYTES; i++) {
+                idx[idx_size++] = pos + i;
+            }
+        } else {
+            while (mask) {
+                const size_t bit_pos = __builtin_ctzll(mask);
+                idx[idx_size++] = pos + bit_pos;
+                mask = mask & (mask - 1);
+            }
+        }
+        pos += SIMD_BYTES;
+    }
+#endif
+    for (; pos < end; pos++) {
+        idx[idx_size] = pos;
+        idx_size += flags[pos];
+    }
+    return idx_size;
+}
 } // namespace simd
 } // namespace doris

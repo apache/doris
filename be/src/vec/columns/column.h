@@ -269,7 +269,11 @@ public:
         LOG(FATAL) << "column not support filter_by_selector";
         __builtin_unreachable();
     };
-
+    virtual Status filter_by_ret_flags(const uint8_t* ret_flags, uint16_t batch_size,
+                                       uint16_t selected_size, IColumn* col_ptr) {
+        LOG(FATAL) << "column not support filter_by_ret_flags";
+        __builtin_unreachable();
+    };
     /// Permutes elements using specified permutation. Is used in sortings.
     /// limit - if it isn't 0, puts only first limit elements in the result.
     using Permutation = PaddedPODArray<size_t>;
