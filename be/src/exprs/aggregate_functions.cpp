@@ -487,8 +487,16 @@ void AggregateFunctions::numeric_maxby_update(FunctionContext* ctx, const T& slo
             condition = !max_by->flag || slot2.val > max_by->val2.val;
         }
         if (condition) {
-            max_by->val1 = slot1;
-            max_by->val2 = slot2;
+            if constexpr (std::is_same_v<T, StringVal>) {
+                max_by->val1 = StringVal::copy_from(ctx, slot1.ptr, slot1.len);
+            } else {
+                max_by->val1 = slot1;
+            }
+            if constexpr (std::is_same_v<KT, StringVal>) {
+                max_by->val2 = StringVal::copy_from(ctx, slot2.ptr, slot2.len);
+            } else {
+                max_by->val2 = slot2;
+            }
             if (!max_by->flag) {
                 max_by->flag = true;
             }
@@ -564,8 +572,16 @@ void AggregateFunctions::numeric_maxby_merge(FunctionContext* ctx, const StringV
             condition = max_by2->flag == 0 || src_state->val2.val > max_by2->val2.val;
         }
         if (condition) {
-            max_by2->val2 = src_state->val2;
-            max_by2->val1 = src_state->val1;
+            if constexpr (std::is_same_v<T, StringVal>) {
+                max_by2->val1 = StringVal::copy_from(ctx, src_state->val1.ptr, src_state->val1.len);
+            } else {
+                max_by2->val1 = src_state->val1;
+            }
+            if constexpr (std::is_same_v<KT, StringVal>) {
+                max_by2->val2 = StringVal::copy_from(ctx, src_state->val2.ptr, src_state->val2.len);
+            } else {
+                max_by2->val2 = src_state->val2;
+            }
             if (!max_by2->flag) {
                 max_by2->flag = true;
             }
