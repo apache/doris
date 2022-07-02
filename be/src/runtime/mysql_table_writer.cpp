@@ -146,10 +146,8 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         }
 
         default: {
-            std::stringstream err_ss;
-            err_ss << "can't convert this type to mysql type. type = "
-                   << _output_expr_ctxs[i]->root()->type();
-            return Status::InternalError(err_ss.str());
+            return Status::InternalError("can't convert this type to mysql type. type = {}",
+                                         _output_expr_ctxs[i]->root()->type());
         }
         }
     }

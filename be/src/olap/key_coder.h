@@ -120,8 +120,8 @@ public:
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
                                    MemPool* pool) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument("Key too short, need={} vs real={}",
+                                           sizeof(UnsignedCppType), encoded_key->size);
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
@@ -158,8 +158,8 @@ public:
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
                                    MemPool* pool) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument("Key too short, need={} vs real={}",
+                                           sizeof(UnsignedCppType), encoded_key->size);
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
@@ -249,8 +249,8 @@ public:
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
                                    MemPool* pool) {
         if (encoded_key->size < index_size) {
-            return Status::InvalidArgument(
-                    Substitute("Key too short, need=$0 vs real=$1", index_size, encoded_key->size));
+            return Status::InvalidArgument("Key too short, need={} vs real={}", index_size,
+                                           encoded_key->size);
         }
         Slice* slice = (Slice*)cell_ptr;
         slice->data = (char*)pool->allocate(index_size);

@@ -113,9 +113,9 @@ public:
 
     Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
-            return Status::MemoryLimitExceeded(fmt::format(
+            return Status::MemoryLimitExceeded(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
-                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
+                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit());
         }
         return Status::OK();
     }
@@ -474,8 +474,8 @@ private:
     inline Status try_gc_memory(int64_t bytes) {
         if (UNLIKELY(gc_memory(_limit - bytes))) {
             return Status::MemoryLimitExceeded(
-                    fmt::format("label={} TryConsume failed size={}, used={}, limit={}", label(),
-                                bytes, _consumption->current_value(), _limit));
+                    "label={} TryConsume failed size={}, used={}, limit={}", label(), bytes,
+                    _consumption->current_value(), _limit);
         }
         VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
                     << " consumption=" << _consumption->current_value() << " limit=" << _limit;

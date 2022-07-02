@@ -316,9 +316,8 @@ Status EncodingInfoResolver::get(FieldType data_type, EncodingTypePB encoding_ty
     auto key = std::make_pair(data_type, encoding_type);
     auto it = _encoding_map.find(key);
     if (it == std::end(_encoding_map)) {
-        return Status::InternalError(
-                strings::Substitute("fail to find valid type encoding, type:$0, encoding:$1",
-                                    data_type, encoding_type));
+        return Status::InternalError("fail to find valid type encoding, type:{}, encoding:{}",
+                                     data_type, encoding_type);
     }
     *out = it->second;
     return Status::OK();

@@ -331,9 +331,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
 
             _disjuncts.push_back(predicate);
         } else {
-            std::stringstream ss;
-            ss << "can not process function predicate[ " << fname << " ]";
-            return Status::InternalError(ss.str());
+            return Status::InternalError("can not process function predicate[ {} ]", fname);
         }
         return Status::OK();
     }
@@ -423,9 +421,8 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
     }
 
     // if go to here, report error
-    std::stringstream ss;
-    ss << "build disjuncts failed: node type " << conjunct->node_type() << " is not supported";
-    return Status::InternalError(ss.str());
+    return Status::InternalError("build disjuncts failed: node type {} is not supported",
+                                 conjunct->node_type());
 }
 
 const SlotDescriptor* EsPredicate::get_slot_desc(const SlotRef* slotRef) {

@@ -292,12 +292,12 @@ Status JsonReader::_generate_json_paths(const std::string& jsonpath,
     rapidjson::Document jsonpaths_doc;
     if (!jsonpaths_doc.Parse(jsonpath.c_str(), jsonpath.length()).HasParseError()) {
         if (!jsonpaths_doc.IsArray()) {
-            return Status::InvalidArgument("Invalid json path: " + jsonpath);
+            return Status::InvalidArgument("Invalid json path: {}", jsonpath);
         } else {
             for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                 const rapidjson::Value& path = jsonpaths_doc[i];
                 if (!path.IsString()) {
-                    return Status::InvalidArgument("Invalid json path: " + jsonpath);
+                    return Status::InvalidArgument("Invalid json path: {}", jsonpath);
                 }
                 std::vector<JsonPath> parsed_paths;
                 JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
@@ -306,7 +306,7 @@ Status JsonReader::_generate_json_paths(const std::string& jsonpath,
             return Status::OK();
         }
     } else {
-        return Status::InvalidArgument("Invalid json path: " + jsonpath);
+        return Status::InvalidArgument("Invalid json path: {}", jsonpath);
     }
 }
 

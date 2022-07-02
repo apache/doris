@@ -410,9 +410,7 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
     }
 
     default:
-        std::stringstream os;
-        os << "Unknown expr node type: " << texpr_node.node_type;
-        return Status::InternalError(os.str());
+        return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
     }
 }
 

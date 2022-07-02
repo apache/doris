@@ -31,8 +31,7 @@ Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<Blo
     if (algorithm == BLOCK_BLOOM_FILTER) {
         bf->reset(new BlockSplitBloomFilter());
     } else {
-        return Status::InternalError(
-                strings::Substitute("invalid bloom filter algorithm:$0", algorithm));
+        return Status::InternalError("invalid bloom filter algorithm:{}", algorithm);
     }
     return Status::OK();
 }

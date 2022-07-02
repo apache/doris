@@ -48,7 +48,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     }
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
     if (slot_desc == NULL) {
-        return Status::InternalError(fmt::format("couldn't resolve slot descriptor {}", _slot_id));
+        return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
     }
     _column_id = desc.get_column_id(_slot_id);
     _column_name = &slot_desc->col_name();

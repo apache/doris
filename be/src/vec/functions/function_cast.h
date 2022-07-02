@@ -86,9 +86,8 @@ struct ConvertImpl {
             if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType> ||
                             IsDateV2Type<FromDataType>) ||
                           !IsDataTypeDecimalOrNumber<ToDataType>)
-                return Status::RuntimeError(
-                        fmt::format("Illegal column {} of first argument of function {}",
-                                    named_from.column->get_name(), Name::name));
+                return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                            named_from.column->get_name(), Name::name);
         }
 
         if (const ColVecFrom* col_from =
@@ -168,9 +167,8 @@ struct ConvertImpl {
 
             block.replace_by_position(result, std::move(col_to));
         } else {
-            return Status::RuntimeError(
-                    fmt::format("Illegal column {} of first argument of function {}",
-                                named_from.column->get_name(), Name::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        named_from.column->get_name(), Name::name);
         }
         return Status::OK();
     }
@@ -241,9 +239,8 @@ struct ConvertImplToTimeType {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
-            return Status::RuntimeError(
-                    fmt::format("Illegal column {} of first argument of function {}",
-                                named_from.column->get_name(), Name::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        named_from.column->get_name(), Name::name);
         }
 
         return Status::OK();
@@ -297,9 +294,9 @@ struct ConvertImplGenericFromString {
             }
             block.replace_by_position(result, std::move(col_to));
         } else {
-            return Status::RuntimeError(fmt::format(
+            return Status::RuntimeError(
                     "Illegal column {} of first argument of conversion function from string",
-                    col_from.get_name()));
+                    col_from.get_name());
         }
         return Status::OK();
     }
@@ -599,8 +596,7 @@ private:
     Status executeInternal(Block& block, const ColumnNumbers& arguments, size_t result,
                            size_t input_rows_count) {
         if (!arguments.size()) {
-            return Status::RuntimeError(
-                    fmt::format("Function {} expects at least 1 arguments", get_name()));
+            return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
 
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
@@ -618,8 +614,8 @@ private:
                 // now, cast to decimal do not execute the code
                 if constexpr (IsDataTypeDecimal<RightDataType>) {
                     if (arguments.size() != 2) {
-                        ret_status = Status::RuntimeError(fmt::format(
-                                "Function {} expects 2 arguments for Decimal.", get_name()));
+                        ret_status = Status::RuntimeError(
+                                "Function {} expects 2 arguments for Decimal.", get_name());
                         return true;
                     }
 
@@ -636,9 +632,9 @@ private:
 
             bool done = call_on_index_and_data_type<ToDataType>(from_type->get_type_id(), call);
             if (!done) {
-                ret_status = Status::RuntimeError(fmt::format(
+                ret_status = Status::RuntimeError(
                         "Illegal type {} of argument of function {}",
-                        block.get_by_position(arguments[0]).type->get_name(), get_name()));
+                        block.get_by_position(arguments[0]).type->get_name(), get_name());
             }
             return ret_status;
         }
@@ -802,9 +798,8 @@ struct ConvertThroughParsing {
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
 
         if (std::is_same_v<FromDataType, DataTypeString> && !col_from_string) {
-            return Status::RuntimeError(
-                    fmt::format("Illegal column {} of first argument of function {}",
-                                col_from->get_name(), Name::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        col_from->get_name(), Name::name);
         }
 
         size_t size = input_rows_count;
@@ -895,11 +890,11 @@ public:
                     block, arguments, result, input_rows_count);
         }
 
-        return Status::RuntimeError(fmt::format(
+        return Status::RuntimeError(
                 "Illegal type {} of argument of function {} . Only String or FixedString "
                 "argument is accepted for try-conversion function. For other arguments, use "
                 "function without 'orZero' or 'orNull'.",
-                block.get_by_position(arguments[0]).type->get_name(), get_name()));
+                block.get_by_position(arguments[0]).type->get_name(), get_name());
     }
 };
 
@@ -939,9 +934,9 @@ public:
 
         bool done = call_on_index_and_number_data_type<ToDataType>(from_type->get_type_id(), call);
         if (!done) {
-            return Status::RuntimeError(
-                    fmt::format("Illegal type {} of argument of function {}",
-                                block.get_by_position(arguments[0]).type->get_name(), get_name()));
+            return Status::RuntimeError("Illegal type {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).type->get_name(),
+                                        get_name());
         }
 
         return ret_status;
@@ -1084,8 +1079,8 @@ private:
             /// Additionally check if call_on_index_and_data_type wasn't called at all.
             if (!res) {
                 auto to = DataTypeDecimal<FieldType>(precision, scale);
-                return Status::RuntimeError(fmt::format("Conversion from {} to {} is not supported",
-                                                        getTypeName(type_index), to.get_name()));
+                return Status::RuntimeError("Conversion from {} to {} is not supported",
+                                            getTypeName(type_index), to.get_name());
             }
             return Status::OK();
         };
@@ -1167,8 +1162,8 @@ private:
                 block.get_by_position(result).column = ColumnArray::create(
                         nested_result_column, from_col_array->get_offsets_ptr());
             } else {
-                return Status::RuntimeError(fmt::format(
-                        "Illegal column {} for function CAST AS Array", from_column->get_name()));
+                return Status::RuntimeError("Illegal column {} for function CAST AS Array",
+                                            from_column->get_name());
             }
             return Status::OK();
         };
@@ -1236,10 +1231,10 @@ private:
 
                 /// May happen in fuzzy tests. For debug purpose.
                 if (!tmp_res.column.get()) {
-                    return Status::RuntimeError(fmt::format(
+                    return Status::RuntimeError(
                             "Couldn't convert {} to {} in prepare_remove_nullable wrapper.",
                             block.get_by_position(arguments[0]).type->get_name(),
-                            nested_type->get_name()));
+                            nested_type->get_name());
                 }
 
                 res.column = wrap_in_nullable(tmp_res.column,
@@ -1265,7 +1260,7 @@ private:
 
                     if (!memory_is_zero(null_map.data(), null_map.size())) {
                         return Status::RuntimeError(
-                                fmt::format("Cannot convert NULL value to non-Nullable type"));
+                                "Cannot convert NULL value to non-Nullable type");
                     }
                 }
 

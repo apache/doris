@@ -120,8 +120,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         return Status::NotSupported("Parquet Writer is not supported yet!");
         break;
     default:
-        return Status::InternalError(
-                strings::Substitute("unsupported file format: $0", _file_opts->file_format));
+        return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
               << ". query id: " << print_id(_state->query_id())
@@ -466,9 +465,9 @@ Status VFileResultWriter::_fill_result_block() {
             break;
         }
         default:
-            return Status::InternalError(strings::Substitute(
-                    "Invalid type to print: $0",
-                    _output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type));
+            return Status::InternalError(
+                    "Invalid type to print: {}",
+                    _output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type);
         }
     }
     return Status::OK();
