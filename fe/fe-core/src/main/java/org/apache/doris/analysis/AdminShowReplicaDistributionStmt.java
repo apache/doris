@@ -20,16 +20,15 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 // admin show replica distribution from tbl [partition(p1, p2, ...)]
@@ -55,17 +54,8 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        String dbName = null;
-        if (Strings.isNullOrEmpty(tblRef.getName().getDb())) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), tblRef.getName().getDb());
-        }
-
-        tblRef.getName().setDb(dbName);
+        tblRef.getName().analyze(analyzer);
+        Util.prohibitExternalCatalog(tblRef.getName().getCtl(), this.getClass().getSimpleName());
     }
 
     public String getDbName() {

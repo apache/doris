@@ -47,6 +47,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.DataSourceMgr;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -90,6 +91,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 
 public class PartitionCacheTest {
     private static final Logger LOG = LogManager.getLogger(PartitionCacheTest.class);
@@ -191,6 +193,23 @@ public class PartitionCacheTest {
             }
         };
 
+        DataSourceMgr dsMgr = new DataSourceMgr();
+        new Expectations(dsMgr) {
+            {
+                dsMgr.getCatalog((String) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrException((String) any, (Function) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrAnalysisException((String) any);
+                minTimes = 0;
+                result = ds;
+            }
+        };
+
         new Expectations(catalog) {
             {
                 catalog.getAuth();
@@ -204,6 +223,10 @@ public class PartitionCacheTest {
                 catalog.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
+
+                catalog.getDataSourceMgr();
+                minTimes = 0;
+                result = dsMgr;
             }
         };
         FunctionSet fs = new FunctionSet();
@@ -1067,8 +1090,8 @@ public class PartitionCacheTest {
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view1`.`eventdate` AS `eventdate`, `testDb`.`view1`."
-                + "`count(`userid`)` AS `count(``userid``)` FROM `testDb`.`view1`|select eventdate, COUNT(userid) "
+        Assert.assertEquals(cacheKey, "SELECT `testCluster:testDb`.`view1`.`eventdate` AS `eventdate`, `testCluster:testDb`.`view1`."
+                + "`count(`userid`)` AS `count(``userid``)` FROM `testCluster:testDb`.`view1`|select eventdate, COUNT(userid) "
                 + "FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate");
     }
 
@@ -1094,7 +1117,7 @@ public class PartitionCacheTest {
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Assert.assertEquals(cacheKey, "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`userid` AS "
                 + "`userid` FROM (SELECT `view2`.`eventdate` AS `eventdate`, `view2`.`userid` AS `userid` FROM "
-                + "`testDb`.`view2` view2 WHERE `view2`.`eventdate` >= '2020-01-12 00:00:00' AND `view2`.`eventdate`"
+                + "`testCluster:testDb`.`view2` view2 WHERE `view2`.`eventdate` >= '2020-01-12 00:00:00' AND `view2`.`eventdate`"
                 + " <= '2020-01-14 00:00:00') origin|select eventdate, userid FROM appevent");
     }
 
@@ -1114,9 +1137,9 @@ public class PartitionCacheTest {
 
             cache.rewriteSelectStmt(null);
             Assert.assertEquals(cache.getNokeyStmt().getWhereClause(), null);
-            Assert.assertEquals(cache.getSqlWithViewStmt(), "SELECT `testDb`.`view3`.`eventdate` AS "
-                    + "`eventdate`, `testDb`.`view3`.`count(`userid`)` AS `count(``userid``)` FROM "
-                    + "`testDb`.`view3`|select eventdate, COUNT(userid) FROM appevent WHERE eventdate>="
+            Assert.assertEquals(cache.getSqlWithViewStmt(), "SELECT `testCluster:testDb`.`view3`.`eventdate` AS "
+                    + "`eventdate`, `testCluster:testDb`.`view3`.`count(`userid`)` AS `count(``userid``)` FROM "
+                    + "`testCluster:testDb`.`view3`|select eventdate, COUNT(userid) FROM appevent WHERE eventdate>="
                     + "\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate");
         } catch (Exception e) {
             LOG.warn("ex={}", e);
@@ -1170,8 +1193,8 @@ public class PartitionCacheTest {
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view4`.`eventdate` AS `eventdate`, "
-                + "`testDb`.`view4`.`count(`userid`)` AS `count(``userid``)` FROM `testDb`.`view4`|select "
+        Assert.assertEquals(cacheKey, "SELECT `testCluster:testDb`.`view4`.`eventdate` AS `eventdate`, "
+                + "`testCluster:testDb`.`view4`.`count(`userid`)` AS `count(``userid``)` FROM `testCluster:testDb`.`view4`|select "
                 + "eventdate, COUNT(userid) FROM view2 WHERE eventdate>=\"2020-01-12\" and "
                 + "eventdate<=\"2020-01-14\" GROUP BY eventdate|select eventdate, userid FROM appevent");
     }

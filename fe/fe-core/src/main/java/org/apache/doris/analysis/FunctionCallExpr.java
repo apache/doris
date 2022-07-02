@@ -936,7 +936,8 @@ public class FunctionCallExpr extends Expr {
                                 .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
-                        DatabaseIf db = Catalog.getCurrentCatalog().getCurrentDataSource().getDbNullable(dbName);
+                        // TODO(gaoxin): ExternalDatabase not implement udf yet.
+                        DatabaseIf db = Catalog.getCurrentCatalog().getInternalDataSource().getDbNullable(dbName);
                         if (db != null && (db instanceof Database)) {
                             Function searchDesc =
                                     new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);

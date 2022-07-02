@@ -19,13 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -36,11 +36,13 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
@@ -48,8 +50,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class DescribeStmt extends ShowStmt {
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
@@ -75,6 +79,17 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("Table", ScalarType.createVarchar(30)))
                     .build();
 
+    // The same columns in IndexSchemaProcNode.TITLE_NAMES
+    private static final ShowResultSetMetaData HMS_EXTERNAL_TABLE_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
+                    .build();
+
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
     private static final List<String> EMPTY_ROW = initEmptyRow();
 
@@ -85,6 +100,8 @@ public class DescribeStmt extends ShowStmt {
 
     private boolean isAllTables;
     private boolean isOlapTable;
+
+    private List<List<String>> hmsSchema = null;
 
     public DescribeStmt(TableName dbTableName, boolean isAllTables) {
         this.dbTableName = dbTableName;
@@ -108,26 +125,39 @@ public class DescribeStmt extends ShowStmt {
                                                 dbTableName.toString());
         }
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbTableName.getDb());
-        Table table = db.getTableOrAnalysisException(dbTableName.getTbl());
+        DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr()
+                .getCatalogOrAnalysisException(dbTableName.getCtl()).getDbOrAnalysisException(dbTableName.getDb());
+        TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();
         try {
             if (!isAllTables) {
-                // show base table schema only
-                String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                        + "/";
-                if (table.getType() == TableType.OLAP) {
-                    procString += ((OlapTable) table).getBaseIndexId();
+                if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
+                    hmsSchema = table.getFullSchema().stream().map(col -> Arrays.asList(
+                                    col.getName(),
+                                    col.getType().toSql().toUpperCase(Locale.ROOT),
+                                    Boolean.toString(col.isAllowNull()),
+                                    Boolean.toString(col.isKey()),
+                                    Strings.nullToEmpty(col.getDefaultValue()),
+                                    "" /* no extra field */))
+                            .collect(Collectors.toList());
                 } else {
-                    procString += table.getId();
-                }
+                    // show base table schema only
+                    String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
+                            + "/";
+                    if (table.getType() == TableType.OLAP) {
+                        procString += ((OlapTable) table).getBaseIndexId();
+                    } else {
+                        procString += table.getId();
+                    }
 
-                node = ProcService.getInstance().open(procString);
-                if (node == null) {
-                    throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
+                    node = ProcService.getInstance().open(procString);
+                    if (node == null) {
+                        throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
+                    }
                 }
             } else {
+                Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
                 if (table.getType() == TableType.OLAP) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;
@@ -231,6 +261,9 @@ public class DescribeStmt extends ShowStmt {
         if (isAllTables) {
             return totalRows;
         } else {
+            if (hmsSchema != null) {
+                return hmsSchema;
+            }
             Preconditions.checkNotNull(node);
             return node.fetchResult().getRows();
         }
@@ -239,6 +272,9 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         if (!isAllTables) {
+            if (hmsSchema != null) {
+                return HMS_EXTERNAL_TABLE_META_DATA;
+            }
             ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
             ProcResult result = null;

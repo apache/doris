@@ -151,6 +151,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -413,7 +414,8 @@ public class ShowExecutor {
     // Handle show functions
     private void handleShowFunctions() throws AnalysisException {
         ShowFunctionsStmt showStmt = (ShowFunctionsStmt) stmt;
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
 
         List<List<String>> resultRowSet = Lists.newArrayList();
         if (db instanceof Database) {
@@ -460,8 +462,8 @@ public class ShowExecutor {
     // Handle show create function
     private void handleShowCreateFunction() throws AnalysisException {
         ShowCreateFunctionStmt showCreateFunctionStmt = (ShowCreateFunctionStmt) stmt;
-        DatabaseIf db =
-                ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showCreateFunctionStmt.getDbName());
+        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showCreateFunctionStmt.getDbName());
         List<List<String>> resultRowSet = Lists.newArrayList();
         if (db instanceof Database) {
             Function function = ((Database) db).getFunction(showCreateFunctionStmt.getFunction());
@@ -476,7 +478,8 @@ public class ShowExecutor {
     // Handle show encryptkeys
     private void handleShowEncryptKeys() throws AnalysisException {
         ShowEncryptKeysStmt showStmt = (ShowEncryptKeysStmt) stmt;
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
         List<List<String>> resultRowSet = Lists.newArrayList();
         if (db instanceof Database) {
             List<EncryptKey> encryptKeys = ((Database) db).getEncryptKeys();
@@ -571,8 +574,7 @@ public class ShowExecutor {
         ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
         long dbId = showStmt.getDbId();
         List<List<String>> rows = Lists.newArrayList();
-        Catalog catalog = ctx.getCatalog();
-        DatabaseIf database = catalog.getCurrentDataSource().getDbNullable(dbId);
+        DatabaseIf database = ctx.getCurrentDataSource().getDbNullable(dbId);
         if (database != null) {
             List<String> row = new ArrayList<>();
             row.add(database.getFullName());
@@ -647,7 +649,8 @@ public class ShowExecutor {
     private void handleShowDb() throws AnalysisException {
         ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<String> dbNames = ctx.getCatalog().getInternalDataSource().getClusterDbNames(ctx.getClusterName());
+        // cluster feature is deprecated.
+        List<String> dbNames = ctx.getCurrentDataSource().getDbNames();
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),
@@ -682,8 +685,7 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         // TODO(gaoxin): Whether to support "show tables from `ctl.db`" syntax in show statement?
         String catalogName = ctx.getDefaultCatalog();
-        DatabaseIf<TableIf> db =
-                ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showTableStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getCurrentDataSource().getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
@@ -715,7 +717,7 @@ public class ShowExecutor {
     private void handleShowTableStatus() throws AnalysisException {
         ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getCatalog().getCurrentDataSource().getDbNullable(showStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getCurrentDataSource().getDbNullable(showStmt.getDb());
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
@@ -799,7 +801,7 @@ public class ShowExecutor {
     private void handleShowCreateDb() throws AnalysisException {
         ShowCreateDbStmt showStmt = (ShowCreateDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
         if (db.getDbProperties().getProperties().size() > 0) {
@@ -815,7 +817,7 @@ public class ShowExecutor {
     // Show create table
     private void handleShowCreateTable() throws AnalysisException {
         ShowCreateTableStmt showStmt = (ShowCreateTableStmt) stmt;
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
 
@@ -854,7 +856,7 @@ public class ShowExecutor {
     private void handleShowColumn() throws AnalysisException {
         ShowColumnStmt showStmt = (ShowColumnStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
@@ -906,7 +908,7 @@ public class ShowExecutor {
     private void handleShowIndex() throws AnalysisException {
         ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
 
         OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
         table.readLock();
@@ -1005,8 +1007,9 @@ public class ShowExecutor {
     private void handleShowLoad() throws AnalysisException {
         ShowLoadStmt showStmt = (ShowLoadStmt) stmt;
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        DatabaseIf db = catalog.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
+        Catalog catalog = ctx.getCatalog();
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
 
         // combine the List<LoadInfo> of load(v1) and loadManager(v2)
@@ -2125,7 +2128,7 @@ public class ShowExecutor {
     private void handleShowTableCreation() throws AnalysisException {
         ShowTableCreationStmt showStmt = (ShowTableCreationStmt) stmt;
         String dbName = showStmt.getDbName();
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(dbName);
 
         List<IcebergTableCreationRecord> records =
                 ctx.getCatalog().getIcebergTableCreationRecordMgr().getTableCreationRecordByDbId(db.getId());

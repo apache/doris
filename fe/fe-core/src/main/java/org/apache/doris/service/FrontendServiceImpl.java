@@ -204,7 +204,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        DatabaseIf<TableIf> db = Catalog.getCurrentCatalog().getCurrentDataSource().getDbNullable(params.db);
+        String catalog = Strings.isNullOrEmpty(params.catalog) ? InternalDataSource.INTERNAL_DS_NAME : params.catalog;
+        DatabaseIf<TableIf> db = Catalog.getCurrentCatalog().getDataSourceMgr()
+                .getCatalogOrException(catalog, ds -> new TException("Unknown catalog " + ds)).getDbNullable(params.db);
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);

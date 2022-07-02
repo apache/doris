@@ -67,7 +67,9 @@ public class VirtualSlotRefTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName("testdb", "t")));
+            TableName tableName = new TableName("testdb", "t");
+            tableName.analyze(analyzerBase);
+            td.setTable(analyzerBase.getTableOrAnalysisException(tableName));
             tupleByAlias.put("testdb.t", td);
             f.set(analyzer, tupleByAlias);
         } catch (NoSuchFieldException | IllegalAccessException e) {
