@@ -478,7 +478,11 @@ public class Catalog {
     }
 
     public DataSourceIf getCurrentDataSource() {
-        return ConnectContext.get().getCurrentDataSource();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return dataSourceMgr.getInternalDataSource();
+        }
+        return ctx.getCurrentDataSource();
     }
 
     public InternalDataSource getInternalDataSource() {
