@@ -95,6 +95,7 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
         _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
     }
+
     return Status::OK();
 }
 
@@ -368,6 +369,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         delete materialized_batch;
         return Status::OK();
     }
+
     // all scanner done, change *eos to true
     *eos = true;
     std::lock_guard<SpinLock> guard(_status_mutex);
@@ -1742,5 +1744,4 @@ Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
     _row_batch_added_cv.notify_one();
     return Status::OK();
 }
-
 } // namespace doris

@@ -146,8 +146,6 @@ protected:
     // according to the calling relationship
     void init_scan_profile();
 
-    void init_output_slots();
-
     bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
 
     template <typename T, typename ChangeFixedValueRangeFunc>
