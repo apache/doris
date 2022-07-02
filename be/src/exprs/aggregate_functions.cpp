@@ -499,14 +499,7 @@ void AggregateFunctions::maxminby_update(FunctionContext* ctx, const T& slot1, c
         DCHECK_EQ(sizeof(MaxMinByStateWithString<T, KT>), dst->len);
         auto max_by = reinterpret_cast<MaxMinByStateWithString<T, KT>*>(dst->ptr);
 
-        bool condition = false;
-        if constexpr (std::is_same_v<StringVal, KT>) {
-            condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
-        } else if constexpr (std::is_same_v<DateTimeVal, KT>) {
-            condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
-        } else {
-            condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
-        }
+        bool condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
         if (condition) {
             if constexpr (std::is_same_v<T, StringVal>) {
                 max_by->val1 = StringVal::copy_from(ctx, slot1.ptr, slot1.len);
@@ -526,12 +519,8 @@ void AggregateFunctions::maxminby_update(FunctionContext* ctx, const T& slot1, c
         DCHECK_EQ(sizeof(MaxMinByState<T, KT>), dst->len);
         auto max_by = reinterpret_cast<MaxMinByState<T, KT>*>(dst->ptr);
 
-        bool condition = false;
-        if constexpr (std::is_same_v<DateTimeVal, KT>) {
-            condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
-        } else {
-            condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
-        }
+        bool condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
+        ;
         if (condition) {
             max_by->val1 = slot1;
             max_by->val2 = slot2;
@@ -582,17 +571,8 @@ void AggregateFunctions::maxminby_merge(FunctionContext* ctx, const StringVal& s
         if (!src_state->flag) {
             return;
         }
-        bool condition = false;
-        if constexpr (std::is_same_v<DateTimeVal, KT>) {
-            condition = max_by2->flag == 0 ||
-                        maxminby_compare<KT, max_by_fn>(src_state->val2, max_by2->val2);
-        } else if constexpr (std::is_same_v<StringVal, KT>) {
-            condition = max_by2->flag == 0 ||
-                        maxminby_compare<KT, max_by_fn>(src_state->val2, max_by2->val2);
-        } else {
-            condition = max_by2->flag == 0 ||
-                        maxminby_compare<KT, max_by_fn>(src_state->val2, max_by2->val2);
-        }
+        bool condition = max_by2->flag == 0 ||
+                         maxminby_compare<KT, max_by_fn>(src_state->val2, max_by2->val2);
         if (condition) {
             if constexpr (std::is_same_v<T, StringVal>) {
                 max_by2->val1 = StringVal::copy_from(ctx, src_state->val1.ptr, src_state->val1.len);
@@ -615,14 +595,9 @@ void AggregateFunctions::maxminby_merge(FunctionContext* ctx, const StringVal& s
         if (!max_by1->flag) {
             return;
         }
-        bool condition = false;
-        if constexpr (std::is_same_v<DateTimeVal, KT>) {
-            condition = max_by2->flag == 0 ||
-                        maxminby_compare<KT, max_by_fn>(max_by1->val2, max_by2->val2);
-        } else {
-            condition = max_by2->flag == 0 ||
-                        maxminby_compare<KT, max_by_fn>(max_by1->val2, max_by2->val2);
-        }
+        bool condition =
+                max_by2->flag == 0 || maxminby_compare<KT, max_by_fn>(max_by1->val2, max_by2->val2);
+        ;
         if (condition) {
             max_by2->val2 = max_by1->val2;
             max_by2->val1 = max_by1->val1;
