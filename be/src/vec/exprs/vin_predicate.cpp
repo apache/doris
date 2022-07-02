@@ -60,8 +60,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,
                                                                argument_template, _data_type);
     if (_function == nullptr) {
-        return Status::NotSupported(
-                fmt::format("Function {} is not implemented", real_function_name));
+        return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
 
     VExpr::register_function_context(state, context);

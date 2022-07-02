@@ -371,9 +371,9 @@ struct DateTimeAddIntervalImpl {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(null_map));
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of first argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), Transform::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        Transform::name);
         }
         return Status::OK();
     }
@@ -484,9 +484,9 @@ public:
             return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform>::execute(
                     block, arguments, result);
         } else {
-            return Status::RuntimeError(
-                    fmt::format("Illegal type {} of argument of function {}",
-                                block.get_by_position(arguments[0]).type->get_name(), get_name()));
+            return Status::RuntimeError("Illegal type {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).type->get_name(),
+                                        get_name());
         }
     }
 };

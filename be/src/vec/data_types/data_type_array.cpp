@@ -152,9 +152,9 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
             if (*rb.position() == ',') {
                 ++rb.position();
             } else {
-                return Status::InvalidArgument(fmt::format(
+                return Status::InvalidArgument(
                         "Cannot read array from text, expected comma or end of array, found '{}'",
-                        *rb.position()));
+                        *rb.position());
             }
         }
         first = false;

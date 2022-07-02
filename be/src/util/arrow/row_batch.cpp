@@ -87,8 +87,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::boolean();
         break;
     default:
-        return Status::InvalidArgument(
-                strings::Substitute("Unknown primitive type($0)", type.type));
+        return Status::InvalidArgument("Unknown primitive type({})", type.type);
     }
     return Status::OK();
 }
@@ -138,7 +137,7 @@ Status convert_to_doris_type(const arrow::DataType& type, TSlotDescriptorBuilder
         builder->type(TYPE_BOOLEAN);
         break;
     default:
-        return Status::InvalidArgument(strings::Substitute("Unknown arrow type id($0)", type.id()));
+        return Status::InvalidArgument("Unknown arrow type id({})", type.id());
     }
     return Status::OK();
 }
@@ -462,51 +461,40 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     int64_t capacity;
     arrow::Status a_st = arrow::ipc::GetRecordBatchSize(record_batch, &capacity);
     if (!a_st.ok()) {
-        std::stringstream msg;
-        msg << "GetRecordBatchSize failure, reason: " << a_st.ToString();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("GetRecordBatchSize failure, reason: {}", a_st.ToString());
     }
     auto sink_res = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool());
     if (!sink_res.ok()) {
-        std::stringstream msg;
-        msg << "create BufferOutputStream failure, reason: " << sink_res.status().ToString();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("create BufferOutputStream failure, reason: {}",
+                                     sink_res.status().ToString());
     }
     std::shared_ptr<arrow::io::BufferOutputStream> sink = sink_res.ValueOrDie();
     // create RecordBatch Writer
     auto res = arrow::ipc::MakeStreamWriter(sink.get(), record_batch.schema());
     if (!res.ok()) {
-        std::stringstream msg;
-        msg << "open RecordBatchStreamWriter failure, reason: " << res.status().ToString();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("open RecordBatchStreamWriter failure, reason: {}",
+                                     res.status().ToString());
     }
     // write RecordBatch to memory buffer outputstream
     std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer = res.ValueOrDie();
     a_st = record_batch_writer->WriteRecordBatch(record_batch);
     if (!a_st.ok()) {
-        std::stringstream msg;
-        msg << "write record batch failure, reason: " << a_st.ToString();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("write record batch failure, reason: {}", a_st.ToString());
     }
     a_st = record_batch_writer->Close();
     if (!a_st.ok()) {
-        std::stringstream msg;
-        msg << "Close failed, reason: " << a_st.ToString();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("Close failed, reason: {}", a_st.ToString());
     }
     auto finish_res = sink->Finish();
     if (!finish_res.ok()) {
-        std::stringstream msg;
-        msg << "allocate result buffer failure, reason: " << finish_res.status().ToString();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("allocate result buffer failure, reason: {}",
+                                     finish_res.status().ToString());
     }
     *result = finish_res.ValueOrDie()->ToString();
     // close the sink
     a_st = sink->Close();
     if (!a_st.ok()) {
-        std::stringstream msg;
-        msg << "Close failed, reason: " << a_st.ToString();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("Close failed, reason: {}", a_st.ToString());
     }
     return Status::OK();
 }
