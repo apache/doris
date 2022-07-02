@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TSlotDescriptor;
 
@@ -329,7 +328,6 @@ public class SlotDescriptor {
     }
 
     public boolean isScanSlot() {
-        Table table = (Table) parent.getTable();
-        return table instanceof OlapTable;
+        return parent.getTable() instanceof OlapTable;
     }
 }
