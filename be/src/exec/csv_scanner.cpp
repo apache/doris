@@ -68,7 +68,7 @@ Status CsvScanner::get_next_row(std::string* line_str, bool* eos) {
 
         _current_file = new std::ifstream(file_path, std::ifstream::in);
         if (!_current_file->is_open()) {
-            return Status::InternalError("Fail to read csv file: " + file_path);
+            return Status::InternalError("Fail to read csv file: {}", file_path);
         }
         ++_current_file_idx;
     }

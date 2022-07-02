@@ -42,9 +42,7 @@ Status Decompressor::create_decompressor(CompressType type, Decompressor** decom
         break;
 #endif
     default:
-        std::stringstream ss;
-        ss << "Unknown compress type: " << type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown compress type: {}", type);
     }
 
     Status st = Status::OK();
@@ -77,9 +75,7 @@ Status GzipDecompressor::init() {
     int window_bits = _is_deflate ? WINDOW_BITS : (WINDOW_BITS | DETECT_CODEC);
     int ret = inflateInit2(&_z_strm, window_bits);
     if (ret < 0) {
-        std::stringstream ss;
-        ss << "Failed to init inflate. status code: " << ret;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Failed to init inflate. status code: {}", ret);
     }
 
     return Status::OK();
@@ -123,14 +119,10 @@ Status GzipDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
             // reset _z_strm to continue decoding a subsequent gzip stream
             ret = inflateReset(&_z_strm);
             if (ret != Z_OK) {
-                std::stringstream ss;
-                ss << "Failed to inflateReset. return code: " << ret;
-                return Status::InternalError(ss.str());
+                return Status::InternalError("Failed to inflateReset. return code: {}", ret);
             }
         } else if (ret != Z_OK) {
-            std::stringstream ss;
-            ss << "Failed to inflate. return code: " << ret;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Failed to inflate. return code: {}", ret);
         } else {
             // here ret must be Z_OK.
             // we continue if avail_out and avail_in > 0.
@@ -157,9 +149,7 @@ Status Bzip2Decompressor::init() {
     bzero(&_bz_strm, sizeof(_bz_strm));
     int ret = BZ2_bzDecompressInit(&_bz_strm, 0, 0);
     if (ret != BZ_OK) {
-        std::stringstream ss;
-        ss << "Failed to init bz2. status code: " << ret;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Failed to init bz2. status code: {}", ret);
     }
 
     return Status::OK();
@@ -185,28 +175,22 @@ Status Bzip2Decompressor::decompress(uint8_t* input, size_t input_len, size_t* i
         if (ret == BZ_DATA_ERROR || ret == BZ_DATA_ERROR_MAGIC) {
             LOG(INFO) << "input_bytes_read: " << *input_bytes_read
                       << " decompressed_len: " << *decompressed_len;
-            std::stringstream ss;
-            ss << "Failed to bz2 decompress. status code: " << ret;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Failed to bz2 decompress. status code: {}", ret);
         } else if (ret == BZ_STREAM_END) {
             *stream_end = true;
             ret = BZ2_bzDecompressEnd(&_bz_strm);
             if (ret != BZ_OK) {
-                std::stringstream ss;
-                ss << "Failed to end bz2 after meet BZ_STREAM_END. status code: " << ret;
-                return Status::InternalError(ss.str());
+                return Status::InternalError(
+                        "Failed to end bz2 after meet BZ_STREAM_END. status code: {}", ret);
             }
 
             ret = BZ2_bzDecompressInit(&_bz_strm, 0, 0);
             if (ret != BZ_OK) {
-                std::stringstream ss;
-                ss << "Failed to init bz2 after meet BZ_STREAM_END. status code: " << ret;
-                return Status::InternalError(ss.str());
+                return Status::InternalError(
+                        "Failed to init bz2 after meet BZ_STREAM_END. status code: {}", ret);
             }
         } else if (ret != BZ_OK) {
-            std::stringstream ss;
-            ss << "Failed to bz2 decompress. status code: " << ret;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Failed to bz2 decompress. status code: {}", ret);
         } else {
             // continue
         }
@@ -260,26 +244,24 @@ Status Lz4FrameDecompressor::decompress(uint8_t* input, size_t input_len, size_t
         //       where lz4 header section is there.
 
         if (input_len < 15) {
-            std::stringstream ss;
-            ss << "Lz4 header size is between 7 and 15 bytes. "
-               << "but input size is only: " << input_len;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "Lz4 header size is between 7 and 15 bytes. "
+                    "but input size is only: {}",
+                    input_len);
         }
 
         LZ4F_frameInfo_t info;
         ret = LZ4F_getFrameInfo(_dctx, &info, (void*)src, &src_size);
         if (LZ4F_isError(ret)) {
-            std::stringstream ss;
-            ss << "LZ4F_getFrameInfo error: " << std::string(LZ4F_getErrorName(ret));
-            return Status::InternalError(ss.str());
+            return Status::InternalError("LZ4F_getFrameInfo error: {}",
+                                         std::string(LZ4F_getErrorName(ret)));
         }
 
         _expect_dec_buf_size = get_block_size(&info);
         if (_expect_dec_buf_size == -1) {
-            std::stringstream ss;
-            ss << "Impossible lz4 block size unless more block sizes are allowed"
-               << std::string(LZ4F_getErrorName(ret));
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "Impossible lz4 block size unless more block sizes are allowed {}",
+                    std::string(LZ4F_getErrorName(ret)));
         }
 
         *input_bytes_read = src_size;
@@ -295,9 +277,8 @@ Status Lz4FrameDecompressor::decompress(uint8_t* input, size_t input_len, size_t
     ret = LZ4F_decompress(_dctx, (void*)output, &output_len, (void*)src, &src_size,
                           /* LZ4F_decompressOptions_t */ nullptr);
     if (LZ4F_isError(ret)) {
-        std::stringstream ss;
-        ss << "Decompression error: " << std::string(LZ4F_getErrorName(ret));
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Decompression error: {}",
+                                     std::string(LZ4F_getErrorName(ret)));
     }
 
     // update

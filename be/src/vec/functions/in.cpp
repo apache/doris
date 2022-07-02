@@ -92,8 +92,8 @@ public:
         auto in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
-            return Status::RuntimeError(
-                    fmt::format("funciton context for function '{}' must have Set;", get_name()));
+            return Status::RuntimeError("funciton context for function '{}' must have Set;",
+                                        get_name());
         }
         auto res = ColumnUInt8::create();
         ColumnUInt8::Container& vec_res = res->get_data();

@@ -52,7 +52,7 @@ S3Reader::~S3Reader() {}
 Status S3Reader::open() {
     CHECK_S3_CLIENT(_client);
     if (!_uri.parse()) {
-        return Status::InvalidArgument("s3 uri is invalid: " + _path);
+        return Status::InvalidArgument("s3 uri is invalid: {}", _path);
     }
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(_uri.get_bucket()).WithKey(_uri.get_key());
@@ -61,12 +61,11 @@ Status S3Reader::open() {
         _file_size = response.GetResult().GetContentLength();
         return Status::OK();
     } else if (response.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return Status::NotFound(_path + " not exists!");
+        return Status::NotFound("{} not exists!", _path);
     } else {
-        std::stringstream out;
-        out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
-        return Status::InternalError(out.str());
+        return Status::InternalError("Error: [{}:{}] at {}", response.GetError().GetExceptionName(),
+                                     response.GetError().GetMessage(),
+                                     BackendOptions::get_localhost());
     }
 }
 

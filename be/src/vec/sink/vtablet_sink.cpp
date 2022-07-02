@@ -146,7 +146,7 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. " + _cancel_msg);
+            return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
             return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
         }

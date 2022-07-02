@@ -79,9 +79,8 @@ Status VArrowScanner::_open_next_reader() {
             continue;
         } else {
             if (!status.ok()) {
-                std::stringstream ss;
-                ss << " file: " << range.path << " error:" << status.get_error_msg();
-                return Status::InternalError(ss.str());
+                return Status::InternalError(" file: {} error:{}", range.path,
+                                             status.get_error_msg());
             } else {
                 return status;
             }

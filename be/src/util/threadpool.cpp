@@ -371,10 +371,10 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     int64_t capacity_remaining = static_cast<int64_t>(_max_threads) - _active_threads +
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
-        return Status::ServiceUnavailable(strings::Substitute(
-                "Thread pool is at capacity ($0/$1 tasks running, $2/$3 tasks queued)",
+        return Status::ServiceUnavailable(
+                "Thread pool is at capacity ({}/{} tasks running, {}/{} tasks queued)",
                 _num_threads + _num_threads_pending_start, _max_threads, _total_queued_tasks,
-                _max_queue_size));
+                _max_queue_size);
     }
 
     // Should we create another thread?

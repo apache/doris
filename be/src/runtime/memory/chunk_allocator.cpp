@@ -191,8 +191,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
     if (chunk->data == nullptr) {
         // allocate fails, return this part of the memory to the parameter tracker.
         reset_tracker->transfer_to(_mem_tracker.get(), size);
-        return Status::MemoryAllocFailed(
-                fmt::format("ChunkAllocator failed to allocate chunk {} bytes", size));
+        return Status::MemoryAllocFailed("ChunkAllocator failed to allocate chunk {} bytes", size);
     }
     return Status::OK();
 }

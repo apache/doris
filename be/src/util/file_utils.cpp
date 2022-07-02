@@ -167,15 +167,11 @@ Status FileUtils::split_paths(const char* path, std::vector<std::string>* path_v
     // Check if
     std::sort(path_vec->begin(), path_vec->end());
     if (std::unique(path_vec->begin(), path_vec->end()) != path_vec->end()) {
-        std::stringstream ss;
-        ss << "Same path in path.[path=" << path << "]";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Same path in path.[path={}]", path);
     }
 
     if (path_vec->size() == 0) {
-        std::stringstream ss;
-        ss << "Size of vector after split is zero.[path=" << path << "]";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Size of vector after split is zero.[path={}]", path);
     }
 
     return Status::OK();

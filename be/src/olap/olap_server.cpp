@@ -650,9 +650,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type) {
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
-        return Status::AlreadyExist(strings::Substitute(
-                "compaction task has already been submitted, tablet_id=$0, compaction_type=$1.",
-                tablet->tablet_id(), compaction_type));
+        return Status::AlreadyExist(
+                "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
+                tablet->tablet_id(), compaction_type);
     }
     int64_t permits = 0;
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
@@ -677,9 +677,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             tablet->reset_compaction(compaction_type);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             return Status::InternalError(
-                    strings::Substitute("failed to submit compaction task to thread pool, "
-                                        "tablet_id=$0, compaction_type=$1.",
-                                        tablet->tablet_id(), compaction_type));
+                    "failed to submit compaction task to thread pool, "
+                    "tablet_id={}, compaction_type={}.",
+                    tablet->tablet_id(), compaction_type);
         }
         return Status::OK();
     } else {
@@ -688,11 +688,11 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         if (!st.ok()) {
             return Status::InternalError(
-                    strings::Substitute("failed to prepare compaction task and calculate permits, "
-                                        "tablet_id=$0, compaction_type=$1, "
-                                        "permit=$2, current_permit=$3, status=$4",
-                                        tablet->tablet_id(), compaction_type, permits,
-                                        _permit_limiter.usage(), st.get_error_msg()));
+                    "failed to prepare compaction task and calculate permits, "
+                    "tablet_id={}, compaction_type={}, "
+                    "permit={}, current_permit={}, status={}",
+                    tablet->tablet_id(), compaction_type, permits, _permit_limiter.usage(),
+                    st.get_error_msg());
         }
         return st;
     }

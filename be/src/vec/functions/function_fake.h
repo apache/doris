@@ -50,7 +50,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return Status::NotSupported(fmt::format("Fake function {} do not support execute", name));
+        return Status::NotSupported("Fake function {} do not support execute", name);
     }
 };
 

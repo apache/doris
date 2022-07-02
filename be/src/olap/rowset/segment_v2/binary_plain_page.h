@@ -177,11 +177,10 @@ public:
         CHECK(!_parsed);
 
         if (_data.size < sizeof(uint32_t)) {
-            std::stringstream ss;
-            ss << "file corruption: not enough bytes for trailer in BinaryPlainPageDecoder ."
-                  "invalid data size:"
-               << _data.size << ", trailer size:" << sizeof(uint32_t);
-            return Status::Corruption(ss.str());
+            return Status::Corruption(
+                    "file corruption: not enough bytes for trailer in BinaryPlainPageDecoder ."
+                    "invalid data size:{}, trailer size:{}",
+                    _data.size, sizeof(uint32_t));
         }
 
         // Decode trailer
@@ -230,8 +229,7 @@ public:
         out = reinterpret_cast<Slice*>(dst->data());
         char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
         if (destination == nullptr) {
-            return Status::MemoryAllocFailed(
-                    strings::Substitute("memory allocate failed, size:$0", mem_size));
+            return Status::MemoryAllocFailed("memory allocate failed, size:{}", mem_size);
         }
         for (int i = 0; i < max_fetch; ++i) {
             out->relocate(destination);

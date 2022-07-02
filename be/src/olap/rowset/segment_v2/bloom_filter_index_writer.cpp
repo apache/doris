@@ -213,7 +213,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, type_info));
         break;
     default:
-        return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));
+        return Status::NotSupported("unsupported type for bitmap index: {}", std::to_string(type));
     }
     return Status::OK();
 }

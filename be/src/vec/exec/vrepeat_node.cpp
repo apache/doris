@@ -57,7 +57,10 @@ Status VRepeatNode::prepare(RuntimeState* state) {
        << " is not equal to the sum of child_slots_size " << _child_slots.size()
        << ",virtual_slots_size " << _virtual_tuple_desc->slots().size();
     if (_output_slots.size() != (_child_slots.size() + _virtual_tuple_desc->slots().size())) {
-        return Status::InternalError(ss.str());
+        return Status::InternalError(
+                "The output slots size {} is not equal to the sum of child_slots_size {}"
+                ",virtual_slots_size {}",
+                _output_slots.size(), _child_slots.size(), _virtual_tuple_desc->slots().size());
     }
 
     _child_block.reset(new Block());

@@ -91,9 +91,7 @@ public:
     // Otherwise, this should be a stream load task that needs to read the specified amount of data.
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, int64_t* length) override {
         if (_total_length < -1) {
-            std::stringstream ss;
-            ss << "invalid, _total_length is: " << _total_length;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("invalid, _total_length is: {}", _total_length);
         } else if (_total_length == 0) {
             // no data
             *length = 0;
@@ -123,7 +121,7 @@ public:
             }
             // cancelled
             if (_cancelled) {
-                return Status::InternalError("cancelled: " + _cancelled_reason);
+                return Status::InternalError("cancelled: {}", _cancelled_reason);
             }
             // finished
             if (_buf_queue.empty()) {
@@ -198,7 +196,7 @@ private:
         }
         // cancelled
         if (_cancelled) {
-            return Status::InternalError("cancelled: " + _cancelled_reason);
+            return Status::InternalError("cancelled: {}", _cancelled_reason);
         }
         // finished
         if (_buf_queue.empty()) {
@@ -238,7 +236,7 @@ private:
                 }
             }
             if (_cancelled) {
-                return Status::InternalError("cancelled: " + _cancelled_reason);
+                return Status::InternalError("cancelled: {}", _cancelled_reason);
             }
             _buf_queue.push_back(buf);
             if (_use_proto) {

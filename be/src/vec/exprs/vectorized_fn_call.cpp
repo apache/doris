@@ -58,8 +58,7 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                                                                    argument_template, _data_type);
     }
     if (_function == nullptr) {
-        return Status::InternalError(
-                fmt::format("Function {} is not implemented", _fn.name.function_name));
+        return Status::InternalError("Function {} is not implemented", _fn.name.function_name);
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);

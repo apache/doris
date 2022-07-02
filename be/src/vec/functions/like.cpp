@@ -155,7 +155,7 @@ Status FunctionLike::like_fn(LikeSearchState* state, const StringValue& val,
         *result = RE2::FullMatch(re2::StringPiece(val.ptr, val.len), re);
         return Status::OK();
     } else {
-        return Status::RuntimeError(fmt::format("Invalid pattern: {}", pattern.debug_string()));
+        return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
     }
 }
 
@@ -247,8 +247,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
             opts.set_dot_nl(true);
             state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
             if (!state->search_state.regex->ok()) {
-                return Status::InternalError(
-                        fmt::format("Invalid regex expression: {}", pattern_str));
+                return Status::InternalError("Invalid regex expression: {}", pattern_str);
             }
             state->function = constant_regex_full_fn;
         }
@@ -288,8 +287,7 @@ Status FunctionRegexp::prepare(FunctionContext* context,
             opts.set_dot_nl(true);
             state->search_state.regex = std::make_unique<RE2>(pattern_str, opts);
             if (!state->search_state.regex->ok()) {
-                return Status::InternalError(
-                        fmt::format("Invalid regex expression: {}", pattern_str));
+                return Status::InternalError("Invalid regex expression: {}", pattern_str);
             }
             state->function = constant_regex_partial_fn;
         }
@@ -315,7 +313,7 @@ Status FunctionRegexp::regexp_fn(LikeSearchState* state, const StringValue& val,
         *result = RE2::PartialMatch(re2::StringPiece(val.ptr, val.len), re);
         return Status::OK();
     } else {
-        return Status::RuntimeError(fmt::format("Invalid pattern: {}", pattern.debug_string()));
+        return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
     }
 }
 

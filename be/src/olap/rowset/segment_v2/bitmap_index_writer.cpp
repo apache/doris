@@ -233,7 +233,7 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_BOOL>(type_info));
         break;
     default:
-        return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));
+        return Status::NotSupported("unsupported type for bitmap index: {}", std::to_string(type));
     }
     return Status::OK();
 }

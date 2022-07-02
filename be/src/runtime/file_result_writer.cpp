@@ -120,8 +120,7 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
                                                    _output_object_data);
         break;
     default:
-        return Status::InternalError(
-                strings::Substitute("unsupported file format: $0", _file_opts->file_format));
+        return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
               << ". query id: " << print_id(_state->query_id())
@@ -143,8 +142,8 @@ Status FileResultWriter::_get_next_file_name(std::string* file_name) {
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
         if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name +
-                                         ". Host: " + BackendOptions::get_localhost());
+            return Status::InternalError("File already exists: {}. Host: {}", *file_name,
+                                         BackendOptions::get_localhost());
         }
     }
 

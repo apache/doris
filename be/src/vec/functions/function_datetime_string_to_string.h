@@ -78,9 +78,8 @@ public:
                             col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
                 } else {
                     return Status::InternalError(
-                            "Illegal column " +
-                            block.get_by_position(arguments[1]).column->get_name() +
-                            " is not const" + name);
+                            "Illegal column {} is not const {}",
+                            block.get_by_position(arguments[1]).column->get_name(), name);
                 }
             } else {
                 TransformerToStringTwoArgument<Transform>::vector_constant(
@@ -97,9 +96,9 @@ public:
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
         } else {
-            return Status::InternalError("Illegal column " +
-                                         block.get_by_position(arguments[0]).column->get_name() +
-                                         " of first argument of function " + name);
+            return Status::InternalError("Illegal column {} of first argument of function {}",
+                                         block.get_by_position(arguments[0]).column->get_name(),
+                                         name);
         }
         return Status::OK();
     }

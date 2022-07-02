@@ -48,9 +48,7 @@ BufferedReader::~BufferedReader() {
 
 Status BufferedReader::open() {
     if (!_reader) {
-        std::stringstream ss;
-        ss << "Open buffered reader failed, reader is null";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Open buffered reader failed, reader is null");
     }
 
     // the macro ADD_XXX is idempotent.

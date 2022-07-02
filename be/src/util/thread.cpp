@@ -361,7 +361,7 @@ Status Thread::start_thread(const std::string& category, const std::string& name
 
     int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
     if (ret) {
-        return Status::RuntimeError("Could not create thread", ret, strerror(ret));
+        return Status::RuntimeError("Could not create thread. (error {}) {}", ret, strerror(ret));
     }
 
     // The thread has been created and is now joinable.
@@ -457,7 +457,8 @@ ThreadJoiner& ThreadJoiner::give_up_after_ms(int ms) {
 
 Status ThreadJoiner::join() {
     if (Thread::current_thread() && Thread::current_thread()->tid() == _thread->tid()) {
-        return Status::InvalidArgument("Can't join on own thread", -1, _thread->_name);
+        return Status::InvalidArgument("Can't join on own thread. (error {}) {}", -1,
+                                       _thread->_name);
     }
 
     // Early exit: double join is a no-op.
@@ -500,8 +501,7 @@ Status ThreadJoiner::join() {
         }
         waited_ms += wait_for;
     }
-    return Status::Aborted(
-            strings::Substitute("Timed out after $0ms joining on $1", waited_ms, _thread->_name));
+    return Status::Aborted("Timed out after {}ms joining on {}", waited_ms, _thread->_name);
 }
 
 void register_thread_display_page(WebPageHandler* web_page_handler) {

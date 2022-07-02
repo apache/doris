@@ -58,7 +58,7 @@ Status ZlibResultToStatus(int rc) {
     case Z_VERSION_ERROR:
         return Status::RuntimeError("zlib error: VERSION_ERROR");
     default:
-        return Status::RuntimeError(strings::Substitute("zlib error: unknown error $0", rc));
+        return Status::RuntimeError("zlib error: unknown error {}", rc);
     }
 }
 } // anonymous namespace

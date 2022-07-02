@@ -87,9 +87,8 @@ Status VAssertNumRowsNode::get_next(RuntimeState* state, Block* block, bool* eos
         };
         LOG(INFO) << "Expected " << to_string_lambda(_assertion) << " " << _desired_num_rows
                   << " to be returned by expression " << _subquery_string;
-        return Status::Cancelled(strings::Substitute(
-                "Expected $0 $1 to be returned by expression $2", to_string_lambda(_assertion),
-                _desired_num_rows, _subquery_string));
+        return Status::Cancelled("Expected {} {} to be returned by expression {}",
+                                 to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();

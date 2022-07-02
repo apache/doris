@@ -55,7 +55,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     try {
         ctx->txn_id = std::stoull(req_txn_id);
     } catch (const std::exception& e) {
-        status = Status::InternalError("convert txn_id [" + req_txn_id + "] failed");
+        status = Status::InternalError("convert txn_id [{}] failed", req_txn_id);
         status_result = status.to_json();
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         return;

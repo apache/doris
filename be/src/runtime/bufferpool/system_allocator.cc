@@ -128,9 +128,8 @@ Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
     if (rc == 0 && *buffer_mem == nullptr && len != 0) rc = ENOMEM;
 #endif
     if (rc != 0) {
-        std::stringstream ss;
-        ss << "posix_memalign() failed to allocate buffer: " << get_str_err_msg();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("posix_memalign() failed to allocate buffer: {}",
+                                     get_str_err_msg());
     }
     if (use_huge_pages) {
 #ifdef MADV_HUGEPAGE

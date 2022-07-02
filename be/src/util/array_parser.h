@@ -229,8 +229,8 @@ private:
             break;
         }
         default:
-            return Status::RuntimeError("Failed to parse json to type (" +
-                                        std::to_string(type_desc.type) + ").");
+            return Status::RuntimeError("Failed to parse json to type ({}).",
+                                        std::to_string(type_desc.type));
         }
         return Status::OK();
     }

@@ -86,9 +86,9 @@ private:
             }
         }
 
-        return Status::RuntimeError(
-                fmt::format("Illegal column {} of argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(), get_name()));
+        return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                    block.get_by_position(arguments[0]).column->get_name(),
+                                    get_name());
     }
     template <typename T, std::enable_if_t<!std::is_same_v<T, DataTypeString>, T>* = nullptr>
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
@@ -119,9 +119,9 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(
-                fmt::format("Illegal column {} of argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(), get_name()));
+        return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                    block.get_by_position(arguments[0]).column->get_name(),
+                                    get_name());
     }
 };
 
@@ -177,7 +177,7 @@ public:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
@@ -240,7 +240,7 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 
     template <typename ReturnDataType,
@@ -262,7 +262,7 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
@@ -333,7 +333,7 @@ public:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
@@ -434,9 +434,9 @@ public:
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), get_name()));
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
         }
         return Status::OK();
     }

@@ -394,7 +394,7 @@ Status type_check(PrimitiveType type) {
     case TYPE_ARRAY:
         break;
     default:
-        return Status::InvalidArgument(fmt::format("Type not implemented: {}", type));
+        return Status::InvalidArgument("Type not implemented: {}", type);
     }
     return Status::OK();
 }

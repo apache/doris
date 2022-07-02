@@ -77,20 +77,19 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     // file_id.md5
     std::vector<std::string> parts = strings::Split(file_name, ".");
     if (parts.size() != 2) {
-        return Status::InternalError("Not a valid file name: " + file_name);
+        return Status::InternalError("Not a valid file name: {}", file_name);
     }
     int64_t file_id = std::stol(parts[0]);
     std::string md5 = parts[1];
 
     if (_file_cache.find(file_id) != _file_cache.end()) {
-        return Status::InternalError(
-                fmt::format("File with same id is already been loaded: {}", file_id));
+        return Status::InternalError("File with same id is already been loaded: {}", file_id);
     }
 
     std::string file_md5;
     RETURN_IF_ERROR(FileUtils::md5sum(path + "/" + file_name, &file_md5));
     if (file_md5 != md5) {
-        return Status::InternalError("Invalid md5 of file: " + file_name);
+        return Status::InternalError("Invalid md5 of file: {}", file_name);
     }
 
     CacheEntry entry;
@@ -112,9 +111,8 @@ Status SmallFileMgr::get_file(int64_t file_id, const std::string& md5, std::stri
         if (!st.ok()) {
             // check file failed, we should remove this cache and download it from FE again
             if (remove(entry.path.c_str()) != 0) {
-                std::stringstream ss;
-                ss << "failed to remove file: " << file_id << ", err: " << std::strerror(errno);
-                return Status::InternalError(ss.str());
+                return Status::InternalError("failed to remove file: {}, err: {}", file_id,
+                                             std::strerror(errno));
             }
             _file_cache.erase(it);
         } else {

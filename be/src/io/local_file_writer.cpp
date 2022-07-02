@@ -35,19 +35,16 @@ Status LocalFileWriter::open() {
 
     _fp = fopen(_path.c_str(), "w+");
     if (_fp == nullptr) {
-        std::stringstream ss;
-        ss << "Open file failed. path=" << _path << ", errno= " << errno
-           << ", description=" << get_str_err_msg();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Open file failed. path={}, errno= {}, description={}", _path,
+                                     errno, get_str_err_msg());
     }
 
     if (_start_offset != 0) {
         int success = fseek(_fp, _start_offset, SEEK_SET);
         if (success != 0) {
-            std::stringstream ss;
-            ss << "Seek to start_offset failed. offset=" << _start_offset << ", errno= " << errno
-               << ", description=" << get_str_err_msg();
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "Seek to start_offset failed. offset={}, errno= {}, description={}",
+                    _start_offset, errno, get_str_err_msg());
         }
     }
 
@@ -57,11 +54,9 @@ Status LocalFileWriter::open() {
 Status LocalFileWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len) {
     size_t bytes_written = fwrite(buf, 1, buf_len, _fp);
     if (bytes_written < buf_len) {
-        std::stringstream error_msg;
-        error_msg << "fail to write to file. "
-                  << " len=" << buf_len << ", path=" << _path << ", failed with errno=" << errno
-                  << ", description=" << get_str_err_msg();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError(
+                "fail to write to file. len={}, path={}, failed with errno={}, description={}",
+                buf_len, _path, errno, get_str_err_msg());
     }
 
     *written_len = bytes_written;
@@ -83,8 +78,8 @@ Status LocalFileWriter::_check_file_path(const std::string& file_path) {
     // Doris is not responsible for ensuring the correctness of the path.
     // This is just to prevent overwriting the existing file.
     if (FileUtils::check_exist(file_path)) {
-        return Status::InternalError("File already exists: " + file_path +
-                                     ". Host: " + BackendOptions::get_localhost());
+        return Status::InternalError("File already exists: {}. Host: {}", file_path,
+                                     BackendOptions::get_localhost());
     }
 
     return Status::OK();

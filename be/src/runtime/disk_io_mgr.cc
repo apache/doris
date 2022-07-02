@@ -649,10 +649,8 @@ Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescripto
     *buffer = nullptr;
 
     if (range->len() > _max_buffer_size) {
-        stringstream error_msg;
-        error_msg << "Cannot perform sync read larger than " << _max_buffer_size << ". Request was "
-                  << range->len();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("Cannot perform sync read larger than {}. Request was {}",
+                                     _max_buffer_size, range->len());
     }
 
     vector<DiskIoMgr::ScanRange*> ranges;
@@ -1136,9 +1134,7 @@ void DiskIoMgr::write(RequestContext* writer_context, WriteRange* write_range) {
 
         int success = fclose(file_handle);
         if (ret_status.ok() && success != 0) {
-            stringstream error_msg;
-            error_msg << "fclose(" << write_range->_file << ") failed";
-            ret_status = Status::InternalError(error_msg.str());
+            ret_status = Status::InternalError("fclose({}) failed", write_range->_file);
         }
     }
 
@@ -1149,19 +1145,16 @@ Status DiskIoMgr::write_range_helper(FILE* file_handle, WriteRange* write_range)
     // Seek to the correct offset and perform the write.
     int success = fseek(file_handle, write_range->offset(), SEEK_SET);
     if (success != 0) {
-        stringstream error_msg;
-        error_msg << "fseek(" << write_range->_file << ", " << write_range->offset()
-                  << " SEEK_SET) failed with errno=" << errno
-                  << " description=" << get_str_err_msg();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("fseek({}, {} SEEK_SET) failed with errno={} description={}",
+                                     write_range->_file, write_range->offset(), errno,
+                                     get_str_err_msg());
     }
 
     int64_t bytes_written = fwrite(write_range->_data, 1, write_range->_len, file_handle);
     if (bytes_written < write_range->_len) {
-        stringstream error_msg;
-        error_msg << "fwrite(buffer, 1, " << write_range->_len << ", " << write_range->_file
-                  << ") failed with errno=" << errno << " description=" << get_str_err_msg();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError(
+                "fwrite(buffer, 1, {}, {}) failed with errno={} description={}", write_range->_len,
+                write_range->_file, errno, get_str_err_msg());
     }
 
     return Status::OK();

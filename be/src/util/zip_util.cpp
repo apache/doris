@@ -51,21 +51,20 @@ Status ZipFile::extract(const std::string& target_path, const std::string& dir_n
     // check zip file
     _zip_file = unzOpen64(_zip_path.c_str());
     if (_zip_file == nullptr) {
-        return Status::InvalidArgument("open zip file: " + _zip_path + " error");
+        return Status::InvalidArgument("open zip file: {} error", _zip_path);
     }
 
     unz_global_info64 global_info;
     int err = unzGetGlobalInfo64(_zip_file, &global_info);
 
     if (err != UNZ_OK) {
-        return Status::IOError(
-                strings::Substitute("read zip file info $0 error, code: $1", _zip_path, err));
+        return Status::IOError("read zip file info {} error, code: {}", _zip_path, err);
     }
 
     // 0.check target path
     std::string target = target_path + "/" + dir_name;
     if (FileUtils::check_exist(target)) {
-        return Status::AlreadyExist("path already exists: " + target);
+        return Status::AlreadyExist("path already exists: {}", target);
     }
 
     // 1.create temp directory
@@ -97,7 +96,7 @@ Status ZipFile::extract_file(const std::string& target_path) {
                                       DEFAULT_FILE_NAME_SIZE, nullptr, 0, nullptr, 0);
 
     if (err != UNZ_OK) {
-        return Status::IOError(strings::Substitute("read zip file info error, code: $0", err));
+        return Status::IOError("read zip file info error, code: {}", err);
     }
 
     // is directory, mkdir
@@ -112,8 +111,7 @@ Status ZipFile::extract_file(const std::string& target_path) {
     _open_current_file = true;
 
     if (UNZ_OK != err) {
-        return Status::IOError(
-                strings::Substitute("read zip file $0 info error, code: $1", file_name, err));
+        return Status::IOError("read zip file {} info error, code: {}", file_name, err);
     }
 
     ZPOS64_T file_size = std::min(file_info_inzip.uncompressed_size, DEFAULT_UNZIP_BUFFER);
@@ -126,7 +124,7 @@ Status ZipFile::extract_file(const std::string& target_path) {
     do {
         size = unzReadCurrentFile(_zip_file, (voidp)file_data.get(), file_size);
         if (size < 0) {
-            return Status::IOError(strings::Substitute("unzip file $0 failed", file_name));
+            return Status::IOError("unzip file {} failed", file_name);
         }
 
         RETURN_IF_ERROR(wfile->append(Slice(file_data.get(), size)));

@@ -311,8 +311,8 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
     *compressed_size = pb_size;
     if (!allow_transfer_large_data && pb_size > std::numeric_limits<int32_t>::max()) {
         // the protobuf has a hard limit of 2GB for serialized data.
-        return Status::InternalError(fmt::format(
-                "The rowbatch is large than 2GB({}), can not send by Protobuf.", pb_size));
+        return Status::InternalError(
+                "The rowbatch is large than 2GB({}), can not send by Protobuf.", pb_size);
     }
     return Status::OK();
 }

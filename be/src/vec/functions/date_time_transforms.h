@@ -358,9 +358,9 @@ struct DateTimeTransformImpl {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of first argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), Transform::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        Transform::name);
         }
         return Status::OK();
     }

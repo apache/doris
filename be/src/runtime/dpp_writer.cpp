@@ -186,9 +186,7 @@ Status DppWriter::append_one_row(TupleRow* row) {
             // write len first
             uint16_t len = str_val->len;
             if (len != str_val->len) {
-                std::stringstream ss;
-                ss << "length of string is overflow.len=" << str_val->len;
-                return Status::InternalError(ss.str());
+                return Status::InternalError("length of string is overflow.len={}", str_val->len);
             }
             append_to_buf(&len, 2);
             // passing a nullptr pointer to memcpy may be core/

@@ -64,9 +64,7 @@ EsHttpScanner::~EsHttpScanner() {
 Status EsHttpScanner::open() {
     _tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown tuple descriptor, tuple_id=" << _tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown tuple descriptor, tuple_id={}", _tuple_id);
     }
 
     const std::string& host = _properties.at(ESScanReader::KEY_HOST_PORT);

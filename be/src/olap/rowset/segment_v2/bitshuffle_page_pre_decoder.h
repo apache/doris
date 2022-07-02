@@ -57,10 +57,9 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
                                                  num_element_after_padding, size_of_element));
 
         if (compressed_size != data.size) {
-            std::stringstream ss;
-            ss << "Size information unmatched, compressed_size:" << compressed_size
-               << ", num_elements:" << num_elements << ", data size:" << data.size;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "Size information unmatched, compressed_size:{}, num_elements:{}, data size:{}",
+                    compressed_size, num_elements, data.size);
         }
 
         Slice decoded_slice;

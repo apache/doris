@@ -46,10 +46,10 @@ namespace doris {
 #endif
 
 #ifndef CHECK_S3_PATH
-#define CHECK_S3_PATH(uri, path)                                      \
-    S3URI uri(path);                                                  \
-    if (!uri.parse()) {                                               \
-        return Status::InvalidArgument("s3 uri is invalid: " + path); \
+#define CHECK_S3_PATH(uri, path)                                       \
+    S3URI uri(path);                                                   \
+    if (!uri.parse()) {                                                \
+        return Status::InvalidArgument("s3 uri is invalid: {}", path); \
     }
 #endif
 
@@ -83,10 +83,10 @@ Status S3StorageBackend::download(const std::string& remote, const std::string& 
             local_file << response.GetResult().GetBody().rdbuf();
         }
         if (!local_file.good()) {
-            return Status::InternalError("failed to write file: " + local);
+            return Status::InternalError("failed to write file: {}", local);
         }
     } else {
-        return Status::IOError("s3 download error: " + error_msg(response));
+        return Status::IOError("s3 download error: {}", error_msg(response));
     }
     return Status::OK();
 }
@@ -102,7 +102,7 @@ Status S3StorageBackend::direct_download(const std::string& remote, std::string*
         ss << response.GetResult().GetBody().rdbuf();
         *content = ss.str();
     } else {
-        return Status::IOError("s3 direct_download error: " + error_msg(response));
+        return Status::IOError("s3 direct_download error: {}", error_msg(response));
     }
     return Status::OK();
 }
@@ -119,7 +119,7 @@ Status S3StorageBackend::upload(const std::string& local, const std::string& rem
         request.SetBody(input_data);
     }
     if (!input_data->good()) {
-        return Status::InternalError("failed to read file: " + local);
+        return Status::InternalError("failed to read file: {}", local);
     }
     Aws::S3::Model::PutObjectOutcome response = _client->PutObject(request);
 
@@ -166,7 +166,7 @@ Status S3StorageBackend::list(const std::string& remote_path, bool contain_md5, 
         }
         return Status::OK();
     } else {
-        return Status::InternalError("list form s3 error: " + error_msg(response));
+        return Status::InternalError("list form s3 error: {}", error_msg(response));
     }
 }
 
@@ -276,7 +276,7 @@ Status S3StorageBackend::exist(const std::string& path) {
     if (response.IsSuccess()) {
         return Status::OK();
     } else if (response.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return Status::NotFound(path + " not exists!");
+        return Status::NotFound("{} not exists!", path);
     } else {
         return Status::InternalError(error_msg(response));
     }
@@ -288,7 +288,7 @@ Status S3StorageBackend::exist_dir(const std::string& path) {
     if (files.size() > 0) {
         return Status::OK();
     }
-    return Status::NotFound(path + " not exists!");
+    return Status::NotFound("{} not exists!", path);
 }
 
 Status S3StorageBackend::upload_with_checksum(const std::string& local, const std::string& remote,

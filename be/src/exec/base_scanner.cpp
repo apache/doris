@@ -100,9 +100,8 @@ Status BaseScanner::init_expr_ctxes() {
     const TupleDescriptor* src_tuple_desc =
             _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
     if (src_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown source tuple descriptor, tuple_id=" << _params.src_tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown source tuple descriptor, tuple_id={}",
+                                     _params.src_tuple_id);
     }
 
     std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
@@ -112,9 +111,7 @@ Status BaseScanner::init_expr_ctxes() {
     for (auto slot_id : _params.src_slot_ids) {
         auto it = src_slot_desc_map.find(slot_id);
         if (it == std::end(src_slot_desc_map)) {
-            std::stringstream ss;
-            ss << "Unknown source slot descriptor, slot_id=" << slot_id;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Unknown source slot descriptor, slot_id={}", slot_id);
         }
         _src_slot_descs.emplace_back(it->second);
     }
@@ -147,9 +144,8 @@ Status BaseScanner::init_expr_ctxes() {
     // Construct dest slots information
     _dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
     if (_dest_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown dest tuple descriptor, tuple_id=" << _params.dest_tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown dest tuple descriptor, tuple_id={}",
+                                     _params.dest_tuple_id);
     }
 
     bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
@@ -159,10 +155,8 @@ Status BaseScanner::init_expr_ctxes() {
         }
         auto it = _params.expr_of_dest_slot.find(slot_desc->id());
         if (it == std::end(_params.expr_of_dest_slot)) {
-            std::stringstream ss;
-            ss << "No expr for dest slot, id=" << slot_desc->id()
-               << ", name=" << slot_desc->col_name();
-            return Status::InternalError(ss.str());
+            return Status::InternalError("No expr for dest slot, id={}, name={}", slot_desc->id(),
+                                         slot_desc->col_name());
         }
 
         if (_state->enable_vectorized_exec()) {
@@ -186,9 +180,7 @@ Status BaseScanner::init_expr_ctxes() {
             } else {
                 auto _src_slot_it = src_slot_desc_map.find(it->second);
                 if (_src_slot_it == std::end(src_slot_desc_map)) {
-                    std::stringstream ss;
-                    ss << "No src slot " << it->second << " in src slot descs";
-                    return Status::InternalError(ss.str());
+                    return Status::InternalError("No src slot {} in src slot descs", it->second);
                 }
                 _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }

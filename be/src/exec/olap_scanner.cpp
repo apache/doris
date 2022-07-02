@@ -317,11 +317,9 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
                                                                  &tmp_object_pool, eof);
             if (!res.ok()) {
-                std::stringstream ss;
-                ss << "Internal Error: read storage fail. res=" << res
-                   << ", tablet=" << _tablet->full_name()
-                   << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str());
+                return Status::InternalError(
+                        "Internal Error: read storage fail. res={}, tablet={}, backend={}", res,
+                        _tablet->full_name(), BackendOptions::get_localhost());
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {

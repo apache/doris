@@ -123,8 +123,8 @@ inline Status request_embed_attachment(Params* brpc_request, const std::string& 
         LOG(WARNING) << "Try to alloc " << data_size
                      << " bytes for append data to attachment failed. "
                      << (p ? p.__cxa_exception_type()->name() : "null");
-        return Status::MemoryAllocFailed(
-                fmt::format("request embed attachment failed to memcpy {} bytes", data_size));
+        return Status::MemoryAllocFailed("request embed attachment failed to memcpy {} bytes",
+                                         data_size);
     }
     // step3: attachment add to closure.
     closure->cntl.request_attachment().swap(attachment);
@@ -174,8 +174,8 @@ inline Status attachment_extract_request(const Params* brpc_request, brpc::Contr
         LOG(WARNING) << "Try to alloc " << data_size
                      << " bytes for extract data from attachment failed. "
                      << (p ? p.__cxa_exception_type()->name() : "null");
-        return Status::MemoryAllocFailed(
-                fmt::format("attachment extract request failed to memcpy {} bytes", data_size));
+        return Status::MemoryAllocFailed("attachment extract request failed to memcpy {} bytes",
+                                         data_size);
     }
     return Status::OK();
 }

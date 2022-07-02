@@ -145,7 +145,7 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
 
     std::string canonical_file_path;
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
-                              Status::InternalError("file path is invalid: " + file_path),
+                              Status::InternalError("file path is invalid: {}", file_path),
                               "file path is invalid: " + file_path);
 
     for (auto& allow_path : _allow_paths) {
@@ -154,7 +154,7 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
         }
     }
 
-    return Status::InternalError("file path is not allowed: " + canonical_file_path);
+    return Status::InternalError("file path is not allowed: {}", canonical_file_path);
 }
 
 Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
@@ -162,14 +162,14 @@ Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
 
     std::string canonical_file_path;
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
-                              Status::InternalError("file path is invalid: " + file_path),
+                              Status::InternalError("file path is invalid: {}", file_path),
                               "file path is invalid: " + file_path);
 
     if (FileSystemUtil::contain_path(_error_log_root_dir, canonical_file_path)) {
         return Status::OK();
     }
 
-    return Status::InternalError("file path is not allowed: " + file_path);
+    return Status::InternalError("file path is not allowed: {}", file_path);
 }
 
 } // end namespace doris

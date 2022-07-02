@@ -199,8 +199,8 @@ Status RowBlockV2::_copy_data_to_column(int cid,
                 if (LIKELY(slice->size <= limit)) {
                     column_string->insert_data(slice->data, slice->size);
                 } else {
-                    return Status::NotSupported(fmt::format(
-                            "Not support string len over than {} in vec engine.", limit));
+                    return Status::NotSupported(
+                            "Not support string len over than {} in vec engine.", limit);
                 }
             } else {
                 column_string->insert_default();

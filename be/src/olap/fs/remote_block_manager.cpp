@@ -121,11 +121,11 @@ RemoteWritableBlock::RemoteWritableBlock(RemoteBlockManager* block_manager,
 RemoteWritableBlock::~RemoteWritableBlock() {}
 
 Status RemoteWritableBlock::close() {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 Status RemoteWritableBlock::abort() {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 BlockManager* RemoteWritableBlock::block_manager() const {
@@ -146,15 +146,15 @@ Status RemoteWritableBlock::append(const Slice& data) {
 }
 
 Status RemoteWritableBlock::appendv(const Slice* data, size_t data_cnt) {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 Status RemoteWritableBlock::flush_data_async() {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 Status RemoteWritableBlock::finalize() {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 size_t RemoteWritableBlock::bytes_appended() const {
@@ -166,7 +166,7 @@ WritableBlock::State RemoteWritableBlock::state() const {
 }
 
 Status RemoteWritableBlock::_close(SyncMode mode) {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 ////////////////////////////////////////////////////////////
@@ -227,7 +227,7 @@ RemoteReadableBlock::RemoteReadableBlock(
 RemoteReadableBlock::~RemoteReadableBlock() {}
 
 Status RemoteReadableBlock::close() {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 BlockManager* RemoteReadableBlock::block_manager() const {
@@ -244,7 +244,7 @@ const FilePathDesc& RemoteReadableBlock::path_desc() const {
 }
 
 Status RemoteReadableBlock::size(uint64_t* sz) const {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 Status RemoteReadableBlock::read(uint64_t offset, Slice result) const {
@@ -252,7 +252,7 @@ Status RemoteReadableBlock::read(uint64_t offset, Slice result) const {
 }
 
 Status RemoteReadableBlock::readv(uint64_t offset, const Slice* results, size_t res_cnt) const {
-    return Status::IOError("invalid function", 0, "");
+    return Status::IOError("invalid function");
 }
 
 } // namespace internal
@@ -275,9 +275,8 @@ Status RemoteBlockManager::open() {
 Status RemoteBlockManager::create_block(const CreateBlockOptions& opts,
                                         std::unique_ptr<WritableBlock>* block) {
     if (_opts.read_only) {
-        std::stringstream ss;
-        ss << "create_block failed. remote block is readonly: " << opts.path_desc.debug_string();
-        return Status::NotSupported(ss.str());
+        return Status::NotSupported("create_block failed. remote block is readonly: {}",
+                                    opts.path_desc.debug_string());
     }
 
     shared_ptr<WritableFile> local_writer;
