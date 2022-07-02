@@ -104,6 +104,20 @@ public:
 
     static StringVal percentile_approx_serialize(FunctionContext* ctx, const StringVal& state_sv);
 
+    template <typename T, typename KT>
+    static void maxminby_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+    template <typename T, typename KT, bool max_by_fn>
+    static void maxminby_update(doris_udf::FunctionContext* ctx, const T& slot1, const KT& slot2,
+                                doris_udf::StringVal* dst);
+    template <typename T, typename KT>
+    static StringVal maxminby_serialize(FunctionContext* ctx, const StringVal& src);
+    template <typename T, typename KT, bool max_by_fn>
+    static void maxminby_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    template <typename T, typename KT>
+    static T maxminby_get_value(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& val);
+    template <typename T, typename KT>
+    static T maxminby_finalize(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& val);
+
     // Implementation of Avg.
     // TODO: Change this to use a fixed-sized BufferVal as intermediate type.
     static void avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);

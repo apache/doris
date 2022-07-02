@@ -402,8 +402,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 .put(Type.DECIMALV2,
                         "16knuth_var_updateEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
                 .build();
-                
-                                                               
+
+
     private static final Map<Type, String> STDDEV_REMOVE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -420,7 +420,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         "16knuth_var_removeIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
                 .put(Type.DECIMALV2,
                         "16knuth_var_removeEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
-                .build();                
+                .build();
     private static final Map<Type, String> STDDEV_MERGE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -509,8 +509,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .put(Type.DECIMALV2,
                 "36decimalv2_knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build(); 
-                  
+                .build();
+
     private static final Map<Type, String> VAR_FINALIZE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -545,8 +545,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .put(Type.DECIMALV2,
                         "29decimalv2_knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build(); 
-               
+                .build();
+
     private static final Map<Type, String> VAR_POP_FINALIZE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -581,7 +581,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .put(Type.DECIMALV2,
                         "33decimalv2_knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();                
+                .build();
     public static final String HLL_HASH = "hll_hash";
     public static final String HLL_UNION = "hll_union";
 
@@ -1334,6 +1334,141 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "17count_star_removeEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 null, false, true, true, true));
 
+        Map<ScalarType, String> symbolsMap = new HashMap<>();
+        symbolsMap.put(Type.INT, "6IntVal");
+        symbolsMap.put(Type.BOOLEAN, "10BooleanVal");
+        symbolsMap.put(Type.FLOAT, "8FloatVal");
+        symbolsMap.put(Type.TINYINT, "10TinyIntVal");
+        symbolsMap.put(Type.SMALLINT, "11SmallIntVal");
+        symbolsMap.put(Type.LARGEINT, "11LargeIntVal");
+        symbolsMap.put(Type.BIGINT, "9BigIntVal");
+        symbolsMap.put(Type.DOUBLE, "9DoubleVal");
+        symbolsMap.put(Type.DECIMALV2, "12DecimalV2Val");
+        symbolsMap.put(Type.DATE, "11DateTimeVal");
+        symbolsMap.put(Type.DATETIME, "11DateTimeVal");
+        symbolsMap.put(Type.STRING, "9StringVal");
+        symbolsMap.put(Type.VARCHAR, "9StringVal");
+        symbolsMap.put(Type.CHAR, "9StringVal");
+        for (ScalarType type1: symbolsMap.keySet()) {
+            for (ScalarType type2: symbolsMap.keySet()) {
+                if (symbolsMap.get(type1).equals(symbolsMap.get(type2)) && !type1.isStringType()) {
+                    addBuiltin(AggregateFunction.createBuiltin("max_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ES3_EEvPNS2_15FunctionContextEPNS2_9StringValE",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb1EEEvPNS2_15FunctionContextERKT_RKT0_PNS2_9StringValE",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb1EEEvPNS2_15FunctionContextERKNS2_9StringValEPS6_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EENS2_9StringValEPNS2_15FunctionContextERKS4_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            false, true, false));
+                } else if (type1.isStringType() && !symbolsMap.get(type1).equals(symbolsMap.get(type2))) {
+                    addBuiltin(AggregateFunction.createBuiltin("max_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEEvPNS2_15FunctionContextEPS3_",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb1EEEvPNS2_15FunctionContextERKT_RKT0_PS3_",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb1EEEvPNS2_15FunctionContextERKS3_PS3_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEES3_PNS2_15FunctionContextERKS3_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS3_",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS3_",
+                            false, true, false));
+                } else if (type2.isStringType() && !symbolsMap.get(type1).equals(symbolsMap.get(type2))) {
+                    addBuiltin(AggregateFunction.createBuiltin("max_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEEvPNS2_15FunctionContextEPS4_",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb1EEEvPNS2_15FunctionContextERKT_RKT0_PS4_",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb1EEEvPNS2_15FunctionContextERKS4_PS4_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEES4_PNS2_15FunctionContextERKS4_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS4_",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS4_",
+                            false, true, false));
+                } else if (type1.isStringType() && symbolsMap.get(type1).equals(symbolsMap.get(type2))) {
+                    addBuiltin(AggregateFunction.createBuiltin("max_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ES3_EEvPNS2_15FunctionContextEPS3_",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb1EEEvPNS2_15FunctionContextERKT_RKT0_PS3_",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb1EEEvPNS2_15FunctionContextERKS3_PS3_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EES3_PNS2_15FunctionContextERKS3_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKS3_",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKS3_",
+                            false, true, false));
+                } else {
+                    addBuiltin(AggregateFunction.createBuiltin("max_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEEvPNS2_15FunctionContextEPNS2_9StringValE",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb1EEEvPNS2_15FunctionContextERKT_RKT0_PNS2_9StringValE",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb1EEEvPNS2_15FunctionContextERKNS2_9StringValEPS7_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEENS2_9StringValEPNS2_15FunctionContextERKS5_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            false, true, false));
+                }
+            }
+        }
+        for (ScalarType type1: symbolsMap.keySet()) {
+            for (ScalarType type2: symbolsMap.keySet()) {
+                if (symbolsMap.get(type1).equals(symbolsMap.get(type2)) && !type1.isStringType()) {
+                    addBuiltin(AggregateFunction.createBuiltin("min_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ES3_EEvPNS2_15FunctionContextEPNS2_9StringValE",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb0EEEvPNS2_15FunctionContextERKT_RKT0_PNS2_9StringValE",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb0EEEvPNS2_15FunctionContextERKNS2_9StringValEPS6_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EENS2_9StringValEPNS2_15FunctionContextERKS4_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            false, true, false));
+                } else if (type1.isStringType() && !symbolsMap.get(type1).equals(symbolsMap.get(type2))) {
+                    addBuiltin(AggregateFunction.createBuiltin("min_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEEvPNS2_15FunctionContextEPS3_",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb0EEEvPNS2_15FunctionContextERKT_RKT0_PS3_",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb0EEEvPNS2_15FunctionContextERKS3_PS3_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEES3_PNS2_15FunctionContextERKS3_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS3_",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS3_",
+                            false, true, false));
+                } else if (type2.isStringType() && !symbolsMap.get(type1).equals(symbolsMap.get(type2))) {
+                    addBuiltin(AggregateFunction.createBuiltin("min_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEEvPNS2_15FunctionContextEPS4_",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb0EEEvPNS2_15FunctionContextERKT_RKT0_PS4_",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb0EEEvPNS2_15FunctionContextERKS4_PS4_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEES4_PNS2_15FunctionContextERKS4_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS4_",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKS4_",
+                            false, true, false));
+                } else if (type1.isStringType() && symbolsMap.get(type1).equals(symbolsMap.get(type2))) {
+                    addBuiltin(AggregateFunction.createBuiltin("min_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ES3_EEvPNS2_15FunctionContextEPS3_",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb0EEEvPNS2_15FunctionContextERKT_RKT0_PS3_",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ES3_Lb0EEEvPNS2_15FunctionContextERKS3_PS3_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EES3_PNS2_15FunctionContextERKS3_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKS3_",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ES3_EET_PNS2_15FunctionContextERKS3_",
+                            false, true, false));
+                } else {
+                    addBuiltin(AggregateFunction.createBuiltin("min_by",
+                            Lists.<Type>newArrayList(type1, type2), type1, Type.VARCHAR,
+                            prefix + "13maxminby_initIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEEvPNS2_15FunctionContextEPNS2_9StringValE",
+                            prefix + "15maxminby_updateIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb0EEEvPNS2_15FunctionContextERKT_RKT0_PNS2_9StringValE",
+                            prefix + "14maxminby_mergeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "ELb0EEEvPNS2_15FunctionContextERKNS2_9StringValEPS7_",
+                            prefix + "18maxminby_serializeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEENS2_9StringValEPNS2_15FunctionContextERKS5_",
+                            prefix + "18maxminby_get_valueIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            null,
+                            prefix + "17maxminby_finalizeIN9doris_udf" + symbolsMap.get(type1) + "ENS2_" + symbolsMap.get(type2) + "EEET_PNS2_15FunctionContextERKNS2_9StringValE",
+                            false, true, false));
+                }
+            }
+        }
         // windowFunnel
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
                 Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),
@@ -1465,7 +1600,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     prefix + MULTI_DISTINCT_COUNT_FINALIZE_SYMBOL.get(t),
                     false, true, true, true));
 
-                
+
             } else if (t.equals(Type.DATE) || t.equals(Type.DATETIME)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
@@ -1785,7 +1920,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         null, prefix + STDDEV_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
                         false, true, false));
-                        
+
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
@@ -1829,7 +1964,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         null, null, null,
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
                         false, true, false, true));
-                
+
                 //vec: variance variance_samp var_samp variance_pop var_pop
                 addBuiltin(AggregateFunction.createBuiltin("variance",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
@@ -1870,7 +2005,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
                         null, null, null,
                         prefix + VAR_FINALIZE_SYMBOL.get(t),
-                        false, true, false, true));                        
+                        false, true, false, true));
 
                 addBuiltin(AggregateFunction.createBuiltin("variance",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
@@ -2109,7 +2244,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "",
                 "",
                 true, false, true, true));
-      
+
               //Percentile
         addBuiltin(AggregateFunction.createBuiltin("percentile",
                 Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
@@ -2164,7 +2299,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                false, true, false, true)); 
+                false, true, false, true));
 
         // Avg
         // TODO: switch to CHAR(sizeof(AvgIntermediateType) when that becomes available
@@ -2320,7 +2455,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "17count_star_updateEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
                 null, null));
-        
+
         //vec Rank
         addBuiltin(AggregateFunction.createAnalyticBuiltin("rank",
                 Lists.<Type>newArrayList(), Type.BIGINT, Type.VARCHAR,
@@ -2399,7 +2534,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
                     null, t.isStringType() ? stringValGetValue : null, null));
-                    
+
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lead", Lists.newArrayList(t, Type.BIGINT, t), t, t,
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
