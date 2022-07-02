@@ -60,5 +60,6 @@ header:
     - "docs/.vuepress/public/css/animate.min.css"
     - "docs/.vuepress/public/js/jquery.min.js"
     - "docs/.vuepress/public/js/wow.min.js"
+    - "docs/package-lock.json"
 
   comment: on-failure
