@@ -45,13 +45,13 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _start(false),
           _scanner_done(false),
           _transfer_done(false),
-          _output_slot_ids(tnode.output_slot_ids),
           _status(Status::OK()),
           _resource_info(nullptr),
           _buffered_bytes(0),
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters),
-          _max_materialized_blocks(config::doris_scanner_queue_size) {
+          _max_materialized_blocks(config::doris_scanner_queue_size),
+          _output_slot_ids(tnode.output_slot_ids) {
     _materialized_blocks.reserve(_max_materialized_blocks);
     _free_blocks.reserve(_max_materialized_blocks);
 }
@@ -1646,15 +1646,13 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             _free_blocks.emplace_back(materialized_block);
         }
 
-//        auto columns = block->get_columns();
-//        auto slots = _tuple_desc->slots();
-//        for (int i = 0; i < slots.size(); i++) {
-//            if (!_output_slot_flags[i]) {
-//                auto temp =
-//                        slots[i]->get_data_type_ptr()->create_column_const_with_default_value(1);
-//                (*std::move(columns[i])).assume_mutable()->clear();
-//            }
-//        }
+        auto columns = block->get_columns();
+        auto slots = _tuple_desc->slots();
+        for (int i = 0; i < slots.size(); i++) {
+            if (!_output_slot_flags[i]) {
+                (*std::move(columns[i])).assume_mutable()->clear();
+            }
+        }
         return Status::OK();
     }
 
