@@ -20,8 +20,8 @@ package org.apache.doris.policy;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -88,10 +88,10 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                 if (curDb == null) {
                     curDb = ConnectContext.get().getDatabase();
                 }
-                Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(curDb);
+                DatabaseIf db = Catalog.getCurrentCatalog().getCurrentDataSource().getDbOrAnalysisException(curDb);
                 UserIdentity userIdent = stmt.getUser();
                 userIdent.analyze(ConnectContext.get().getClusterName());
-                Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
+                TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
                 return new RowPolicy(stmt.getType(), stmt.getPolicyName(), db.getId(), userIdent,
                     stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(),
                     stmt.getWherePredicate());

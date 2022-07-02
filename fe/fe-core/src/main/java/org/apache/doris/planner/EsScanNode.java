@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -71,7 +72,7 @@ public class EsScanNode extends ScanNode {
     boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, NodeType.ES_SCAN_NODE);
+        super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
         table = (EsTable) (desc.getTable());
         esTablePartitions = table.getEsTablePartitions();
     }
@@ -249,7 +250,9 @@ public class EsScanNode extends ScanNode {
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
                 esScanRange.setIndex(shardRouting.get(0).getIndexName());
-                esScanRange.setType(table.getMappingType());
+                if (table.getType() != null) {
+                    esScanRange.setType(table.getMappingType());
+                }
                 esScanRange.setShardId(shardRouting.get(0).getShardId());
                 // Scan range
                 TScanRange scanRange = new TScanRange();

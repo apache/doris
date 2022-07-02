@@ -57,13 +57,20 @@ public class LogicalBinaryPlan<
     @Override
     public LogicalBinaryPlan<OP_TYPE, Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalBinaryPlan(operator, groupExpression, Optional.empty(),
-            children.get(0), children.get(1));
+        return new LogicalBinaryPlan(operator, Optional.empty(), children.get(0), children.get(1));
     }
 
     @Override
     public LogicalBinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withOutput(List<Slot> output) {
-        return new LogicalBinaryPlan<>(operator, groupExpression,
-            Optional.of(logicalProperties.withOutput(output)), left(), right());
+        return new LogicalBinaryPlan<>(operator, Optional.of(logicalProperties.withOutput(output)), left(), right());
+    }
+
+    public LogicalBinaryPlan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalBinaryPlan<>(operator, groupExpression, Optional.of(logicalProperties), left(), right());
+    }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new LogicalBinaryPlan<>(operator, groupExpression, logicalProperties, left(), right());
     }
 }

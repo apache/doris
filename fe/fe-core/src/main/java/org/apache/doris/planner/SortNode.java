@@ -29,6 +29,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -53,38 +54,22 @@ import java.util.Set;
  */
 public class SortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SortNode.class);
+    // info_.sortTupleSlotExprs_ substituted with the outputSmap_ for materialized slots in init().
+    List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
     private final boolean  isDefaultLimit;
-
     private long offset;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
-
-    // info_.sortTupleSlotExprs_ substituted with the outputSmap_ for materialized slots in init().
-    List<Expr> resolvedTupleExprs;
-
-    public void setIsAnalyticSort(boolean v) {
-        isAnalyticSort = v;
-    }
-
-    public boolean isAnalyticSort() {
-        return isAnalyticSort;
-    }
-
     private DataPartition inputPartition;
 
-    public void setInputPartition(DataPartition inputPartition) {
-        this.inputPartition = inputPartition;
-    }
-
-    public DataPartition getInputPartition() {
-        return inputPartition;
-    }
-
+    /**
+     * Constructor.
+     */
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
                     boolean isDefaultLimit, long offset) {
-        super(id, useTopN ? "TOP-N" : "SORT", NodeType.SORT_NODE);
+        super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
         this.isDefaultLimit = isDefaultLimit;
@@ -97,15 +82,31 @@ public class SortNode extends PlanNode {
     }
 
     /**
-     * Clone 'inputSortNode' for distributed Top-N
+     * Clone 'inputSortNode' for distributed Top-N.
      */
     public SortNode(PlanNodeId id, SortNode inputSortNode, PlanNode child) {
-        super(id, inputSortNode, inputSortNode.useTopN ? "TOP-N" : "SORT", NodeType.SORT_NODE);
+        super(id, inputSortNode, inputSortNode.useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = inputSortNode.info;
         this.useTopN = inputSortNode.useTopN;
         this.isDefaultLimit = inputSortNode.isDefaultLimit;
         this.children.add(child);
         this.offset = inputSortNode.offset;
+    }
+
+    public void setIsAnalyticSort(boolean v) {
+        isAnalyticSort = v;
+    }
+
+    public boolean isAnalyticSort() {
+        return isAnalyticSort;
+    }
+
+    public DataPartition getInputPartition() {
+        return inputPartition;
+    }
+
+    public void setInputPartition(DataPartition inputPartition) {
+        this.inputPartition = inputPartition;
     }
 
     public long getOffset() {
@@ -121,14 +122,33 @@ public class SortNode extends PlanNode {
     }
 
     @Override
-    public void getMaterializedIds(Analyzer analyzer, List<SlotId> ids) {
-        super.getMaterializedIds(analyzer, ids);
-        Expr.getIds(info.getOrderingExprs(), null, ids);
+    public void setCompactData(boolean on) {
+        this.compactData = on;
     }
 
     @Override
-    public void setCompactData(boolean on) {
-        this.compactData = on;
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
+
+        StringBuilder output = new StringBuilder();
+        output.append(detailPrefix + "order by: ");
+        Iterator<Expr> expr = info.getOrderingExprs().iterator();
+        Iterator<Boolean> isAsc = info.getIsAscOrder().iterator();
+        boolean start = true;
+        while (expr.hasNext()) {
+            if (start) {
+                start = false;
+            } else {
+                output.append(", ");
+            }
+            output.append(expr.next().toSql() + " ");
+            output.append(isAsc.next() ? "ASC" : "DESC");
+        }
+        output.append("\n");
+        output.append(detailPrefix + "offset: " + offset + "\n");
+        return output.toString();
     }
 
     @Override
@@ -159,75 +179,8 @@ public class SortNode extends PlanNode {
         LOG.debug("stats Sort: cardinality=" + Long.toString(cardinality));
     }
 
-    @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
-        List<SlotId> result = Lists.newArrayList();
-        Expr.getIds(resolvedTupleExprs, null, result);
-        return new HashSet<>(result);
-    }
-
-    @Override
-    protected String debugString() {
-        List<String> strings = Lists.newArrayList();
-        for (Boolean isAsc : info.getIsAscOrder()) {
-            strings.add(isAsc ? "a" : "d");
-        }
-        return MoreObjects.toStringHelper(this).add("ordering_exprs",
-                Expr.debugString(info.getOrderingExprs())).add("is_asc",
-                "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
-    }
-
-    @Override
-    protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.SORT_NODE;
-        TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(info.getOrderingExprs()),
-                info.getIsAscOrder(),
-                info.getNullsFirst());
-        Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
-        TSortNode sortNode = new TSortNode(sortInfo, useTopN);
-
-        msg.sort_node = sortNode;
-        msg.sort_node.setOffset(offset);
-
-        // TODO(lingbin): remove blew codes, because it is duplicate with TSortInfo
-        msg.sort_node.setOrderingExprs(Expr.treesToThrift(info.getOrderingExprs()));
-        msg.sort_node.setIsAscOrder(info.getIsAscOrder());
-        msg.sort_node.setNullsFirst(info.getNullsFirst());
-        if (info.getSortTupleSlotExprs() != null) {
-            msg.sort_node.setSortTupleSlotExprs(Expr.treesToThrift(info.getSortTupleSlotExprs()));
-        }
-    }
-
-    @Override
-    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
-        if (detailLevel == TExplainLevel.BRIEF) {
-            return "";
-        }
-
-        StringBuilder output = new StringBuilder();
-        output.append(detailPrefix + "order by: ");
-        Iterator<Expr> expr = info.getOrderingExprs().iterator();
-        Iterator<Boolean> isAsc = info.getIsAscOrder().iterator();
-        boolean start = true;
-        while (expr.hasNext()) {
-            if (start) {
-                start = false;
-            } else {
-                output.append(", ");
-            }
-            output.append(expr.next().toSql() + " ");
-            output.append(isAsc.next() ? "ASC" : "DESC");
-        }
-        output.append("\n");
-        output.append(detailPrefix + "offset: " + offset + "\n");
-        return output.toString();
-    }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
+    public void init() throws UserException {
+        this.resolvedTupleExprs = Lists.newArrayList();
     }
 
     public void init(Analyzer analyzer) throws UserException {
@@ -270,5 +223,57 @@ public class SortNode extends PlanNode {
                     + outputSmap.debugString());
             LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
         }
+    }
+
+    @Override
+    public void getMaterializedIds(Analyzer analyzer, List<SlotId> ids) {
+        super.getMaterializedIds(analyzer, ids);
+        Expr.getIds(info.getOrderingExprs(), null, ids);
+    }
+
+    @Override
+    protected void toThrift(TPlanNode msg) {
+        msg.node_type = TPlanNodeType.SORT_NODE;
+        TSortInfo sortInfo = new TSortInfo(
+                Expr.treesToThrift(info.getOrderingExprs()),
+                info.getIsAscOrder(),
+                info.getNullsFirst());
+        Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
+        sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        TSortNode sortNode = new TSortNode(sortInfo, useTopN);
+
+        msg.sort_node = sortNode;
+        msg.sort_node.setOffset(offset);
+
+        // TODO(lingbin): remove blew codes, because it is duplicate with TSortInfo
+        msg.sort_node.setOrderingExprs(Expr.treesToThrift(info.getOrderingExprs()));
+        msg.sort_node.setIsAscOrder(info.getIsAscOrder());
+        msg.sort_node.setNullsFirst(info.getNullsFirst());
+        if (info.getSortTupleSlotExprs() != null) {
+            msg.sort_node.setSortTupleSlotExprs(Expr.treesToThrift(info.getSortTupleSlotExprs()));
+        }
+    }
+
+    @Override
+    protected String debugString() {
+        List<String> strings = Lists.newArrayList();
+        for (Boolean isAsc : info.getIsAscOrder()) {
+            strings.add(isAsc ? "a" : "d");
+        }
+        return MoreObjects.toStringHelper(this).add("ordering_exprs",
+                Expr.debugString(info.getOrderingExprs())).add("is_asc",
+                "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
+    }
+
+    @Override
+    public int getNumInstances() {
+        return children.get(0).getNumInstances();
+    }
+
+    @Override
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+        List<SlotId> result = Lists.newArrayList();
+        Expr.getIds(resolvedTupleExprs, null, result);
+        return new HashSet<>(result);
     }
 }

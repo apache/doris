@@ -119,14 +119,24 @@ void VOlapScanNode::_init_counter(RuntimeState* state) {
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
+    // Will be delete after non-vectorized code is removed
     _block_seek_timer = ADD_TIMER(_segment_profile, "BlockSeekTime");
     _block_seek_counter = ADD_COUNTER(_segment_profile, "BlockSeekCount", TUnit::UNIT);
+    _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
+    _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
+    _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
 
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
+    _first_read_seek_timer = ADD_TIMER(_segment_profile, "FirstReadSeekTime");
+    _first_read_seek_counter = ADD_COUNTER(_segment_profile, "FirstReadSeekCount", TUnit::UNIT);
+
     _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
+    _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
+    _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
+
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
@@ -393,6 +403,10 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
+    /*
+    // the follow code may cause double free in VExprContext,
+    // temporarily disable it to avoid it
+    // TODO: fix the bug
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -462,6 +476,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                       "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
     }
+    */
 
     std::vector<Block*> blocks;
 
@@ -480,9 +495,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
-                     get_free_block) ||
-                    num_rows_in_block < _runtime_state->batch_size())) {
+    while (!eos && raw_bytes_read < raw_bytes_threshold &&
+           ((raw_rows_read < raw_rows_threshold && get_free_block) ||
+            num_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -501,7 +516,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             break;
         }
 
-        raw_bytes_read += block->allocated_bytes();
+        raw_bytes_read += block->bytes();
         num_rows_in_block += block->rows();
         // 4. if status not ok, change status_.
         if (UNLIKELY(block->rows() == 0)) {
@@ -666,6 +681,13 @@ Status VOlapScanNode::normalize_conjuncts() {
             break;
         }
 
+        case TYPE_DATEV2: {
+            ColumnValueRange<doris::vectorized::DateV2Value> range(slots[slot_idx]->col_name(),
+                                                                   slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         case TYPE_DECIMALV2: {
             ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
                                                    slots[slot_idx]->type().type);
@@ -714,7 +736,36 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     return filters_string;
 }
 
-Status VOlapScanNode::build_olap_filters() {
+Status VOlapScanNode::build_key_ranges_and_filters() {
+    const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
+    const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
+    DCHECK(column_types.size() == column_names.size());
+
+    // 1. construct scan key except last olap engine short key
+    _scan_keys.set_is_convertible(limit() == -1);
+
+    // we use `exact_range` to identify a key range is an exact range or not when we convert
+    // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filter`.
+    bool exact_range = true;
+    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
+         ++column_index) {
+        auto iter = _column_value_ranges.find(column_names[column_index]);
+        if (_column_value_ranges.end() == iter) {
+            break;
+        }
+
+        RETURN_IF_ERROR(std::visit(
+                [&](auto&& range) {
+                    RETURN_IF_ERROR(
+                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    if (exact_range) {
+                        _column_value_ranges.erase(iter->first);
+                    }
+                    return Status::OK();
+                },
+                iter->second));
+    }
+
     for (auto& iter : _column_value_ranges) {
         std::vector<TCondition> filters;
         std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
@@ -726,28 +777,7 @@ Status VOlapScanNode::build_olap_filters() {
 
     _runtime_profile->add_info_string("PushdownPredicate", olap_filters_to_string(_olap_filter));
 
-    return Status::OK();
-}
-
-Status VOlapScanNode::build_scan_key() {
-    const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
-    const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
-    DCHECK(column_types.size() == column_names.size());
-
-    // 1. construct scan key except last olap engine short key
-    _scan_keys.set_is_convertible(limit() == -1);
-
-    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
-         ++column_index) {
-        auto iter = _column_value_ranges.find(column_names[column_index]);
-        if (_column_value_ranges.end() == iter) {
-            break;
-        }
-
-        RETURN_IF_ERROR(std::visit(
-                [&](auto&& range) { return _scan_keys.extend_scan_key(range, _max_scan_key_num); },
-                iter->second));
-    }
+    _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
 
     VLOG_CRITICAL << _scan_keys.debug_string();
 
@@ -771,21 +801,17 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
         return Status::OK();
     }
 
-    VLOG_CRITICAL << "BuildOlapFilters";
-    // 3. Using ColumnValueRange to Build StorageEngine filters
-    RETURN_IF_ERROR(build_olap_filters());
-
-    VLOG_CRITICAL << "BuildScanKey";
-    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
-    RETURN_IF_ERROR(build_scan_key());
+    VLOG_CRITICAL << "BuildKeyRangesAndFilters";
+    // 3. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
+    RETURN_IF_ERROR(build_key_ranges_and_filters());
 
     VLOG_CRITICAL << "Filter idle conjuncts";
-    // 5. Filter idle conjunct which already trans to olap filters
+    // 4. Filter idle conjunct which already trans to olap filters
     // this must be after build_scan_key, it will free the StringValue memory
     remove_pushed_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
-    // 6. Start multi thread to read several `Sub Sub ScanRange`
+    // 5. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();
@@ -815,7 +841,8 @@ Status VOlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescri
 }
 
 static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
-    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+    if ((slot->type().is_date_type() || slot->type().is_date_v2_type()) &&
+        (expr->type().is_date_type() || expr->type().is_date_v2_type())) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
@@ -936,6 +963,19 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, 
     case TYPE_BOOLEAN: {
         bool v = *reinterpret_cast<bool*>(value);
         func(temp_range, reinterpret_cast<T*>(&v));
+        break;
+    }
+    case TYPE_DATEV2: {
+        DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
+        if (!date_value.check_loss_accuracy_cast_to_date()) {
+            doris::vectorized::DateV2Value date_v2;
+            date_v2.convert_dt_to_date_v2(&date_value);
+            if constexpr (std::is_same_v<T, doris::vectorized::DateV2Value>) {
+                func(temp_range, &date_v2);
+            } else {
+                __builtin_unreachable();
+            }
+        }
         break;
     }
     default: {
@@ -1282,6 +1322,22 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                                      *reinterpret_cast<T*>(&date_value));
                     break;
                 }
+                case TYPE_DATEV2: {
+                    DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
+                    if (date_value.check_loss_accuracy_cast_to_date()) {
+                        if (pred->op() == TExprOpcode::LT || pred->op() == TExprOpcode::GE) {
+                            ++date_value;
+                        }
+                    }
+                    doris::vectorized::DateV2Value date_v2;
+                    date_v2.convert_dt_to_date_v2(&date_value);
+                    if constexpr (std::is_same_v<T, doris::vectorized::DateV2Value>) {
+                        range->add_range(to_olap_filter_type(pred->op(), child_idx), date_v2);
+                        break;
+                    } else {
+                        __builtin_unreachable();
+                    }
+                }
                 case TYPE_TINYINT:
                 case TYPE_DECIMALV2:
                 case TYPE_CHAR:
@@ -1460,8 +1516,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
-
     // change done status
     {
         std::unique_lock<std::mutex> l(_blocks_lock);
@@ -1506,7 +1560,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 

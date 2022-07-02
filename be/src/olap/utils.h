@@ -266,7 +266,8 @@ bool valid_unsigned_number(const std::string& value_str) {
 
 bool valid_decimal(const std::string& value_str, const uint32_t precision, const uint32_t frac);
 
-// 粗略检查date或者datetime类型是否正确
+// Validate for date/datetime roughly. The format is 'yyyy-MM-dd HH:mm:ss'
+// TODO: support 'yyyy-MM-dd HH:mm:ss.SSS'
 bool valid_datetime(const std::string& value_str);
 
 bool valid_bool(const std::string& value_str);

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -31,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -89,9 +91,6 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("iceberg");
         engineNames.add("hudi");
     }
-
-    // for backup. set to -1 for normal use
-    private int tableSignature;
 
     public CreateTableStmt() {
         // for persist
@@ -163,7 +162,6 @@ public class CreateTableStmt extends DdlStmt {
         this.ifNotExists = ifNotExists;
         this.comment = Strings.nullToEmpty(comment);
 
-        this.tableSignature = -1;
         this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
     }
 
@@ -243,14 +241,6 @@ public class CreateTableStmt extends DdlStmt {
         return tableName.getDb();
     }
 
-    public void setTableSignature(int tableSignature) {
-        this.tableSignature = tableSignature;
-    }
-
-    public int getTableSignature() {
-        return tableSignature;
-    }
-
     public void setTableName(String newTableName) {
         tableName = new TableName(tableName.getDb(), newTableName);
     }
@@ -272,6 +262,8 @@ public class CreateTableStmt extends DdlStmt {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.CREATE)) {
@@ -421,6 +413,20 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
             distributionDesc.analyze(columnSet, columnDefs);
+            if (distributionDesc.type == DistributionInfo.DistributionInfoType.RANDOM) {
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+                    throw new AnalysisException("Create unique keys table should not contain random distribution desc");
+                } else if (keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+                    for (ColumnDef columnDef : columnDefs) {
+                        if (columnDef.getAggregateType() == AggregateType.REPLACE
+                                || columnDef.getAggregateType() == AggregateType.REPLACE_IF_NOT_NULL) {
+                            throw new AnalysisException("Create aggregate keys table with value columns of which"
+                                + " aggregate type is " + columnDef.getAggregateType() + " should not contain random"
+                                + " distribution desc");
+                        }
+                    }
+                }
+            }
         } else if (engineName.equalsIgnoreCase("elasticsearch")) {
             EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {

@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -87,6 +88,8 @@ public class ShowViewStmt extends ShowStmt {
             tbl.setDb(db);
         }
         tbl.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
         String dbName = tbl.getDb();
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
@@ -97,7 +100,7 @@ public class ShowViewStmt extends ShowStmt {
                     dbName + ": " + getTbl());
         }
 
-        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         database.getOlapTableOrAnalysisException(tbl.getTbl());
         for (Table table : database.getViews()) {
             View view = (View) table;

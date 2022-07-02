@@ -49,12 +49,21 @@ public class PhysicalLeafPlan<OP_TYPE extends PhysicalLeafOperator>
     @Override
     public PhysicalLeafPlan<OP_TYPE> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 0);
-        return new PhysicalLeafPlan(operator, groupExpression, logicalProperties);
+        return new PhysicalLeafPlan(operator, logicalProperties);
     }
 
     @Override
     public PhysicalLeafPlan<OP_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
+        LogicalProperties logicalProperties = new LogicalProperties(() -> output);
+        return new PhysicalLeafPlan<>(operator, logicalProperties);
+    }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalLeafPlan<>(operator, groupExpression, logicalProperties);
+    }
+
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalLeafPlan<>(operator, groupExpression, logicalProperties.get());
     }
 }

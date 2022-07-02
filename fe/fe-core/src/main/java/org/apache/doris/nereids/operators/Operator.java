@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.operators;
 
-import org.apache.doris.nereids.PlanOperatorVisitor;
+import org.apache.doris.nereids.OperatorVisitor;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 
 /**
  * interface for all concrete operator.
@@ -32,4 +33,7 @@ public interface Operator {
 
     <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context);
 
+    <R, C> R accept(OperatorVisitor<R, C> visitor, Operator operator, C context);
+
+    <R, C> R accept(OperatorVisitor<R, C> visitor, C context);
 }

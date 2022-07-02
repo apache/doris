@@ -24,12 +24,17 @@ public enum NodeType {
     // plan
     LOGICAL,
     PHYSICAL,
+    // group plan
+    GROUP,
 
     // expressions
     EXPRESSION,
+    UNBOUND_FUNCTION,
     UNBOUND_ALIAS,
     UNBOUND_SLOT,
     UNBOUND_STAR,
+    BOUND_STAR,
+    BOUND_FUNCTION,
     LITERAL,
     SLOT_REFERENCE,
     COMPARISON_PREDICATE,
@@ -42,11 +47,23 @@ public enum NodeType {
     NOT,
     ALIAS,
     COMPOUND,
+    AND,
+    OR,
+    BETWEEN,
+    MULTIPLY,
+    DIVIDE,
+    MOD,
+    INT_DIVIDE,
+    ADD,
+    SUBTRACT,
+    BITAND,
+    BITOR,
+    BITXOR,
+    BITNOT,
+    FACTORIAL,
+    FUNCTION_CALL,
 
     // pattern
-    PATTERN,
-
-    // fixed
-    FIXED,
+    PATTERN
     ;
 }

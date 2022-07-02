@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -32,8 +31,11 @@ import java.util.Objects;
 
 /**
  * All data type literal expression in Nereids.
+ * TODO: Increase the implementation of sub expression. such as Integer.
  */
 public class Literal extends Expression implements LeafExpression {
+    public static final Literal TRUE_LITERAL = new Literal(true);
+    public static final Literal FALSE_LITERAL = new Literal(false);
     private final DataType dataType;
     private final Object value;
 
@@ -97,6 +99,10 @@ public class Literal extends Expression implements LeafExpression {
         return value == null;
     }
 
+    public static Literal of(Object value) {
+        return new Literal(value);
+    }
+
     @Override
     public boolean isConstant() {
         return true;
@@ -109,7 +115,7 @@ public class Literal extends Expression implements LeafExpression {
 
     @Override
     public String sql() {
-        return null;
+        return value.toString();
     }
 
     @Override

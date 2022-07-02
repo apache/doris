@@ -529,9 +529,11 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                     columnType = "DOUBLE";
                     break;
                 case DATE:
+                case DATEV2:
                     columnType = "DATE";
                     break;
                 case DATETIME:
+                case DATETIMEV2:
                     columnType = "DATETIME";
                     break;
                 case CHAR:

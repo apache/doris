@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
@@ -69,20 +70,20 @@ public class InsertLoadJob extends LoadJob {
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override
     public Set<String> getTableNamesForShow() {
-        String name = Catalog.getCurrentCatalog().getDb(dbId).flatMap(db -> db.getTable(tableId))
-                .map(Table::getName).orElse(String.valueOf(tableId));
+        String name = Catalog.getCurrentInternalCatalog().getDb(dbId).flatMap(db -> db.getTable(tableId))
+                .map(TableIf::getName).orElse(String.valueOf(tableId));
         return Sets.newHashSet(name);
     }
 
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = database.getTableOrMetaException(tableId);
         return Sets.newHashSet(table.getName());
     }

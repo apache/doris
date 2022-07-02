@@ -36,7 +36,7 @@ import java.util.Optional;
 public class LogicalJoin extends LogicalBinaryOperator {
 
     private final JoinType joinType;
-    private final Optional<Expression> onClause;
+    private final Optional<Expression> condition;
 
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
@@ -54,16 +54,16 @@ public class LogicalJoin extends LogicalBinaryOperator {
      * Constructor for LogicalJoinPlan.
      *
      * @param joinType logical type for join
-     * @param onClause on clause for join node
+     * @param condition on clause for join node
      */
-    public LogicalJoin(JoinType joinType, Optional<Expression> onClause) {
+    public LogicalJoin(JoinType joinType, Optional<Expression> condition) {
         super(OperatorType.LOGICAL_JOIN);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.onClause = Objects.requireNonNull(onClause, "onClause can not be null");
+        this.condition = Objects.requireNonNull(condition, "condition can not be null");
     }
 
-    public Optional<Expression> getOnClause() {
-        return onClause;
+    public Optional<Expression> getCondition() {
+        return condition;
     }
 
     public JoinType getJoinType() {
@@ -87,11 +87,14 @@ public class LogicalJoin extends LogicalBinaryOperator {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("Join (").append(joinType);
-        if (onClause != null) {
-            sb.append(", ").append(onClause);
-        }
+        StringBuilder sb = new StringBuilder("LogicalJoin (").append(joinType);
+        condition.ifPresent(expression -> sb.append(", ").append(expression));
         return sb.append(")").toString();
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
 
     public JoinReorderContext getJoinReorderContext() {

@@ -59,5 +59,6 @@ header:
     - "regression-test/data"
     - "docs/.vuepress/public/css/animate.min.css"
     - "docs/.vuepress/public/js/jquery.min.js"
+    - "docs/.vuepress/public/js/wow.min.js"
 
   comment: on-failure

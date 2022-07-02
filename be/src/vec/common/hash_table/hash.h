@@ -64,7 +64,7 @@ inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
 #endif
 
 inline doris::vectorized::UInt64 int_hash_crc32(doris::vectorized::UInt64 x) {
-#if defined(__SSE4_2__) || defined(__aarch64__)
+#if defined(__SSE4_2__) || (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32))
     return _mm_crc32_u64(-1ULL, x);
 #else
     /// On other platforms we do not have CRC32. NOTE This can be confusing.
@@ -90,6 +90,9 @@ template <typename T>
 struct DefaultHash<T, std::enable_if_t<std::is_arithmetic_v<T>>> {
     size_t operator()(T key) const { return default_hash64<T>(key); }
 };
+
+template <>
+struct DefaultHash<StringRef> : public StringRefHash {};
 
 template <typename T>
 struct HashCRC32;

@@ -40,6 +40,8 @@ public abstract class DataType {
             switch (scalarType.getPrimitiveType()) {
                 case INT:
                     return IntegerType.INSTANCE;
+                case BIGINT:
+                    return BigIntType.INSTANCE;
                 case DOUBLE:
                     return DoubleType.INSTANCE;
                 case STRING:
@@ -61,4 +63,5 @@ public abstract class DataType {
     }
 
     public abstract Type toCatalogDataType();
+
 }

@@ -403,7 +403,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
 }
 
 std::string Block::dump_one_line(size_t row, int column_end) const {
-    assert(column_end < columns());
+    assert(column_end <= columns());
     fmt::memory_buffer line;
     for (int i = 0; i < column_end; ++i) {
         if (LIKELY(i != 0)) {

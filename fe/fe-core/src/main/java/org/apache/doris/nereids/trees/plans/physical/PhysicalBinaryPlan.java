@@ -53,13 +53,22 @@ public class PhysicalBinaryPlan<
     @Override
     public PhysicalBinaryPlan<OP_TYPE, Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalBinaryPlan(operator, groupExpression, logicalProperties,
-            children.get(0), children.get(1));
+        return new PhysicalBinaryPlan(operator, logicalProperties, children.get(0), children.get(1));
     }
 
     @Override
     public PhysicalBinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(output);
+        LogicalProperties logicalProperties = new LogicalProperties(() -> output);
+        return new PhysicalBinaryPlan<>(operator, logicalProperties, left(), right());
+    }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalBinaryPlan<>(operator, groupExpression, logicalProperties, left(), right());
+    }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalBinaryPlan<>(operator, groupExpression, logicalProperties.get(), left(), right());
     }
 }

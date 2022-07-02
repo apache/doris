@@ -33,7 +33,7 @@ under the License.
     </module>
 
     <module name="SuppressionFilter">
-        <property name="file" value="fe/check/checkstyle/suppressions.xml"/>
+        <property name="file" value="check/checkstyle/suppressions.xml"/>
         <property name="optional" value="true"/>
     </module>
     <module name="SuppressWithPlainTextCommentFilter">
@@ -197,6 +197,7 @@ under the License.
         <module name="SummaryJavadoc">
             <property name="forbiddenSummaryFragments"
                       value="^@return the *|^This method returns |^A [{]@code [a-zA-Z0-9]+[}]( is a )"/>
+            <property name="period" value=""/>
         </module>
         <module name="SingleLineJavadoc"/>
 

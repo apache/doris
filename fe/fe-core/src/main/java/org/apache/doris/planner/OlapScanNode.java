@@ -53,6 +53,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
@@ -146,7 +147,7 @@ public class OlapScanNode extends ScanNode {
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, NodeType.OLAP_SCAN_NODE);
+        super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
         olapTable = (OlapTable) desc.getTable();
     }
 
@@ -354,6 +355,10 @@ public class OlapScanNode extends ScanNode {
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
             computeInaccurateCardinality();
         }
+    }
+
+    public void init() throws UserException {
+        computePartitionInfo();
     }
 
     /**

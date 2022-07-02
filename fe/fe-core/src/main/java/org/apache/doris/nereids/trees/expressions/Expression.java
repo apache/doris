@@ -18,17 +18,22 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionVisitor;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.types.DataType;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Abstract class for all Expression in Nereids.
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
+
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     public Expression(NodeType type, Expression... children) {
         super(type, children);
@@ -47,17 +52,17 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitExpression(this, context);
+        return visitor.visit(this, context);
     }
 
     @Override
     public List<Expression> children() {
-        return (List) children;
+        return children;
     }
 
     @Override
     public Expression child(int index) {
-        return (Expression) children.get(index);
+        return children.get(index);
     }
 
     @Override
@@ -75,5 +80,17 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Expression that = (Expression) o;
+        return Objects.equals(children(), that.children());
     }
 }

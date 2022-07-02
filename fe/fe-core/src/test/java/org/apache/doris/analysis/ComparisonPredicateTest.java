@@ -125,4 +125,46 @@ public class ComparisonPredicateTest {
         Assert.assertFalse(range.hasLowerBound());
     }
 
+    @Test
+    public void testConvertToRangeForDateV2() {
+        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        LiteralExpr dateExpr = new DateLiteral(2022, 5, 19, Type.DATE);
+        LiteralExpr dateV2Expr = new DateLiteral(2022, 5, 19, Type.DATEV2);
+        BinaryPredicate binaryPredicate1 = new BinaryPredicate(BinaryPredicate.Operator.LE, slotRef, dateExpr);
+        BinaryPredicate binaryPredicate2 = new BinaryPredicate(BinaryPredicate.Operator.LE, slotRef, dateV2Expr);
+        Range<LiteralExpr> range1 = binaryPredicate1.convertToRange();
+        Range<LiteralExpr> range2 = binaryPredicate2.convertToRange();
+        Assert.assertEquals(dateExpr, range1.upperEndpoint());
+        Assert.assertEquals(dateV2Expr, range1.upperEndpoint());
+        Assert.assertEquals(BoundType.CLOSED, range1.upperBoundType());
+        Assert.assertFalse(range1.hasLowerBound());
+        Assert.assertEquals(dateExpr, range2.upperEndpoint());
+        Assert.assertEquals(dateV2Expr, range2.upperEndpoint());
+        Assert.assertEquals(BoundType.CLOSED, range2.upperBoundType());
+        Assert.assertFalse(range2.hasLowerBound());
+    }
+
+    @Test
+    public void testConvertToRangeForDateTimeV2() {
+        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        LiteralExpr dateTimeExpr = new DateLiteral(2022, 5, 19, 0, 0, 0, Type.DATETIME);
+        LiteralExpr dateTimeV2Expr1 = new DateLiteral(2022, 5, 19, 0, 0, 0, Type.DEFAULT_DATETIMEV2);
+        LiteralExpr dateTimeV2Expr2 = new DateLiteral(2022, 5, 19, 0, 0, 0, ScalarType.createDatetimeV2Type(6));
+        BinaryPredicate binaryPredicate1 = new BinaryPredicate(BinaryPredicate.Operator.LE, slotRef, dateTimeExpr);
+        BinaryPredicate binaryPredicate2 = new BinaryPredicate(BinaryPredicate.Operator.LE, slotRef, dateTimeV2Expr1);
+        Range<LiteralExpr> range1 = binaryPredicate1.convertToRange();
+        Range<LiteralExpr> range2 = binaryPredicate2.convertToRange();
+
+        Assert.assertEquals(dateTimeExpr, range1.upperEndpoint());
+        Assert.assertEquals(dateTimeV2Expr1, range1.upperEndpoint());
+        Assert.assertEquals(dateTimeV2Expr2, range1.upperEndpoint());
+        Assert.assertEquals(BoundType.CLOSED, range1.upperBoundType());
+        Assert.assertFalse(range1.hasLowerBound());
+
+        Assert.assertEquals(dateTimeExpr, range2.upperEndpoint());
+        Assert.assertEquals(dateTimeV2Expr1, range2.upperEndpoint());
+        Assert.assertEquals(BoundType.CLOSED, range2.upperBoundType());
+        Assert.assertFalse(range2.hasLowerBound());
+        Assert.assertEquals(dateTimeV2Expr2, range2.upperEndpoint());
+    }
 }

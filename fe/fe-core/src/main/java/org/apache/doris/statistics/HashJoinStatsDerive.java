@@ -26,7 +26,6 @@ import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.PlanNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -42,7 +41,7 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
 
     @Override
-    public void init(PlanNode node) throws UserException {
+    public void init(PlanStats node) throws UserException {
         Preconditions.checkState(node instanceof HashJoinNode);
         super.init(node);
         joinOp = ((HashJoinNode) node).getJoinOp();

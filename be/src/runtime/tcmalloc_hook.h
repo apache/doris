@@ -21,6 +21,7 @@
 #include <gperftools/nallocx.h>
 #include <gperftools/tcmalloc.h>
 
+#include "runtime/mem_tracker.h"
 #include "runtime/thread_context.h"
 
 // Notice: modify the command in New/Delete Hook should be careful enough!,
@@ -36,11 +37,19 @@
 //  destructor to control the behavior of consume can lead to unexpected behavior,
 //  like this: if (LIKELY(doris::start_thread_mem_tracker)) {
 void new_hook(const void* ptr, size_t size) {
-    doris::tls_ctx()->consume_mem(tc_nallocx(size, 0));
+    if (doris::thread_local_ctx._init) {
+        doris::tls_ctx()->consume_mem(tc_nallocx(size, 0));
+    } else if (doris::exec_env_existed && doris::ExecEnv::GetInstance()->initialized()) {
+        doris::MemTracker::get_process_tracker()->consume(tc_nallocx(size, 0));
+    }
 }
 
 void delete_hook(const void* ptr) {
-    doris::tls_ctx()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
+    if (doris::thread_local_ctx._init) {
+        doris::tls_ctx()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
+    } else if (doris::exec_env_existed && doris::ExecEnv::GetInstance()->initialized()) {
+        doris::MemTracker::get_process_tracker()->release(tc_malloc_size(const_cast<void*>(ptr)));
+    }
 }
 
 void init_hook() {

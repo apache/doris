@@ -27,7 +27,6 @@ import java.util.Objects;
  */
 public abstract class PhysicalScan extends PhysicalLeafOperator {
 
-
     protected final List<String> qualifier;
 
     /**
@@ -39,5 +38,9 @@ public abstract class PhysicalScan extends PhysicalLeafOperator {
     public PhysicalScan(OperatorType type, List<String> qualifier) {
         super(type);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+    }
+
+    public List<String> getQualifier() {
+        return qualifier;
     }
 }

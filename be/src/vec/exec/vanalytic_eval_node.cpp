@@ -239,7 +239,7 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
     for (size_t i = 0; i < _agg_functions_size; ++i) VExpr::close(_agg_expr_ctxs[i], state);
     for (auto* agg_function : _agg_functions) agg_function->close(state);
 
-    _destory_agg_status();
+    _destroy_agg_status();
     return ExecNode::close(state);
 }
 
@@ -250,7 +250,6 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
 
     if (_input_eos && _output_block_index == _input_blocks.size()) {
@@ -635,7 +634,7 @@ Status VAnalyticEvalNode::_create_agg_status() {
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_destory_agg_status() {
+Status VAnalyticEvalNode::_destroy_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }

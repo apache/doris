@@ -20,7 +20,7 @@ suite("test_window_function", "query") {
 
     def windowFunctionTable1 = "test_window_function1"
     sql """ DROP TABLE IF EXISTS ${windowFunctionTable1} """
-    sql """ create table ${windowFunctionTable1} (stock_symbol varchar(64), closing_price decimal(8,2), closing_date datetime) duplicate key (stock_symbol) distributed by hash (stock_symbol) PROPERTIES("replication_num" = "1") """
+    sql """ create table ${windowFunctionTable1} (stock_symbol varchar(64), closing_price decimal(8,2), closing_date datetime not null) duplicate key (stock_symbol) distributed by hash (stock_symbol) PROPERTIES("replication_num" = "1") """
 
     sql """ INSERT INTO ${windowFunctionTable1} VALUES ('JDR',12.86,'2014-10-02 00:00:00'),('JDR',12.89,'2014-10-03 00:00:00'),('JDR',12.94,'2014-10-04 00:00:00'),('JDR',12.55,'2014-10-05 00:00:00'),('JDR',14.03,'2014-10-06 00:00:00'),('JDR',14.75,'2014-10-07 00:00:00'),('JDR',13.98,'2014-10-08 00:00:00') """
 
@@ -47,6 +47,12 @@ suite("test_window_function", "query") {
              ORDER BY
                 closing_date;
             """
+
+    // LEAD not nullable coredump
+    qt_sql """
+           select t1.new_time from (select closing_date, lead(closing_date, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date = t1.closing_date;
+           """
+
     // LAG
     qt_sql """ 
              SELECT

@@ -95,8 +95,9 @@ public class LoadingTaskPlanner {
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
         this.userInfo = userInfo;
-        if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(userInfo,
-                Catalog.getCurrentCatalog().getDbNullable(dbId).getFullName(), PrivPredicate.SELECT)) {
+        if (Catalog.getCurrentCatalog().getAuth()
+                .checkDbPriv(userInfo, Catalog.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
             this.analyzer.setUDFAllowed(false);

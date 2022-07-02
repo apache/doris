@@ -24,8 +24,10 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalScan;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plans;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
@@ -46,10 +48,10 @@ public class TestPlanOutput implements Plans {
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
         LogicalLeafPlan<LogicalRelation> relationPlan = plan(
-            new LogicalRelation(table, ImmutableList.of("a"))
+            new LogicalOlapScan(table, ImmutableList.of("a"))
         );
         List<Slot> output = relationPlan.getOutput();
-        Assertions.assertTrue(output.size() == 2);
+        Assertions.assertEquals(2, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
         Assertions.assertEquals(output.get(0).getQualifiedName(), "a.id");
         Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
@@ -82,14 +84,14 @@ public class TestPlanOutput implements Plans {
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
         LogicalLeafPlan<LogicalRelation> relationPlan = plan(
-            new LogicalRelation(table, ImmutableList.of("a"))
+            new LogicalOlapScan(table, ImmutableList.of("a"))
         );
 
         List<Slot> output = relationPlan.getOutput();
         // column prune
         LogicalLeafPlan<LogicalRelation> newPlan = relationPlan.withOutput(ImmutableList.of(output.get(0)));
         output = newPlan.getOutput();
-        Assertions.assertTrue(output.size() == 1);
+        Assertions.assertEquals(1, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
         Assertions.assertEquals(output.get(0).getQualifiedName(), "a.id");
         Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
@@ -97,6 +99,11 @@ public class TestPlanOutput implements Plans {
 
     @Test(expected = NullPointerException.class)
     public void testPhysicalPlanMustHaveLogicalProperties() {
-        plan(new PhysicalScan(OperatorType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl")) {}, null);
+        plan(new PhysicalScan(OperatorType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl")) {
+            @Override
+            public List<Expression> getExpressions() {
+                return ImmutableList.of();
+            }
+        }, null);
     }
 }

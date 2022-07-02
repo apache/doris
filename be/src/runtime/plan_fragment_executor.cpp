@@ -129,13 +129,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                           *desc_tbl, &_plan));
     _runtime_state->set_fragment_root_id(_plan->id());
 
-    if (params.__isset.debug_node_id) {
-        DCHECK(params.__isset.debug_action);
-        DCHECK(params.__isset.debug_phase);
-        ExecNode::set_debug_options(params.debug_node_id, params.debug_phase, params.debug_action,
-                                    _plan);
-    }
-
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
     _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);

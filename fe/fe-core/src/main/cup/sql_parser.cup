@@ -278,7 +278,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
     KW_YEAR,
     KW_NOT_NULL,
-    KW_CATALOG, KW_CATALOGS;
+    KW_CATALOG, KW_CATALOGS,
+    KW_SWITCH;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -301,7 +302,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
-    link_stmt, migrate_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
+    link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
     import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt;
 
@@ -403,6 +404,7 @@ nonterminal WithClause opt_with_clause;
 nonterminal ArrayList<View> with_view_def_list;
 nonterminal View with_view_def;
 nonterminal Subquery subquery;
+nonterminal TableValuedFunctionRef table_valued_function_ref;
 nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
@@ -670,6 +672,8 @@ stmt ::=
     {: RESULT = query; :}
     | migrate_stmt:query
     {: RESULT = query; :}
+    | switch_stmt:stmt
+    {: RESULT = stmt; :}
     | enter_stmt:enter
     {: RESULT = enter; :}
     | query_stmt:query
@@ -1366,9 +1370,9 @@ create_stmt ::=
         RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
     :}
     /* sql_block_rule */
-    | KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName opt_properties:properties
+    | KW_CREATE KW_SQL_BLOCK_RULE opt_if_not_exists:ifNotExists ident:ruleName opt_properties:properties
     {:
-        RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
+        RESULT = new CreateSqlBlockRuleStmt(ifNotExists, ruleName, properties);
     :}
     /* row policy */
     | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
@@ -1974,6 +1978,10 @@ tbl_pattern ::=
     {:
         RESULT = new TablePattern(db, tbl);
     :}
+    | ident_or_star:ctl DOT ident_or_star:db DOT ident_or_star:tbl
+    {:
+        RESULT = new TablePattern(ctl, db, tbl);
+    :}
     ;
 
 resource_pattern ::=
@@ -2087,9 +2095,9 @@ drop_stmt ::=
     {:
         RESULT = new DropEncryptKeyStmt(keyName);
     :}
-    | KW_DROP KW_SQL_BLOCK_RULE ident_list:ruleNames
+    | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
     {:
-        RESULT = new DropSqlBlockRuleStmt(ruleNames);
+        RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
     :}
     | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl
     {:
@@ -2822,11 +2830,11 @@ show_param ::=
     /* Show data statement: used to show data size of specified range */
      | KW_DATA order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(null, null, orderByClause);
+        RESULT = new ShowDataStmt(null, orderByClause);
     :}
     | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl(), orderByClause);
+        RESULT = new ShowDataStmt(dbTblName, orderByClause);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
@@ -3421,6 +3429,14 @@ opt_set_qualifier ::=
   | KW_ALL
   {: RESULT = Qualifier.ALL; :}
   ;
+
+// Change catalog
+switch_stmt ::=
+    KW_SWITCH ident:catalog
+    {:
+        RESULT = new SwitchStmt(catalog);
+    :}
+    ;
 
 // Change cluster
 enter_stmt ::=
@@ -4146,6 +4162,10 @@ star_expr ::=
     {:
         RESULT = SelectListItem.createStarItem(new TableName(db, tbl));
     :}
+    | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
+    {:
+        RESULT = SelectListItem.createStarItem(new TableName(ctl, db, tbl));
+    :}
     ;
 
 opt_table_name ::=
@@ -4163,6 +4183,8 @@ table_name ::=
     {: RESULT = new TableName(null, tbl); :}
     | ident:db DOT ident:tbl
     {: RESULT = new TableName(db, tbl); :}
+    | ident:ctl DOT ident:db DOT ident:tbl
+    {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
 encryptkey_name ::=
@@ -4249,6 +4271,17 @@ table_ref ::=
   {:
     s.setLateralViewRefs(lateralViewRefList);
     RESULT = s;
+  :}
+  | table_valued_function_ref:f
+  {:
+  	RESULT = f;
+  :}
+  ;
+
+table_valued_function_ref ::=
+  ident:func_name LPAREN string_list:param_list RPAREN opt_table_alias:alias
+  {:
+    RESULT = new TableValuedFunctionRef(func_name, alias, param_list);
   :}
   ;
 
@@ -4641,11 +4674,15 @@ type ::=
   | KW_DOUBLE
   {: RESULT = Type.DOUBLE; :}
   | KW_DATE
-  {: RESULT = Type.DATE; :}
+  {: RESULT = ScalarType.createDateType(); :}
+  | KW_DATETIME LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIME
-  {: RESULT = Type.DATETIME; :}
+  {: RESULT = ScalarType.createDatetimeType(); :}
+  | KW_TIME LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createTimeV2Type(precision.intValue()); :}
   | KW_TIME
-  {: RESULT = Type.TIME; :}
+  {: RESULT = ScalarType.createTimeType(); :}
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE
@@ -5277,6 +5314,8 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
+  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
+  {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
   ;
 
 column_subscript ::=

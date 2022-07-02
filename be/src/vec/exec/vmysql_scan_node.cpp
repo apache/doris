@@ -111,7 +111,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_mysql_scanner->open());
     RETURN_IF_ERROR(_mysql_scanner->query(_table_name, _columns, _filters, _limit));
@@ -150,7 +149,6 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
     if (state == NULL || block == NULL || eos == NULL)
         return Status::InternalError("input is NULL pointer");
     if (!_is_init) return Status::InternalError("used before initialize.");
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
@@ -239,7 +237,6 @@ Status VMysqlScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();

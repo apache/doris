@@ -19,6 +19,7 @@ package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
@@ -31,7 +32,7 @@ import java.util.Objects;
 /**
  * Logical relation plan operator.
  */
-public class LogicalRelation extends LogicalLeafOperator {
+public abstract class LogicalRelation extends LogicalLeafOperator {
 
     private final Table table;
     private final List<String> qualifier;
@@ -45,7 +46,7 @@ public class LogicalRelation extends LogicalLeafOperator {
     public LogicalRelation(Table table, List<String> qualifier) {
         super(OperatorType.LOGICAL_BOUND_RELATION);
         this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
     }
 
     public Table getTable() {
@@ -58,7 +59,7 @@ public class LogicalRelation extends LogicalLeafOperator {
 
     @Override
     public String toString() {
-        return "Relation(" + StringUtils.join(qualifier, ".") + "." + table.getName() + ")";
+        return "LogicalRelation (" + StringUtils.join(qualifier, ".") + ")";
     }
 
     @Override
@@ -67,5 +68,10 @@ public class LogicalRelation extends LogicalLeafOperator {
                 .stream()
                 .map(col -> SlotReference.fromColumn(col, qualifier))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of();
     }
 }

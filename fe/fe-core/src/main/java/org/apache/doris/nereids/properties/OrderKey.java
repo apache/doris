@@ -26,6 +26,7 @@ public class OrderKey {
 
     private Expression expr;
 
+    // Order is ascending.
     private boolean isAsc;
 
     private boolean nullFirst;
@@ -51,5 +52,10 @@ public class OrderKey {
 
     public boolean isNullFirst() {
         return nullFirst;
+    }
+
+    @Override
+    public String toString() {
+        return expr.sql();
     }
 }

@@ -53,7 +53,6 @@ TabletsChannel::~TabletsChannel() {
 }
 
 Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kOpened) {
         // Normal case, already open by other sender
@@ -180,6 +179,7 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     // If we flush all the tablets at this time, each tablet will generate a lot of small files.
     // So here we only flush part of the tablet, and the next time the reduce memory operation is triggered,
     // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
+
     int64_t mem_to_flushed = mem_limit / 3;
     int counter = 0;
     int64_t sum = 0;
@@ -253,7 +253,6 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 }
 
 Status TabletsChannel::cancel() {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;

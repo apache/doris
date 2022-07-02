@@ -22,7 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.thrift.TTupleDescriptor;
 
 import com.google.common.base.Joiner;
@@ -45,7 +45,7 @@ public class TupleDescriptor {
     private final ArrayList<SlotDescriptor> slots;
 
     // underlying table, if there is one
-    private Table table;
+    private TableIf table;
     // underlying table, if there is one
     private TableRef ref;
 
@@ -151,11 +151,11 @@ public class TupleDescriptor {
         return null;
     }
 
-    public Table getTable() {
+    public TableIf getTable() {
         return table;
     }
 
-    public void setTable(Table tbl) {
+    public void setTable(TableIf tbl) {
         table = tbl;
     }
 
@@ -352,7 +352,7 @@ public class TupleDescriptor {
             if (slotDescriptor.getColumn() != null) {
                 TupleDescriptor parent = slotDescriptor.getParent();
                 Preconditions.checkState(parent != null);
-                Table table = parent.getTable();
+                TableIf table = parent.getTable();
                 Preconditions.checkState(table != null);
                 Long tableId = table.getId();
                 Set<String> columnNames = tableIdToColumnNames.get(tableId);

@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.thrift.TDescriptorTable;
 
@@ -46,7 +46,7 @@ public class DescriptorTable {
     private final HashMap<TupleId, TupleDescriptor> tupleDescs = new HashMap<TupleId, TupleDescriptor>();
     // List of referenced tables with no associated TupleDescriptor to ship to the BE.
     // For example, the output table of an insert query.
-    private final List<Table> referencedTables = new ArrayList<Table>();
+    private final List<TableIf> referencedTables = new ArrayList<TableIf>();
     private final IdGenerator<TupleId> tupleIdGenerator = TupleId.createGenerator();
     private final IdGenerator<SlotId> slotIdGenerator = SlotId.createGenerator();
     private final HashMap<SlotId, SlotDescriptor> slotDescs = Maps.newHashMap();
@@ -121,7 +121,7 @@ public class DescriptorTable {
         return tupleDescs.values();
     }
 
-    public void addReferencedTable(Table table) {
+    public void addReferencedTable(TableIf table) {
         referencedTables.add(table);
     }
 
@@ -151,7 +151,7 @@ public class DescriptorTable {
 
     public TDescriptorTable toThrift() {
         TDescriptorTable result = new TDescriptorTable();
-        HashSet<Table> referencedTbls = Sets.newHashSet();
+        HashSet<TableIf> referencedTbls = Sets.newHashSet();
         for (TupleDescriptor tupleD : tupleDescs.values()) {
             // inline view of a non-constant select has a non-materialized tuple descriptor
             // in the descriptor table just for type checking, which we need to skip
@@ -169,11 +169,9 @@ public class DescriptorTable {
             }
         }
 
-        for (Table table : referencedTables) {
-            referencedTbls.add(table);
-        }
+        referencedTbls.addAll(referencedTables);
 
-        for (Table tbl : referencedTbls) {
+        for (TableIf tbl : referencedTbls) {
             result.addToTableDescriptors(tbl.toThrift());
         }
         return result;

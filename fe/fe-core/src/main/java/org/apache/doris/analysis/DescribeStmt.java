@@ -100,15 +100,15 @@ public class DescribeStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         dbTableName.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
-                                                                dbTableName.getTbl(), PrivPredicate.SHOW)) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+                ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
+                                                dbTableName.toString());
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbTableName.getDb());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbTableName.getDb());
         Table table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();

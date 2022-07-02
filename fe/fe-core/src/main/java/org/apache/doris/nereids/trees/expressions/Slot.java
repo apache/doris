@@ -24,13 +24,6 @@ import org.apache.doris.nereids.trees.NodeType;
  */
 public abstract class Slot extends NamedExpression implements LeafExpression {
 
-    private int id;
-
-    public Slot(NodeType type, int id, Expression... children) {
-        super(type, children);
-        this.id = id;
-    }
-
     public Slot(NodeType type) {
         super(type);
     }
@@ -38,9 +31,5 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
     @Override
     public Slot toSlot() {
         return this;
-    }
-
-    public int getId() {
-        return id;
     }
 }

@@ -90,6 +90,8 @@ public:
                          uint64_t num_rows, const FilePathDesc& path_desc,
                          std::unique_ptr<ColumnReader>* reader);
 
+    enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
+
     ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
@@ -104,7 +106,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec);
+                     BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
@@ -133,6 +135,14 @@ public:
     bool is_empty() const { return _num_rows == 0; }
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
+
+    uint64_t num_rows() { return _num_rows; }
+
+    void set_dict_encoding_type(DictEncodingType type) {
+        std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
+    }
+
+    DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
@@ -174,6 +184,8 @@ private:
     uint64_t _num_rows;
     FilePathDesc _path_desc;
 
+    DictEncodingType _dict_encoding_type;
+
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
@@ -192,6 +204,8 @@ private:
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
+
+    std::once_flag _set_dict_encoding_type_flag;
 };
 
 // Base iterator to read one column data
@@ -233,6 +247,11 @@ public:
         return Status::NotSupported("not implement");
     }
 
+    virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                                  vectorized::MutableColumnPtr& dst) {
+        return Status::NotSupported("not implement");
+    }
+
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
@@ -243,6 +262,8 @@ public:
     virtual Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
         return Status::OK();
     }
+
+    virtual bool is_all_dict_encoding() const { return false; }
 
 protected:
     ColumnIteratorOptions _opts;
@@ -267,6 +288,9 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
     // get row ranges by zone map
@@ -280,6 +304,8 @@ public:
     ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
+
+    bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
@@ -309,6 +335,8 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
+
+    bool _is_all_dict_encoding = false;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
 };
@@ -429,9 +457,10 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
-private:
-    void insert_default_data(vectorized::MutableColumnPtr& dst, size_t n);
+    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
+                                    vectorized::MutableColumnPtr& dst, size_t n);
 
+private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;

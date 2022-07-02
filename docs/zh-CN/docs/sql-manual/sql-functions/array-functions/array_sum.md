@@ -56,5 +56,5 @@ mysql> select k2, array_sum(k2) from array_type_table;
 
 ### keywords
 
-ARRAY_SUM
+ARRAY,SUM,ARRAY_SUM
 

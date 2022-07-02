@@ -56,5 +56,5 @@ mysql> select k2, array_product(k2) from array_type_table;
 
 ### keywords
 
-ARRAY_PRODUCT
+ARRAY,PRODUCT,ARRAY_PRODUCT
 

@@ -23,10 +23,10 @@ suite("test_last_value_window") {
     sql """
             CREATE TABLE ${tableName} (
             `myday` INT,
-            `time` VARCHAR(40) NOT NULL,
+            `time_col` VARCHAR(40) NOT NULL,
             `state` INT
             ) ENGINE=OLAP
-            DUPLICATE KEY(`myday`,time,state)
+            DUPLICATE KEY(`myday`,time_col,state)
             COMMENT "OLAP"
             DISTRIBUTED BY HASH(`myday`) BUCKETS 2
             PROPERTIES (
@@ -46,6 +46,6 @@ suite("test_last_value_window") {
     // not_vectorized
     sql """ set enable_vectorized_engine = false; """
 
-    qt_select_default """ select *,last_value(state) over(partition by myday order by time) from ${tableName}; """
+    qt_select_default """ select *,last_value(state) over(partition by myday order by time_col) from ${tableName}; """
 
 }

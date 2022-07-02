@@ -17,20 +17,22 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Bottom up job for rewrite, use pattern match.
@@ -39,6 +41,12 @@ public class RewriteBottomUpJob extends Job<Plan> {
     private final Group group;
     private final List<Rule<Plan>> rules;
     private final boolean childrenOptimized;
+
+    public RewriteBottomUpJob(Group group, PlannerContext context, List<RuleFactory<Plan>> factories) {
+        this(group, factories.stream()
+                .flatMap(factory -> factory.buildRules().stream())
+                .collect(Collectors.toList()), context, false);
+    }
 
     public RewriteBottomUpJob(Group group, List<Rule<Plan>> rules, PlannerContext context) {
         this(group, rules, context, false);
@@ -56,10 +64,10 @@ public class RewriteBottomUpJob extends Job<Plan> {
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
+            pushTask(new RewriteBottomUpJob(group, rules, context, true));
             for (Group childGroup : logicalExpression.children()) {
                 pushTask(new RewriteBottomUpJob(childGroup, rules, context, false));
             }
-            pushTask(new RewriteBottomUpJob(group, rules, context, true));
             return;
         }
 
@@ -72,12 +80,14 @@ public class RewriteBottomUpJob extends Job<Plan> {
                 Preconditions.checkArgument(afters.size() == 1);
                 Plan after = afters.get(0);
                 if (after != before) {
-                    context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
+                    GroupExpression groupExpr = context.getOptimizerContext()
+                            .getMemo()
+                            .copyIn(after, group, rule.isRewrite());
+                    groupExpr.setApplied(rule);
                     pushTask(new RewriteBottomUpJob(group, rules, context, false));
                     return;
                 }
             }
-            logicalExpression.setApplied(rule);
         }
     }
 }

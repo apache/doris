@@ -154,6 +154,8 @@ public class ColumnStats {
                 return decimalLiteral;
             case DATE:
             case DATETIME:
+            case DATEV2:
+            case DATETIMEV2:
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:

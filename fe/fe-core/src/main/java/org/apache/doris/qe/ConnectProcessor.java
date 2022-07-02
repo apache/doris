@@ -26,8 +26,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -45,6 +45,7 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.service.FrontendOptions;
@@ -201,7 +202,18 @@ public class ConnectProcessor {
         List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
         boolean alreadyAddedToAuditInfoList = false;
         try {
-            List<StatementBase> stmts = analyze(originStmt);
+            List<StatementBase> stmts = null;
+            if (ctx.getSessionVariable().isEnableNereids()) {
+                NereidsParser nereidsParser = new NereidsParser();
+                try {
+                    stmts = nereidsParser.parseSQL(originStmt);
+                } catch (Exception e) {
+                    LOG.warn("SQL : {}, parse failed by new parser", originStmt, e);
+                }
+            }
+            if (stmts == null) {
+                stmts = analyze(originStmt);
+            }
             for (int i = 0; i < stmts.size(); ++i) {
                 alreadyAddedToAuditInfoList = false;
                 ctx.getState().reset();
@@ -299,12 +311,12 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
-        Database db = ctx.getCatalog().getDbNullable(ctx.getDatabase());
+        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbNullable(ctx.getDatabase());
         if (db == null) {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
-        Table table = db.getTableNullable(tableName);
+        TableIf table = db.getTableNullable(tableName);
         if (table == null) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
             return;
@@ -390,7 +402,7 @@ public class ConnectProcessor {
             if (resultSet == null) {
                 packet = executor.getOutputPacket();
             } else {
-                executor.sendResult(resultSet);
+                executor.sendResultSet(resultSet);
                 packet = getResultPacket();
                 if (packet == null) {
                     LOG.debug("packet == null");

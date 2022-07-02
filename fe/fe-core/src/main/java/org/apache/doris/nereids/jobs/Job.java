@@ -17,14 +17,15 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -57,7 +58,7 @@ public abstract class Job<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     public List<Rule<NODE_TYPE>> getValidRules(GroupExpression groupExpression,
             List<Rule<NODE_TYPE>> candidateRules) {
         return candidateRules.stream()
-                .filter(rule -> rule.getPattern().matchOperator(groupExpression.getOperator())
+                .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchOperator(groupExpression.getOperator())
                         && groupExpression.notApplied(rule)).collect(Collectors.toList());
     }
 
