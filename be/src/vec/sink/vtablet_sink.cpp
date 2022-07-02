@@ -117,12 +117,19 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _partition_to_tablet_map.clear();
     }
     
-    //if pending bytes is more than 500M, wait
-    constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
-    if ( get_pending_bytes() > MAX_PENDING_BYTES){
-        while(get_pending_bytes() < MAX_PENDING_BYTES){
-            std::this_thread::sleep_for(std::chrono::microseconds(500));
-        }
+    //if pending bytes is more than table_sink_pending_bytes_limitation, wait at most 1 min
+    size_t MAX_PENDING_BYTES = config::table_sink_pending_bytes_limitation;
+    constexpr int max_retry = 120;
+    int retry = 0;
+    while (get_pending_bytes() > MAX_PENDING_BYTES && retry++ < max_retry) {
+        std::this_thread::sleep_for(std::chrono::microseconds(500));
+    }
+    if (get_pending_bytes() > MAX_PENDING_BYTES) {
+        std::stringstream str;
+        str << "Load task " << _load_id
+            << ": pending bytes exceed limit (config::table_sink_pending_bytes_limitation):"
+            << MAX_PENDING_BYTES;
+        return Status::MemoryLimitExceeded(str.str());
     }
 
     for (int i = 0; i < num_rows; ++i) {
