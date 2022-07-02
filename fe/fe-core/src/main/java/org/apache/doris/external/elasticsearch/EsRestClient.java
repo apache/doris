@@ -17,6 +17,9 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.doris.common.util.JsonUtil;
+
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -34,8 +37,10 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.HostnameVerifier;
@@ -134,6 +139,32 @@ public class EsRestClient {
         return indexMapping;
     }
 
+    public boolean existIndex(String indexName) {
+        String path = indexName + "/_mapping";
+        Response response;
+        try {
+            response = executeResponse(null, path);
+            if (response.isSuccessful()) {
+                return true;
+            }
+        } catch (IOException e) {
+            LOG.warn("existIndex error", e);
+            return false;
+        }
+        return false;
+    }
+
+    public List<String> getIndexes() {
+        String indexes = execute("/_cat/indices?h=index&format=json&s=index:asc");
+        if (indexes == null) {
+            throw new DorisEsException("get es indexes error");
+        }
+        List<String> ret = new ArrayList<>();
+        ArrayNode jsonNodes = JsonUtil.parseArray(indexes);
+        jsonNodes.forEach(json -> ret.add(json.get("index").asText()));
+        return ret;
+    }
+
 
     /**
      * Get Shard location
@@ -165,6 +196,27 @@ public class EsRestClient {
         return sslNetworkClient;
     }
 
+    private Response executeResponse(OkHttpClient httpClient, String path) throws IOException {
+        if (httpClient == null) {
+            if (httpSslEnable) {
+                httpClient = getOrCreateSslNetworkClient();
+            } else {
+                httpClient = networkClient;
+            }
+        }
+        currentNode = currentNode.trim();
+        if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
+            currentNode = "http://" + currentNode;
+        }
+        Request request = builder.get()
+                .url(currentNode + "/" + path)
+                .build();
+        if (LOG.isTraceEnabled()) {
+            LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
+        }
+        return httpClient.newCall(request).execute();
+    }
+
     /**
      * execute request for specific path，it will try again nodes.length times if it fails
      *
@@ -187,29 +239,16 @@ public class EsRestClient {
             // User may set a config like described below:
             // hosts: "http://192.168.0.1:8200, http://192.168.0.2:8200"
             // then currentNode will be "http://192.168.0.1:8200", " http://192.168.0.2:8200"
-            currentNode = currentNode.trim();
-            if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
-                currentNode = "http://" + currentNode;
-            }
-            Request request = builder.get()
-                    .url(currentNode + "/" + path)
-                    .build();
-            Response response = null;
             if (LOG.isTraceEnabled()) {
                 LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             }
-            try {
-                response = httpClient.newCall(request).execute();
+            try (Response response = executeResponse(httpClient, path)) {
                 if (response.isSuccessful()) {
                     return response.body().string();
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
                 scratchExceptionForThrow = new DorisEsException(e.getMessage());
-            } finally {
-                if (response != null) {
-                    response.close();
-                }
             }
             selectNextNode();
         }
