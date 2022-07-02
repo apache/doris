@@ -32,7 +32,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -492,15 +491,19 @@ public class TableRef implements ParseNode, Writable {
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(getId().asList(), this);
+            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
         if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
+            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
         }
         // register the tuple ids of a full outer join
         if (joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerFullOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
             analyzer.registerFullOuterJoinedTids(getId().asList(), this);
+            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
+            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
 
         // register the tuple id of the rhs of a left semi join
