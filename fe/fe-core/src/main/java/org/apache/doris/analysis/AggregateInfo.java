@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.thrift.TPartitionType;
 
@@ -455,8 +456,8 @@ public final class AggregateInfo extends AggregateInfoBase {
             List<Expr> paramExprs = new ArrayList<>();
             // TODO(zhannngchen), change intermediate argument to a list, and remove this
             // ad-hoc logic
-            if (inputExpr.fn.functionName().equals("max_by") ||
-                    inputExpr.fn.functionName().equals("min_by")) {
+            if ((inputExpr.fn.functionName().equals("max_by") ||
+                    inputExpr.fn.functionName().equals("min_by")) && VectorizedUtil.isVectorized()) {
                 paramExprs.addAll(inputExpr.getFnParams().exprs());
             } else {
                 paramExprs.add(new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size())));

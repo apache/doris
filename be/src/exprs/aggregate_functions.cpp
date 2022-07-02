@@ -363,6 +363,280 @@ struct DecimalV2AvgState {
     int64_t count = 0;
 };
 
+template <typename T, typename KT>
+struct MaxByState {
+    T val1;
+    KT val2;
+    bool flag = false;
+};
+
+template <typename T, typename KT>
+struct MaxByStateWithString {
+    T val1;
+    KT val2;
+    bool flag = false;
+
+    static const int STRING_LENGTH_RECORD_LENGTH = 4;
+    StringVal serialize(FunctionContext* ctx) {
+        // calculate total serialize buffer length
+        int total_serialized_set_length = 1;
+        if constexpr (std::is_same_v<StringVal, T>) {
+            total_serialized_set_length += STRING_LENGTH_RECORD_LENGTH + ((StringVal)val1).len;
+        } else {
+            total_serialized_set_length += STRING_LENGTH_RECORD_LENGTH + sizeof(T);
+        }
+
+        if constexpr (std::is_same_v<StringVal, KT>) {
+            total_serialized_set_length += STRING_LENGTH_RECORD_LENGTH + ((StringVal)val2).len;
+        } else {
+            total_serialized_set_length += STRING_LENGTH_RECORD_LENGTH + sizeof(KT);
+        }
+
+        StringVal result(ctx, total_serialized_set_length);
+        uint8_t* writer = result.ptr;
+        // type
+        *writer = flag;
+        writer++;
+
+        if constexpr (std::is_same_v<StringVal, T>) {
+            *(int*)writer = ((StringVal)val1).len;
+            writer += STRING_LENGTH_RECORD_LENGTH;
+            memcpy(writer, ((StringVal)val1).ptr, ((StringVal)val1).len);
+            writer += ((StringVal)val1).len;
+        } else {
+            *(int*)writer = sizeof(T);
+            writer += STRING_LENGTH_RECORD_LENGTH;
+            *(T*)writer = val1;
+            writer += sizeof(T);
+        }
+
+        if constexpr (std::is_same_v<StringVal, KT>) {
+            *(int*)writer = ((StringVal)val2).len;
+            writer += STRING_LENGTH_RECORD_LENGTH;
+            memcpy(writer, ((StringVal)val2).ptr, ((StringVal)val2).len);
+        } else {
+            *(int*)writer = sizeof(KT);
+            writer += STRING_LENGTH_RECORD_LENGTH;
+            *(KT*)writer = val2;
+        }
+        return result;
+    }
+
+    void deserialize(const StringVal& src) {
+        uint8_t* reader = src.ptr;
+        // skip type ,no used now
+        flag = (bool)*reader;
+        reader++;
+        const uint8_t* end = src.ptr + src.len;
+
+        const int val1_length = *(int*)reader;
+        reader += STRING_LENGTH_RECORD_LENGTH;
+
+        if constexpr (std::is_same_v<StringVal, T>) {
+            StringVal value((uint8_t*)reader, val1_length);
+            val1 = value;
+        } else {
+            val1 = *(T*)reader;
+        }
+        reader += val1_length;
+
+        const int val2_length = *(int*)reader;
+        reader += STRING_LENGTH_RECORD_LENGTH;
+        if constexpr (std::is_same_v<StringVal, KT>) {
+            StringVal value((uint8_t*)reader, val2_length);
+            val2 = value;
+        } else {
+            val2 = *(KT*)reader;
+        }
+        reader += val2_length;
+        DCHECK(reader == end);
+    }
+};
+
+template <typename T, typename KT>
+void AggregateFunctions::numeric_maxby_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    int len;
+    if constexpr (std::is_same_v<T, StringVal> || std::is_same_v<KT, StringVal>) {
+        len = sizeof(MaxByStateWithString<T, KT>);
+        dst->ptr = (uint8_t*)new MaxByStateWithString<T, KT>;
+    } else {
+        len = sizeof(MaxByState<T, KT>);
+        dst->ptr = (uint8_t*)new MaxByState<T, KT>;
+    }
+    dst->len = len;
+}
+
+template <typename T, typename KT>
+void AggregateFunctions::numeric_maxby_update(FunctionContext* ctx, const T& slot1, const KT& slot2,
+                                              StringVal* dst) {
+    if (slot1.is_null) {
+        return;
+    }
+    DCHECK(dst->ptr != nullptr);
+    if constexpr (std::is_same_v<T, StringVal> || std::is_same_v<KT, StringVal>) {
+        DCHECK_EQ(sizeof(MaxByStateWithString<T, KT>), dst->len);
+        auto max_by = reinterpret_cast<MaxByStateWithString<T, KT>*>(dst->ptr);
+
+        bool condition = false;
+        if constexpr (std::is_same_v<StringVal, KT>) {
+            condition = !max_by->flag || slot2.to_string() > max_by->val2.to_string();
+        } else if constexpr (std::is_same_v<DateTimeVal, KT>) {
+            condition = !max_by->flag || slot2.packed_time > max_by->val2.packed_time;
+        } else {
+            condition = !max_by->flag || slot2.val > max_by->val2.val;
+        }
+        if (condition) {
+            max_by->val1 = slot1;
+            max_by->val2 = slot2;
+            if (!max_by->flag) {
+                max_by->flag = true;
+            }
+        }
+    } else {
+        DCHECK_EQ(sizeof(MaxByState<T, KT>), dst->len);
+        auto max_by = reinterpret_cast<MaxByState<T, KT>*>(dst->ptr);
+
+        bool condition = false;
+        if constexpr (std::is_same_v<DateTimeVal, KT>) {
+            condition = !max_by->flag || slot2.packed_time > max_by->val2.packed_time;
+        } else {
+            condition = !max_by->flag || slot2.val > max_by->val2.val;
+        }
+        if (condition) {
+            max_by->val1 = slot1;
+            max_by->val2 = slot2;
+            if (!max_by->flag) {
+                max_by->flag = true;
+            }
+        }
+    }
+}
+
+template <typename T, typename KT>
+StringVal AggregateFunctions::numeric_maxby_serialize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+    if constexpr (std::is_same_v<T, StringVal> || std::is_same_v<KT, StringVal>) {
+        auto state = reinterpret_cast<MaxByStateWithString<T, KT>*>(src.ptr);
+        StringVal result = state->serialize(ctx);
+        delete (MaxByStateWithString<T, KT>*)src.ptr;
+        return result;
+    } else {
+        StringVal result(ctx, src.len);
+        memcpy(result.ptr, src.ptr, src.len);
+        delete (MaxByState<T, KT>*)src.ptr;
+        return result;
+    }
+}
+
+template <typename T, typename KT>
+void AggregateFunctions::numeric_maxby_merge(FunctionContext* ctx, const StringVal& src,
+                                             StringVal* dst) {
+    if (src.is_null || src.ptr == nullptr) {
+        return;
+    }
+    DCHECK(dst->ptr != nullptr);
+
+    if constexpr (std::is_same_v<T, StringVal> || std::is_same_v<KT, StringVal>) {
+        DCHECK_EQ(sizeof(MaxByStateWithString<T, KT>), dst->len);
+
+        // deserialize src
+        StringVal src_state_val;
+        int len = sizeof(MaxByStateWithString<T, KT>);
+        src_state_val.is_null = false;
+        src_state_val.len = len;
+        src_state_val.ptr = (uint8_t*)new MaxByStateWithString<T, KT>;
+        auto src_state = reinterpret_cast<MaxByStateWithString<T, KT>*>(src_state_val.ptr);
+        src_state->deserialize(src);
+
+        auto max_by2 = reinterpret_cast<MaxByStateWithString<T, KT>*>(dst->ptr);
+        if (!src_state->flag) {
+            return;
+        }
+        bool condition = false;
+        if constexpr (std::is_same_v<DateTimeVal, KT>) {
+            condition =
+                    max_by2->flag == 0 || src_state->val2.packed_time > max_by2->val2.packed_time;
+        } else if constexpr (std::is_same_v<StringVal, KT>) {
+            condition =
+                    max_by2->flag == 0 || src_state->val2.to_string() > max_by2->val2.to_string();
+        } else {
+            condition = max_by2->flag == 0 || src_state->val2.val > max_by2->val2.val;
+        }
+        if (condition) {
+            max_by2->val2 = src_state->val2;
+            max_by2->val1 = src_state->val1;
+            if (!max_by2->flag) {
+                max_by2->flag = true;
+            }
+        }
+    } else {
+        DCHECK_EQ(sizeof(MaxByState<T, KT>), dst->len);
+        auto max_by1 = reinterpret_cast<MaxByState<T, KT>*>(src.ptr);
+        auto max_by2 = reinterpret_cast<MaxByState<T, KT>*>(dst->ptr);
+        if (!max_by1->flag) {
+            return;
+        }
+        bool condition = false;
+        if constexpr (std::is_same_v<DateTimeVal, KT>) {
+            condition = max_by2->flag == 0 || max_by1->val2.packed_time > max_by2->val2.packed_time;
+        } else {
+            condition = max_by2->flag == 0 || max_by1->val2.val > max_by2->val2.val;
+        }
+        if (condition) {
+            max_by2->val2 = max_by1->val2;
+            max_by2->val1 = max_by1->val1;
+            if (!max_by2->flag) {
+                max_by2->flag = true;
+            }
+        }
+    }
+}
+
+template <typename T, typename KT>
+T AggregateFunctions::numeric_maxby_get_value(FunctionContext* ctx, const StringVal& src) {
+    if (src.ptr == nullptr) {
+        return T::null();
+    }
+
+    if constexpr (std::is_same_v<T, StringVal> || std::is_same_v<KT, StringVal>) {
+        auto state = reinterpret_cast<MaxByStateWithString<T, KT>*>(src.ptr);
+        if (!state->flag) {
+            return T::null();
+        }
+        if constexpr (std::is_same_v<T, StringVal>) {
+            return StringVal::copy_from(ctx, state->val1.ptr, state->val1.len);
+        } else {
+            return state->val1;
+        }
+    } else {
+        auto state = reinterpret_cast<MaxByState<T, KT>*>(src.ptr);
+        if (!state->flag) {
+            return T::null();
+        }
+        return state->val1;
+    }
+}
+
+template <typename T, typename KT>
+T AggregateFunctions::numeric_maxby_finalize(doris_udf::FunctionContext* ctx,
+                                             const doris_udf::StringVal& src) {
+    if (src.ptr == nullptr) {
+        return T::null();
+    }
+    if (src.is_null) {
+        return T::null();
+    }
+    T result = numeric_maxby_get_value<T, KT>(ctx, src);
+
+    if constexpr (std::is_same_v<T, StringVal> || std::is_same_v<KT, StringVal>) {
+        delete (MaxByStateWithString<T, KT>*)src.ptr;
+    } else {
+        delete (MaxByState<T, KT>*)src.ptr;
+    }
+    return result;
+}
+
 void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(AvgState);
@@ -1077,7 +1351,7 @@ void AggregateFunctions::hll_merge(FunctionContext* ctx, const StringVal& src, S
     DCHECK(!src.is_null);
     DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
     DCHECK_EQ(src.len, std::pow(2, HLL_COLUMN_PRECISION));
-    
+
     for (int i = 0; i < src.len; ++i) {
         dst->ptr[i] = (dst->ptr[i] < src.ptr[i] ? src.ptr[i] : dst->ptr[i]);
     }
@@ -2669,6 +2943,152 @@ template void AggregateFunctions::avg_update<doris_udf::SmallIntVal>(doris_udf::
 template void AggregateFunctions::avg_remove<doris_udf::SmallIntVal>(doris_udf::FunctionContext*,
                                                                      doris_udf::SmallIntVal const&,
                                                                      doris_udf::StringVal*);
+
+#define NUMERIC_MAXBY_FUNCTION(TYPE_T, TYPE_KT)                                      \
+    template void AggregateFunctions::numeric_maxby_merge<TYPE_T, TYPE_KT>(          \
+            FunctionContext * ctx, const StringVal& src, StringVal* dst);            \
+    template StringVal AggregateFunctions::numeric_maxby_serialize<TYPE_T, TYPE_KT>( \
+            FunctionContext * ctx, const StringVal& src);                            \
+    template TYPE_T AggregateFunctions::numeric_maxby_get_value<TYPE_T, TYPE_KT>(    \
+            FunctionContext * ctx, const StringVal& src);                            \
+    template TYPE_T AggregateFunctions::numeric_maxby_finalize<TYPE_T, TYPE_KT>(     \
+            FunctionContext * ctx, const StringVal& src);                            \
+    template void AggregateFunctions::numeric_maxby_init<TYPE_T, TYPE_KT>(           \
+            doris_udf::FunctionContext * ctx, doris_udf::StringVal * dst);           \
+    template void AggregateFunctions::numeric_maxby_update<TYPE_T, TYPE_KT>(         \
+            doris_udf::FunctionContext*, TYPE_T const&, TYPE_KT const&, doris_udf::StringVal*);
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::TinyIntVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::SmallIntVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::IntVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BigIntVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::LargeIntVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::FloatVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DoubleVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DecimalV2Val, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::BooleanVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::DateTimeVal, doris_udf::StringVal)
+
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::TinyIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::IntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::SmallIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::BigIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::LargeIntVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::FloatVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::DoubleVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::DecimalV2Val)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::BooleanVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::DateTimeVal)
+NUMERIC_MAXBY_FUNCTION(doris_udf::StringVal, doris_udf::StringVal)
 
 template void AggregateFunctions::max_init<BooleanVal>(doris_udf::FunctionContext*,
                                                        BooleanVal* dst);
