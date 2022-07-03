@@ -603,7 +603,6 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
-            <scope>provided</scope>
         </dependency>
 
         <dependency>
