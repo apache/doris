@@ -421,7 +421,7 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggregationNode::_destory_agg_status(AggregateDataPtr data) {
+Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
@@ -556,7 +556,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
                         deserialize_buffer.get() + _offsets_of_aggregate_states[i],
                         &_agg_arena_pool);
 
-                _destory_agg_status(deserialize_buffer.get());
+                _destroy_agg_status(deserialize_buffer.get());
             }
         } else {
             _aggregate_evaluators[i]->execute_single_add(
@@ -572,7 +572,7 @@ void AggregationNode::_update_memusage_without_key() {
 }
 
 void AggregationNode::_close_without_key() {
-    _destory_agg_status(_agg_data.without_key);
+    _destroy_agg_status(_agg_data.without_key);
     release_tracker();
 }
 
@@ -718,6 +718,10 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                                         value_buffer_writers[i]);
                                 value_buffer_writers[i].commit();
                             }
+                        }
+
+                        for (size_t i = 0; i < rows; ++i) {
+                            _destroy_agg_status(_streaming_pre_places[i]);
                         }
 
                         if (!mem_reuse) {
@@ -1082,7 +1086,7 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
                         deserialize_buffer.get() + _offsets_of_aggregate_states[i],
                         &_agg_arena_pool);
 
-                _destory_agg_status(deserialize_buffer.get());
+                _destroy_agg_status(deserialize_buffer.get());
             }
         } else {
             _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
@@ -1111,7 +1115,7 @@ void AggregationNode::_close_with_serialized_key() {
                 auto& data = agg_method.data;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        _destory_agg_status(mapped);
+                        _destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
                 });
