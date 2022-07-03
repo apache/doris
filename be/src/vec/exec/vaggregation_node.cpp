@@ -720,7 +720,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         }
 
                         for (size_t i = 0; i < rows; ++i) {
-                            _destory_agg_status(_streaming_pre_places[i]);
+                            _destroy_agg_status(_streaming_pre_places[i]);
                         }
 
                         if (!mem_reuse) {
