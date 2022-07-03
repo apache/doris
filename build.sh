@@ -165,7 +165,6 @@ else
         BUILD_BROKER=1
         BUILD_META_TOOL=ON
         BUILD_SPARK_DPP=1
-        BUILD_JAVA_UDF=1
         BUILD_HIVE_UDF=1
         CLEAN=0
     fi
