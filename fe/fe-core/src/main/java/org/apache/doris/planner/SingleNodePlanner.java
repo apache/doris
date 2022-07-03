@@ -63,8 +63,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
