@@ -2872,6 +2872,13 @@ public class Catalog {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // sequence type
+            if (olapTable.hasSequenceCol()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                sb.append(olapTable.getSequenceType().toString()).append("\"");
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
