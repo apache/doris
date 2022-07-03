@@ -719,6 +719,10 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             }
                         }
 
+                        for (size_t i = 0; i < rows; ++i) {
+                            _destroy_agg_status(_streaming_pre_places[i]);
+                        }
+
                         if (!mem_reuse) {
                             ColumnsWithTypeAndName columns_with_schema;
                             for (int i = 0; i < key_size; ++i) {
