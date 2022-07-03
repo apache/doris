@@ -612,6 +612,8 @@ public class HashJoinNode extends PlanNode {
         }
         // 3. replace srcExpr by intermediate tuple
         vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
+        // 4. replace other conjuncts
+        otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
     }
 
     /**
