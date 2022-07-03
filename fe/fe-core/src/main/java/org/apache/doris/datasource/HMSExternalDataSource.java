@@ -49,7 +49,6 @@ public class HMSExternalDataSource extends ExternalDataSource {
     //Cache of db name to db id.
     private ConcurrentHashMap<String, Long> dbNameToId = new ConcurrentHashMap();
     private boolean initialized = false;
-    protected String hiveMetastoreUris;
     protected HiveMetaStoreClient client;
 
     /**
@@ -61,12 +60,15 @@ public class HMSExternalDataSource extends ExternalDataSource {
         this.type = "hms";
         this.dsProperty = new DataSourceProperty();
         this.dsProperty.setProperties(props);
-        this.hiveMetastoreUris = props.getOrDefault("hive.metastore.uris", "thrift://127.0.0.1:9083");
+    }
+
+    public String getHiveMetastoreUris() {
+        return dsProperty.getOrDefault("hive.metastore.uris", "");
     }
 
     private void init() {
         HiveConf hiveConf = new HiveConf();
-        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, hiveMetastoreUris);
+        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
         try {
             client = new HiveMetaStoreClient(hiveConf);
         } catch (MetaException e) {
@@ -134,7 +136,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
         if (!dbNameToId.containsKey(dbName)) {
             return null;
         }
-        return new HMSExternalDatabase(this, dbNameToId.get(dbName), dbName, hiveMetastoreUris);
+        return new HMSExternalDatabase(this, dbNameToId.get(dbName), dbName, getHiveMetastoreUris());
     }
 
     @Nullable
@@ -143,7 +145,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
         makeSureInitialized();
         for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
             if (entry.getValue() == dbId) {
-                return new HMSExternalDatabase(this, dbId, entry.getKey(), hiveMetastoreUris);
+                return new HMSExternalDatabase(this, dbId, entry.getKey(), getHiveMetastoreUris());
             }
         }
         return null;

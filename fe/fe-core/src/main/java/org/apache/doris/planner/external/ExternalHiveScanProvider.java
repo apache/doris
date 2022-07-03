@@ -27,6 +27,7 @@ import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
+import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -101,21 +102,33 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
 
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
 
-        Configuration configuration = new Configuration();
+        Configuration configuration = setConfiguration();
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
         JobConf jobConf = new JobConf(configuration);
         FileInputFormat.setInputPaths(jobConf, splitsPath);
         return inputFormat.getSplits(jobConf, 0);
     }
 
+    private Configuration setConfiguration() {
+        Configuration conf = new Configuration();
+        Map<String, String> dfsProperties = hmsTable.getDfsProperties();
+        for (Map.Entry<String, String> entry : dfsProperties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        Map<String, String> s3Properties = hmsTable.getDfsProperties();
+        for (Map.Entry<String, String> entry : s3Properties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
+    }
 
     private ExprNodeGenericFuncDesc extractHivePartitionPredicate(List<Expr> conjuncts, List<String> partitionKeys)
             throws DdlException {
         ExprNodeGenericFuncDesc hivePartitionPredicate;
         List<ExprNodeDesc> exprNodeDescs = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    conjunct, partitionKeys, hmsTable.getName());
+            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct,
+                    partitionKeys, hmsTable.getName());
             if (hiveExpr != null) {
                 exprNodeDescs.add(hiveExpr);
             }
@@ -143,7 +156,9 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
 
     @Override
     public Map<String, String> getTableProperties() throws MetaNotFoundException {
-        return hmsTable.getRemoteTable().getParameters();
+        Map<String, String> properteis = Maps.newHashMap(hmsTable.getRemoteTable().getParameters());
+        properteis.putAll(hmsTable.getDfsProperties());
+        return properteis;
     }
 
     @Override

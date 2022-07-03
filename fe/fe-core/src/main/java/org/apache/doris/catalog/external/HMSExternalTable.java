@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.HMSExternalDataSource;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Hive metastore external table.
@@ -40,7 +42,7 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
-    private final String metastoreUri;
+    private final HMSExternalDataSource ds;
     private final String dbName;
     private org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     private DLAType dlaType = null;
@@ -57,12 +59,13 @@ public class HMSExternalTable extends ExternalTable {
      * @param id Table id.
      * @param name Table name.
      * @param dbName Database name.
-     * @param uri Hive metastore uri.
+     * @param ds HMSExternalDataSource.
      */
-    public HMSExternalTable(long id, String name, String dbName, String uri) throws MetaNotFoundException {
+    public HMSExternalTable(long id, String name, String dbName, HMSExternalDataSource ds)
+            throws MetaNotFoundException {
         super(id, name);
         this.dbName = dbName;
-        this.metastoreUri = uri;
+        this.ds = ds;
         this.type = TableType.HMS_EXTERNAL_TABLE;
         init();
     }
@@ -87,10 +90,10 @@ public class HMSExternalTable extends ExternalTable {
             synchronized (this) {
                 if (remoteTable == null) {
                     try {
-                        remoteTable = HiveMetaStoreClientHelper.getTable(dbName, name, metastoreUri);
+                        remoteTable = HiveMetaStoreClientHelper.getTable(dbName, name, ds.getHiveMetastoreUris());
                     } catch (DdlException e) {
-                        LOG.warn("Fail to get remote hive table. db {}, table {}, uri {}",
-                                dbName, name, metastoreUri);
+                        LOG.warn("Fail to get remote hive table. db {}, table {}, uri {}", dbName, name,
+                                ds.getHiveMetastoreUris());
                         throw new MetaNotFoundException(e);
                     }
                 }
@@ -107,11 +110,11 @@ public class HMSExternalTable extends ExternalTable {
                 if (fullSchema == null) {
                     fullSchema = new ArrayList<>();
                     try {
-                        for (FieldSchema field : HiveMetaStoreClientHelper.getSchema(dbName, name, metastoreUri)) {
+                        for (FieldSchema field : HiveMetaStoreClientHelper.getSchema(dbName, name,
+                                ds.getHiveMetastoreUris())) {
                             fullSchema.add(new Column(field.getName(),
-                                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()),
-                                    true, null,
-                                    true, null, field.getComment()));
+                                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null, true,
+                                    null, field.getComment()));
                         }
                     } catch (DdlException e) {
                         LOG.warn("Fail to get schema of hms table {}", name, e);
@@ -216,13 +219,21 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE,
-                fullSchema.size(), 0, getName(), "");
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE, fullSchema.size(), 0,
+                getName(), "");
         tTableDescriptor.setHiveTable(tHiveTable);
         return tTableDescriptor;
     }
 
     public String getMetastoreUri() {
-        return metastoreUri;
+        return ds.getHiveMetastoreUris();
+    }
+
+    public Map<String, String> getDfsProperties() {
+        return ds.getDsProperty().getDfsProperties();
+    }
+
+    public Map<String, String> getS3Properties() {
+        return ds.getDsProperty().getS3Properties();
     }
 }
