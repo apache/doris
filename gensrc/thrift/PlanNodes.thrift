@@ -474,6 +474,8 @@ struct THashJoinNode {
   7: optional list<Exprs.TExpr> srcExprList
 
   8: optional Types.TTupleId voutput_tuple_id
+
+  9: optional Types.TTupleId vintermediate_tuple_id
 }
 
 struct TMergeJoinNode {

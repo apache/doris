@@ -322,7 +322,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return tblRefIds;
     }
 
-    public ArrayList<TupleId> getOutputTupleIds() {
+    public List<TupleId> getOutputTupleIds() {
         return tupleIds;
     }
 
