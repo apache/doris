@@ -38,7 +38,7 @@ import java.util.Optional;
  * Representation for group in cascades optimizer.
  */
 public class Group {
-    private final GroupId groupId = GroupId.newPlanSetId();
+    private final GroupId groupId;
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
@@ -56,7 +56,8 @@ public class Group {
      *
      * @param groupExpression first {@link GroupExpression} in this Group
      */
-    public Group(GroupExpression groupExpression, LogicalProperties logicalProperties) {
+    public Group(GroupId groupId, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+        this.groupId = groupId;
         if (groupExpression.getOperator() instanceof LogicalOperator) {
             this.logicalExpressions.add(groupExpression);
         } else {
@@ -194,7 +195,7 @@ public class Group {
      * Get the first Plan from Memo.
      */
     public PhysicalPlan extractPlan() throws AnalysisException {
-        GroupExpression groupExpression = this.logicalExpressionsAt(0);
+        GroupExpression groupExpression = this.physicalExpressions.get(0);
 
         List<Plan> planChildren = com.google.common.collect.Lists.newArrayList();
         for (int i = 0; i < groupExpression.arity(); i++) {
@@ -230,6 +231,6 @@ public class Group {
 
     @Override
     public String toString() {
-        return "Group{" + getLogicalExpression().getOperator() + "}";
+        return "Group[" + groupId + "]";
     }
 }

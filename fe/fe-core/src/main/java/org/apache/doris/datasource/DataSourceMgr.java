@@ -48,6 +48,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -84,6 +85,19 @@ public class DataSourceMgr implements Writable {
         return nameToCatalogs.get(name);
     }
 
+    public <E extends Exception> DataSourceIf getCatalogOrException(String name, Function<String, E> e) throws E {
+        DataSourceIf ds = nameToCatalogs.get(name);
+        if (ds == null) {
+            throw e.apply(name);
+        }
+        return ds;
+    }
+
+    public DataSourceIf getCatalogOrAnalysisException(String name) throws AnalysisException {
+        return getCatalogOrException(name, ds -> new AnalysisException(
+                ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(ds), ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
     public DatabaseIf getDbNullable(long dbId) {
         DatabaseIf db = internalDataSource.getDbNullable(dbId);
         if (db != null) {
@@ -115,6 +129,10 @@ public class DataSourceMgr implements Writable {
             dbNames.addAll(ds.getDbNames());
         }
         return dbNames;
+    }
+
+    public DataSourceIf getExternalDatasource(String name) {
+        return nameToCatalogs.get(name);
     }
 
     private void writeLock() {

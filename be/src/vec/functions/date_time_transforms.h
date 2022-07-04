@@ -137,7 +137,6 @@ struct TimeStampImpl {
 template <typename DateValueType, typename ArgType>
 struct DayNameImpl {
     using ARG_TYPE = ArgType;
-    using DATE_TYPE = DateValueType;
     static constexpr auto name = "dayname";
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
@@ -158,7 +157,7 @@ struct DayNameImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DATE_TYPE, VecDateTimeValue>) {
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             return {std::make_shared<DataTypeDateTime>()};
         } else {
             return {std::make_shared<DataTypeDateV2>()};
@@ -169,12 +168,11 @@ struct DayNameImpl {
 template <typename DateValueType, typename ArgType>
 struct MonthNameImpl {
     using ARG_TYPE = ArgType;
-    using DATE_TYPE = DateValueType;
     static constexpr auto name = "monthname";
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
-    static inline auto execute(const DATE_TYPE& dt, ColumnString::Chars& res_data, size_t& offset,
-                               bool& is_null) {
+    static inline auto execute(const DateValueType& dt, ColumnString::Chars& res_data,
+                               size_t& offset, bool& is_null) {
         const auto* month_name = dt.month_name();
         is_null = !dt.is_valid_date();
         if (month_name == nullptr || is_null) {
@@ -190,7 +188,7 @@ struct MonthNameImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DATE_TYPE, VecDateTimeValue>) {
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             return {std::make_shared<DataTypeDateTime>()};
         } else {
             return {std::make_shared<DataTypeDateV2>()};
@@ -227,11 +225,17 @@ struct DateFormatImpl {
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
-            return std::vector<DataTypePtr> {std::make_shared<vectorized::DataTypeDateTime>(),
-                                             std::make_shared<vectorized::DataTypeString>()};
+            return std::vector<DataTypePtr> {
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeDateTime>()),
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeString>())};
         } else {
-            return std::vector<DataTypePtr> {std::make_shared<vectorized::DataTypeDateV2>(),
-                                             std::make_shared<vectorized::DataTypeString>()};
+            return std::vector<DataTypePtr> {
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeDateV2>()),
+                    std::dynamic_pointer_cast<const IDataType>(
+                            std::make_shared<vectorized::DataTypeString>())};
         }
     }
 };
@@ -354,9 +358,9 @@ struct DateTimeTransformImpl {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of first argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), Transform::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        Transform::name);
         }
         return Status::OK();
     }

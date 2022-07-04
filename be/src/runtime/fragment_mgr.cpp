@@ -545,9 +545,9 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     auto search = _fragments_ctx_map.find(query_id);
     if (search == _fragments_ctx_map.end()) {
         return Status::InternalError(
-                strings::Substitute("Failed to get query fragments context. Query may be "
-                                    "timeout or be cancelled. host: ",
-                                    BackendOptions::get_localhost()));
+                "Failed to get query fragments context. Query may be "
+                "timeout or be cancelled. host: {}",
+                BackendOptions::get_localhost());
     }
     search->second->set_ready_to_execute();
     return Status::OK();
@@ -595,9 +595,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         auto search = _fragments_ctx_map.find(params.params.query_id);
         if (search == _fragments_ctx_map.end()) {
             return Status::InternalError(
-                    strings::Substitute("Failed to get query fragments context. Query may be "
-                                        "timeout or be cancelled. host: ",
-                                        BackendOptions::get_localhost()));
+                    "Failed to get query fragments context. Query may be "
+                    "timeout or be cancelled. host: {}",
+                    BackendOptions::get_localhost());
         }
         fragments_ctx = search->second;
     } else {
@@ -666,9 +666,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             _fragment_map.erase(params.params.fragment_instance_id);
         }
         exec_state->cancel_before_execute();
-        return Status::InternalError(
-                strings::Substitute("Put planfragment to thread pool failed. err = $0, BE: $1",
-                                    st.get_error_msg(), BackendOptions::get_localhost()));
+        return Status::InternalError("Put planfragment to thread pool failed. err = {}, BE: {}",
+                                     st.get_error_msg(), BackendOptions::get_localhost());
     }
 
     return Status::OK();
@@ -873,7 +872,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const cha
         auto iter = _fragment_map.find(tfragment_instance_id);
         if (iter == _fragment_map.end()) {
             VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id: " + fragment_instance_id.to_string());
+            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
         }
         fragment_state = iter->second;
     }

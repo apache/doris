@@ -60,8 +60,8 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
     // Since we use 32 bits in the arguments of Insert() and Find(), _log_num_buckets
     // must be limited.
     if (_log_num_buckets > 32) {
-        return Status::InvalidArgument(
-                fmt::format("Bloom filter too large. log_space_bytes: {}", log_space_bytes));
+        return Status::InvalidArgument("Bloom filter too large. log_space_bytes: {}",
+                                       log_space_bytes);
     }
     // Don't use _log_num_buckets if it will lead to undefined behavior by a shift
     // that is too large.
@@ -69,8 +69,12 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
 
     const size_t alloc_size = directory_size();
     close(); // Ensure that any previously allocated memory for directory_ is released.
-    _mem_holder.reset(new char[alloc_size]);
-    _directory = (Bucket*)_mem_holder.get();
+    DCHECK(_directory == nullptr);
+    int rc = posix_memalign((void**)&_directory, 32, alloc_size);
+    if (rc != 0) {
+        return Status::InternalError("block_bloom_filter alloc fail");
+    }
+
     _hash_seed = hash_seed;
     return Status::OK();
 }
@@ -89,9 +93,9 @@ Status BlockBloomFilter::init_from_directory(int log_space_bytes, const Slice& d
     DCHECK(_directory);
 
     if (directory_size() != directory.size) {
-        return Status::InvalidArgument(fmt::format(
+        return Status::InvalidArgument(
                 "Mismatch in BlockBloomFilter source directory size {} and expected size {}",
-                directory.size, directory_size()));
+                directory.size, directory_size());
     }
     memcpy(_directory, directory.data, directory.size);
     _always_false = always_false;
@@ -100,6 +104,7 @@ Status BlockBloomFilter::init_from_directory(int log_space_bytes, const Slice& d
 
 void BlockBloomFilter::close() {
     if (_directory != nullptr) {
+        free(_directory);
         _directory = nullptr;
     }
 }
@@ -178,7 +183,7 @@ void BlockBloomFilter::or_equal_array_internal(size_t n, const uint8_t* __restri
 Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in,
                                         uint8_t* __restrict__ out) {
     if ((n % kBucketByteSize) != 0) {
-        return Status::InvalidArgument(fmt::format("Input size {} not a multiple of 32-bytes", n));
+        return Status::InvalidArgument("Input size {} not a multiple of 32-bytes", n);
     }
 
     or_equal_array_internal(n, in, out);
@@ -227,9 +232,8 @@ Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
         return Status::OK();
     }
     if (directory_size() != other.directory_size()) {
-        return Status::InvalidArgument(
-                fmt::format("Directory size don't match. this: {}, other: {}", directory_size(),
-                            other.directory_size()));
+        return Status::InvalidArgument("Directory size don't match. this: {}, other: {}",
+                                       directory_size(), other.directory_size());
     }
     if (other.always_false()) {
         // Nothing to do.

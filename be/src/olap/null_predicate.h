@@ -31,9 +31,9 @@ class NullPredicate : public ColumnPredicate {
 public:
     NullPredicate(uint32_t column_id, bool is_null, bool opposite = false);
 
-    virtual PredicateType type() const override;
+    PredicateType type() const override;
 
-    virtual void evaluate(VectorizedRowBatch* batch) const override;
+    void evaluate(VectorizedRowBatch* batch) const override;
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
@@ -41,18 +41,19 @@ public:
 
     void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;
 
-    virtual Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
-                            uint32_t num_rows, roaring::Roaring* roaring) const override;
+    Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
+                    uint32_t num_rows, roaring::Roaring* roaring) const override;
 
-    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override;
+    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                      uint16_t size) const override;
 
-    void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override;
 
-    void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override;
 
-    void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override;
+    void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 
 private:
     bool _is_null; //true for null, false for not null

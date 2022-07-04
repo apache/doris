@@ -227,8 +227,7 @@ public:
         DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
         TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
-        return Status::NotSupported(
-                fmt::format("argument_type {} not supported", data_type->get_name()));
+        return Status::NotSupported("argument_type {} not supported", data_type->get_name());
     }
 };
 

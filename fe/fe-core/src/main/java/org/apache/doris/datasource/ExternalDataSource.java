@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -174,6 +175,13 @@ public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabas
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    /**
+     * External catalog has no cluster semantics.
+     */
+    protected static String getRealTableName(String tableName) {
+        return ClusterNamespace.getNameFromFullName(tableName);
     }
 
     public static ExternalDataSource read(DataInput in) throws IOException {

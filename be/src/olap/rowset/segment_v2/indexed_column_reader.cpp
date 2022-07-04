@@ -33,8 +33,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
 
     _type_info = get_scalar_type_info((FieldType)_meta.data_type());
     if (_type_info == nullptr) {
-        return Status::NotSupported(
-                strings::Substitute("unsupported typeinfo, type=$0", _meta.data_type()));
+        return Status::NotSupported("unsupported typeinfo, type={}", _meta.data_type());
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
     _value_key_coder = get_key_coder(_type_info->type());
@@ -110,8 +109,10 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
                                        _compress_codec.get()));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
+    PageDecoderOptions opts;
+    opts.need_check_bitmap = false;
     return ParsedPage::create(std::move(handle), body, footer.data_page_footer(),
-                              _reader->encoding_info(), pp, 0, &_data_page);
+                              _reader->encoding_info(), pp, 0, &_data_page, opts);
 }
 
 Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {

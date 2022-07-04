@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TColumnType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -116,17 +117,17 @@ public class Column implements Writable {
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, String defaultValue,
-                  String comment) {
+            String comment) {
         this(name, type, isKey, aggregateType, false, defaultValue, comment);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-                  String defaultValue, String comment) {
+            String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-                  String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef) {
+            String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -419,8 +420,8 @@ public class Column implements Writable {
             Integer lSize = type.getColumnStringRepSize();
             Integer rSize = other.type.getColumnStringRepSize();
             if (rSize < lSize) {
-                throw new DdlException("Can not change from wider type " + type.toSql()
-                        + " to narrower type " + other.type.toSql());
+                throw new DdlException(
+                        "Can not change from wider type " + type.toSql() + " to narrower type " + other.type.toSql());
             }
         }
 
@@ -442,9 +443,9 @@ public class Column implements Writable {
             }
         }
 
-        if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR)
-                || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR)
-                || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
+        if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
+                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
+                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
             if (getStrLen() > other.getStrLen()) {
                 throw new DdlException("Cannot shorten string length");
             }
@@ -522,20 +523,22 @@ public class Column implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
-        sb.append(typeStr).append(" ");
-        if (aggregationType != null && aggregationType != AggregateType.NONE
-                && !isUniqueTable &&  !isAggregationTypeImplicit) {
-            sb.append(aggregationType.name()).append(" ");
+        sb.append(typeStr);
+        if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
+                && !isAggregationTypeImplicit) {
+            sb.append(" ").append(aggregationType.name());
         }
         if (isAllowNull) {
-            sb.append("NULL ");
+            sb.append(" NULL");
         } else {
-            sb.append("NOT NULL ");
+            sb.append(" NOT NULL");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
-            sb.append("DEFAULT \"").append(defaultValue).append("\" ");
+            sb.append(" DEFAULT \"").append(defaultValue).append("\"");
         }
-        sb.append("COMMENT \"").append(getComment(true)).append("\"");
+        if (StringUtils.isNotBlank(comment)) {
+            sb.append(" COMMENT '").append(getComment(true)).append("'");
+        }
 
         return sb.toString();
     }
@@ -547,9 +550,8 @@ public class Column implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, getDataType(), aggregationType, isAggregationTypeImplicit,
-                isKey, isAllowNull, getDefaultValue(), getStrLen(), getPrecision(), getScale(),
-                comment, visible, children);
+        return Objects.hash(name, getDataType(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
+                getDefaultValue(), getStrLen(), getPrecision(), getScale(), comment, visible, children);
     }
 
     @Override

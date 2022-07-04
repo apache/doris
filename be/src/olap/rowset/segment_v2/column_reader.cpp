@@ -85,7 +85,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             return Status::OK();
         }
         default:
-            return Status::NotSupported("unsupported type for ColumnReader: " +
+            return Status::NotSupported("unsupported type for ColumnReader: {}",
                                         std::to_string(type));
         }
     }
@@ -104,8 +104,7 @@ ColumnReader::~ColumnReader() = default;
 Status ColumnReader::init() {
     _type_info = get_type_info(&_meta);
     if (_type_info == nullptr) {
-        return Status::NotSupported(
-                strings::Substitute("unsupported typeinfo, type=$0", _meta.type()));
+        return Status::NotSupported("unsupported typeinfo, type={}", _meta.type());
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
 
@@ -125,17 +124,15 @@ Status ColumnReader::init() {
             _bf_index_meta = &index_meta.bloom_filter_index();
             break;
         default:
-            return Status::Corruption(
-                    strings::Substitute("Bad file $0: invalid column index type $1",
-                                        _path_desc.filepath, index_meta.type()));
+            return Status::Corruption("Bad file {}: invalid column index type {}",
+                                      _path_desc.filepath, index_meta.type());
         }
     }
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
     if (_ordinal_index_meta == nullptr && !is_empty()) {
-        return Status::Corruption(
-                strings::Substitute("Bad file $0: missing ordinal index for column $1",
-                                    _path_desc.filepath, _meta.column_id()));
+        return Status::Corruption("Bad file {}: missing ordinal index for column {}",
+                                  _path_desc.filepath, _meta.column_id());
     }
     return Status::OK();
 }
@@ -148,7 +145,7 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) {
+                               BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
     PageReadOptions opts;
     opts.rblock = iter_opts.rblock;
@@ -341,7 +338,7 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->seek_at_or_before(ordinal);
     if (!iter->valid()) {
-        return Status::NotFound(strings::Substitute("Failed to seek to ordinal $0, ", ordinal));
+        return Status::NotFound("Failed to seek to ordinal {}, ", ordinal);
     }
     return Status::OK();
 }
@@ -374,7 +371,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             return Status::OK();
         }
         default:
-            return Status::NotSupported("unsupported type to create iterator: " +
+            return Status::NotSupported("unsupported type to create iterator: {}",
                                         std::to_string(type));
         }
     }
@@ -704,6 +701,80 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
     return Status::OK();
 }
 
+Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                          vectorized::MutableColumnPtr& dst) {
+    size_t remaining = count;
+    size_t total_read_count = 0;
+    size_t nrows_to_read = 0;
+    while (remaining > 0) {
+        RETURN_IF_ERROR(seek_to_ordinal(rowids[total_read_count]));
+
+        // number of rows to be read from this page
+        nrows_to_read = std::min(remaining, _page.remaining());
+
+        if (_page.has_null) {
+            size_t already_read = 0;
+            while ((nrows_to_read - already_read) > 0) {
+                bool is_null = false;
+                size_t this_run = std::min(nrows_to_read - already_read, _page.remaining());
+                if (UNLIKELY(this_run == 0)) {
+                    break;
+                }
+                this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
+                size_t offset = total_read_count + already_read;
+                size_t this_read_count = 0;
+                rowid_t current_ordinal_in_page = _page.offset_in_page + _page.first_ordinal;
+                for (size_t i = 0; i < this_run; ++i) {
+                    if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
+                        break;
+                    }
+                    this_read_count++;
+                }
+
+                auto origin_index = _page.data_decoder->current_index();
+                if (this_read_count > 0) {
+                    if (is_null) {
+                        auto* null_col =
+                                vectorized::check_and_get_column<vectorized::ColumnNullable>(dst);
+                        if (UNLIKELY(null_col == nullptr)) {
+                            return Status::InternalError("unexpected column type in column reader");
+                        }
+
+                        const_cast<vectorized::ColumnNullable*>(null_col)->insert_null_elements(
+                                this_read_count);
+                    } else {
+                        size_t read_count = this_read_count;
+
+                        // ordinal in nullable columns' data buffer maybe be not continuously(the data doesn't contain null value),
+                        // so we need use `page_start_off_in_decoder` to calculate the actual offset in `data_decoder`
+                        size_t page_start_off_in_decoder =
+                                _page.first_ordinal + _page.offset_in_page - origin_index;
+                        RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
+                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
+                        DCHECK_EQ(read_count, this_read_count);
+                    }
+                }
+
+                if (!is_null) _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+
+                already_read += this_read_count;
+                _page.offset_in_page += this_run;
+                DCHECK(_page.offset_in_page <= _page.num_rows);
+            }
+
+            nrows_to_read = already_read;
+            total_read_count += nrows_to_read;
+            remaining -= nrows_to_read;
+        } else {
+            _page.data_decoder->read_by_rowids(&rowids[total_read_count], _page.first_ordinal,
+                                               &nrows_to_read, dst);
+            total_read_count += nrows_to_read;
+            remaining -= nrows_to_read;
+        }
+    }
+    return Status::OK();
+}
+
 Status FileColumnIterator::_load_next_page(bool* eos) {
     _page_iter.next();
     if (!_page_iter.valid()) {
@@ -747,10 +818,12 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                                                    _compress_codec.get()));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
-                _dict_decoder = std::make_unique<BinaryPlainPageDecoder>(dict_data);
+                _dict_decoder = std::make_unique<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>(
+                        dict_data);
                 RETURN_IF_ERROR(_dict_decoder->init());
 
-                auto* pd_decoder = (BinaryPlainPageDecoder*)_dict_decoder.get();
+                auto* pd_decoder =
+                        (BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
                 _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
                 pd_decoder->get_dict_word_info(_dict_word_info.get());
             }
@@ -847,74 +920,70 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, b
     return Status::OK();
 }
 
-void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPtr& dst, size_t n) {
+void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, size_t type_size,
+                                                     void* mem_value,
+                                                     vectorized::MutableColumnPtr& dst, size_t n) {
     vectorized::Int128 int128;
     char* data_ptr = (char*)&int128;
     size_t data_len = sizeof(int128);
 
-    auto insert_column_data = [&]() {
-        for (size_t i = 0; i < n; ++i) {
-            dst->insert_data(data_ptr, data_len);
-        }
-    };
-
-    switch (_type_info->type()) {
+    switch (type_info->type()) {
     case OLAP_FIELD_TYPE_OBJECT:
     case OLAP_FIELD_TYPE_HLL: {
         dst->insert_many_defaults(n);
         break;
     }
     case OLAP_FIELD_TYPE_DATE: {
-        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
-        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(_mem_value);
+        assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
+        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
 
         vectorized::VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.cast_to_date();
         //TODO: here is int128 = int64, here rely on the logic of little endian
         int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
-        insert_column_data();
+        dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
     case OLAP_FIELD_TYPE_DATETIME: {
-        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
-        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(_mem_value);
+        assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
+        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
 
         vectorized::VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.to_datetime();
 
         int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
-        insert_column_data();
+        dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
     case OLAP_FIELD_TYPE_DATEV2: {
-        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType)); //uint32_t
+        assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType)); //uint32_t
 
-        int128 = *((FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType*)_mem_value);
-        insert_column_data();
+        int128 = *((FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType*)mem_value);
+        dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
-        assert(_type_size ==
+        assert(type_size ==
                sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
-        decimal12_t* d = (decimal12_t*)_mem_value;
+        decimal12_t* d = (decimal12_t*)mem_value;
         int128 = DecimalV2Value(d->integer, d->fraction).value();
-        insert_column_data();
+        dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
     case OLAP_FIELD_TYPE_STRING:
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_CHAR: {
-        data_ptr = ((Slice*)_mem_value)->data;
-        data_len = ((Slice*)_mem_value)->size;
-        insert_column_data();
+        data_ptr = ((Slice*)mem_value)->data;
+        data_len = ((Slice*)mem_value)->size;
+        dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
     default: {
-        data_ptr = (char*)_mem_value;
-        data_len = _type_size;
-        insert_column_data();
+        data_ptr = (char*)mem_value;
+        data_len = type_size;
+        dst->insert_many_data(data_ptr, data_len, n);
     }
     }
 }
@@ -926,7 +995,7 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColu
         dst->insert_many_defaults(*n);
     } else {
         *has_null = false;
-        insert_default_data(dst, *n);
+        insert_default_data(_type_info.get(), _type_size, _mem_value, dst, *n);
     }
 
     return Status::OK();

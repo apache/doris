@@ -199,6 +199,7 @@ set(OLAP_TEST_FILES
     olap/options_test.cpp
     olap/fs/file_block_manager_test.cpp
     olap/common_test.cpp
+    olap/primary_key_index_test.cpp
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
 )
@@ -215,7 +216,6 @@ set(RUNTIME_TEST_FILES
     # runtime/dpp_sink_internal_test.cpp
     # runtime/dpp_sink_test.cpp
     # runtime/data_spliter_test.cpp
-    # runtime/etl_job_mgr_test.cpp
     # runtime/tmp_file_mgr_test.cpp
     # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
@@ -341,6 +341,7 @@ set(VEC_TEST_FILES
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp
     vec/function/function_array_size_test.cpp
+    vec/function/function_arrays_overlap_test.cpp
     vec/function/function_bitmap_test.cpp
     vec/function/function_comparison_test.cpp
     vec/function/function_hash_test.cpp

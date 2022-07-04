@@ -238,9 +238,9 @@ The number of worker threads to calculate the checksum of the tablet
 
 ### `chunk_reserved_bytes_limit`
 
-Default: 2147483648
+Default: 20%
 
-The reserved bytes limit of Chunk Allocator is 2GB by default. Increasing this variable can improve performance, but it will get more free memory that other modules cannot use.
+The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit. defaults to bytes if no unit is given, the number of bytes must be a multiple of 2. must larger than 0. and if larger than physical memory size, it will be set to physical memory size. increase this variable can improve performance, but will acquire more free memory which can not be used by other modules.
 
 ### `clear_transaction_task_worker_count`
 
@@ -672,11 +672,17 @@ Default: 10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
 
+### `kafka_api_version_request`
+
+Default: true
+
+If the dependent Kafka version is lower than 0.10.0.0, this value should be set to false.
+
 ### `kafka_broker_version_fallback`
 
 Default: 0.10.0
 
-If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+If the dependent Kafka version is lower than 0.10.0.0, the value set by the fallback version kafka_broker_version_fallback will be used if the value of kafka_api_version_request is set to false, and the valid values are: 0.9.0.x, 0.8.x.y.
 
 ### `load_data_reserve_hours`
 

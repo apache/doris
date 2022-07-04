@@ -187,9 +187,8 @@ inline bool ReadWriteUtil::read(uint8_t** buf, int* buf_len, T* val, Status* sta
     int val_len = sizeof(T);
 
     if (UNLIKELY(val_len > *buf_len)) {
-        std::stringstream ss;
-        ss << "Cannot read " << val_len << " bytes, buffer length is " << *buf_len;
-        *status = Status::InternalError(ss.str());
+        *status = Status::InternalError("Cannot read {} bytes, buffer length is {}", val_len,
+                                        *buf_len);
         return false;
     }
 
@@ -203,9 +202,8 @@ inline bool ReadWriteUtil::skip_bytes(uint8_t** buf, int* buf_len, int num_bytes
     DCHECK_GE(*buf_len, 0);
 
     if (UNLIKELY(num_bytes > *buf_len)) {
-        std::stringstream ss;
-        ss << "Cannot skip " << num_bytes << " bytes, buffer length is " << *buf_len;
-        *status = Status::InternalError(ss.str());
+        *status = Status::InternalError("Cannot skip {} bytes, buffer length is {}", num_bytes,
+                                        *buf_len);
         return false;
     }
 

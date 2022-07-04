@@ -842,8 +842,8 @@ public:
                     return false;
                 });
         if (!valid) {
-            return Status::RuntimeError(
-                    fmt::format("{}'s arguments do not match the expected data types", get_name()));
+            return Status::RuntimeError("{}'s arguments do not match the expected data types",
+                                        get_name());
         }
 
         return Status::OK();

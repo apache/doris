@@ -106,7 +106,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec);
+                     BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
@@ -247,6 +247,11 @@ public:
         return Status::NotSupported("not implement");
     }
 
+    virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                                  vectorized::MutableColumnPtr& dst) {
+        return Status::NotSupported("not implement");
+    }
+
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
@@ -282,6 +287,9 @@ public:
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -449,9 +457,10 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
-private:
-    void insert_default_data(vectorized::MutableColumnPtr& dst, size_t n);
+    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
+                                    vectorized::MutableColumnPtr& dst, size_t n);
 
+private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;

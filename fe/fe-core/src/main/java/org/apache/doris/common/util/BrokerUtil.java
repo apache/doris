@@ -49,7 +49,6 @@ import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPReadRequest;
 import org.apache.doris.thrift.TBrokerPWriteRequest;
-import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
@@ -91,25 +90,26 @@ public class BrokerUtil {
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 
-    public static void generateHdfsParam(Map<String, String> properties, TBrokerRangeDesc rangeDesc) {
-        rangeDesc.setHdfsParams(new THdfsParams());
-        rangeDesc.hdfs_params.setHdfsConf(new ArrayList<>());
+    public static THdfsParams generateHdfsParam(Map<String, String> properties) {
+        THdfsParams tHdfsParams = new THdfsParams();
+        tHdfsParams.setHdfsConf(new ArrayList<>());
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
-                rangeDesc.hdfs_params.setFsName(property.getValue());
+                tHdfsParams.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_USER_NAME)) {
-                rangeDesc.hdfs_params.setUser(property.getValue());
+                tHdfsParams.setUser(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_PRINCIPAL)) {
-                rangeDesc.hdfs_params.setHdfsKerberosPrincipal(property.getValue());
+                tHdfsParams.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_KEYTAB)) {
-                rangeDesc.hdfs_params.setHdfsKerberosKeytab(property.getValue());
+                tHdfsParams.setHdfsKerberosKeytab(property.getValue());
             } else {
                 THdfsConf hdfsConf = new THdfsConf();
                 hdfsConf.setKey(property.getKey());
                 hdfsConf.setValue(property.getValue());
-                rangeDesc.hdfs_params.hdfs_conf.add(hdfsConf);
+                tHdfsParams.hdfs_conf.add(hdfsConf);
             }
         }
+        return tHdfsParams;
     }
 
     /**
