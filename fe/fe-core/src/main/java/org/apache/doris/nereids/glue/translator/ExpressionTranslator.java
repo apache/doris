@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.translator;
+package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
-import org.apache.doris.nereids.trees.expressions.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -44,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -132,7 +132,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         } else if (dataType instanceof DoubleType) {
             return new FloatLiteral((Double) literal.getValue(), Type.DOUBLE);
         } else if (dataType instanceof IntegerType) {
-            return new IntLiteral((Long) literal.getValue());
+            return new IntLiteral((Integer) literal.getValue());
         } else if (dataType instanceof NullType) {
             return new NullLiteral();
         } else if (dataType instanceof StringType) {

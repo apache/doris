@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.clearspring.analytics.util.Lists;
@@ -125,9 +126,8 @@ public class SlotReference extends Slot {
         return Objects.hash(exprId, name, qualifier, nullable);
     }
 
-    // TODO: return real org.apache.doris.catalog.Column
     public Column getColumn() {
-        return null;
+        return new Column(name, dataType.toCatalogDataType());
     }
 
     @Override

@@ -15,24 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators;
+package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
+import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+
+import com.google.common.collect.ImmutableList;
 
 /**
- * interface for all concrete operator.
+ * Execute the analysis job.
  */
-public interface Operator {
-    OperatorType getType();
+public class AnalyzeRulesJob extends BatchRulesJob {
 
-    <NODE_TYPE extends TreeNode<NODE_TYPE>> NODE_TYPE toTreeNode(GroupExpression groupExpression);
-
-    <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context);
-
-    <R, C> R accept(OperatorVisitor<R, C> visitor, Operator operator, C context);
-
-    <R, C> R accept(OperatorVisitor<R, C> visitor, C context);
+    /**
+     * Execute the analysis job
+     * @param plannerContext planner context for execute job
+     */
+    public AnalyzeRulesJob(PlannerContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                bottomUpBatch(ImmutableList.of(
+                        new BindRelation(),
+                        new BindSlotReference())
+                )));
+    }
 }

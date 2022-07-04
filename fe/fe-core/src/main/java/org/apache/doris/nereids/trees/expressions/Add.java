@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
 import com.google.common.base.Preconditions;
 
 import java.util.List;
@@ -40,6 +43,11 @@ public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Ex
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new Add<>(children.get(0), children.get(1));
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return left().nullable() || right().nullable();
     }
 
     @Override
