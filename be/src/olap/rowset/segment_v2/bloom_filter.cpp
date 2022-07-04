@@ -21,7 +21,6 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
-#include "olap/serialize.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -46,7 +45,7 @@ uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
 
     // Get closest power of 2 if bits is not power of 2.
     if ((num_bits & (num_bits - 1)) != 0) {
-        num_bits = 1 << ser::used_bits(num_bits);
+        num_bits = 1 << used_bits(num_bits);
     }
     if (num_bits < MINIMUM_BYTES << 3) {
         num_bits = MINIMUM_BYTES << 3;

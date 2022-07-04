@@ -168,6 +168,14 @@ protected:
 
 private:
     std::function<void(const void*, const int, const uint64_t, void*)> _hash_func;
+    inline uint32_t used_bits(uint64_t value) {
+        // counting leading zero, builtin function, this will generate BSR(Bit Scan Reverse)
+        // instruction for X86
+        if (value == 0) {
+            return 0;
+        }
+        return 64 - __builtin_clzll(value);
+    }
 };
 
 } // namespace segment_v2
