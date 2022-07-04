@@ -502,4 +502,16 @@ public class ArithmeticExpr extends Expr {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
 
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        if (op == Operator.BITNOT) {
+            fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+        } else {
+            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
+        }
+        if (fn == null) {
+            Preconditions.checkState(false, String.format("No match for op with operand types. %s", toSql()));
+        }
+        type = fn.getReturnType();
+    }
 }
