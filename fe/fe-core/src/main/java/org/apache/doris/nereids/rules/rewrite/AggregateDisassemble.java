@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.CompareMode;
@@ -30,7 +29,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunctionV2;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DataType;
 
@@ -66,9 +65,9 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             List<NamedExpression> intermediateAggExpressionList = Lists.newArrayList();
             for (NamedExpression namedExpression : outputExpressionList) {
                 namedExpression = (NamedExpression) namedExpression.clone();
-                List<AggregateFunctionV2> functionCallList =
-                        namedExpression.collect(AggregateFunction.class::isInstance);
-                for (AggregateFunctionV2 functionCall : functionCallList) {
+                List<AggregateFunction> functionCallList =
+                        namedExpression.collect(org.apache.doris.catalog.AggregateFunction.class::isInstance);
+                for (AggregateFunction functionCall : functionCallList) {
                     FunctionName functionName = new FunctionName(functionCall.getName());
                     List<Expression> expressionList = functionCall.getArguments();
                     List<Type> staleTypeList = expressionList.stream().map(Expression::getDataType)
@@ -79,8 +78,9 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                             false);
                     Function staleFunc = Catalog.getCurrentCatalog()
                             .getFunction(staleFuncDesc, CompareMode.IS_IDENTICAL);
-                    Preconditions.checkArgument(staleFunc instanceof AggregateFunction);
-                    AggregateFunction staleAggFunc = (AggregateFunction) staleFunc;
+                    Preconditions.checkArgument(staleFunc instanceof org.apache.doris.catalog.AggregateFunction);
+                    org.apache.doris.catalog.AggregateFunction
+                            staleAggFunc = (org.apache.doris.catalog.AggregateFunction) staleFunc;
                     Type staleIntermediateType = staleAggFunc.getIntermediateType();
                     Type staleRetType = staleAggFunc.getReturnType();
                     if (staleIntermediateType != null && !staleIntermediateType.equals(staleRetType)) {
