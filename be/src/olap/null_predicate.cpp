@@ -125,7 +125,8 @@ Status NullPredicate::evaluate(const Schema& schema,
     return Status::OK();
 }
 
-uint16_t NullPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
+uint16_t NullPredicate::evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                                 uint16_t size) const {
     uint16_t new_size = 0;
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         auto& null_map = nullable->get_null_map_data();
@@ -141,7 +142,8 @@ uint16_t NullPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uin
     return size;
 }
 
-void NullPredicate::evaluate_or(IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {
+void NullPredicate::evaluate_or(const IColumn& column, const uint16_t* sel, uint16_t size,
+                                bool* flags) const {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         auto& null_map = nullable->get_null_map_data();
         for (uint16_t i = 0; i < size; ++i) {
@@ -154,7 +156,8 @@ void NullPredicate::evaluate_or(IColumn& column, uint16_t* sel, uint16_t size, b
     }
 }
 
-void NullPredicate::evaluate_and(IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {
+void NullPredicate::evaluate_and(const IColumn& column, const uint16_t* sel, uint16_t size,
+                                 bool* flags) const {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         auto& null_map = nullable->get_null_map_data();
         for (uint16_t i = 0; i < size; ++i) {
@@ -167,7 +170,8 @@ void NullPredicate::evaluate_and(IColumn& column, uint16_t* sel, uint16_t size, 
     }
 }
 
-void NullPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+void NullPredicate::evaluate_vec(const vectorized::IColumn& column, uint16_t size,
+                                 bool* flags) const {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         auto& null_map = nullable->get_null_map_data();
         for (uint16_t i = 0; i < size; ++i) {
