@@ -70,20 +70,32 @@ private:
     ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
                               const IColumn& right_column, const UInt8* nested_null_map) {
         // check array nested column type and get data
-        auto& src_column = reinterpret_cast<const NestedColumnType&>(nested_column);
-        const auto& src_data = src_column.get_data();
+        const auto& src_data = reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
 
         // check target column type and get data
         const auto& target_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
-        // prepare dst array
-        auto dst = ColumnArray::create(
-                ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create()));
-        auto& dst_offsets = dst->get_offsets();
-        dst_offsets.reserve(offsets.size());
+        PaddedPODArray<UInt8>* dst_null_map = nullptr;
+        ColumnPtr array_nested_column = nullptr;
+        IColumn* dst_column;
+        if (nested_null_map) {
+            auto dst_nested_column = ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
+            array_nested_column = dst_nested_column->get_ptr();
+            dst_column = dst_nested_column->get_nested_column_ptr();
+            dst_null_map = &dst_nested_column->get_null_map_data();
+            dst_null_map->reserve(offsets.back());
+        } else {
+            auto dst_nested_column = nested_column.clone_empty();
+            array_nested_column = dst_nested_column->get_ptr();
+            dst_column = dst_nested_column;
+        }
 
-        // prepare dst nested nullable column
-        auto& dst_column = reinterpret_cast<ColumnNullable&>(dst->get_data());
+        auto& dst_data = reinterpret_cast<NestedColumnType&>(*dst_column).get_data();
+        dst_data.reserve(offsets.back());
+
+        auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
+        auto& dst_offsets = dst_offsets_column->get_data();
+        dst_offsets.reserve(offsets.size());
 
         size_t cur = 0;
         for (size_t row = 0; row < offsets.size(); ++row) {
@@ -100,14 +112,20 @@ private:
             for (size_t pos = 0; pos < len; ++pos) {
                 if (nested_null_map && nested_null_map[off + pos]) {
                     // case: array:[Null], target:1 ==> [Null]
-                    dst_column.insert_data(nullptr, 0);
+                    dst_data.push_back(typename NestedColumnType::value_type());
+                    dst_null_map->push_back(1);
                     continue;
                 }
 
                 if (src_data[off + pos] == target_data[row]) {
                     ++count;
                 } else {
-                    dst_column.insert_from_not_nullable(src_column, off + pos);
+                    if (nested_null_map) {
+                        dst_data.push_back(src_data[off + pos]);
+                        dst_null_map->push_back(0);
+                    } else {
+                        dst_data.push_back(src_data[off + pos]);
+                    }
                 }
             }
 
@@ -115,14 +133,12 @@ private:
             dst_offsets.push_back(cur);
         }
 
+        auto dst = ColumnArray::create(std::move(array_nested_column), std::move(dst_offsets_column));
         return dst;
     }
 
     ColumnPtr _execute_string(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
                               const IColumn& right_column, const UInt8* nested_null_map) {
-        // check array nested column type and get data
-        auto& src_column = reinterpret_cast<const ColumnString&>(nested_column);
-
         // check array nested column type and get data
         const auto& src_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& src_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
@@ -131,14 +147,29 @@ private:
         const auto& target_offs = reinterpret_cast<const ColumnString&>(right_column).get_offsets();
         const auto& target_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
-        // prepare dst array
-        auto dst = ColumnArray::create(
-                ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create()));
-        auto& dst_offsets = dst->get_offsets();
-        dst_offsets.reserve(offsets.size());
+        PaddedPODArray<UInt8>* dst_null_map = nullptr;
+        ColumnPtr array_nested_column = nullptr;
+        IColumn* dst_column;
+        if (nested_null_map) {
+            auto dst_nested_column = ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
+            array_nested_column = dst_nested_column->get_ptr();
+            dst_column = dst_nested_column->get_nested_column_ptr();
+            dst_null_map = &dst_nested_column->get_null_map_data();
+            dst_null_map->reserve(offsets.back());
+        } else {
+            auto dst_nested_column = nested_column.clone_empty();
+            array_nested_column = dst_nested_column->get_ptr();
+            dst_column = dst_nested_column;
+        }
 
-        // prepare dst nested nullable column
-        auto& dst_column = reinterpret_cast<ColumnNullable&>(dst->get_data());
+        auto& dst_offs = reinterpret_cast<ColumnString&>(*dst_column).get_offsets();
+        auto& dst_chars = reinterpret_cast<ColumnString&>(*dst_column).get_chars();
+        dst_offs.reserve(src_offs.back());
+        dst_chars.reserve(src_offs.back());
+
+        auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
+        auto& dst_offsets = dst_offsets_column->get_data();
+        dst_offsets.reserve(offsets.size());
 
         size_t cur = 0;
         for (size_t row = 0; row < offsets.size(); ++row) {
@@ -158,7 +189,9 @@ private:
             for (size_t pos = 0; pos < len; ++pos) {
                 if (nested_null_map && nested_null_map[off + pos]) {
                     // case: array:[Null], target:'str' ==> [Null]
-                    dst_column.insert_data(nullptr, 0);
+                    dst_chars.push_back(0);
+                    dst_offs.push_back(dst_offs.back() + 1);
+                    dst_null_map->push_back(1);
                     continue;
                 }
 
@@ -170,7 +203,21 @@ private:
                 if (std::string_view(src_raw_v, src_len) == std::string_view(target_raw_v, target_len)) {
                     ++count;
                 } else {
-                    dst_column.insert_from_not_nullable(src_column, off + pos);
+                    if (src_len == 1) {
+                        // case: array:[''], target:'str' ==> ['']
+                        dst_chars.push_back(0);
+                        dst_offs.push_back(dst_offs.back() + 1);
+                    } else {
+                        const size_t old_size = dst_chars.size();
+                        const size_t new_size = old_size + src_len;
+                        dst_chars.resize(new_size);
+                        memcpy(&dst_chars[old_size], &src_chars[src_pos], src_len);
+                        dst_offs.push_back(new_size);
+                    }
+
+                    if (nested_null_map) {
+                        dst_null_map->push_back(0);
+                    }
                 }
             }
 
@@ -178,6 +225,7 @@ private:
             dst_offsets.push_back(cur);
         }
 
+        auto dst = ColumnArray::create(std::move(array_nested_column), std::move(dst_offsets_column));
         return dst;
     }
 
