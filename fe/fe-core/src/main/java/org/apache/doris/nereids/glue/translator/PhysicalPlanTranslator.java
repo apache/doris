@@ -84,6 +84,24 @@ import java.util.stream.Collectors;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, PlanTranslatorContext> {
+    /**
+     * The left and right child of origin predicates need to be swap sometimes.
+     * Case A:
+     * select * from t1 join t2 on t2.id=t1.id
+     * The left plan node is t1 and the right plan node is t2.
+     * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
+     * In this situation, the children of predicate need to be swap => t1.id=t2.id.
+     */
+    private static Expression swapEqualToForChildrenOrder(EqualTo<?, ?> equalTo, List<Slot> leftOutput) {
+        Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toSet());
+        if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
+            return equalTo;
+        } else {
+            return new EqualTo<>(equalTo.right(), equalTo.left());
+        }
+    }
+
     public void translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
         visit(physicalPlan, context);
     }
@@ -374,16 +392,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         exchangeNode.setFragment(parentFragment);
         node.setChild(childIdx, exchangeNode);
         childFragment.setDestination(exchangeNode);
-    }
-
-    private static Expression swapEqualToForChildrenOrder(EqualTo equalTo, List<Slot> leftOutput) {
-        Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toSet());
-        if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
-            return equalTo;
-        } else {
-            return new EqualTo(equalTo.right(), equalTo.left());
-        }
     }
 
     /**

@@ -22,6 +22,9 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 
 import com.google.common.collect.ImmutableList;
 
+/**
+ * execute predicate push down job.
+ */
 public class PredicatePushDownRulesJob extends BatchRulesJob {
     public PredicatePushDownRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
