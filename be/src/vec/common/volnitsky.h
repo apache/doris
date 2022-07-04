@@ -125,7 +125,6 @@ static inline bool putNGramASCIICaseInsensitive(const UInt8* pos, int offset,
     return true;
 }
 
-
 template <bool CaseSensitive, bool ASCII, typename Callback>
 static inline bool putNGram(const UInt8* pos, int offset, [[maybe_unused]] const UInt8* begin,
                             size_t size, Callback&& putNGramBase) {

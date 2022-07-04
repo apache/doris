@@ -66,7 +66,6 @@ protected:
 template <bool CaseSensitive, bool ASCII>
 class StringSearcher;
 
-
 /// Case-sensitive searcher (both ASCII and UTF-8)
 template <bool ASCII>
 class StringSearcher<true, ASCII> : public StringSearcherBase {
