@@ -20,6 +20,8 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.collect.Lists;
+
 import java.util.List;
 
 /**
@@ -47,6 +49,6 @@ public class Utils {
 
     // TODO: implement later
     public static List<Expression> extractConjuncts(Expression expr) {
-        return null;
+        return Lists.newArrayList(expr);
     }
 }
