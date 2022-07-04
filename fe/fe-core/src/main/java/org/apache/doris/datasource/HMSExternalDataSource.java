@@ -48,8 +48,8 @@ public class HMSExternalDataSource extends ExternalDataSource {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDataSource.class);
 
     // Cache of db name to db id.
-    private Map<String, Long> dbNameToId;
-    private Map<Long, HMSExternalDatabase> idToDb;
+    private Map<String, Long> dbNameToId = Maps.newConcurrentMap();
+    private Map<Long, HMSExternalDatabase> idToDb = Maps.newConcurrentMap();
     private boolean initialized = false;
     protected HiveMetaStoreClient client;
 
@@ -69,8 +69,6 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     private void init() {
-        dbNameToId = Maps.newConcurrentMap();
-        idToDb = Maps.newConcurrentMap();
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
         try {
