@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.CompareMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.operators.Operator;
+import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
+ * TODO: if instance count is 1, shouldn't disassemble the agg operator
  * Used to generate the merge agg node for distributed execution.
  * Do this in following steps:
  *  1. clone output expr list, find all agg function
@@ -63,24 +65,14 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             LogicalAggregate agg = (LogicalAggregate) operator;
             List<NamedExpression> outputExpressionList = agg.getOutputExpressionList();
             List<NamedExpression> intermediateAggExpressionList = Lists.newArrayList();
+            // TODO: shouldn't extract agg function from this field.
             for (NamedExpression namedExpression : outputExpressionList) {
                 namedExpression = (NamedExpression) namedExpression.clone();
                 List<AggregateFunction> functionCallList =
                         namedExpression.collect(org.apache.doris.catalog.AggregateFunction.class::isInstance);
+                // TODO: we will have another mechanism to get corresponding stale agg func.
                 for (AggregateFunction functionCall : functionCallList) {
-                    FunctionName functionName = new FunctionName(functionCall.getName());
-                    List<Expression> expressionList = functionCall.getArguments();
-                    List<Type> staleTypeList = expressionList.stream().map(Expression::getDataType)
-                            .map(DataType::toCatalogDataType).collect(Collectors.toList());
-                    Function staleFuncDesc = new Function(functionName, staleTypeList,
-                            functionCall.getDataType().toCatalogDataType(),
-                            // I think an aggregate function will never have a variable length parameters
-                            false);
-                    Function staleFunc = Catalog.getCurrentCatalog()
-                            .getFunction(staleFuncDesc, CompareMode.IS_IDENTICAL);
-                    Preconditions.checkArgument(staleFunc instanceof org.apache.doris.catalog.AggregateFunction);
-                    org.apache.doris.catalog.AggregateFunction
-                            staleAggFunc = (org.apache.doris.catalog.AggregateFunction) staleFunc;
+                    org.apache.doris.catalog.AggregateFunction staleAggFunc = findAggFunc(functionCall);
                     Type staleIntermediateType = staleAggFunc.getIntermediateType();
                     Type staleRetType = staleAggFunc.getReturnType();
                     if (staleIntermediateType != null && !staleIntermediateType.equals(staleRetType)) {
@@ -92,7 +84,8 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             LogicalAggregate localAgg = new LogicalAggregate(
                     agg.getGroupByExprList().stream().map(Expression::clone).collect(Collectors.toList()),
                     intermediateAggExpressionList,
-                    true
+                    true,
+                    AggPhase.FIRST
             );
 
             Plan childPlan = plan(localAgg, plan.child(0));
@@ -115,10 +108,26 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             LogicalAggregate mergeAgg = new LogicalAggregate(
                     groupByExpressionList,
                     mergeOutputExpressionList,
-                    true
+                    true,
+                    AggPhase.FIRST_MERGE
             );
             return plan(mergeAgg, childPlan);
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
+    }
+
+    private org.apache.doris.catalog.AggregateFunction findAggFunc(AggregateFunction functionCall) {
+        FunctionName functionName = new FunctionName(functionCall.getName());
+        List<Expression> expressionList = functionCall.getArguments();
+        List<Type> staleTypeList = expressionList.stream().map(Expression::getDataType)
+                .map(DataType::toCatalogDataType).collect(Collectors.toList());
+        Function staleFuncDesc = new Function(functionName, staleTypeList,
+                functionCall.getDataType().toCatalogDataType(),
+                // I think an aggregate function will never have a variable length parameters
+                false);
+        Function staleFunc = Catalog.getCurrentCatalog()
+                .getFunction(staleFuncDesc, CompareMode.IS_IDENTICAL);
+        Preconditions.checkArgument(staleFunc instanceof org.apache.doris.catalog.AggregateFunction);
+        return  (org.apache.doris.catalog.AggregateFunction) staleFunc;
     }
 
     @SuppressWarnings("unchecked")

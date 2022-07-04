@@ -48,7 +48,7 @@ public class LogicalAggregate extends LogicalUnaryOperator {
     private final List<NamedExpression> outputExpressionList;
     private List<Expression> partitionExprList;
 
-    private AggPhase aggPhase;
+    private final AggPhase aggPhase;
 
     /**
      * Desc: Constructor for LogicalAggregation.
@@ -58,15 +58,17 @@ public class LogicalAggregate extends LogicalUnaryOperator {
         this.groupByExprList = groupByExprList;
         this.outputExpressionList = outputExpressionList;
         this.disassembled = false;
+        this.aggPhase = AggPhase.FIRST;
     }
 
     public LogicalAggregate(List<Expression> groupByExprList,
             List<NamedExpression> outputExpressionList,
-            boolean disassembled) {
+            boolean disassembled, AggPhase aggPhase) {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.outputExpressionList = outputExpressionList;
-        this.disassembled = false;
+        this.disassembled = disassembled;
+        this.aggPhase = aggPhase;
     }
 
     public List<Expression> getPartitionExprList() {
