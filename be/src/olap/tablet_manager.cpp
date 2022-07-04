@@ -39,7 +39,6 @@
 #include "olap/olap_common.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
-#include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/schema_change.h"
 #include "olap/tablet.h"
