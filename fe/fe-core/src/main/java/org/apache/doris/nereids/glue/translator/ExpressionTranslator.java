@@ -28,6 +28,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -76,7 +77,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ,
                 equalTo.child(0).accept(this, context),
                 equalTo.child(1).accept(this, context));
-        binaryPredicate.setType(Type.BOOLEAN);
+        try {
+            binaryPredicate.analyze(null);
+        } catch (AnalysisException e) {
+            throw new RuntimeException(e);
+        }
         return binaryPredicate;
     }
 
