@@ -73,9 +73,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitEqualTo(EqualTo equalTo, PlanTranslatorContext context) {
-        return new BinaryPredicate(Operator.EQ,
+        BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ,
                 equalTo.child(0).accept(this, context),
                 equalTo.child(1).accept(this, context));
+        binaryPredicate.setType(Type.BOOLEAN);
+        return binaryPredicate;
     }
 
     @Override
