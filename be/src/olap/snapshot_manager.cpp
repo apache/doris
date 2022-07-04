@@ -28,12 +28,14 @@
 #include <map>
 #include <set>
 
+#include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/Types_constants.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
 
 using std::filesystem::path;
@@ -360,6 +362,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         /// make the full snapshot of the tablet.
         {
             std::shared_lock rdlock(ref_tablet->get_header_lock());
+            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Aborted("tablet has shutdown");
+            }
             if (request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
@@ -421,6 +426,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             // copy the tablet meta to new_tablet_meta inside header lock
             CHECK(res.ok()) << res;
             ref_tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
+        }
+        {
+            std::unique_lock wlock(ref_tablet->get_header_lock());
+            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Aborted("tablet has shutdown");
+            }
+            ref_tablet->update_self_owned_remote_rowsets(consistent_rowsets);
         }
 
         std::vector<RowsetMetaSharedPtr> rs_metas;

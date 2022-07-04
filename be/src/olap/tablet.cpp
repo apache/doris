@@ -1749,6 +1749,7 @@ Status Tablet::cooldown() {
         has_shutdown = tablet_state() == TABLET_SHUTDOWN;
         if (!has_shutdown) {
             modify_rowsets(to_add, to_delete);
+            _self_owned_remote_rowsets.insert(to_add.front());
             save_meta();
         }
     }
@@ -1848,7 +1849,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const io::Re
 }
 
 void Tablet::remove_all_remote_rowsets() {
-    std::unique_lock meta_wlock(_meta_lock);
+    std::shared_lock meta_rlock(_meta_lock);
     DCHECK(_state == TabletState::TABLET_SHUTDOWN);
 
     for (const auto& [_, rs] : _rs_version_map) {
@@ -1909,6 +1910,32 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_locatio
         return s;
     }
     return Status::NotFound("can't find key in all rowsets");
+}
+
+void Tablet::remove_self_owned_remote_rowsets() {
+    std::shared_lock meta_rlock(_meta_lock);
+    DCHECK(_state == TabletState::TABLET_SHUTDOWN);
+
+    for (const auto& rs : _self_owned_remote_rowsets) {
+        DCHECK(!rs->is_local());
+        record_unused_remote_rowset(rs->rowset_id(), rs->rowset_meta()->resource_id(),
+                                    rs->num_segments());
+    }
+}
+
+void Tablet::update_self_owned_remote_rowsets(
+        const std::vector<RowsetSharedPtr>& rowsets_in_snapshot) {
+    if (_self_owned_remote_rowsets.empty()) {
+        return;
+    }
+    for (const auto& rs : rowsets_in_snapshot) {
+        if (!rs->is_local()) {
+            auto it = _self_owned_remote_rowsets.find(rs);
+            if (it != _self_owned_remote_rowsets.end()) {
+                _self_owned_remote_rowsets.erase(it);
+            }
+        }
+    }
 }
 
 } // namespace doris

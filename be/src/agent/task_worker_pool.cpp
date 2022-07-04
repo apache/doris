@@ -442,9 +442,12 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                         dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
                         drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-                // We remove remote rowset directly.
                 if (drop_tablet_req.is_drop_table_or_partition) {
+                    // We remove remote rowset directly.
                     dropped_tablet->remove_all_remote_rowsets();
+                } else {
+                    // Remove remote rowsets which are not shared by other BE.
+                    dropped_tablet->remove_self_owned_remote_rowsets();
                 }
             }
         } else {
