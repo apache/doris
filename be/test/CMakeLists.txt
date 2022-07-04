@@ -177,7 +177,6 @@ set(OLAP_TEST_FILES
     olap/tablet_test.cpp
     olap/rowset/rowset_meta_manager_test.cpp
     olap/rowset/rowset_meta_test.cpp
-    olap/rowset/alpha_rowset_test.cpp
     olap/rowset/beta_rowset_test.cpp
     olap/rowset/unique_rowset_id_generator_test.cpp
     olap/txn_manager_test.cpp
