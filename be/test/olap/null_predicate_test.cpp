@@ -367,7 +367,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
 
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
+    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
         for (int j = 0; j <= i; ++j) {
