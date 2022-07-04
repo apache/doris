@@ -31,6 +31,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.OptimizeRulesJob;
+import org.apache.doris.nereids.jobs.PredicatePushDownRulesJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -135,6 +136,9 @@ public class NereidsPlanner extends Planner {
     private PhysicalPlan doPlan() {
         AnalyzeRulesJob analyzeRulesJob = new AnalyzeRulesJob(plannerContext);
         analyzeRulesJob.execute();
+
+        PredicatePushDownRulesJob predicatePushDownRulesJob = new PredicatePushDownRulesJob(plannerContext);
+        predicatePushDownRulesJob.execute();
 
         OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
         optimizeRulesJob.execute();
