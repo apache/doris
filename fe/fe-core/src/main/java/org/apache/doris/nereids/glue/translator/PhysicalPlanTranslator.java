@@ -41,6 +41,7 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -376,8 +377,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     }
 
     private static Expression swapEqualToForChildrenOrder(EqualTo equalTo, List<Slot> leftOutput) {
-        Set<Slot> leftSlots = SlotExtractor.extractSlot(equalTo.left());
-        if (leftSlots.containsAll(leftOutput)) {
+        Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toSet());
+        if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
             return equalTo;
         } else {
             return new EqualTo(equalTo.right(), equalTo.left());
