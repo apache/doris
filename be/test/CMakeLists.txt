@@ -238,7 +238,7 @@ set(RUNTIME_TEST_FILES
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
     runtime/collection_value_test.cpp
-    runtime/array_test.cpp
+    #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES
     testutil/test_util.cpp
