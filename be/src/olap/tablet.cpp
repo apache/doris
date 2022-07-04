@@ -1146,10 +1146,8 @@ void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
 
 void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
     std::shared_lock rdlock(_meta_lock);
-    // FIXME(cyx): If there are delete predicate rowsets in tablet,
-    // remote rowsets cannot apply these delete predicate, which can cause
-    // incorrect query result.
     for (auto& it : _rs_version_map) {
+        // Do compaction on local rowsets only.
         if (it.first.first < _cumulative_point && it.second->is_local()) {
             candidate_rowsets->push_back(it.second);
         }
@@ -1703,7 +1701,7 @@ Status Tablet::cooldown() {
         LOG(WARNING) << "Failed to own cumu_compaction_lock. tablet=" << tablet_id();
         return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
-    auto dest_fs = io::FileSystemMap::instance()->get(cooldown_resource());
+    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
@@ -1738,7 +1736,7 @@ Status Tablet::cooldown() {
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
     RowsetSharedPtr new_rowset;
-    RowsetFactory::create_rowset(&_schema, _tablet_path, std::move(new_rowset_meta), &new_rowset);
+    RowsetFactory::create_rowset(&_schema, _tablet_path, new_rowset_meta, &new_rowset);
 
     std::vector to_add {std::move(new_rowset)};
     std::vector to_delete {std::move(old_rowset)};
@@ -1749,6 +1747,10 @@ Status Tablet::cooldown() {
         has_shutdown = tablet_state() == TABLET_SHUTDOWN;
         if (!has_shutdown) {
             modify_rowsets(to_add, to_delete);
+            if (new_rowset_meta->has_delete_predicate()) {
+                add_delete_predicate(new_rowset_meta->delete_predicate(),
+                                     new_rowset_meta->start_version());
+            }
             _self_owned_remote_rowsets.insert(to_add.front());
             save_meta();
         }
@@ -1781,13 +1783,13 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
 
 bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
     // std::shared_lock meta_rlock(_meta_lock);
-    if (cooldown_resource().empty()) {
+    if (storage_policy().empty()) {
         VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id();
         return false;
     }
-    auto policy = ExecEnv::GetInstance()->storage_policy_mgr()->get(cooldown_resource());
+    auto policy = ExecEnv::GetInstance()->storage_policy_mgr()->get(storage_policy());
     if (!policy) {
-        LOG(WARNING) << "Cannot get storage policy: " << cooldown_resource();
+        LOG(WARNING) << "Cannot get storage policy: " << storage_policy();
         return false;
     }
     auto cooldown_ttl_sec = policy->cooldown_ttl;

@@ -883,8 +883,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                     } else {
                         LOG(INFO) << "set tablet cooldown resource "
                                   << tablet_meta_info.storage_policy;
-                        tablet->tablet_meta()->set_cooldown_resource(
-                                tablet_meta_info.storage_policy);
+                        tablet->tablet_meta()->set_storage_policy(tablet_meta_info.storage_policy);
                     }
                     break;
                 }
