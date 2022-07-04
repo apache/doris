@@ -46,7 +46,6 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
-#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -162,9 +161,6 @@ StorageEngine::~StorageEngine() {
     }
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
-    }
-    if (_convert_rowset_thread_pool) {
-        _convert_rowset_thread_pool->shutdown();
     }
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
@@ -582,9 +578,6 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
-    if (_alpha_rowset_scan_thread) {
-        THREAD_JOIN(_alpha_rowset_scan_thread);
-    }
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
