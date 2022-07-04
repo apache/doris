@@ -1973,4 +1973,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         return true;
     }
+
+    public final void finalizeForNereids() throws AnalysisException {
+        if (isAnalyzed()) {
+            return;
+        }
+        for (Expr child : children) {
+            child.finalizeForNereids();
+        }
+        finalizeImplForNereids();
+        analysisDone();
+    }
+
+    public void finalizeImplForNereids() throws AnalysisException {
+        throw new AnalysisException("analyze for Nereids do not implementation.");
+    }
 }

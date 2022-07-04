@@ -1254,4 +1254,9 @@ public class FunctionCallExpr extends Expr {
         }
         return result.toString();
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
+    }
 }

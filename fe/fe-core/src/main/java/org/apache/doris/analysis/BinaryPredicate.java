@@ -370,15 +370,6 @@ public class BinaryPredicate extends Predicate implements Writable {
         return Type.DOUBLE;
     }
 
-    public void analyzeForNereids() throws AnalysisException {
-        if (isAnalyzed()) {
-            return;
-        }
-        type = Type.BOOLEAN;
-        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        analysisDone();
-    }
-
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
@@ -704,5 +695,11 @@ public class BinaryPredicate extends Predicate implements Writable {
             return false;
         }
         return hasNullableChild();
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
+        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
     }
 }

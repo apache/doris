@@ -154,4 +154,15 @@ public class IsNullPredicate extends Predicate {
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
+        if (isNotNull) {
+            fn = getBuiltinFunction(IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
+        } else {
+            fn = getBuiltinFunction(IS_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
+        }
+        Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
+    }
 }
