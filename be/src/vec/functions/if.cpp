@@ -290,9 +290,10 @@ public:
                             make_nullable_column_if_not(arg_else.column);
                 }
             } else {
-                status = Status::InternalError("Illegal column " + arg_cond.column->get_name() +
-                                               " of first argument of function " + get_name() +
-                                               ". Must be ColumnUInt8 or ColumnConstUInt8.");
+                status = Status::InternalError(
+                        "Illegal column {} of first argument of function {}. Must be ColumnUInt8 "
+                        "or ColumnConstUInt8.",
+                        arg_cond.column->get_name(), get_name());
             }
             return true;
         }
@@ -334,9 +335,10 @@ public:
                                     input_rows_count);
                 }
             } else {
-                status = Status::InternalError("Illegal column " + arg_cond.column->get_name() +
-                                               " of first argument of function " + get_name() +
-                                               ". Must be ColumnUInt8 or ColumnConstUInt8.");
+                status = Status::InternalError(
+                        "Illegal column {} of first argument of function {}. Must be ColumnUInt8 "
+                        "or ColumnConstUInt8.",
+                        arg_cond.column->get_name(), get_name());
             }
             return true;
         }
@@ -457,9 +459,10 @@ public:
         }
 
         if (!cond_col) {
-            return Status::InvalidArgument("Illegal column " + arg_cond.column->get_name() +
-                                           " of first argument of function " + get_name() +
-                                           ",Must be ColumnUInt8 or ColumnConstUInt8.");
+            return Status::InvalidArgument(
+                    "Illegal column {} of first argument of function {},Must be ColumnUInt8 or "
+                    "ColumnConstUInt8.",
+                    arg_cond.column->get_name(), get_name());
         }
 
         WhichDataType which_type(arg_then.type);

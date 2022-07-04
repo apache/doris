@@ -87,7 +87,7 @@ public class LogicalJoin extends LogicalBinaryOperator {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("Join (").append(joinType);
+        StringBuilder sb = new StringBuilder("LogicalJoin (").append(joinType);
         condition.ifPresent(expression -> sb.append(", ").append(expression));
         return sb.append(")").toString();
     }

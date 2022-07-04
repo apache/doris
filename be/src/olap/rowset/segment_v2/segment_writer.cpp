@@ -239,8 +239,7 @@ uint64_t SegmentWriter::estimate_segment_size() {
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
-        return Status::InternalError(
-                fmt::format("disk {} exceed capacity limit.", _data_dir->path_hash()));
+        return Status::InternalError("disk {} exceed capacity limit.", _data_dir->path_hash());
     }
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());

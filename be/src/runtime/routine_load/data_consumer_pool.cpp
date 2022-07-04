@@ -47,9 +47,7 @@ Status DataConsumerPool::get_consumer(StreamLoadContext* ctx, std::shared_ptr<Da
         consumer = std::make_shared<KafkaDataConsumer>(ctx);
         break;
     default:
-        std::stringstream ss;
-        ss << "PAUSE: unknown routine load task type: " << ctx->load_type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("PAUSE: unknown routine load task type: {}", ctx->load_type);
     }
 
     // init the consumer

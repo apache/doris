@@ -89,9 +89,7 @@ Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, P
         key->_key = pool->add(new DateTimeValue());
         DateTimeValue* datetime = reinterpret_cast<DateTimeValue*>(key->_key);
         if (!(datetime->from_date_str(t_key.key.c_str(), t_key.key.length()))) {
-            std::stringstream error_msg;
-            error_msg << "Fail to convert date string:" << t_key.key;
-            return Status::InternalError(error_msg.str());
+            return Status::InternalError("Fail to convert date string:{}", t_key.key);
         }
         datetime->cast_to_date();
         break;
@@ -101,9 +99,7 @@ Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, P
         key->_key = pool->add(new DateTimeValue());
         DateTimeValue* datetime = reinterpret_cast<DateTimeValue*>(key->_key);
         if (!(datetime->from_date_str(t_key.key.c_str(), t_key.key.length()))) {
-            std::stringstream error_msg;
-            error_msg << "Fail to convert datetime string:" << t_key.key;
-            return Status::InternalError(error_msg.str());
+            return Status::InternalError("Fail to convert datetime string:{}", t_key.key);
         }
         datetime->to_datetime();
         break;
@@ -114,9 +110,7 @@ Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, P
         break;
     }
     if (parse_result != StringParser::PARSE_SUCCESS) {
-        std::stringstream error_msg;
-        error_msg << "Fail to convert string:" << t_key.key;
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("Fail to convert string:{}", t_key.key);
     }
 
     return Status::OK();

@@ -624,6 +624,7 @@ public class HiveMetaStoreClientHelper {
             case CHAR:
                 return TypeInfoFactory.charTypeInfo;
             case VARCHAR:
+            case STRING:
                 return TypeInfoFactory.varcharTypeInfo;
             default:
                 throw new DdlException("Unsupported column type: " + dorisType);
@@ -698,6 +699,10 @@ public class HiveMetaStoreClientHelper {
                 return Type.DATE;
             case "timestamp":
                 return Type.DATETIME;
+            case "float":
+                return Type.FLOAT;
+            case "double":
+                return Type.DOUBLE;
             default:
                 break;
         }

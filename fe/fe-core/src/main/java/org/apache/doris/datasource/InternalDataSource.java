@@ -199,7 +199,7 @@ import java.util.function.Function;
  * There is only one internal data source in a cluster. And its id is always 0.
  */
 public class InternalDataSource implements DataSourceIf<Database> {
-    public static final String INTERNAL_DS_NAME = "internal_catalog";
+    public static final String INTERNAL_DS_NAME = "internal";
     public static final long INTERNAL_DS_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
@@ -2108,13 +2108,21 @@ public class InternalDataSource implements DataSourceIf<Database> {
     private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
+        // validate props to get column from es.
+        EsTable esTable = new EsTable(tableName, stmt.getProperties());
+
         // create columns
         List<Column> baseSchema = stmt.getColumns();
+
+        if (baseSchema.isEmpty()) {
+            baseSchema = esTable.genColumnsFromEs();
+        }
         validateColumns(baseSchema);
+        esTable.setNewFullSchema(baseSchema);
 
         // create partition info
         PartitionDesc partitionDesc = stmt.getPartitionDesc();
-        PartitionInfo partitionInfo = null;
+        PartitionInfo partitionInfo;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
@@ -2124,11 +2132,12 @@ public class InternalDataSource implements DataSourceIf<Database> {
             partitionNameToId.put(tableName, partitionId);
             partitionInfo = new SinglePartitionInfo();
         }
+        esTable.setPartitionInfo(partitionInfo);
 
         long tableId = Catalog.getCurrentCatalog().getNextId();
-        EsTable esTable = new EsTable(tableId, tableName, baseSchema, stmt.getProperties(), partitionInfo);
+        esTable.setId(tableId);
         esTable.setComment(stmt.getComment());
-
+        esTable.syncTableMetaData();
         if (!db.createTableWithLock(esTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }

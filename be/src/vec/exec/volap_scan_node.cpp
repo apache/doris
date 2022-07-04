@@ -403,6 +403,10 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
+    /*
+    // the follow code may cause double free in VExprContext,
+    // temporarily disable it to avoid it
+    // TODO: fix the bug
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -472,6 +476,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                       "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
     }
+    */
 
     std::vector<Block*> blocks;
 
@@ -490,9 +495,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
-                     get_free_block) ||
-                    num_rows_in_block < _runtime_state->batch_size())) {
+    while (!eos && raw_bytes_read < raw_bytes_threshold &&
+           ((raw_rows_read < raw_rows_threshold && get_free_block) ||
+            num_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -511,7 +516,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             break;
         }
 
-        raw_bytes_read += block->allocated_bytes();
+        raw_bytes_read += block->bytes();
         num_rows_in_block += block->rows();
         // 4. if status not ok, change status_.
         if (UNLIKELY(block->rows() == 0)) {
@@ -1511,8 +1516,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
-
     // change done status
     {
         std::unique_lock<std::mutex> l(_blocks_lock);
@@ -1557,7 +1560,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 

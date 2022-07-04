@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
@@ -249,5 +250,10 @@ public class ExternalTable implements TableIf {
     @Override
     public String getComment(boolean escapeQuota) {
         return "";
+
+    }
+
+    public TTableDescriptor toThrift() {
+        return null;
     }
 }
