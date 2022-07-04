@@ -66,7 +66,7 @@ public:
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
-            return Status::InvalidArgument(strings::Substitute("invalid strategy:$0", strategy));
+            return Status::InvalidArgument("invalid strategy:{}", strategy);
         }
         _num_bytes = filter_size;
         DCHECK((_num_bytes & (_num_bytes - 1)) == 0);
@@ -86,10 +86,10 @@ public:
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
-            return Status::InvalidArgument(strings::Substitute("invalid strategy:$0", strategy));
+            return Status::InvalidArgument("invalid strategy:{}", strategy);
         }
         if (size == 0) {
-            return Status::InvalidArgument(strings::Substitute("invalid size:$0", size));
+            return Status::InvalidArgument("invalid size:{}", size);
         }
         _data = new char[size];
         memcpy(_data, buf, size);

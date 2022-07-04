@@ -244,7 +244,7 @@ Status StorageEngine::_init_store_map() {
         for (auto store : tmp_stores) {
             delete store;
         }
-        return Status::InternalError(strings::Substitute("init path failed, error=$0", error_msg));
+        return Status::InternalError("init path failed, error={}", error_msg);
     }
 
     for (auto store : tmp_stores) {
@@ -274,8 +274,8 @@ Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_
     auto st = _stream_load_recorder->init();
     if (!st.ok()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(Substitute("open StreamLoadRecorder rocksdb failed, path=$0",
-                                           stream_load_record_path)),
+                Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
+                                stream_load_record_path),
                 "init StreamLoadRecorder failed");
     }
     return Status::OK();
@@ -307,9 +307,8 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     } else {
         if (cluster_id != _effective_cluster_id) {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::Corruption(
-                            strings::Substitute("multiple cluster ids is not equal. one=$0, other=",
-                                                _effective_cluster_id, cluster_id)),
+                    Status::Corruption("multiple cluster ids is not equal. one={}, other={}",
+                                       _effective_cluster_id, cluster_id),
                     "cluster id not equal");
         }
     }
@@ -455,9 +454,8 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
             cluster_id = tmp_cluster_id;
         } else {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::Corruption(strings::Substitute(
-                            "multiple cluster ids is not equal. one=$0, other=", cluster_id,
-                            tmp_cluster_id)),
+                    Status::Corruption("multiple cluster ids is not equal. one={}, other={}",
+                                       cluster_id, tmp_cluster_id),
                     "cluster id not equal");
         }
     }

@@ -66,6 +66,14 @@ void SingleColumnBlockPredicate::evaluate_vec(vectorized::MutableColumns& block,
                                               bool* flags) const {
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
+
+    // Dictionary column should do something to initial.
+    if (PredicateTypeTraits::is_range(_predicate->type())) {
+        column->convert_dict_codes_if_necessary();
+    } else if (PredicateTypeTraits::is_bloom_filter(_predicate->type())) {
+        column->generate_hash_values_for_runtime_filter();
+    }
+
     _predicate->evaluate_vec(*column, size, flags);
 }
 
@@ -234,12 +242,16 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
         _block_column_predicate_vec[0]->evaluate_vec(block, size, flags);
     } else {
         bool new_flags[size];
+        bool initialized = false;
         for (auto block_column_predicate : _block_column_predicate_vec) {
-            memset(new_flags, true, size);
-            block_column_predicate->evaluate_vec(block, size, new_flags);
-
-            for (uint16_t j = 0; j < size; j++) {
-                flags[j] &= new_flags[j];
+            if (initialized) {
+                block_column_predicate->evaluate_vec(block, size, new_flags);
+                for (uint16_t j = 0; j < size; j++) {
+                    flags[j] &= new_flags[j];
+                }
+            } else {
+                block_column_predicate->evaluate_vec(block, size, flags);
+                initialized = true;
             }
         }
     }

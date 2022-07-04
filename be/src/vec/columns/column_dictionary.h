@@ -241,7 +241,7 @@ public:
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
-    void generate_hash_values_for_runtime_filter() {
+    void generate_hash_values_for_runtime_filter() override {
         _dict.generate_hash_values_for_runtime_filter(_type);
     }
 

@@ -108,6 +108,16 @@ POST /_bulk
 具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 
 ```
+CREATE EXTERNAL TABLE `test` // 不指定schema，自动拉取es mapping进行建表 
+ENGINE=ELASTICSEARCH 
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test",
+"type" = "doc",
+"user" = "root",
+"password" = "root"
+);
+
 CREATE EXTERNAL TABLE `test` (
   `k1` bigint(20) COMMENT "",
   `k2` datetime COMMENT "",

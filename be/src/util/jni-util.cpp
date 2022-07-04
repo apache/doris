@@ -149,7 +149,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     }
 
     env->DeleteLocalRef(exc);
-    return Status::InternalError(strings::Substitute("$0$1", prefix, msg_str_guard.get()));
+    return Status::InternalError("{}{}", prefix, msg_str_guard.get());
 }
 
 Status JniUtil::GetGlobalClassRef(JNIEnv* env, const char* class_str, jclass* class_ref) {

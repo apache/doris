@@ -111,19 +111,16 @@ public:
         CHECK(!_parsed);
 
         if (_data.size < PLAIN_PAGE_HEADER_SIZE) {
-            std::stringstream ss;
-            ss << "file corruption: not enough bytes for header in PlainPageDecoder ."
-                  "invalid data size:"
-               << _data.size << ", header size:" << PLAIN_PAGE_HEADER_SIZE;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "file corruption: not enough bytes for header in PlainPageDecoder ."
+                    "invalid data size:{}, header size:{}",
+                    _data.size, PLAIN_PAGE_HEADER_SIZE);
         }
 
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[0]);
 
         if (_data.size != PLAIN_PAGE_HEADER_SIZE + _num_elems * SIZE_OF_TYPE) {
-            std::stringstream ss;
-            ss << "file corruption: unexpected data size.";
-            return Status::InternalError(ss.str());
+            return Status::InternalError("file corruption: unexpected data size.");
         }
 
         _parsed = true;

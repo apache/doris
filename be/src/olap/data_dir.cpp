@@ -96,9 +96,9 @@ DataDir::~DataDir() {
 
 Status DataDir::init() {
     if (!Env::Default()->path_exists(_path_desc.filepath).ok()) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
-                                               "opendir failed, path=$0", _path_desc.filepath)),
-                                       "check file exist failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError("opendir failed, path={}", _path_desc.filepath),
+                "check file exist failed");
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
@@ -163,9 +163,9 @@ Status DataDir::_init_capacity() {
         _capacity_bytes = disk_capacity;
     } else if (_capacity_bytes > disk_capacity) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::InvalidArgument(strings::Substitute(
-                        "root path $0's capacity $1 should not larger than disk capacity $2",
-                        _path_desc.filepath, _capacity_bytes, disk_capacity)),
+                Status::InvalidArgument(
+                        "root path {}'s capacity {} should not larger than disk capacity {}",
+                        _path_desc.filepath, _capacity_bytes, disk_capacity),
                 "init capacity failed");
     }
 
@@ -173,9 +173,9 @@ Status DataDir::_init_capacity() {
     Status exist_status = Env::Default()->path_exists(data_path);
     if (!exist_status.ok() &&
         (!exist_status.is_not_found() || !Env::Default()->create_dirs(data_path).ok())) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
-                                               "failed to create data root path $0", data_path)),
-                                       "create_dirs failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError("failed to create data root path {}", data_path),
+                "create_dirs failed");
     }
 
     return Status::OK();
@@ -196,8 +196,7 @@ Status DataDir::_init_meta() {
     Status res = _meta->init();
     if (!res.ok()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(
-                        strings::Substitute("open rocksdb failed, path=$0", _path_desc.filepath)),
+                Status::IOError("open rocksdb failed, path={}", _path_desc.filepath),
                 "init OlapMeta failed");
     }
     return Status::OK();

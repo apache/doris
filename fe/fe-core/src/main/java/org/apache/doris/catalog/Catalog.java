@@ -479,9 +479,11 @@ public class Catalog {
     }
 
     public DataSourceIf getCurrentDataSource() {
-        // TODO: this should be got from connect context.
-        // Will be fixed later.
-        return dataSourceMgr.getInternalDataSource();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return dataSourceMgr.getInternalDataSource();
+        }
+        return ctx.getCurrentDataSource();
     }
 
     public InternalDataSource getInternalDataSource() {
@@ -2870,6 +2872,13 @@ public class Catalog {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // sequence type
+            if (olapTable.hasSequenceCol()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                sb.append(olapTable.getSequenceType().toString()).append("\"");
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4163,7 +4172,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
-        getInternalDataSource().getDbOrDdlException(qualifiedDb);
+        ctx.getCurrentDataSource().getDbOrDdlException(qualifiedDb);
         ctx.setDatabase(qualifiedDb);
     }
 

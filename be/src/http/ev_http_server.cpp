@@ -143,9 +143,7 @@ Status EvHttpServer::_bind() {
     butil::EndPoint point;
     auto res = butil::hostname2endpoint(_host.c_str(), _port, &point);
     if (res < 0) {
-        std::stringstream ss;
-        ss << "convert address failed, host=" << _host << ", port=" << _port;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("convert address failed, host={}, port={}", _host, _port);
     }
     _server_fd = butil::tcp_listen(point);
     if (_server_fd < 0) {

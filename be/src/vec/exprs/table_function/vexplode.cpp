@@ -45,9 +45,8 @@ Status VExplodeTableFunction::process_init(vectorized::Block* block) {
                 check_and_get_column<ColumnArray>(*block->get_by_position(value_column_idx).column);
     }
     if (!_array_column) {
-        return Status::NotSupported("column type " +
-                                    block->get_by_position(value_column_idx).column->get_name() +
-                                    " not supported now");
+        return Status::NotSupported("column type {} not supported now",
+                                    block->get_by_position(value_column_idx).column->get_name());
     }
 
     return Status::OK();

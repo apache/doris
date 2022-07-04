@@ -121,7 +121,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         try {
-            return client.getAllTables(dbName);
+            return client.getAllTables(getRealTableName(dbName));
         } catch (MetaException e) {
             LOG.warn("List Table Names failed. {}", e.getMessage());
         }
@@ -132,7 +132,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         try {
-            return client.tableExists(dbName, tblName);
+            return client.tableExists(getRealTableName(dbName), tblName);
         } catch (TException e) {
             LOG.warn("Check table exist failed. {}", e.getMessage());
         }
@@ -143,6 +143,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
         makeSureInitialized();
+        dbName = getRealTableName(dbName);
         try {
             client.getDatabase(dbName);
         } catch (TException e) {

@@ -171,7 +171,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             return Status::OK();
         }
         default:
-            return Status::NotSupported("unsupported type for ColumnWriter: " +
+            return Status::NotSupported("unsupported type for ColumnWriter: {}",
                                         std::to_string(field->type()));
         }
     }
@@ -276,9 +276,8 @@ Status ScalarColumnWriter::init() {
     opts.data_page_size = _opts.data_page_size;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
-        return Status::NotSupported(
-                strings::Substitute("Failed to create page builder for type $0 and encoding $1",
-                                    get_field()->type(), _opts.meta->encoding()));
+        return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
+                                    get_field()->type(), _opts.meta->encoding());
     }
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
