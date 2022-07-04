@@ -36,7 +36,6 @@ add_library(Olap STATIC
     collect_iterator.cpp
     compaction.cpp
     compaction_permit_limiter.cpp
-    comparison_predicate.cpp
     compress.cpp
     convert_rowset.cpp
     cumulative_compaction.cpp

@@ -71,6 +71,9 @@ public:
     /// If column is ColumnDictionary, and is a range comparison predicate, convert dict encoding
     virtual void convert_dict_codes_if_necessary() {}
 
+    /// If column is ColumnDictionary, and is a bloom filter predicate, generate_hash_values
+    virtual void generate_hash_values_for_runtime_filter() {}
+
     /// Creates empty column with the same type.
     virtual MutablePtr clone_empty() const { return clone_resized(0); }
 

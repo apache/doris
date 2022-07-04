@@ -282,6 +282,10 @@ public:
         get_nested_column().convert_dict_codes_if_necessary();
     }
 
+    void generate_hash_values_for_runtime_filter() override {
+        get_nested_column().generate_hash_values_for_runtime_filter();
+    }
+
 private:
     WrappedPtr nested_column;
     WrappedPtr null_map;

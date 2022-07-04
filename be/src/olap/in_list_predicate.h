@@ -201,7 +201,8 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override {
+    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                      uint16_t size) const override {
         if (column.is_nullable()) {
             auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -225,11 +226,11 @@ public:
     }
 
     // todo(wb) support evaluate_and,evaluate_or
-    void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_and now.";
     }
-    void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
         LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_or now.";
     }
