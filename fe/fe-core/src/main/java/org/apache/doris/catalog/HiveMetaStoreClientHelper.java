@@ -441,40 +441,23 @@ public class HiveMetaStoreClientHelper {
 
     private static class ExprNodeGenericFuncDescContext {
         private final ExprNodeGenericFuncDesc funcDesc;
-        private final boolean isPartitionFiled;
-        private final boolean supportedOp;
+        private final boolean eligible;
 
         public ExprNodeGenericFuncDescContext(ExprNodeGenericFuncDesc funcDesc) {
             this.funcDesc = funcDesc;
-            this.isPartitionFiled = true;
-            this.supportedOp = true;
+            this.eligible = true;
         }
 
-        public ExprNodeGenericFuncDescContext(boolean isPartitionFiled, boolean supportedOp) {
+        public ExprNodeGenericFuncDescContext() {
             this.funcDesc = null;
-            this.isPartitionFiled = true;
-            this.supportedOp = true;
+            this.eligible = false;
         }
 
         /**
-         * If it's a partition key and also is a supportedOp, we can go through into next loop.
+         * Check eligible before use the expr in CompoundPredicate for `and` and `or` .
          */
-        public boolean keepForAndOp() {
-            return isPartitionFiled  && supportedOp;
-        }
-
-        /**
-         * If it's not a partition key, we should ignore this expr in `or`.
-         */
-        public boolean isPartitionFiled() {
-            return isPartitionFiled;
-        }
-
-        /**
-         * And if is a partition key and also is a not supportedOp, this is an always true expr.
-         */
-        public boolean alwaysTrueForOrOp() {
-            return isPartitionFiled && !supportedOp;
+        public boolean isEligible() {
+            return eligible;
         }
 
         public ExprNodeGenericFuncDesc getFuncDesc() {
@@ -485,7 +468,7 @@ public class HiveMetaStoreClientHelper {
     private static ExprNodeGenericFuncDescContext convertToHivePartitionExpr(Expr dorisExpr,
             List<String> partitions, String tblName) throws DdlException {
         if (dorisExpr == null) {
-            return new ExprNodeGenericFuncDescContext(false, false);
+            return new ExprNodeGenericFuncDescContext();
         }
 
         if (dorisExpr instanceof CompoundPredicate) {
@@ -497,17 +480,17 @@ public class HiveMetaStoreClientHelper {
                     ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
                             compoundPredicate.getChild(1), partitions, tblName);
 
-                    if (left.keepForAndOp() && right.keepForAndOp()) {
+                    if (left.isEligible() && right.isEligible()) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
                         andArgs.add(left.getFuncDesc());
                         andArgs.add(right.getFuncDesc());
                         return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "and"));
-                    } else if (left.keepForAndOp()) {
+                    } else if (left.isEligible()) {
                         return left;
-                    } else if (right.keepForAndOp()) {
+                    } else if (right.isEligible()) {
                         return right;
                     } else {
-                        return new ExprNodeGenericFuncDescContext(false, false);
+                        return new ExprNodeGenericFuncDescContext();
                     }
                 }
                 case OR: {
@@ -515,33 +498,19 @@ public class HiveMetaStoreClientHelper {
                             compoundPredicate.getChild(0), partitions, tblName);
                     ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
                             compoundPredicate.getChild(1), partitions, tblName);
-                    // no matter left or right can drop, we must drop both for this example:
-                    // partition_key1 = 1 or partition_key2 in (2,3) which `in` is a nonsupport op now.
-                    if (left.alwaysTrueForOrOp() || right.alwaysTrueForOrOp()) {
-                        // return 1 = 1 expr for these examples:
-                        // (partition_key1 = 1 or partition_key2 in (2,3)) or partition_key3 = 4 => always true
-                        // (partition_key1 = 1 or partition_key2 in (2,3)) and partition_key3 = 4 => partition_key3 = 4
-                        return new ExprNodeGenericFuncDescContext(genAlwaysTrueExpr(tblName));
+                    if (left.isEligible() && right.isEligible()) {
+                        List<ExprNodeDesc> andArgs = new ArrayList<>();
+                        andArgs.add(left.getFuncDesc());
+                        andArgs.add(right.getFuncDesc());
+                        return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "or"));
                     } else {
-                        if (left.isPartitionFiled() && right.isPartitionFiled()) {
-                            List<ExprNodeDesc> orArgs = new ArrayList<>();
-                            orArgs.add(left.getFuncDesc());
-                            orArgs.add(right.getFuncDesc());
-                            return  new ExprNodeGenericFuncDescContext(getCompoundExpr(orArgs, "or"));
-                        } else if (left.isPartitionFiled()) {
-                            return left;
-                        } else if (right.isPartitionFiled()) {
-                            return right;
-                        } else {
-                            return new ExprNodeGenericFuncDescContext(false, false);
-                        }
+                        // If it is not a partition key, this is an always true expr.
+                        // Or if is a partition key and also is a not supportedOp, this is an always true expr.
+                        return new ExprNodeGenericFuncDescContext(genAlwaysTrueExpr(tblName));
                     }
                 }
                 default:
-                    // this should fill the is PartitionFiled to be true since these examples:
-                    // (Not partition_key1 = 1) or partition_key2 = 1, it should return partition_key2 = 1
-                    // (Not partition_key1 = 1) and partition_key2 = 1, it should return false
-                    return new ExprNodeGenericFuncDescContext(true, false);
+                    return new ExprNodeGenericFuncDescContext();
             }
         }
         return binaryExprDesc(dorisExpr, partitions, tblName);
@@ -561,14 +530,14 @@ public class HiveMetaStoreClientHelper {
                 BinaryPredicate eq = (BinaryPredicate) dorisExpr;
                 // Make sure the col slot is always first
                 SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
-                LiteralExpr literalExpr = (LiteralExpr) eq.getChild(1);
+                LiteralExpr literalExpr = convertDorisExprToLiteralExpr(eq.getChild(1));
                 if (slotRef == null || literalExpr == null) {
-                    return new ExprNodeGenericFuncDescContext(false, false);
+                    return new ExprNodeGenericFuncDescContext();
                 }
                 String colName = slotRef.getColumnName();
                 // check whether colName is partition column or not
                 if (!partitions.contains(colName)) {
-                    return new ExprNodeGenericFuncDescContext(false, false);
+                    return new ExprNodeGenericFuncDescContext();
                 }
                 PrimitiveType dorisPrimitiveType = slotRef.getType().getPrimitiveType();
                 PrimitiveTypeInfo hivePrimitiveType = convertToHiveColType(dorisPrimitiveType);
@@ -577,7 +546,7 @@ public class HiveMetaStoreClientHelper {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
                         return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
                     } else {
-                        return new ExprNodeGenericFuncDescContext(true, false);
+                        return new ExprNodeGenericFuncDescContext();
                     }
                 }
                 switch (opcode) {
@@ -595,10 +564,10 @@ public class HiveMetaStoreClientHelper {
                     case LT:
                         return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
                     default:
-                        return new ExprNodeGenericFuncDescContext(true, false);
+                        return new ExprNodeGenericFuncDescContext();
                 }
             default:
-                return new ExprNodeGenericFuncDescContext(true, false);
+                return new ExprNodeGenericFuncDescContext();
         }
     }
 
@@ -635,6 +604,18 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return slotRef;
+    }
+
+    private static LiteralExpr convertDorisExprToLiteralExpr(Expr expr) {
+        LiteralExpr literalExpr = null;
+        if (expr instanceof LiteralExpr) {
+            literalExpr = (LiteralExpr) expr;
+        } else if (expr instanceof CastExpr) {
+            if (expr.getChild(0) instanceof LiteralExpr) {
+                literalExpr = (LiteralExpr) expr.getChild(0);
+            }
+        }
+        return literalExpr;
     }
 
     private static Object extractDorisLiteral(Expr expr) {
