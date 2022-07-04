@@ -57,6 +57,7 @@ import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
@@ -278,19 +279,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,
                 JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, Lists.newArrayList());
 
-        ExchangeNode leftExch = new ExchangeNode(context.nextNodeId(), leftFragmentPlanRoot, false);
-        leftExch.setNumInstances(leftFragmentPlanRoot.getNumInstances());
-        ExchangeNode rightExch = new ExchangeNode(context.nextNodeId(), leftFragmentPlanRoot, false);
-        rightExch.setNumInstances(rightFragmentPlanRoot.getNumInstances());
+        hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
         hashJoinNode.setChild(0, leftFragmentPlanRoot);
-        hashJoinNode.setChild(1, leftFragmentPlanRoot);
-        hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
-        hashJoinNode.setLimit(physicalHashJoin.getLimit());
-        leftFragment.setDestination((ExchangeNode) rightFragment.getPlanRoot());
-        rightFragment.setDestination((ExchangeNode) leftFragmentPlanRoot);
-        PlanFragment result = new PlanFragment(context.nextFragmentId(), hashJoinNode, leftFragment.getDataPartition());
-        context.addPlanFragment(result);
-        return result;
+        connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
+        leftFragment.setPlanRoot(hashJoinNode);
+        return leftFragment;
     }
 
     // TODO: generate expression mapping when be project could do in ExecNode
@@ -365,6 +358,16 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         childFragment.setDestination(exchangeNode);
         childFragment.setOutputPartition(parentPartition);
         return parentFragment;
+    }
+
+    private void connectChildFragment(PlanNode node, int childIdx,
+            PlanFragment parentFragment, PlanFragment childFragment,
+            PlanTranslatorContext context) {
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), childFragment.getPlanRoot(), false);
+        exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
+        exchangeNode.setFragment(parentFragment);
+        node.setChild(childIdx, exchangeNode);
+        childFragment.setDestination(exchangeNode);
     }
 
     /**
