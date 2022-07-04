@@ -51,7 +51,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
@@ -64,8 +64,6 @@ import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -82,8 +80,6 @@ import java.util.stream.Collectors;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, PlanTranslatorContext> {
-    private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
-
     public void translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
         visit(physicalPlan, context);
     }
@@ -103,7 +99,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         PlanFragment inputPlanFragment = visit(agg.child(0), context);
 
-        AggregationNode aggregationNode = null;
+        AggregationNode aggregationNode;
         List<Slot> slotList = new ArrayList<>();
         PhysicalAggregation physicalAggregation = agg.getOperator();
         AggregateInfo.AggPhase phase = physicalAggregation.getAggPhase().toExec();
@@ -129,7 +125,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> (FunctionCallExpr) ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         // todo: support DISTINCT
-        AggregateInfo aggInfo = null;
+        AggregateInfo aggInfo;
         switch (phase) {
             case FIRST:
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
@@ -263,7 +259,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
                     rightFragment.getPlanRoot(), null);
             crossJoinNode.setLimit(physicalHashJoin.getLimit());
-            List<Expr> conjuncts = Utils.extractConjuncts(predicateExpr).stream()
+            List<Expr> conjuncts = ExpressionUtils.extractConjunct(predicateExpr).stream()
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toCollection(ArrayList::new));
             crossJoinNode.addConjuncts(conjuncts);
@@ -330,6 +326,18 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         return inputFragment;
     }
 
+    @Override
+    public PlanFragment visitPhysicalFilter(
+            PhysicalUnaryPlan<PhysicalFilter, Plan> filterPlan, PlanTranslatorContext context) {
+        PlanFragment inputFragment = visit(filterPlan.child(0), context);
+        PlanNode planNode = inputFragment.getPlanRoot();
+        PhysicalFilter filter = filterPlan.getOperator();
+        Expression expression = filter.getPredicates();
+        List<Expression> expressionList = ExpressionUtils.extractConjunct(expression);
+        expressionList.stream().map(e -> ExpressionTranslator.translate(e, context)).forEach(planNode::addConjunct);
+        return inputFragment;
+    }
+
     private void extractExecSlot(Expr root, Set<Integer>  slotRefList) {
         if (root instanceof SlotRef) {
             slotRefList.add(((SlotRef) root).getDesc().getId().asInt());
@@ -338,20 +346,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         for (Expr child : root.getChildren()) {
             extractExecSlot(child, slotRefList);
         }
-    }
-
-    @Override
-    public PlanFragment visitPhysicalFilter(
-            PhysicalUnaryPlan<PhysicalFilter, Plan> filterPlan, PlanTranslatorContext context) {
-        PlanFragment inputFragment = visit(filterPlan.child(0), context);
-        PlanNode planNode = inputFragment.getPlanRoot();
-        PhysicalFilter filter = filterPlan.getOperator();
-        Expression expression = filter.getPredicates();
-        List<Expression> expressionList = Utils.extractConjuncts(expression);
-        expressionList.stream().map(e -> {
-            return ExpressionTranslator.translate(e, context);
-        }).forEach(planNode::addConjunct);
-        return inputFragment;
     }
 
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, PlanTranslatorContext context, Table table) {
