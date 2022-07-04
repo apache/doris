@@ -624,6 +624,7 @@ public class HiveMetaStoreClientHelper {
             case CHAR:
                 return TypeInfoFactory.charTypeInfo;
             case VARCHAR:
+            case STRING:
                 return TypeInfoFactory.varcharTypeInfo;
             default:
                 throw new DdlException("Unsupported column type: " + dorisType);

@@ -132,16 +132,6 @@ Status FileTextScanner::_fill_file_columns(const Slice& line, vectorized::Block*
 
         auto doris_column = _block->get_by_name(slot_desc->col_name()).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
-        if (slot_desc->is_nullable()) {
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-            nullable_column->get_null_map_data().push_back(0);
-            col_ptr = &nullable_column->get_nested_column();
-        }
-
-        if (value.size == 2 && value.data[0] == '\\' && value[1] == 'N') {
-            col_ptr->insert_default();
-            continue;
-        }
         _text_converter->write_vec_column(slot_desc, col_ptr, value.data, value.size, true, false);
     }
     _rows++;
