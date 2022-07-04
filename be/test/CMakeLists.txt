@@ -142,7 +142,6 @@ set(OLAP_TEST_FILES
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
     olap/bloom_filter_column_predicate_test.cpp
-    olap/bloom_filter_index_test.cpp
     olap/comparison_predicate_test.cpp
     olap/in_list_predicate_test.cpp
     olap/null_predicate_test.cpp
