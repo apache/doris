@@ -401,14 +401,41 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Convert Doris expr to Hive expr, only for partition column
-     * @param dorisExpr
-     * @param partitions
      * @param tblName
      * @return
      * @throws DdlException
      * @throws SemanticException
      */
-    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr,
+    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(List<Expr> conjuncts,
+            List<String> partitionKeys, String tblName) throws DdlException {
+        List<ExprNodeDesc> hivePredicates = new ArrayList<>();
+
+        for (Expr conjunct : conjuncts) {
+            ExprNodeGenericFuncDesc hiveExpr =
+                    HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct, partitionKeys, tblName);
+            if (hiveExpr != null) {
+                hivePredicates.add(hiveExpr);
+            }
+        }
+        int count = hivePredicates.size();
+        // combine all predicate by `and`
+        // compoundExprs must have at least 2 predicates
+        if (count >= 2) {
+            return HiveMetaStoreClientHelper.getCompoundExpr(hivePredicates, "and");
+        } else if (count == 1) {
+            // only one predicate
+            return (ExprNodeGenericFuncDesc) hivePredicates.get(0);
+        } else {
+            // have no predicate, make a dummy predicate "1=1" to get all partitions
+            HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
+                    new HiveMetaStoreClientHelper.ExprBuilder(tblName);
+            return exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
+                    .val(TypeInfoFactory.intTypeInfo, 1)
+                    .pred("=", 2).build();
+        }
+    }
+
+    private static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr,
             List<String> partitions, String tblName) throws DdlException {
         if (dorisExpr == null) {
             return null;
@@ -421,35 +448,31 @@ public class HiveMetaStoreClientHelper {
                     ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
                             compoundPredicate.getChild(0), partitions, tblName);
                     ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
+                            compoundPredicate.getChild(1), partitions, tblName);
                     if (left != null && right != null) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
                         andArgs.add(left);
                         andArgs.add(right);
                         return getCompoundExpr(andArgs, "and");
-                    } else if (left != null && right == null) {
+                    } else if (left != null) {
                         return left;
-                    } else if (left == null && right != null) {
+                    } else  {
                         return right;
                     }
-                    return null;
                 }
                 case OR: {
                     ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
                             compoundPredicate.getChild(0), partitions, tblName);
                     ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
+                            compoundPredicate.getChild(1), partitions, tblName);
                     if (left != null && right != null) {
                         List<ExprNodeDesc> orArgs = new ArrayList<>();
                         orArgs.add(left);
                         orArgs.add(right);
                         return getCompoundExpr(orArgs, "or");
-                    } else if (left != null && right == null) {
-                        return left;
-                    } else if (left == null && right != null) {
-                        return right;
+                    } else  {
+                        return null;
                     }
-                    return null;
                 }
                 default:
                     return null;
@@ -514,7 +537,6 @@ public class HiveMetaStoreClientHelper {
             default:
                 return null;
         }
-
     }
 
     private static ExprNodeGenericFuncDesc genExprDesc(
