@@ -138,9 +138,7 @@ set(OLAP_TEST_FILES
     olap/delete_handler_test.cpp
     olap/row_block_test.cpp
     olap/row_block_v2_test.cpp
-    olap/bit_field_test.cpp
     olap/byte_buffer_test.cpp
-    olap/stream_index_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
     olap/bloom_filter_column_predicate_test.cpp
