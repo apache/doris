@@ -682,12 +682,12 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     ColumnPredicate* pred = new InListPredicate<uint64_t>(0, std::move(values));
 
     std::vector<std::string> date_array;
-    date_array.push_back("2017-09-07");
-    date_array.push_back("2017-09-08");
-    date_array.push_back("2017-09-09");
-    date_array.push_back("2017-09-10");
-    date_array.push_back("2017-09-11");
-    date_array.push_back("2017-09-12");
+    date_array.push_back("2017-09-07 00:00:00");
+    date_array.push_back("2017-09-08 00:01:00");
+    date_array.push_back("2017-09-09 00:00:01");
+    date_array.push_back("2017-09-10 01:00:00");
+    date_array.push_back("2017-09-11 01:01:00");
+    date_array.push_back("2017-09-12 01:01:01");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
