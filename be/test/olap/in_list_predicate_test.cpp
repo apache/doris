@@ -417,7 +417,7 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
-    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
+    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         if (i % 2 == 0) {
             col_block_view.set_null_bits(1, true);

@@ -310,7 +310,7 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
-    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
+    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         if (i % 2 == 0) {
             col_block_view.set_null_bits(1, true);
@@ -471,7 +471,7 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     EXPECT_EQ(select_size, 5);
-    sum = 0;
+    float sum = 0;
     for (int i = 0; i < 5; ++i) {
         sum += *(float*)col_block.cell(_row_block->selection_vector()[i]).cell_ptr();
     }
@@ -523,7 +523,7 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     EXPECT_EQ(select_size, 5);
-    sum = 0;
+    double sum = 0;
     for (int i = 0; i < 5; ++i) {
         sum += *(double*)col_block.cell(_row_block->selection_vector()[i]).cell_ptr();
     }
