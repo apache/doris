@@ -693,7 +693,9 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                     }
                 }
 
-                if (!is_null) _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                if (!is_null) {
+                    _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                }
 
                 already_read += this_read_count;
                 _page.offset_in_page += this_run;
@@ -704,8 +706,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            _page.data_decoder->read_by_rowids(&rowids[total_read_count], _page.first_ordinal,
-                                               &nrows_to_read, dst);
+            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
+                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }
@@ -857,7 +859,9 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, b
     return Status::OK();
 }
 
-void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPtr &dst, size_t n) {
+void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, size_t type_size,
+                                                     void* mem_value,
+                                                     vectorized::MutableColumnPtr& dst, size_t n) {
     vectorized::Int128 int128;
     char* data_ptr = (char *) &int128;
     size_t data_len = sizeof(int128);
@@ -869,7 +873,7 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
         }
     };
 
-    switch (_type_info->type()) {
+    switch (type_info->type()) {
         case OLAP_FIELD_TYPE_OBJECT:
         case OLAP_FIELD_TYPE_HLL:{
             dst->insert_many_defaults(n);
@@ -877,8 +881,8 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
         }
 
         case OLAP_FIELD_TYPE_DATE: {
-            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
-            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(_mem_value);
+            assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
+            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
 
             vectorized::VecDateTimeValue value;
             value.from_date_str(str.c_str(), str.length());
@@ -889,8 +893,8 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
             break;
         }
         case OLAP_FIELD_TYPE_DATETIME: {
-            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
-            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(_mem_value);
+            assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
+            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
 
             vectorized::VecDateTimeValue value;
             value.from_date_str(str.c_str(), str.length());
@@ -901,8 +905,8 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
             break;
         }
         case OLAP_FIELD_TYPE_DECIMAL: {
-            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
-            decimal12_t *d = (decimal12_t *) _mem_value;
+            assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
+            decimal12_t *d = (decimal12_t *) mem_value;
             int128 = DecimalV2Value(d->integer, d->fraction).value();
             insert_column_data();
             break;
@@ -910,29 +914,38 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
         case OLAP_FIELD_TYPE_STRING:
         case OLAP_FIELD_TYPE_VARCHAR:
         case OLAP_FIELD_TYPE_CHAR: {
-            data_ptr = ((Slice*)_mem_value)->data;
-            data_len = ((Slice*)_mem_value)->size;
+            data_ptr = ((Slice*)mem_value)->data;
+            data_len = ((Slice*)mem_value)->size;
             insert_column_data();
             break;
         }
         default: {
-            data_ptr = (char *) _mem_value;
-            data_len = _type_size;
+            data_ptr = (char *) mem_value;
+            data_len = type_size;
             insert_column_data();
         }
     }
 }
 
-Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) {
-    if (_is_default_value_null) {
-        *has_null = true;
-        dst->insert_many_defaults(*n);
-    } else {
-        *has_null = false;
-        insert_default_data(dst, *n);
-    }
-
+Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                              bool* has_null) {
+    *has_null = _is_default_value_null;
+    _insert_many_default(dst, *n);
     return Status::OK();
+}
+
+Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                  vectorized::MutableColumnPtr& dst) {
+    _insert_many_default(dst, count);
+    return Status::OK();
+}
+
+void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnPtr& dst, size_t n) {
+    if (_is_default_value_null) {
+        dst->insert_many_defaults(n);
+    } else {
+        insert_default_data(_type_info, _type_size, _mem_value, dst, n);
+    }
 }
 
 } // namespace segment_v2

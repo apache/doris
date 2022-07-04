@@ -21,6 +21,7 @@
 #include <set>
 #include <utility>
 
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
 #include "olap/fs/fs_util.h"
@@ -898,9 +899,9 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
 }
 
 void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
-                                              std::vector<rowid_t>& rowid_vector,
-                                              uint16_t* sel_rowid_idx, size_t select_size,
-                                              vectorized::MutableColumns* mutable_columns) {
+                                                std::vector<rowid_t>& rowid_vector,
+                                                uint16_t* sel_rowid_idx, size_t select_size,
+                                                vectorized::MutableColumns* mutable_columns) {
     std::vector<rowid_t> rowids(select_size);
     for (size_t i = 0; i < select_size; ++i) {
         rowids[i] = rowid_vector[sel_rowid_idx[i]];
