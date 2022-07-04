@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -90,7 +91,7 @@ public class HashJoinNode extends PlanNode {
     private List<SlotId> hashOutputSlotIds;
     private TupleDescriptor vOutputTupleDesc;
     private ExprSubstitutionMap vSrcToOutputSMap;
-    private TupleDescriptor vIntermediateTupleDesc;
+    private List<TupleDescriptor> vIntermediateTupleDescList;
 
     /**
      * Constructor of HashJoinNode.
@@ -543,77 +544,61 @@ public class HashJoinNode extends PlanNode {
 
     private void computeIntermediateTuple(Analyzer analyzer) throws AnalysisException {
         // 1. create new tuple
-        vIntermediateTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
-        boolean copyLeft = false;
-        boolean copyRight = false;
+        TupleDescriptor vIntermediateLeftTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
+        TupleDescriptor vIntermediateRightTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
+        vIntermediateTupleDescList = new ArrayList<>();
+        vIntermediateTupleDescList.add(vIntermediateLeftTupleDesc);
+        vIntermediateTupleDescList.add(vIntermediateRightTupleDesc);
         boolean leftNullable = false;
         boolean rightNullable = false;
         switch (joinOp) {
-            case INNER_JOIN:
-            case CROSS_JOIN:
-                copyLeft = true;
-                copyRight = true;
-                break;
             case LEFT_OUTER_JOIN:
-                copyLeft = true;
-                copyRight = true;
                 rightNullable = true;
                 break;
             case RIGHT_OUTER_JOIN:
-                copyLeft = true;
-                copyRight = true;
                 leftNullable = true;
                 break;
             case FULL_OUTER_JOIN:
-                copyLeft = true;
-                copyRight = true;
                 leftNullable = true;
                 rightNullable = true;
-                break;
-            case LEFT_ANTI_JOIN:
-            case LEFT_SEMI_JOIN:
-            case NULL_AWARE_LEFT_ANTI_JOIN:
-                copyLeft = true;
-                break;
-            case RIGHT_ANTI_JOIN:
-            case RIGHT_SEMI_JOIN:
-                copyRight = true;
                 break;
             default:
                 break;
         }
         // 2. exprsmap: <originslot, intermediateslot>
         ExprSubstitutionMap originToIntermediateSmap = new ExprSubstitutionMap();
-        if (copyLeft) {
-            for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl()
-                    .getTupleDesc(getChild(0).getOutputTupleIds())) {
-                for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
-                    SlotDescriptor intermediateSlotDesc =
-                            analyzer.getDescTbl().copySlotDescriptor(vIntermediateTupleDesc, slotDescriptor);
-                    if (leftNullable) {
-                        intermediateSlotDesc.setIsNullable(true);
-                    }
-                    originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
+        Map<List<TupleId>, TupleId> originTidsToIntermediateTidMap = Maps.newHashMap();
+        // left
+        originTidsToIntermediateTidMap.put(getChild(0).getOutputTupleIds(), vIntermediateLeftTupleDesc.getId());
+        for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTupleIds())) {
+            for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
+                SlotDescriptor intermediateSlotDesc =
+                        analyzer.getDescTbl().copySlotDescriptor(vIntermediateLeftTupleDesc, slotDescriptor);
+                if (leftNullable) {
+                    intermediateSlotDesc.setIsNullable(true);
                 }
+                originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
             }
         }
-        if (copyRight) {
-            for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl()
-                    .getTupleDesc(getChild(1).getOutputTupleIds())) {
-                for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
-                    SlotDescriptor intermediateSlotDesc =
-                            analyzer.getDescTbl().copySlotDescriptor(vIntermediateTupleDesc, slotDescriptor);
-                    if (rightNullable) {
-                        intermediateSlotDesc.setIsNullable(true);
-                    }
-                    originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
+        // right
+        originTidsToIntermediateTidMap.put(getChild(1).getOutputTupleIds(), vIntermediateRightTupleDesc.getId());
+        for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTupleIds())) {
+            for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
+                SlotDescriptor intermediateSlotDesc =
+                        analyzer.getDescTbl().copySlotDescriptor(vIntermediateRightTupleDesc, slotDescriptor);
+                if (rightNullable) {
+                    intermediateSlotDesc.setIsNullable(true);
                 }
+                originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
             }
         }
         // 3. replace srcExpr by intermediate tuple
         vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
-        // 4. replace other conjuncts
+        // 4. replace other conjuncts and conjuncts
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
+        conjuncts = Expr.substituteList(conjuncts, originToIntermediateSmap, analyzer, false);
+        // 5. replace tuple is null expr
+        TupleIsNullPredicate.substitueListForTupleIsNull(vSrcToOutputSMap.getLhs(), originTidsToIntermediateTidMap);
     }
 
     /**
@@ -1034,8 +1019,10 @@ public class HashJoinNode extends PlanNode {
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
         }
-        if (vIntermediateTupleDesc != null) {
-            msg.hash_join_node.setVintermediateTupleId(vIntermediateTupleDesc.getId().asInt());
+        if (vIntermediateTupleDescList != null) {
+            for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
+                msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
+            }
         }
     }
 
@@ -1072,10 +1059,14 @@ public class HashJoinNode extends PlanNode {
         output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         // todo unify in plan node
         if (vOutputTupleDesc != null) {
-            output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId());
+            output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId()).append("\n");
         }
-        if (vIntermediateTupleDesc != null) {
-            output.append(detailPrefix).append("intermediate tuple id: ").append(vIntermediateTupleDesc.getId());
+        if (vIntermediateTupleDescList != null) {
+            output.append(detailPrefix).append("vIntermediate tuple ids: ");
+            for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
+                output.append(tupleDescriptor.getId()).append(" ");
+            }
+            output.append("\n");
         }
         if (outputSlotIds != null) {
             output.append(detailPrefix).append("output slot ids: ");
