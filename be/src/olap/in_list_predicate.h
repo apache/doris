@@ -26,7 +26,6 @@
 #include "decimal12.h"
 #include "olap/column_predicate.h"
 #include "runtime/string_value.h"
-#include "runtime/vectorized_row_batch.h"
 #include "uint24.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/core/types.h"
@@ -77,8 +76,6 @@ struct equal_to<doris::uint24_t> {
 
 namespace doris {
 
-class VectorizedRowBatch;
-
 template <class T, PredicateType PT>
 class InListPredicateBase : public ColumnPredicate {
 public:
@@ -87,57 +84,6 @@ public:
             : ColumnPredicate(column_id, is_opposite), _values(std::move(values)) {}
 
     PredicateType type() const override { return PT; }
-
-    void evaluate(VectorizedRowBatch* batch) const override {
-        uint16_t n = batch->size();
-        if (!n) {
-            return;
-        }
-
-        uint16_t* sel = batch->selected();
-        const T* col_vector = reinterpret_cast<const T*>(batch->column(_column_id)->col_data());
-        uint16_t new_size = 0;
-        if (batch->column(_column_id)->no_nulls()) {
-            if (batch->selected_in_use()) {
-                for (uint16_t j = 0; j != n; ++j) {
-                    uint16_t i = sel[j];
-                    sel[new_size] = i;
-                    new_size += _operator(_values.find(col_vector[i]), _values.end());
-                }
-                batch->set_size(new_size);
-            } else {
-                for (uint16_t i = 0; i != n; ++i) {
-                    sel[new_size] = i;
-                    new_size += _operator(_values.find(col_vector[i]), _values.end());
-                }
-                if (new_size < n) {
-                    batch->set_size(new_size);
-                    batch->set_selected_in_use(true);
-                }
-            }
-        } else {
-            bool* is_null = batch->column(_column_id)->is_null();
-            if (batch->selected_in_use()) {
-                for (uint16_t j = 0; j != n; ++j) {
-                    uint16_t i = sel[j];
-                    sel[new_size] = i;
-                    new_size +=
-                            (!is_null[i] && _operator(_values.find(col_vector[i]), _values.end()));
-                }
-                batch->set_size(new_size);
-            } else {
-                for (int i = 0; i != n; ++i) {
-                    sel[new_size] = i;
-                    new_size +=
-                            (!is_null[i] && _operator(_values.find(col_vector[i]), _values.end()));
-                }
-                if (new_size < n) {
-                    batch->set_size(new_size);
-                    batch->set_selected_in_use(true);
-                }
-            }
-        }
-    };
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override {
         if (block->is_nullable()) {

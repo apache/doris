@@ -77,7 +77,6 @@ public:
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
 
-        // The ColumnData will be set when using Merger, eg Cumulative, BE.
         std::vector<RowsetReaderSharedPtr> rs_readers;
         std::vector<uint32_t> return_columns;
         RuntimeProfile* profile = nullptr;

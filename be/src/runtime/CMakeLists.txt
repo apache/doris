@@ -55,7 +55,6 @@ set(RUNTIME_FILES
     collection_value.cpp
     tuple.cpp
     tuple_row.cpp
-    vectorized_row_batch.cpp
     dpp_writer.cpp
     qsorter.cpp
     fragment_mgr.cpp
