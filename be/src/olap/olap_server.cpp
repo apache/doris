@@ -28,7 +28,6 @@
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
-#include "olap/convert_rowset.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"

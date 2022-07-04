@@ -35,6 +35,15 @@ Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<Blo
     return Status::OK();
 }
 
+uint32_t BloomFilter::used_bits(uint64_t value) {
+    // counting leading zero, builtin function, this will generate BSR(Bit Scan Reverse)
+    // instruction for X86
+    if (value == 0) {
+        return 0;
+    }
+    return 64 - __builtin_clzll(value);
+}
+
 uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
     // ref parquet bloom_filter branch(BlockSplitBloomFilter.java)
     uint32_t num_bits = -8 * (double)n / log(1 - pow(fpp, 1.0 / 8));
