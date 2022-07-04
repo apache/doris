@@ -40,11 +40,13 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
@@ -237,7 +239,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         return mergeFragment;
     }
 
-    // TODO: 1. support broadcast join / co-locate / bucket shuffle join later
+    // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
     //       2. For ssb, there are only binary equal predicate, we shall support more in the future.
     @Override
     public PlanFragment visitPhysicalHashJoin(
@@ -246,7 +248,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanFragment rightFragment = visit(hashJoin.child(1), context);
         PlanFragment leftFragment = visit(hashJoin.child(0), context);
         PhysicalHashJoin physicalHashJoin = hashJoin.getOperator();
-        Expression predicateExpr = physicalHashJoin.getCondition().get();
 
         //        Expression predicateExpr = physicalHashJoin.getCondition().get();
         //        List<Expression> eqExprList = Utils.getEqConjuncts(hashJoin.child(0).getOutput(),
@@ -257,14 +258,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
 
         if (joinType.equals(JoinType.CROSS_JOIN)
-                || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN) && false /* eqExprList.isEmpty() */) {
+                || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN)
+                && !physicalHashJoin.getCondition().isPresent()) {
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
                     rightFragment.getPlanRoot(), null);
             crossJoinNode.setLimit(physicalHashJoin.getLimit());
-            List<Expr> conjuncts = ExpressionUtils.extractConjunct(predicateExpr).stream()
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .collect(Collectors.toCollection(ArrayList::new));
-            crossJoinNode.addConjuncts(conjuncts);
             ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), rightFragment.getPlanRoot(), false);
             exchangeNode.setNumInstances(rightFragmentPlanRoot.getNumInstances());
             exchangeNode.setFragment(leftFragment);
@@ -275,7 +273,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             context.addPlanFragment(leftFragment);
             return leftFragment;
         }
-        List<Expr> execEqConjunctList = Lists.newArrayList(ExpressionTranslator.translate(predicateExpr, context));
+
+        Expression eqJoinExpression = physicalHashJoin.getCondition().get();
+        List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()
+                .map(EqualTo.class::cast)
+                .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,
                 JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, Lists.newArrayList());
@@ -369,6 +373,15 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         exchangeNode.setFragment(parentFragment);
         node.setChild(childIdx, exchangeNode);
         childFragment.setDestination(exchangeNode);
+    }
+
+    private static Expression swapEqualToForChildrenOrder(EqualTo equalTo, List<Slot> leftOutput) {
+        Set<Slot> leftSlots = SlotExtractor.extractSlot(equalTo.left());
+        if (leftSlots.containsAll(leftOutput)) {
+            return equalTo;
+        } else {
+            return new EqualTo(equalTo.right(), equalTo.left());
+        }
     }
 
     /**
