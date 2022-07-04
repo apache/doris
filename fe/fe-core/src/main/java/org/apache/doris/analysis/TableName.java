@@ -138,8 +138,9 @@ public class TableName implements Writable {
         if (ctl == null || ctl.equals(InternalDataSource.INTERNAL_DS_NAME)) {
             return new String[] {toString(), getNoClusterString(), tbl};
         } else {
+            // Three level table aliases: ctl.db.tbl, db.tbl, tbl
             return new String[] {
-                    String.format("%s.%s", db, tbl),
+                    String.format("%s.%s", ClusterNamespace.getNameFromFullName(db), tbl),
                     getNoClusterString(), // legal implicit alias
                     tbl
             };
