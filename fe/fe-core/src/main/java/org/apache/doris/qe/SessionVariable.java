@@ -979,8 +979,13 @@ public class SessionVariable implements Serializable, Writable {
         this.enableArrayType = enableArrayType;
     }
 
+    /**
+     * Nereids only support vectorized engine.
+     *
+     * @return true if both nereids and vectorized engine are enabled
+     */
     public boolean isEnableNereids() {
-        return enableNereids;
+        return enableNereids && enableVectorizedEngine;
     }
 
     public void setEnableNereids(boolean enableNereids) {

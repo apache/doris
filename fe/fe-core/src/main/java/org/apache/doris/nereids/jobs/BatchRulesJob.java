@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
@@ -43,10 +43,10 @@ public class BatchRulesJob {
         this.plannerContext = Objects.requireNonNull(plannerContext, "plannerContext can not null");
     }
 
-    protected Job<Plan> bottomUpBatch(List<RuleFactory> ruleFactories) {
+    protected Job<Plan> bottomUpBatch(List<RuleFactory<Plan>> ruleFactories) {
         List<Rule<Plan>> rules = new ArrayList<>();
-        for (RuleFactory ruleFactory : ruleFactories) {
-            rules.add((Rule<Plan>) ruleFactory.buildRules());
+        for (RuleFactory<Plan> ruleFactory : ruleFactories) {
+            rules.addAll(ruleFactory.buildRules());
         }
         Collections.reverse(rules);
         return new RewriteBottomUpJob(
@@ -55,10 +55,10 @@ public class BatchRulesJob {
                 plannerContext);
     }
 
-    protected Job<Plan> topDownBatch(List<RuleFactory> ruleFactories) {
+    protected Job<Plan> topDownBatch(List<RuleFactory<Plan>> ruleFactories) {
         List<Rule<Plan>> rules = new ArrayList<>();
-        for (RuleFactory ruleFactory : ruleFactories) {
-            rules.add((Rule<Plan>) ruleFactory.buildRules());
+        for (RuleFactory<Plan> ruleFactory : ruleFactories) {
+            rules.addAll(ruleFactory.buildRules());
         }
         Collections.reverse(rules);
         return new RewriteTopDownJob(

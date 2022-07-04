@@ -21,17 +21,19 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.AnalyzeRulesJob;
+import org.apache.doris.nereids.jobs.OptimizeRulesJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.translator.PhysicalPlanTranslator;
-import org.apache.doris.nereids.trees.plans.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
@@ -42,6 +44,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Planner to do query plan in Nereids.
@@ -66,19 +69,22 @@ public class NereidsPlanner extends Planner {
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), new PhysicalProperties(), ctx);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
-        PlanTranslatorContext planContext = new PlanTranslatorContext();
-        physicalPlanTranslator.translatePlan(physicalPlan, planContext);
-        fragments = new ArrayList<>(planContext.getPlanFragmentList());
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+        descTable = planTranslatorContext.getDescTable();
+        fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
         PlanFragment root = fragments.get(fragments.size() - 1);
         for (PlanFragment fragment : fragments) {
             fragment.finalize(queryStmt);
         }
-        root.setOutputExprs(queryStmt.getResultExprs());
-        if (VectorizedUtil.isVectorized()) {
-            root.getPlanRoot().convertToVectoriezd();
-        }
-        scanNodeList = planContext.getScanNodeList();
-        descTable = planContext.getDescTable();
+        root.resetOutputExprs(descTable.getTupleDesc(root.getPlanRoot().getTupleIds().get(0)));
+        root.getPlanRoot().convertToVectoriezd();
+        scanNodeList = planTranslatorContext.getScanNodeList();
+        logicalPlanAdapter.setResultExprs(root.getOutputExprs());
+        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
+                .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
+        logicalPlanAdapter.setColLabels(columnLabelList);
+
         Collections.reverse(fragments);
     }
 

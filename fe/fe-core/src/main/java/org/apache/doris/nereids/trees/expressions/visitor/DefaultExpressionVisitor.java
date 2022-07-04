@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.visitor;
+
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
  * Use the visitor to iterate over all expressions for expression.

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.translator;
+package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;

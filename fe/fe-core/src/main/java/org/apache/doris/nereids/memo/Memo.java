@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -35,8 +36,10 @@ import javax.annotation.Nullable;
  * Representation for memo in cascades optimizer.
  */
 public class Memo {
+    // generate group id in memo is better for test, since we can reproduce exactly same Memo.
+    private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final List<Group> groups = Lists.newArrayList();
-    // we could not use Set, because Set has no get method.
+    // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private Group root;
 
@@ -132,7 +135,7 @@ public class Memo {
                 target.addGroupExpression(groupExpression);
             }
         } else {
-            Group group = new Group(groupExpression, logicalProperties);
+            Group group = new Group(groupIdGenerator.getNextId(), groupExpression, logicalProperties);
             Preconditions.checkArgument(!groups.contains(group), "new group with already exist output");
             groups.add(group);
         }

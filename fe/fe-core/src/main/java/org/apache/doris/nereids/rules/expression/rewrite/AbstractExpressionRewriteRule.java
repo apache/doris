@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.trees.expressions.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 /**
  * Base class of expression rewrite rule.

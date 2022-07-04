@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.common.Id;
-import org.apache.doris.nereids.OperatorVisitor;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.Operator;
+import org.apache.doris.nereids.operators.OperatorVisitor;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;

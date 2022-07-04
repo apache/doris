@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.jobs;
+
+import org.apache.doris.nereids.PlannerContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -23,7 +25,7 @@ import com.google.common.collect.ImmutableList;
  * cascade optimizer added.
  */
 public class OptimizeRulesJob extends BatchRulesJob {
-    OptimizeRulesJob(PlannerContext plannerContext) {
+    public OptimizeRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
                 optimize()

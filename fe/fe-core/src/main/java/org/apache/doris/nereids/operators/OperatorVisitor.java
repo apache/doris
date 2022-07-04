@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.operators;
 
-import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;

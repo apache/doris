@@ -357,8 +357,16 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    /**
+     * Init OlapScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
+     */
     public void init() throws UserException {
-        computePartitionInfo();
+        selectedPartitionNum = selectedPartitionIds.size();
+        try {
+            getScanRangeLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
     }
 
     /**

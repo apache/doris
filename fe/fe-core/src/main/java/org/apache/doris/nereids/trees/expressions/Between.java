@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -58,6 +59,11 @@ public class Between<
     @Override
     public DataType getDataType() throws UnboundException {
         return BooleanType.INSTANCE;
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return lowerBound.nullable() || upperBound.nullable();
     }
 
     @Override

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.List;
 import java.util.Objects;

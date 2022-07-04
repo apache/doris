@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.analysis;
 
-import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindSlotReference;
-
-import com.google.common.collect.ImmutableList;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Execute the analyze job.
+ * Glue interface for QueryStmt and LogicalPlanAdaptor
  */
-public class AnalyzeRulesJob extends BatchRulesJob {
+public interface Queriable {
+    boolean hasOutFileClause();
 
-    AnalyzeRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(
-                        new BindRelation(),
-                        new BindSlotReference())
-                )));
-    }
+    OutFileClause getOutFileClause();
+
+    boolean isExplain();
+
+    ExplainOptions getExplainOptions();
+
+    List<Expr> getResultExprs();
+
+    ArrayList<String> getColLabels();
 }

@@ -31,6 +31,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectListItem;
@@ -88,7 +89,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -301,6 +302,20 @@ public class StmtExecutor implements ProfileWriter {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
 
+    /**
+     * Used for audit in ConnectProcessor.
+     *
+     * TODO: There are three interface in StatementBase be called when doing audit:
+     *      toDigest needAuditEncryption when parsedStmt is not a query
+     *      and isValuesOrConstantSelect when parsedStmt is instance of InsertStmt.
+     *      toDigest: is used to compute Statement fingerprint for blocking some queries
+     *      needAuditEncryption: when this interface return true,
+     *          log statement use toSql function instead of log original string
+     *      isValuesOrConstantSelect: when this interface return true, original string is truncated at 1024
+     *
+     * @return parsed and analyzed statement for Stale planner.
+     *          an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
+     */
     public StatementBase getParsedStmt() {
         return parsedStmt;
     }
@@ -359,9 +374,9 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt.analyze(analyzer);
             }
 
-            if (parsedStmt instanceof QueryStmt) {
+            if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
                 context.getState().setIsQuery(true);
-                if (!((QueryStmt) parsedStmt).isExplain()) {
+                if (!parsedStmt.isExplain()) {
                     // sql/sqlHash block
                     try {
                         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(
@@ -400,7 +415,7 @@ public class StmtExecutor implements ProfileWriter {
                         }
                         handleQueryStmt();
                         // explain query stmt do not have profile
-                        if (!((QueryStmt) parsedStmt).isExplain()) {
+                        if (!parsedStmt.isExplain()) {
                             writeProfile(true);
                         }
                         break;
@@ -509,6 +524,11 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
+    /**
+     * get variables in stmt.
+     * TODO: only support select stmt now. need to support Nereids.
+     * @throws DdlException
+     */
     private void analyzeVariablesInStmt() throws DdlException {
         SessionVariable sessionVariable = context.getSessionVariable();
         if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
@@ -573,7 +593,8 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt) {
+                || parsedStmt instanceof CreateTableAsSelectStmt
+                || parsedStmt instanceof LogicalPlanAdapter) {
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
@@ -584,7 +605,7 @@ public class StmtExecutor implements ProfileWriter {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
                 queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
-            } else {
+            } else if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
@@ -748,7 +769,9 @@ public class StmtExecutor implements ProfileWriter {
         } else {
             planner = new OriginalPlanner(analyzer);
         }
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+        if (parsedStmt instanceof QueryStmt
+                || parsedStmt instanceof InsertStmt
+                || parsedStmt instanceof LogicalPlanAdapter) {
             planner.plan(parsedStmt, tQueryOptions);
         }
         // TODO(zc):
@@ -915,7 +938,7 @@ public class StmtExecutor implements ProfileWriter {
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, PrimitiveType.VARCHAR));
-                data.add(((LiteralExpr) expr).getStringValue());
+                data.add(expr.getStringValue());
             } else {
                 return false;
             }
@@ -929,7 +952,7 @@ public class StmtExecutor implements ProfileWriter {
     private void handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
-        QueryStmt queryStmt = (QueryStmt) parsedStmt;
+        Queriable queryStmt = (Queriable) parsedStmt;
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
                 DebugUtil.printId(context.queryId()),
@@ -969,7 +992,7 @@ public class StmtExecutor implements ProfileWriter {
     }
 
 
-    private void sendResult(boolean isOutfileQuery, boolean isSendFields, QueryStmt queryStmt, MysqlChannel channel,
+    private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with

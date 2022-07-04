@@ -50,7 +50,7 @@ import java.util.stream.Collectors;
  * Used for sharing members/methods and some of the analysis code, in particular the
  * analysis of the ORDER BY and LIMIT clauses.
  */
-public abstract class QueryStmt extends StatementBase {
+public abstract class QueryStmt extends StatementBase implements Queriable {
     private static final Logger LOG = LogManager.getLogger(QueryStmt.class);
 
     /////////////////////////////////////////

@@ -31,10 +31,10 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
@@ -168,7 +168,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Expression visitUnboundStar(UnboundStar unboundStar, Void context) {
-            if (!(plan instanceof LogicalProject)) {
+            if (!(plan.getOperator() instanceof LogicalProject)) {
                 throw new AnalysisException("UnboundStar must exists in Projection");
             }
             List<String> qualifier = unboundStar.getQualifier();
