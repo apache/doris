@@ -147,7 +147,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
 
         default: {
             return Status::InternalError("can't convert this type to mysql type. type = {}",
-                                         _output_expr_ctxs[i]->root()->type());
+                                         _output_expr_ctxs[i]->root()->type().type);
         }
         }
     }
