@@ -17,14 +17,17 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.MetaException;
@@ -36,8 +39,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /**
@@ -46,29 +47,30 @@ import java.util.function.Function;
 public class HMSExternalDataSource extends ExternalDataSource {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDataSource.class);
 
-    //Cache of db name to db id.
-    private ConcurrentHashMap<String, Long> dbNameToId = new ConcurrentHashMap();
-    private static final AtomicLong nextId = new AtomicLong(0);
-
+    // Cache of db name to db id.
+    private Map<String, Long> dbNameToId;
     private boolean initialized = false;
-    protected String hiveMetastoreUris;
     protected HiveMetaStoreClient client;
 
     /**
      * Default constructor for HMSExternalDataSource.
      */
-    public HMSExternalDataSource(String name, Map<String, String> props) {
-        this.id = nextId.incrementAndGet();
+    public HMSExternalDataSource(long catalogId, String name, Map<String, String> props) {
+        this.id = catalogId;
         this.name = name;
         this.type = "hms";
         this.dsProperty = new DataSourceProperty();
         this.dsProperty.setProperties(props);
-        this.hiveMetastoreUris = props.getOrDefault("hive.metastore.uris", "thrift://127.0.0.1:9083");
+    }
+
+    public String getHiveMetastoreUris() {
+        return dsProperty.getOrDefault("hive.metastore.uris", "");
     }
 
     private void init() {
+        dbNameToId = Maps.newConcurrentMap();
         HiveConf hiveConf = new HiveConf();
-        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, hiveMetastoreUris);
+        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
         try {
             client = new HiveMetaStoreClient(hiveConf);
         } catch (MetaException e) {
@@ -86,7 +88,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
             return;
         }
         for (String db : allDatabases) {
-            dbNameToId.put(db, nextId.incrementAndGet());
+            dbNameToId.put(db, Catalog.getCurrentCatalog().getNextId());
         }
     }
 
@@ -104,17 +106,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
         makeSureInitialized();
-        try {
-            List<String> allDatabases = client.getAllDatabases();
-            // Update the db name to id map.
-            for (String db : allDatabases) {
-                dbNameToId.putIfAbsent(db, nextId.incrementAndGet());
-            }
-            return allDatabases;
-        } catch (MetaException e) {
-            LOG.warn("List Database Names failed. {}", e.getMessage());
-        }
-        return Lists.newArrayList();
+        return Lists.newArrayList(dbNameToId.keySet());
     }
 
     @Override
@@ -143,18 +135,11 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
         makeSureInitialized();
-        dbName = getRealTableName(dbName);
-        try {
-            client.getDatabase(dbName);
-        } catch (TException e) {
-            LOG.warn("External database {} not exist.", dbName);
+        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
+        if (!dbNameToId.containsKey(realDbName)) {
             return null;
         }
-        // The id may change after FE restart since we don't persist it.
-        // Different FEs may have different ids for the same dbName.
-        // May duplicate with internal db id as well.
-        dbNameToId.putIfAbsent(dbName, nextId.incrementAndGet());
-        return new HMSExternalDatabase(this, dbNameToId.get(dbName), dbName, hiveMetastoreUris);
+        return new HMSExternalDatabase(this, dbNameToId.get(realDbName), realDbName, getHiveMetastoreUris());
     }
 
     @Nullable
@@ -163,7 +148,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
         makeSureInitialized();
         for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
             if (entry.getValue() == dbId) {
-                return new HMSExternalDatabase(this, dbId, entry.getKey(), hiveMetastoreUris);
+                return new HMSExternalDatabase(this, dbId, entry.getKey(), getHiveMetastoreUris());
             }
         }
         return null;

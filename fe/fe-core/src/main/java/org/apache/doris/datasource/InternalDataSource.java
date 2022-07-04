@@ -199,7 +199,7 @@ import java.util.function.Function;
  * There is only one internal data source in a cluster. And its id is always 0.
  */
 public class InternalDataSource implements DataSourceIf<Database> {
-    public static final String INTERNAL_DS_NAME = "internal_catalog";
+    public static final String INTERNAL_DS_NAME = "internal";
     public static final long INTERNAL_DS_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);

@@ -351,7 +351,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
         } else if (stmt instanceof ShowCatalogStmt) {
-            handleDatasource();
+            handleShowCatalogs();
         } else {
             handleEmtpy();
         }
@@ -2248,7 +2248,7 @@ public class ShowExecutor {
         resultSet = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showStmt);
     }
 
-    public void handleDatasource() throws AnalysisException {
+    public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Catalog.getCurrentCatalog().getDataSourceMgr().showCatalogs(showStmt);
     }

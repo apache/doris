@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.ExternalDataSource;
+import org.apache.doris.datasource.HMSExternalDataSource;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,7 +82,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         for (String tableName : tableNames) {
             tableNameToId.putIfAbsent(tableName, nextId.incrementAndGet());
             try {
-                tables.add(new HMSExternalTable(tableNameToId.get(tableName), tableName, name, hiveMetastoreUri));
+                tables.add(new HMSExternalTable(tableNameToId.get(tableName), tableName, name,
+                        (HMSExternalDataSource) extDataSource));
             } catch (MetaNotFoundException e) {
                 LOG.warn("Table {} in db {} not found in Hive metastore.", tableName, name, e);
             }
@@ -106,7 +108,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         if (extDataSource.tableExist(null, name, tableName)) {
             tableNameToId.putIfAbsent(tableName, nextId.incrementAndGet());
             try {
-                return new HMSExternalTable(tableNameToId.get(tableName), tableName, name, hiveMetastoreUri);
+                return new HMSExternalTable(tableNameToId.get(tableName), tableName, name,
+                        (HMSExternalDataSource) extDataSource);
             } catch (MetaNotFoundException e) {
                 LOG.warn("Table {} in db {} not found in Hive metastore.", tableName, name, e);
             }
@@ -120,7 +123,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
             if (entry.getValue() == tableId) {
                 if (extDataSource.tableExist(null, name, entry.getKey())) {
                     try {
-                        return new HMSExternalTable(tableId, entry.getKey(), name, hiveMetastoreUri);
+                        return new HMSExternalTable(tableId, entry.getKey(), name,
+                                (HMSExternalDataSource) extDataSource);
                     } catch (MetaNotFoundException e) {
                         LOG.warn("Table {} in db {} not found in Hive metastore.", entry.getKey(), name, e);
                     }

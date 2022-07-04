@@ -31,6 +31,10 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.EsExternalDataSource;
+import org.apache.doris.datasource.HMSExternalDataSource;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.sync.SyncJob;
@@ -131,22 +135,25 @@ public class GsonUtils {
 
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
-            = RuntimeTypeAdapterFactory
-            .of(LoadJobStateUpdateInfo.class, "clazz")
+            = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")
             .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
 
 
     // runtime adapter for class "Policy"
-    private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(Policy.class, "clazz")
-            .registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
+    private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    Policy.class, "clazz").registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
             .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<DataSourceIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    DataSourceIf.class, "clazz")
+            .registerSubtype(InternalDataSource.class, InternalDataSource.class.getSimpleName())
+            .registerSubtype(HMSExternalDataSource.class, HMSExternalDataSource.class.getSimpleName())
+            .registerSubtype(EsExternalDataSource.class, EsExternalDataSource.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
-    private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
-            .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
-            .enableComplexMapKeySerialization()
+    private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
+                    new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
@@ -156,7 +163,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
             .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
-            .registerTypeAdapterFactory(policyTypeAdapterFactory)
+            .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
@@ -388,9 +395,8 @@ public class GsonUtils {
     public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
         public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
-                                             final JsonDeserializationContext context) throws JsonParseException {
-            final Type type2 =
-                    TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
+                final JsonDeserializationContext context) throws JsonParseException {
+            final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);
         }

@@ -30,7 +30,8 @@ public class EsExternalDataSource extends ExternalDataSource {
     /**
      * Default constructor for EsExternalDataSource.
      */
-    public EsExternalDataSource(String name, Map<String, String> props) {
+    public EsExternalDataSource(long catalogId, String name, Map<String, String> props) {
+        this.id = catalogId;
         setName(name);
         getDsProperty().setProperties(props);
         setType("es");
