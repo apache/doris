@@ -53,7 +53,7 @@ public:
     bool write_column(const SlotDescriptor* slot_desc, vectorized::MutableColumnPtr* column_ptr,
                       const char* data, size_t len, bool copy_string, bool need_escape);
 
-    bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
+    bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
                           const char* data, size_t len, bool copy_string, bool need_escape);
 
     // Removes escape characters from len characters of the null-terminated string src,
