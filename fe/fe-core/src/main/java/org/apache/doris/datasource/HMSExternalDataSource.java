@@ -49,6 +49,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     // Cache of db name to db id.
     private Map<String, Long> dbNameToId;
+    private Map<Long, HMSExternalDatabase> idToDb;
     private boolean initialized = false;
     protected HiveMetaStoreClient client;
 
@@ -69,6 +70,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     private void init() {
         dbNameToId = Maps.newConcurrentMap();
+        idToDb = Maps.newConcurrentMap();
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
         try {
@@ -87,8 +89,10 @@ public class HMSExternalDataSource extends ExternalDataSource {
         if (allDatabases == null) {
             return;
         }
-        for (String db : allDatabases) {
-            dbNameToId.put(db, Catalog.getCurrentCatalog().getNextId());
+        for (String dbName : allDatabases) {
+            long dbId = Catalog.getCurrentCatalog().getNextId();
+            dbNameToId.put(dbName, dbId);
+            idToDb.put(dbId, new HMSExternalDatabase(this, dbId, dbName));
         }
     }
 
@@ -111,7 +115,6 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
         try {
             return client.getAllTables(getRealTableName(dbName));
         } catch (MetaException e) {
@@ -122,7 +125,6 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        makeSureInitialized();
         try {
             return client.tableExists(getRealTableName(dbName), tblName);
         } catch (TException e) {
@@ -139,19 +141,14 @@ public class HMSExternalDataSource extends ExternalDataSource {
         if (!dbNameToId.containsKey(realDbName)) {
             return null;
         }
-        return new HMSExternalDatabase(this, dbNameToId.get(realDbName), realDbName);
+        return idToDb.get(dbNameToId.get(realDbName));
     }
 
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
         makeSureInitialized();
-        for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
-            if (entry.getValue() == dbId) {
-                return new HMSExternalDatabase(this, dbId, entry.getKey());
-            }
-        }
-        return null;
+        return idToDb.get(dbId);
     }
 
     @Override

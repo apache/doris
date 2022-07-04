@@ -26,17 +26,17 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.ExternalDataSource;
 import org.apache.doris.datasource.HMSExternalDataSource;
 
+import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -44,11 +44,11 @@ import java.util.stream.Collectors;
  * Hive metastore external database.
  */
 public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
-
     private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
 
     // Cache of table name to table id.
-    private ConcurrentHashMap<String, Long> tableNameToId = new ConcurrentHashMap<>();
+    private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    private Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
     private boolean initialized = false;
 
     /**
@@ -73,7 +73,9 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         List<String> tableNames = extDataSource.listTableNames(null, name);
         if (tableNames != null) {
             for (String tableName : tableNames) {
-                tableNameToId.put(tableName, Catalog.getCurrentCatalog().getNextId());
+                long tblId = Catalog.getCurrentCatalog().getNextId();
+                tableNameToId.put(tableName, tblId);
+                idToTbl.put(tblId, new HMSExternalTable(tblId, tableName, name, (HMSExternalDataSource) extDataSource));
             }
         }
     }
@@ -81,17 +83,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     @Override
     public List<HMSExternalTable> getTables() {
         makeSureInitialized();
-        List<HMSExternalTable> tables = new ArrayList<>();
-        for (String tblName : tableNameToId.keySet()) {
-            try {
-                HMSExternalTable tbl = new HMSExternalTable(tableNameToId.get(tblName), tblName, name,
-                        (HMSExternalDataSource) extDataSource);
-                tables.add(tbl);
-            } catch (MetaNotFoundException e) {
-                continue;
-            }
-        }
-        return tables;
+        return Lists.newArrayList(idToTbl.values());
     }
 
     @Override
@@ -112,28 +104,13 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         if (!tableNameToId.containsKey(tableName)) {
             return null;
         }
-        try {
-            return new HMSExternalTable(tableNameToId.get(tableName), tableName, name,
-                    (HMSExternalDataSource) extDataSource);
-        } catch (MetaNotFoundException e) {
-            LOG.warn("Table {} in db {} not found in Hive metastore.", tableName, name, e);
-        }
-        return null;
+        return idToTbl.get(tableNameToId.get(tableName));
     }
 
     @Override
     public HMSExternalTable getTableNullable(long tableId) {
         makeSureInitialized();
-        for (Map.Entry<String, Long> entry : tableNameToId.entrySet()) {
-            if (entry.getValue() == tableId) {
-                try {
-                    return new HMSExternalTable(tableId, entry.getKey(), name, (HMSExternalDataSource) extDataSource);
-                } catch (MetaNotFoundException e) {
-                    LOG.warn("Table {} in db {} not found in Hive metastore.", entry.getKey(), name, e);
-                }
-            }
-        }
-        return null;
+        return idToTbl.get(tableId);
     }
 
     @Override
