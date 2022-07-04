@@ -18,7 +18,12 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -66,26 +71,39 @@ public class NereidsPlanner extends Planner {
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
         }
+
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), new PhysicalProperties(), ctx);
+
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
         physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+
+        scanNodeList = planTranslatorContext.getScanNodeList();
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
-        PlanFragment root = fragments.get(fragments.size() - 1);
         for (PlanFragment fragment : fragments) {
             fragment.finalize(queryStmt);
         }
-        root.resetOutputExprs(descTable.getTupleDesc(root.getPlanRoot().getTupleIds().get(0)));
+        Collections.reverse(fragments);
+        PlanFragment root = fragments.get(0);
+
+        // compute output exprs
+        List<Expr> outputExprs = Lists.newArrayList();
+        for (TupleId tupleId : root.getPlanRoot().getTupleIds()) {
+            TupleDescriptor tupleDescriptor = descTable.getTupleDesc(tupleId);
+            for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+                SlotRef slotRef = new SlotRef(slotDescriptor);
+                outputExprs.add(slotRef);
+            }
+        }
+        root.setOutputExprs(outputExprs);
         root.getPlanRoot().convertToVectoriezd();
-        scanNodeList = planTranslatorContext.getScanNodeList();
+
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
                 .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
-
-        Collections.reverse(fragments);
     }
 
     /**
