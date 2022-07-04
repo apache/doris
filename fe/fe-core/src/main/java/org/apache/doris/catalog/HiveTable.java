@@ -52,7 +52,7 @@ public class HiveTable extends Table {
     public static final String HIVE_DB = "database";
     public static final String HIVE_TABLE = "table";
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
-    public static final String HIVE_HDFS_PREFIX = "dfs";
+    public static final String HIVE_HDFS_PREFIX = "dfs.";
     public static final String S3_PROPERTIES_PREFIX = "AWS";
     public static final String S3_AK = "AWS_ACCESS_KEY";
     public static final String S3_SK = "AWS_SECRET_KEY";
