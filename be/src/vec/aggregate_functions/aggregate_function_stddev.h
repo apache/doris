@@ -301,7 +301,8 @@ public:
 //samp function it's always nullables, it's need to handle nullable column
 //so return type and add function should processing null values
 template <typename Data, bool arg_is_nullable>
-class AggregateFunctionSamp final : public AggregateFunctionSampVariance<false, Data, arg_is_nullable> {
+class AggregateFunctionSamp final
+        : public AggregateFunctionSampVariance<false, Data, arg_is_nullable> {
 public:
     AggregateFunctionSamp(const DataTypes& argument_types_)
             : AggregateFunctionSampVariance<false, Data, arg_is_nullable>(argument_types_) {}
@@ -309,7 +310,8 @@ public:
 
 //pop function have use AggregateFunctionNullBase function, so needn't processing null values
 template <typename Data, bool arg_is_nullable>
-class AggregateFunctionPop final : public AggregateFunctionSampVariance<true, Data, arg_is_nullable> {
+class AggregateFunctionPop final
+        : public AggregateFunctionSampVariance<true, Data, arg_is_nullable> {
 public:
     AggregateFunctionPop(const DataTypes& argument_types_)
             : AggregateFunctionSampVariance<true, Data, arg_is_nullable>(argument_types_) {}
