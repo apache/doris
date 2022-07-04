@@ -17,10 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -72,21 +71,12 @@ public class Literal extends Expression implements LeafExpression {
         }
     }
 
-    public Object getValue() {
-        return value;
+    public static Literal of(Object value) {
+        return new Literal(value);
     }
 
-    /**
-     * Convert to legacy literal expression in Doris.
-     *
-     * @return legacy literal expression in Doris
-     */
-    public Expr toExpr() {
-        if (dataType instanceof IntegerType) {
-            return new IntLiteral((Integer) value);
-        } else {
-            return null;
-        }
+    public Object getValue() {
+        return value;
     }
 
     @Override
@@ -95,17 +85,13 @@ public class Literal extends Expression implements LeafExpression {
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return value == null;
-    }
-
-    public static Literal of(Object value) {
-        return new Literal(value);
+    public String sql() {
+        return value.toString();
     }
 
     @Override
-    public boolean isConstant() {
-        return true;
+    public boolean nullable() throws UnboundException {
+        return value == null;
     }
 
     @Override
@@ -114,8 +100,8 @@ public class Literal extends Expression implements LeafExpression {
     }
 
     @Override
-    public String sql() {
-        return value.toString();
+    public boolean isConstant() {
+        return true;
     }
 
     @Override
