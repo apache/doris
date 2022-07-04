@@ -19,9 +19,12 @@ package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.join.JoinCommutative;
 import org.apache.doris.nereids.rules.exploration.join.JoinLeftAssociative;
+import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
+import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
+import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalHeapSort;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -40,9 +43,12 @@ public class RuleSet {
             .build();
 
     public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()
-            .add(new LogicalJoinToHashJoin())
-            .add(new LogicalProjectToPhysicalProject())
+            .add(new LogicalAggToPhysicalHashAgg())
             .add(new LogicalFilterToPhysicalFilter())
+            .add(new LogicalJoinToHashJoin())
+            .add(new LogicalOlapScanToPhysicalOlapScan())
+            .add(new LogicalProjectToPhysicalProject())
+            .add(new LogicalSortToPhysicalHeapSort())
             .build();
 
     public List<Rule<Plan>> getExplorationRules() {
@@ -54,7 +60,7 @@ public class RuleSet {
     }
 
     public static RuleFactories<Plan> planRuleFactories() {
-        return new RuleFactories();
+        return new RuleFactories<>();
     }
 
     /**

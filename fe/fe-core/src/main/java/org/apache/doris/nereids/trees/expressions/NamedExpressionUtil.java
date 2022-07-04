@@ -26,9 +26,9 @@ public class NamedExpressionUtil {
     /**
      * Tool class for generate next ExprId.
      */
-    private static IdGenerator<ExprId> idIdGenerator = ExprId.createGenerator();
+    private static final IdGenerator<ExprId> ID_GENERATOR = ExprId.createGenerator();
 
     public static ExprId newExprId() {
-        return idIdGenerator.getNextId();
+        return ID_GENERATOR.getNextId();
     }
 }

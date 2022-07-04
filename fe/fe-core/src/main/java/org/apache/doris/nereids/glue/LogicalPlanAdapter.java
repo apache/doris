@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,18 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.glue;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class is used for the compatibility and code reuse in.
+ * TODO: rethink it, LogicalPlanAdapter should not bind with Query yet, so we need to do some refactor in StmtExecutor
  * @see org.apache.doris.qe.ConnectProcessor
  */
-public class LogicalPlanAdapter extends StatementBase {
+public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     private final LogicalPlan logicalPlan;
+    private List<Expr> resultExprs;
+    private ArrayList<String> colLabels;
 
     public LogicalPlanAdapter(LogicalPlan logicalPlan) {
         this.logicalPlan = logicalPlan;
@@ -41,4 +51,30 @@ public class LogicalPlanAdapter extends StatementBase {
         return logicalPlan;
     }
 
+    @Override
+    public boolean hasOutFileClause() {
+        return false;
+    }
+
+    @Override
+    public OutFileClause getOutFileClause() {
+        return null;
+    }
+
+    @Override
+    public List<Expr> getResultExprs() {
+        return resultExprs;
+    }
+
+    public ArrayList<String> getColLabels() {
+        return colLabels;
+    }
+
+    public void setResultExprs(List<Expr> resultExprs) {
+        this.resultExprs = resultExprs;
+    }
+
+    public void setColLabels(ArrayList<String> colLabels) {
+        this.colLabels = colLabels;
+    }
 }
