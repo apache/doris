@@ -129,8 +129,26 @@ public class TableName implements Writable {
         return Stream.of(ctl, db, tbl).noneMatch(Strings::isNullOrEmpty);
     }
 
+    /**
+     * Analyzer.registerTableRef task alias of index 1 as the legal implicit alias.
+     * Cluster is deprecated, so we'd better remove cluster in external catalog, and
+     * keep the same in internal catalog.
+     */
+    public String[] tableAliases() {
+        if (ctl == null || ctl.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+            return new String[] {toString(), getNoClusterString(), tbl};
+        } else {
+            return new String[] {
+                    String.format("%s.%s", db, tbl),
+                    getNoClusterString(), // legal implicit alias
+                    tbl
+            };
+        }
+    }
+
     public String getNoClusterString() {
-        return Stream.of(ctl, ClusterNamespace.getNameFromFullName(db), tbl)
+        return Stream.of(InternalDataSource.INTERNAL_DS_NAME.equals(ctl) ? null : ctl,
+                        ClusterNamespace.getNameFromFullName(db), tbl)
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining("."));
     }
