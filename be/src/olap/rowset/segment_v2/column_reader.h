@@ -136,7 +136,7 @@ public:
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
-    uint64_t num_rows() { return _num_rows; }
+    uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
         std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
@@ -455,12 +455,17 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
     static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
                                     vectorized::MutableColumnPtr& dst, size_t n);
 
 private:
+    void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);
+
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;

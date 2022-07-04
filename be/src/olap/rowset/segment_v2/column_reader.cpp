@@ -755,7 +755,9 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                     }
                 }
 
-                if (!is_null) _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                if (!is_null) {
+                    _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                }
 
                 already_read += this_read_count;
                 _page.offset_in_page += this_run;
@@ -766,8 +768,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            _page.data_decoder->read_by_rowids(&rowids[total_read_count], _page.first_ordinal,
-                                               &nrows_to_read, dst);
+            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
+                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }
@@ -990,15 +992,23 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
 
 Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                               bool* has_null) {
-    if (_is_default_value_null) {
-        *has_null = true;
-        dst->insert_many_defaults(*n);
-    } else {
-        *has_null = false;
-        insert_default_data(_type_info.get(), _type_size, _mem_value, dst, *n);
-    }
-
+    *has_null = _is_default_value_null;
+    _insert_many_default(dst, *n);
     return Status::OK();
+}
+
+Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                  vectorized::MutableColumnPtr& dst) {
+    _insert_many_default(dst, count);
+    return Status::OK();
+}
+
+void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnPtr& dst, size_t n) {
+    if (_is_default_value_null) {
+        dst->insert_many_defaults(n);
+    } else {
+        insert_default_data(_type_info.get(), _type_size, _mem_value, dst, n);
+    }
 }
 
 } // namespace segment_v2
