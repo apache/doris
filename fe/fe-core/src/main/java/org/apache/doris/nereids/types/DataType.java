@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 /**
  * Abstract class for all data type in Nereids.
@@ -39,6 +40,8 @@ public abstract class DataType {
         if (catalogType instanceof ScalarType) {
             ScalarType scalarType = (ScalarType) catalogType;
             switch (scalarType.getPrimitiveType()) {
+                case BOOLEAN:
+                    return BooleanType.INSTANCE;
                 case INT:
                     return IntegerType.INSTANCE;
                 case BIGINT:
@@ -49,19 +52,21 @@ public abstract class DataType {
                     return VarcharType.createVarcharType(scalarType.getLength());
                 case STRING:
                     return StringType.INSTANCE;
+                case NULL_TYPE:
+                    return NullType.INSTANCE;
                 default:
-                    return null;
+                    throw new AnalysisException("Nereids do not support type: " + scalarType.getPrimitiveType());
             }
         } else if (catalogType instanceof MapType) {
-            return null;
+            throw new AnalysisException("Nereids do not support map type.");
         } else if (catalogType instanceof StructType) {
-            return null;
+            throw new AnalysisException("Nereids do not support struct type.");
         } else if (catalogType instanceof ArrayType) {
-            return null;
+            throw new AnalysisException("Nereids do not support array type.");
         } else if (catalogType instanceof MultiRowType) {
-            return null;
+            throw new AnalysisException("Nereids do not support multi row type.");
         } else {
-            return null;
+            throw new AnalysisException("Nereids do not support type: " + catalogType);
         }
     }
 
