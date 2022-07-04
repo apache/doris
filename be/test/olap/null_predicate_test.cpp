@@ -558,6 +558,14 @@ TEST_F(TestNullPredicate, DATEV2_COLUMN) {
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
 
+    std::vector<std::string> date_array;
+    date_array.push_back("2017-09-07");
+    date_array.push_back("2017-09-08");
+    date_array.push_back("2017-09-09");
+    date_array.push_back("2017-09-10");
+    date_array.push_back("2017-09-11");
+    date_array.push_back("2017-09-12");
+
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
