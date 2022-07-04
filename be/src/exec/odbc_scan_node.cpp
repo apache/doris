@@ -196,16 +196,13 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                 if (slot_desc->is_nullable()) {
                     _tuple->set_null(slot_desc->null_indicator_offset());
                 } else {
-                    std::stringstream ss;
-                    ss << "nonnull column contains nullptr. table=" << _table_name
-                       << ", column=" << slot_desc->col_name();
-                    return Status::InternalError(ss.str());
+                    return Status::InternalError(
+                            "nonnull column contains nullptr. table={}, column={}", _table_name,
+                            slot_desc->col_name());
                 }
             } else if (column_data.strlen_or_ind > column_data.buffer_length) {
-                std::stringstream ss;
-                ss << "nonnull column contains nullptr. table=" << _table_name
-                   << ", column=" << slot_desc->col_name();
-                return Status::InternalError(ss.str());
+                return Status::InternalError("nonnull column contains nullptr. table={}, column={}",
+                                             _table_name, slot_desc->col_name());
             } else {
                 RETURN_IF_ERROR(write_text_slot(static_cast<char*>(column_data.target_value_ptr),
                                                 column_data.strlen_or_ind, slot_desc, state));

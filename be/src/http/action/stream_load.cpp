@@ -280,9 +280,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
     ctx->format = parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE));
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-        std::stringstream ss;
-        ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown data format, format={}",
+                                     http_req->header(HTTP_FORMAT_KEY));
     }
 
     if (ctx->two_phase_commit && config::disable_stream_load_2pc) {
@@ -304,18 +303,16 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
-            std::stringstream ss;
-            ss << "The size of this batch exceed the max size [" << json_max_body_bytes
-               << "]  of json type data "
-               << " data [ " << ctx->body_bytes << " ]. Split the file, or use 'read_json_by_line'";
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "The size of this batch exceed the max size [{}]  of json type data "
+                    " data [ {} ]. Split the file, or use 'read_json_by_line'",
+                    json_max_body_bytes, ctx->body_bytes);
         }
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
-            std::stringstream ss;
-            ss << "body exceed max size: " << csv_max_body_bytes << ", data: " << ctx->body_bytes;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("body exceed max size: {}, data: {}", csv_max_body_bytes,
+                                         ctx->body_bytes);
         }
     } else {
 #ifndef BE_TEST
@@ -541,7 +538,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         if (merge_type_map.find(merge_type_str) != merge_type_map.end()) {
             merge_type = merge_type_map.find(merge_type_str)->second;
         } else {
-            return Status::InvalidArgument("Invalid merge type " + merge_type_str);
+            return Status::InvalidArgument("Invalid merge type {}", merge_type_str);
         }
         if (merge_type == TMergeType::MERGE && http_req->header(HTTP_DELETE_CONDITION).empty()) {
             return Status::InvalidArgument("Excepted DELETE ON clause when merge type is MERGE.");

@@ -109,8 +109,7 @@ Status EngineBatchLoadTask::_init() {
         LOG(WARNING) << "get tables failed. "
                      << "tablet_id: " << _push_req.tablet_id
                      << ", schema_hash: " << _push_req.schema_hash;
-        return Status::InvalidArgument(
-                fmt::format("Could not find tablet {}", _push_req.tablet_id));
+        return Status::InvalidArgument("Could not find tablet {}", _push_req.tablet_id);
     }
 
     // check disk capacity
@@ -159,7 +158,7 @@ Status EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* d
         std::filesystem::create_directories(*download_path, ec);
 
         if (ec) {
-            status = Status::IOError("Create download dir failed " + *download_path);
+            status = Status::IOError("Create download dir failed {}", *download_path);
             LOG(WARNING) << "create download dir failed.path: " << *download_path
                          << ", error code: " << ec;
         }

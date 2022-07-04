@@ -48,6 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -174,7 +175,7 @@ public class MetaInfoActionV2 extends RestBaseController {
      *         "schemaInfo": {
      *             "schemaMap": {
      *                 "tbl1": {
-     *                     "schema": {
+     *                     "schema": [{
      *                         "field": "k2",
      *                         "type": "INT",
      *                         "isNull": "true",
@@ -182,7 +183,7 @@ public class MetaInfoActionV2 extends RestBaseController {
      *                         "key": "true",
      *                         "aggrType": "None",
      *                         "comment": ""
-     *                     },
+     *                     }],
      *                     "keyType": "DUP_KEYS",
      *                     "baseIndex": true
      *                 }
@@ -238,7 +239,7 @@ public class MetaInfoActionV2 extends RestBaseController {
             TableSchema baseTableSchema = new TableSchema();
             baseTableSchema.setBaseIndex(true);
             baseTableSchema.setKeyType(olapTable.getKeysTypeByIndexId(baseIndexId).name());
-            Schema baseSchema = generateSchame(olapTable.getSchemaByIndexId(baseIndexId));
+            List<Schema> baseSchema = generateSchame(olapTable.getSchemaByIndexId(baseIndexId));
             baseTableSchema.setSchema(baseSchema);
             schemaMap.put(olapTable.getIndexNameById(baseIndexId), baseTableSchema);
 
@@ -247,7 +248,7 @@ public class MetaInfoActionV2 extends RestBaseController {
                     TableSchema tableSchema = new TableSchema();
                     tableSchema.setBaseIndex(false);
                     tableSchema.setKeyType(olapTable.getKeysTypeByIndexId(indexId).name());
-                    Schema schema = generateSchame(olapTable.getSchemaByIndexId(indexId));
+                    List<Schema> schema = generateSchame(olapTable.getSchemaByIndexId(indexId));
                     tableSchema.setSchema(schema);
                     schemaMap.put(olapTable.getIndexNameById(indexId), tableSchema);
                 }
@@ -256,7 +257,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         } else {
             TableSchema tableSchema = new TableSchema();
             tableSchema.setBaseIndex(false);
-            Schema schema = generateSchame(tbl.getBaseSchema());
+            List<Schema> schema = generateSchame(tbl.getBaseSchema());
             tableSchema.setSchema(schema);
             schemaMap.put(tbl.getName(), tableSchema);
             schemaInfo.setSchemaMap(schemaMap);
@@ -265,9 +266,9 @@ public class MetaInfoActionV2 extends RestBaseController {
         return schemaInfo;
     }
 
-    private Schema generateSchame(List<Column> columns) {
-        Schema schema = new Schema();
-        for (Column column : columns) {
+    private List<Schema> generateSchame(List<Column> columns) {
+        return columns.stream().map(column -> {
+            Schema schema = new Schema();
             schema.setField(column.getName());
             schema.setType(column.getType().toString());
             schema.setIsNull(String.valueOf(column.isAllowNull()));
@@ -276,8 +277,8 @@ public class MetaInfoActionV2 extends RestBaseController {
             schema.setAggrType(column.getAggregationType() == null
                     ? "None" : column.getAggregationType().toString());
             schema.setComment(column.getComment());
-        }
-        return schema;
+            return schema;
+        }).collect(Collectors.toList());
     }
 
     private void generateResult(Table tbl, boolean isBaseIndex,
@@ -368,7 +369,7 @@ public class MetaInfoActionV2 extends RestBaseController {
     @Getter
     @Setter
     public static class TableSchema {
-        private Schema schema;
+        private List<Schema> schema;
         private boolean isBaseIndex;
         private String keyType;
     }

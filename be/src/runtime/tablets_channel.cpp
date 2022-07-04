@@ -201,8 +201,8 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     for (int i = 0; i < counter; i++) {
         Status st = writers[i]->wait_flush();
         if (!st.ok()) {
-            return Status::InternalError(fmt::format(
-                    "failed to reduce mem consumption by flushing memtable. err: {}", st));
+            return Status::InternalError(
+                    "failed to reduce mem consumption by flushing memtable. err: {}", st);
         }
     }
     return Status::OK();

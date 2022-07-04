@@ -58,7 +58,7 @@ Status StreamLoadRecorder::init() {
             rocksdb::DBWithTTL::Open(options, db_path, column_families, &_handles, &_db, ttls);
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
-        return Status::InternalError("Stream load record rocksdb open failed, reason: " +
+        return Status::InternalError("Stream load record rocksdb open failed, reason: {}",
                                      s.ToString());
     }
     return Status::OK();
@@ -71,7 +71,7 @@ Status StreamLoadRecorder::put(const std::string& key, const std::string& value)
     rocksdb::Status s = _db->Put(write_options, handle, rocksdb::Slice(key), rocksdb::Slice(value));
     if (!s.ok()) {
         LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
-        return Status::InternalError("Stream load record rocksdb put failed, reason: " +
+        return Status::InternalError("Stream load record rocksdb put failed, reason: {}",
                                      s.ToString());
     }
 

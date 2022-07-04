@@ -301,7 +301,7 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
-        DatabaseIf db = ctx.getCatalog().getCurrentDataSource().getDbNullable(ctx.getDatabase());
+        DatabaseIf db = ctx.getCurrentDataSource().getDbNullable(ctx.getDatabase());
         if (db == null) {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
             return;

@@ -42,7 +42,6 @@ public class ExpressionUtilsTest {
         Assertions.assertEquals(expressions.size(), 1);
         Assertions.assertEquals(expressions.get(0), expr);
 
-
         expr = PARSER.parseExpression("a and b and c");
         Expression a = PARSER.parseExpression("a");
         Expression b = PARSER.parseExpression("b");
@@ -63,7 +62,6 @@ public class ExpressionUtilsTest {
         Assertions.assertEquals(expressions.get(0), aOrb);
         Assertions.assertEquals(expressions.get(1), c);
         Assertions.assertEquals(expressions.get(2), eOrf);
-
     }
 
     @Test
@@ -76,7 +74,6 @@ public class ExpressionUtilsTest {
         Assertions.assertEquals(expressions.size(), 1);
         Assertions.assertEquals(expressions.get(0), expr);
 
-
         expr = PARSER.parseExpression("a or b or c");
         Expression a = PARSER.parseExpression("a");
         Expression b = PARSER.parseExpression("b");
@@ -87,7 +84,6 @@ public class ExpressionUtilsTest {
         Assertions.assertEquals(expressions.get(0), a);
         Assertions.assertEquals(expressions.get(1), b);
         Assertions.assertEquals(expressions.get(2), c);
-
 
         expr = PARSER.parseExpression("(a and b) or c or (e and f)");
         expressions = ExpressionUtils.extractDisjunct(expr);
