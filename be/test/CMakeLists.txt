@@ -150,7 +150,6 @@ set(OLAP_TEST_FILES
     olap/cumulative_compaction_policy_test.cpp
     olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
-    olap/serialize_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
     olap/column_vector_test.cpp
