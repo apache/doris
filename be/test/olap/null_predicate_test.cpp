@@ -51,18 +51,6 @@ static uint32_t to_date_v2_timestamp(const char* date_string) {
     return ((time_tm.tm_year + 1900) << 16) | ((time_tm.tm_mon + 1) << 8) | time_tm.tm_mday;
 }
 
-static uint64_t to_datetime_timestamp(const std::string& value_string) {
-    tm time_tm;
-    strptime(value_string.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
-
-    uint64_t value =
-            ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L + time_tm.tm_mday) *
-                    1000000L +
-            time_tm.tm_hour * 10000L + time_tm.tm_min * 100L + time_tm.tm_sec;
-
-    return value;
-}
-
 }; // namespace datetime
 
 class TestNullPredicate : public testing::Test {
@@ -500,6 +488,14 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
+
+    std::vector<std::string> date_array;
+    date_array.push_back("2017-09-07");
+    date_array.push_back("2017-09-08");
+    date_array.push_back("2017-09-09");
+    date_array.push_back("2017-09-10");
+    date_array.push_back("2017-09-11");
+    date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);

@@ -293,7 +293,7 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
     memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
@@ -617,7 +617,7 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
     memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
