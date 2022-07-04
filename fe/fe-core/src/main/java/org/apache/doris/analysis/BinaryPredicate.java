@@ -278,8 +278,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
         //        op.toFilterFunctionOp(), true, true, cmpType, cmpType);
         try {
-            match = getBuiltinFunction(analyzer, op.name, collectChildReturnTypes(),
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            match = getBuiltinFunction(op.name, collectChildReturnTypes(),
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } catch (AnalysisException e) {
             Preconditions.checkState(false);
         }
@@ -370,6 +370,15 @@ public class BinaryPredicate extends Predicate implements Writable {
         return Type.DOUBLE;
     }
 
+    public void analyzeForNereids() throws AnalysisException {
+        if (isAnalyzed()) {
+            return;
+        }
+        type = Type.BOOLEAN;
+        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        analysisDone();
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
@@ -408,8 +417,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         this.opcode = op.getOpcode();
         String opName = op.getName();
-        fn = getBuiltinFunction(analyzer, opName, collectChildReturnTypes(),
-                Function.CompareMode.IS_SUPERTYPE_OF);
+        fn = getBuiltinFunction(opName, collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
         if (fn == null) {
             Preconditions.checkState(false, String.format(
                     "No match for '%s' with operand types %s and %s", toSql()));

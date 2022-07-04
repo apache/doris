@@ -78,7 +78,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 equalTo.child(0).accept(this, context),
                 equalTo.child(1).accept(this, context));
         try {
-            binaryPredicate.analyze(null);
+            binaryPredicate.analyzeForNereids();
         } catch (AnalysisException e) {
             throw new RuntimeException(e);
         }

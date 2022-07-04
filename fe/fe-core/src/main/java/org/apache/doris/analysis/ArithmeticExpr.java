@@ -321,8 +321,7 @@ public class ArithmeticExpr extends Expr {
                 } else {
                     type = t;
                 }
-                fn = getBuiltinFunction(
-                        analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
                 if (fn == null) {
                     Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
                 }
@@ -406,8 +405,7 @@ public class ArithmeticExpr extends Expr {
                             "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
                     break;
             }
-            fn = getBuiltinFunction(analyzer, op.name, collectChildReturnTypes(),
-                    Function.CompareMode.IS_IDENTICAL);
+            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
             if (fn == null) {
                 Preconditions.checkState(false, String.format(
                         "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
@@ -420,8 +418,7 @@ public class ArithmeticExpr extends Expr {
                 if (getChild(0).getType().getPrimitiveType() != PrimitiveType.BIGINT) {
                     castChild(type, 0);
                 }
-                fn = getBuiltinFunction(
-                        analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
                 if (fn == null) {
                     Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
                 }
@@ -467,8 +464,7 @@ public class ArithmeticExpr extends Expr {
                     break;
             }
             type = castBinaryOp(commonType);
-            fn = getBuiltinFunction(analyzer, fnName, collectChildReturnTypes(),
-                    Function.CompareMode.IS_IDENTICAL);
+            fn = getBuiltinFunction(fnName, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
             if (fn == null) {
                 Preconditions.checkState(false, String.format(
                         "No match for '%s' with operand types %s and %s", toSql(), t1, t2));

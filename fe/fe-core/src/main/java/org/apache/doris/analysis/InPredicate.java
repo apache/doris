@@ -199,7 +199,7 @@ public class InPredicate extends Predicate {
             // argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
         } else {
-            fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_ITERATE : IN_ITERATE,
+            fn = getBuiltinFunction(isNotIn ? NOT_IN_ITERATE : IN_ITERATE,
                     argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
         }

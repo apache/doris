@@ -1617,8 +1617,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
      */
-    protected Function getBuiltinFunction(
-            Analyzer analyzer, String name, Type[] argTypes, Function.CompareMode mode)
+    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
@@ -1633,8 +1632,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return f;
     }
 
-    protected Function getTableFunction(String name, Type[] argTypes,
-                                        Function.CompareMode mode) {
+    protected Function getTableFunction(String name, Type[] argTypes, Function.CompareMode mode) {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
