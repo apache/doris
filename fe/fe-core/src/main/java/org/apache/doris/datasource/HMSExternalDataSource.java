@@ -139,7 +139,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
         if (!dbNameToId.containsKey(realDbName)) {
             return null;
         }
-        return new HMSExternalDatabase(this, dbNameToId.get(realDbName), realDbName, getHiveMetastoreUris());
+        return new HMSExternalDatabase(this, dbNameToId.get(realDbName), realDbName);
     }
 
     @Nullable
@@ -148,7 +148,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
         makeSureInitialized();
         for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
             if (entry.getValue() == dbId) {
-                return new HMSExternalDatabase(this, dbId, entry.getKey(), getHiveMetastoreUris());
+                return new HMSExternalDatabase(this, dbId, entry.getKey());
             }
         }
         return null;
