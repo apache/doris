@@ -119,7 +119,7 @@ public class DescribeStmt extends ShowStmt {
         try {
             if (!isAllTables) {
                 // show base table schema only
-                String procString = "catalogs/" + ds.getId() + "/" + db.getId() + "/" + table.getId() + "/"
+                String procString = "/catalogs/" + ds.getId() + "/" + db.getId() + "/" + table.getId() + "/"
                         + TableProcDir.INDEX_SCHEMA + "/";
                 if (table.getType() == TableType.OLAP) {
                     procString += ((OlapTable) table).getBaseIndexId();
