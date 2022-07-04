@@ -713,9 +713,12 @@ CONF_mInt32(segment_cache_capacity, "1000000");
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
 
-// If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
-// the value set by the fallback version kafka_broker_version_fallback will be used,
-// and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+// reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
+// If the dependent kafka broker version older than 0.10.0.0,
+// the value of kafka_api_version_request should be false, and the
+// value set by the fallback version kafka_broker_version_fallback will be used,
+// and the valid values are: 0.9.0.x, 0.8.x.y.
+CONF_String(kafka_api_version_request, "true");
 CONF_String(kafka_broker_version_fallback, "0.10.0");
 
 // The number of pool siz of routine load consumer.
