@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -91,7 +92,27 @@ public class HMSExternalTable extends ExternalTable {
             } else {
                 dlaType = DLAType.HIVE;
             }
-            getFullSchema();
+            initSchema();
+        }
+    }
+
+    private void initSchema() {
+        if (fullSchema == null) {
+            synchronized (this) {
+                if (fullSchema == null) {
+                    fullSchema = Lists.newArrayList();
+                    try {
+                        for (FieldSchema field : HiveMetaStoreClientHelper.getSchema(dbName, name,
+                                ds.getHiveMetastoreUris())) {
+                            fullSchema.add(new Column(field.getName(),
+                                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null, true,
+                                    null, field.getComment()));
+                        }
+                    } catch (DdlException e) {
+                        LOG.warn("Fail to get schema of hms table {}", name, e);
+                    }
+                }
+            }
         }
     }
 
