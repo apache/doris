@@ -878,7 +878,6 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t original_size = selected_size;
     bool ret_flags[selected_size];
-    memset(ret_flags, 1, selected_size);
     _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
 
     uint16_t new_size = 0;
