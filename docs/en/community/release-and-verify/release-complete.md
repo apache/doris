@@ -26,29 +26,29 @@ under the License.
 
 # Complete release
 
-The steps in this document follow after the release has been voted on and approved in the dev@doris or general@incubator mail groups.
+The steps in this document follow after the release has been voted on and approved in the dev@doris.
 
 ## Upload package to release
 
 When the official release poll is successful, send the [Result] email first, then prepare the release package.
-Copy the source package, signature file and hash file from the corresponding folder of the previous release under dev to another directory 0.9.0-incubating, note that the file name should not be rcxx (you can rename, but do not recalculate the signature, the hash can be recalculated, the result will not change)
+Copy the source package, signature file and hash file from the corresponding folder of the previous release under dev to another directory 1.xx, note that the file name should not be rcxx (you can rename, but do not recalculate the signature, the hash can be recalculated, the result will not change)
 
 ```
 From:
-https://dist.apache.org/repos/dist/dev/incubator/doris/
+https://dist.apache.org/repos/dist/dev/doris/
 
 To:
-https://dist.apache.org/repos/dist/release/incubator/doris/
+https://dist.apache.org/repos/dist/release/doris/
 ```
 
 For the first release, you need to copy the KEYS file as well. Then add it to the svn release.
 
 ```
 add 成功后就可以在下面网址上看到你发布的文件
-https://dist.apache.org/repos/dist/release/incubator/doris/0.xx.0-incubating/
+https://dist.apache.org/repos/dist/release/doris/1.xx/
 
 稍等一段时间后，能在 apache 官网看到：
-http://www.apache.org/dist/incubator/doris/0.9.0-incubating/
+http://www.apache.org/dist/doris/1.xx/
 ```
 
 ## Post links on Doris official website and github
@@ -60,35 +60,35 @@ We will use Doris Core as an example. For other components, replace the name wit
 Download Link:
 
 ```
-http://www.apache.org/dyn/closer.cgi?filename=incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz&action=download
+http://www.apache.org/dyn/closer.cgi?filename=doris/1.xx/apache-doris-1.xx-src.tar.gz&action=download
 
-wget --trust-server-names "https://www.apache.org/dyn/mirrors/mirrors.cgi?action=download&filename=incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz"
+wget --trust-server-names "https://www.apache.org/dyn/mirrors/mirrors.cgi?action=download&filename=doris/1.xx/apache-doris-1.xx-src.tar.gz"
 ```
 
 Original Location:
 
 ```
-https://www.apache.org/dist/incubator/doris/0.9.0-incubating/
+https://www.apache.org/dist/doris/1.xx/
 
-http://www.apache.org/dyn/closer.cgi/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz
+http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz
 ```
 
 Ssource package:
 
 ```
-http://www.apache.org/dyn/closer.cgi/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz
+http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz
 
 ASC:
-http://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.asc
+http://archive.apache.org/dist/doris/1.xx/apache-doris-1.xx-src.tar.gz.asc
 
 sha512:
-http://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.sha512
+http://archive.apache.org/dist/doris/1.xx/apache-doris-1.xx-src.tar.gz.sha512
 ```
 
 KEYS:
 
 ```
-http://archive.apache.org/dist/incubator/doris/KEYS
+http://archive.apache.org/dist/doris/KEYS
 ```
 
 refer to: <http://www.apache.org/dev/release-download-pages#closer>
@@ -104,7 +104,7 @@ The following two places need to be modified.
 1. Github's release page
 
 ```
-https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
+https://github.com/apache/doris/releases/tag/0.9.0-rc01
 ```
 
 2、Doris official website download page
@@ -126,8 +126,8 @@ docs/en/downloads/downloads.md
 Since svn only needs to keep the latest version of packages, old versions of packages should be cleaned from svn when a new version is released.
 
 ```
-https://dist.apache.org/repos/dist/release/incubator/doris/
-https://dist.apache.org/repos/dist/dev/incubator/doris/
+https://dist.apache.org/repos/dist/release/doris/
+https://dist.apache.org/repos/dist/dev/doris/
 ```
 
 Keep these two addresses with only the latest package versions. 2.
@@ -136,7 +136,7 @@ Keep these two addresses with only the latest package versions. 2.
 
 ```
 Download page: http://doris.apache.org/downloads.html
-Archive page: http://archive.apache.org/dist/incubator/doris
+Archive page: http://archive.apache.org/dist/doris
 ```
 
 Apache has a synchronization mechanism to archive the history of releases, see [how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
@@ -147,7 +147,7 @@ So even if an old package is removed from svn, it can still be found on the arch
 Title:
 
 ```
-[ANNOUNCE] Apache Doris (incubating) 0.9.0 Release
+[ANNOUNCE] Apache Doris 1.xx release
 ```
 
 To mail：
@@ -156,47 +156,23 @@ To mail：
 dev@doris.apache.org
 ```
 
-Incubator projects, which also need to be sent to:
-
-```
-general@incubator.apache.org
-```
-
 Email body:
 
 ```
 Hi All,
 
-We are pleased to announce the release of Apache Doris 0.9.0-incubating.
+We are pleased to announce the release of Apache Doris 1.xx.
 
-Apache Doris (incubating) is an MPP-based interactive SQL data warehousing for reporting and analysis.
+Apache Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
 
 The release is available at:
 http://doris.apache.org/master/zh-CN/downloads/downloads.html
 
 Thanks to everyone who has contributed to this release, and the release note can be found here:
-https://github.com/apache/incubator-doris/releases
+https://github.com/apache/doris/releases
 
 Best Regards,
 
 On behalf of the Doris team,
 xxx
-
----
-DISCLAIMER: 
-Apache Doris (incubating) is an effort undergoing incubation at The
-Apache Software Foundation (ASF), sponsored by the Apache Incubator PMC.
-
-Incubation is required of all newly accepted
-projects until a further review indicates that the
-infrastructure, communications, and decision making process have
-stabilized in a manner consistent with other successful ASF
-projects.
-
-While incubation status is not necessarily a reflection
-of the completeness or stability of the code, it does indicate
-that the project has yet to be fully endorsed by the ASF.
-```
-
-
 

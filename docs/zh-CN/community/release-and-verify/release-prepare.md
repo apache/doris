@@ -62,20 +62,15 @@ Apache 项目的版本发布主要有以下三种形式：
 	3. 准备 Release Notes
 4. 准备发布材料
     1. 打 Tag
-    2. 将需要发布的内容上传至 [Apache Dev SVN 仓库](https://dist.apache.org/repos/dist/dev/incubator/doris)
+    2. 将需要发布的内容上传至 [Apache Dev SVN 仓库](https://dist.apache.org/repos/dist/dev/doris)
     3. 其他 Convenience Binaries 的准备（如上传到 [Maven Staging 仓库](https://repository.apache.org/#stagingRepositories)）
 4. 社区发布投票流程
 	2. 在 Doris 社区 Dev 邮件组(**dev@doris.apache.org**)发起投票。
 	3. 投票通过后，在 Doris 社区发 Result 邮件。
-	4. 如果是孵化项目（Incuator Project）还需：
-	   1. 在 Incubator General 邮件组(**general@incubator.apache.org**) 发起投票。
-	   2. 发 Result 邮件到 general@incubator.apache.org。
 5. 完成工作
-	1. 上传签名的软件包到 [Apache Release 仓库](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接。
+	1. 上传签名的软件包到 [Apache Release 仓库](https://dist.apache.org/repos/dist/release/doris/)，并生成相关链接。
 	2. 在 Doris 官网和 github 发布下载链接，并且清理 svn 上的旧版本包。
 	3. 发送 Announce 邮件到 dev@doris.apache.org
-	4. 如果是孵化项目（Incuator Project）还需：
-	   1. 发送 Announce 邮件到 general@incubator.apache.org
 
 ## 准备签名
 
@@ -195,6 +190,8 @@ Email address 为 apache 的邮箱。
 
 **这里的秘钥一定要记住，后面签名的时候会用到。同时也会用于其他组件的发布**
 
+**如果 `gpg --gen-key` 命令卡住很久，可以尝试打开另一终端后，执行 `find / | xargs file` 命令来产生足够多的随机字符，通常在几分钟后，gpg命令就会完成。**
+
 >**注意：**
 >
 >如果在生成可以的时候出现卡住，长时间不能完成的时候，可以通过下面的方案解决：
@@ -279,7 +276,7 @@ https://id.apache.org
 **注意不要删除 KEYS 文件中已有的内容，这能追加新增**
 
 ```
-svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/doris/
 # edit doris/KEYS file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
@@ -289,17 +286,17 @@ svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 注意，KEYS 文件要同时发布到如下 svn 库。
 
 ```
-svn co https://dist.apache.org/repos/dist/release/incubator/doris
+svn co https://dist.apache.org/repos/dist/release/doris
 # edit doris/KEYS file
 svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
 
 之后会自动同步到：
 ```
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 ```
 
-在后续的发版投票邮件中，要使用 `https://downloads.apache.org/incubator/doris/KEYS` 这里的 KEYS 文件。
+在后续的发版投票邮件中，要使用 `https://downloads.apache.org/doris/KEYS` 这里的 KEYS 文件。
 
 
 ## Maven 发版准备
