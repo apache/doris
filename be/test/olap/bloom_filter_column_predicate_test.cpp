@@ -96,7 +96,6 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     ColumnPredicate* pred = BloomFilterColumnPredicateFactory::create_column_predicate(
             0, bloom_filter, OLAP_FIELD_TYPE_FLOAT);
     auto* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
