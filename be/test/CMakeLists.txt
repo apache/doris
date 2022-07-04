@@ -132,7 +132,6 @@ set(HTTP_TEST_FILES
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
-    olap/schema_change_test.cpp
     olap/timestamped_version_tracker_test.cpp
     olap/tablet_schema_helper.cpp
     olap/delta_writer_test.cpp
@@ -141,8 +140,6 @@ set(OLAP_TEST_FILES
     olap/row_block_v2_test.cpp
     olap/bit_field_test.cpp
     olap/byte_buffer_test.cpp
-    olap/run_length_byte_test.cpp
-    olap/run_length_integer_test.cpp
     olap/stream_index_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
@@ -153,7 +150,6 @@ set(OLAP_TEST_FILES
     olap/null_predicate_test.cpp
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
-    olap/column_reader_test.cpp
     olap/cumulative_compaction_policy_test.cpp
     olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
