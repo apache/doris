@@ -21,10 +21,25 @@ suite("test_compaction_uniq_keys") {
     def tableName = "compaction_uniq_keys_regression_test"
 
     try {
+        //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
+        String[][] backends = sql """ show backends; """
+        assertTrue(backends.size() > 0)
+        String backend_id;
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        for (String[] backend in backends) {
+            backendId_to_backendIP.put(backend[0], backend[2])
+            backendId_to_backendHttpPort.put(backend[0], backend[5])
+        }
+
+        backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
         showConfigCommand.append("curl -X GET http://")
-        showConfigCommand.append(context.config.beHttpAddress)
+        showConfigCommand.append(backendId_to_backendIP.get(backend_id))
+        showConfigCommand.append(":")
+        showConfigCommand.append(backendId_to_backendHttpPort.get(backend_id))
         showConfigCommand.append("/api/show_config")
+        logger.info(showConfigCommand.toString())
         def process = showConfigCommand.toString().execute()
         int code = process.waitFor()
         String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
@@ -93,14 +108,19 @@ suite("test_compaction_uniq_keys") {
             """
 
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+
+        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,DataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
+            backend_id = tablet[2]
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X POST http://")
-            sb.append(context.config.beHttpAddress)
+            sb.append(backendId_to_backendIP.get(backend_id))
+            sb.append(":")
+            sb.append(backendId_to_backendHttpPort.get(backend_id))
             sb.append("/api/compaction/run?tablet_id=")
             sb.append(tablet_id)
             sb.append("&compact_type=cumulative")
@@ -128,13 +148,17 @@ suite("test_compaction_uniq_keys") {
             do {
                 Thread.sleep(1000)
                 String tablet_id = tablet[0]
+                backend_id = tablet[2]
                 StringBuilder sb = new StringBuilder();
                 sb.append("curl -X GET http://")
-                sb.append(context.config.beHttpAddress)
+                sb.append(backendId_to_backendIP.get(backend_id))
+                sb.append(":")
+                sb.append(backendId_to_backendHttpPort.get(backend_id))
                 sb.append("/api/compaction/run_status?tablet_id=")
                 sb.append(tablet_id)
 
                 String command = sb.toString()
+                logger.info(command)
                 process = command.execute()
                 code = process.waitFor()
                 err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
@@ -151,10 +175,9 @@ suite("test_compaction_uniq_keys") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://")
-            sb.append(context.config.beHttpAddress)
-            sb.append("/api/compaction/show?tablet_id=")
-            sb.append(tablet_id)
+            def compactionStatusUrlIndex = 16
+            sb.append("curl -X GET ")
+            sb.append(tablet[compactionStatusUrlIndex])
             String command = sb.toString()
             // wait for cleaning stale_rowsets
             process = command.execute()
