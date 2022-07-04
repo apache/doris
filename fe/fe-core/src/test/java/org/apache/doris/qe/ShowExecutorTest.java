@@ -50,6 +50,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.DataSourceMgr;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -70,6 +71,7 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
+import java.util.function.Function;
 
 public class ShowExecutorTest {
     private ConnectContext ctx;
@@ -189,6 +191,23 @@ public class ShowExecutorTest {
             }
         };
 
+        DataSourceMgr dsMgr = new DataSourceMgr();
+        new Expectations(dsMgr) {
+            {
+                dsMgr.getCatalog((String) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrException((String) any, (Function) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrAnalysisException((String) any);
+                minTimes = 0;
+                result = ds;
+            }
+        };
+
         // mock catalog.
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
@@ -218,6 +237,10 @@ public class ShowExecutorTest {
 
                 Catalog.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean);
                 minTimes = 0;
+
+                catalog.getDataSourceMgr();
+                minTimes = 0;
+                result = dsMgr;
             }
         };
 

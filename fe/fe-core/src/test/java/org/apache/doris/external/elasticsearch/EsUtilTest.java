@@ -17,12 +17,28 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.ExceptionChecker;
+
+import mockit.Expectations;
+import mockit.Injectable;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
-public class EsUtilTest {
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Test for es util.
+ **/
+public class EsUtilTest extends EsTestCase {
+
+    private List<Column> columns = new ArrayList<>();
 
     private String jsonStr = "{\"settings\": {\n"
             + "               \"index\": {\n"
@@ -41,6 +57,80 @@ public class EsUtilTest {
             + "                  }\n"
             + "               }\n"
             + "            }}";
+
+    /**
+     * Init columns.
+     **/
+    @Before
+    public void setUp() {
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        Column k2 = new Column("k2", PrimitiveType.VARCHAR);
+        Column k3 = new Column("k3", PrimitiveType.VARCHAR);
+        columns.add(k1);
+        columns.add(k2);
+        columns.add(k3);
+    }
+
+    @Test
+    public void testExtractFieldsNormal() throws Exception {
+
+        // ES version < 7.0
+        EsTable esTableBefore7X = fakeEsTable("fake", "test", "doc", columns);
+        SearchContext searchContext = new SearchContext(esTableBefore7X);
+        EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json"));
+        Assert.assertEquals("k3.keyword", searchContext.fetchFieldsContext().get("k3"));
+        Assert.assertEquals("k3.keyword", searchContext.docValueFieldsContext().get("k3"));
+        Assert.assertEquals("k1", searchContext.docValueFieldsContext().get("k1"));
+        Assert.assertEquals("k2", searchContext.docValueFieldsContext().get("k2"));
+
+        // ES version >= 7.0
+        EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
+        SearchContext searchContext1 = new SearchContext(esTableAfter7X);
+        EsUtil.resolveFields(searchContext1, loadJsonFromFile("data/es/test_index_mapping_after_7x.json"));
+        Assert.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
+        Assert.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
+        Assert.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
+        Assert.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
+    }
+
+    @Test
+    public void testTypeNotExist() throws Exception {
+        EsTable table = fakeEsTable("fake", "test", "not_exists", columns);
+        SearchContext searchContext = new SearchContext(table);
+        // type not exists
+        ExceptionChecker.expectThrows(DorisEsException.class,
+                () -> EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json")));
+    }
+
+    @Test
+    public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
+        EsTable table = fakeEsTable("fake", "test", "doc", columns);
+        SearchContext searchContext1 = new SearchContext(table);
+        String jsonMapping = loadJsonFromFile("data/es/test_index_mapping.json");
+        new Expectations(client) {
+            {
+                client.getMapping(anyString);
+                minTimes = 0;
+                result = jsonMapping;
+            }
+        };
+        MappingPhase mappingPhase = new MappingPhase(client);
+        ExceptionChecker.expectThrowsNoException(() -> mappingPhase.execute(searchContext1));
+        ExceptionChecker.expectThrowsNoException(() -> mappingPhase.postProcess(searchContext1));
+        Assert.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
+        Assert.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
+        Assert.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
+        Assert.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
+
+    }
+
+    @Test
+    public void testMultTextFields() throws Exception {
+        EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
+        SearchContext searchContext = new SearchContext(esTableAfter7X);
+        EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
+        Assert.assertFalse(searchContext.docValueFieldsContext().containsKey("k3"));
+    }
 
     @Test
     public void testGetJsonObject() {

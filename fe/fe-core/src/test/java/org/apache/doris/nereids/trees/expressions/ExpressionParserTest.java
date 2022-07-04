@@ -31,7 +31,7 @@ public class ExpressionParserTest {
     }
 
     private void assertExpr(String expr) {
-        Expression expression = PARSER.createExpression(expr);
+        Expression expression = PARSER.parseExpression(expr);
         System.out.println(expression.sql());
     }
 

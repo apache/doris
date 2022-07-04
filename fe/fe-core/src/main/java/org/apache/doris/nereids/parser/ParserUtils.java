@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.Token;
+import org.antlr.v4.runtime.misc.Interval;
 
 import java.util.function.Supplier;
 
@@ -27,5 +30,14 @@ import java.util.function.Supplier;
 public class ParserUtils {
     public static <T> T withOrigin(ParserRuleContext ctx, Supplier<T> f) {
         return f.get();
+    }
+
+    public static String command(ParserRuleContext ctx) {
+        CharStream stream = ctx.getStart().getInputStream();
+        return stream.getText(Interval.of(0, stream.size() - 1));
+    }
+
+    public static Origin position(Token token) {
+        return new Origin(token.getLine(), token.getCharPositionInLine());
     }
 }

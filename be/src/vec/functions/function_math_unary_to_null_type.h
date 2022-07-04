@@ -115,8 +115,8 @@ private:
         };
 
         if (!call_on_basic_type<void, true, true, true, false>(col.type->get_type_id(), call)) {
-            return Status::InvalidArgument("Illegal column " + col.column->get_name() +
-                                           " of argument of function " + get_name());
+            return Status::InvalidArgument("Illegal column {} of argument of function {}",
+                                           col.column->get_name(), get_name());
         }
         return Status::OK();
     }

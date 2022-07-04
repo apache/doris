@@ -1,0 +1,66 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "olap/primary_key_index.h"
+
+#include "olap/rowset/segment_v2/encoding_info.h"
+
+namespace doris {
+
+Status PrimaryKeyIndexBuilder::init() {
+    // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
+    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
+    segment_v2::IndexedColumnWriterOptions options;
+    options.write_ordinal_index = false;
+    options.write_value_index = true;
+    options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
+    // TODO(liaoxin) test to confirm whether it needs to be compressed
+    options.compression = segment_v2::NO_COMPRESSION; // currently not compressed
+    _index_builder.reset(new segment_v2::IndexedColumnWriter(options, type_info, _wblock));
+    return _index_builder->init();
+}
+
+Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
+    _index_builder->add(&key);
+    // the key is already sorted, so the first key is min_key, and
+    // the last key is max_key.
+    if (UNLIKELY(_num_rows == 0)) {
+        _min_key.append(key.get_data(), key.get_size());
+    }
+    _max_key.clear();
+    _max_key.append(key.get_data(), key.get_size());
+    _num_rows++;
+    _size += key.get_size();
+    return Status::OK();
+}
+
+Status PrimaryKeyIndexBuilder::finalize(segment_v2::IndexedColumnMetaPB* meta) {
+    // finish primary key index
+    return _index_builder->finish(meta);
+}
+
+Status PrimaryKeyIndexReader::parse(const FilePathDesc& path_desc,
+                                    const segment_v2::IndexedColumnMetaPB& meta) {
+    // parse primary key index
+    _index_reader.reset(new segment_v2::IndexedColumnReader(path_desc, meta));
+    RETURN_IF_ERROR(_index_reader->load(_use_page_cache, _kept_in_memory));
+
+    _parsed = true;
+    return Status::OK();
+}
+
+} // namespace doris

@@ -37,16 +37,15 @@ public class ExpressionUtilsTest {
         List<Expression> expressions;
         Expression expr;
 
-        expr = PARSER.createExpression("a");
+        expr = PARSER.parseExpression("a");
         expressions = ExpressionUtils.extractConjunct(expr);
         Assertions.assertEquals(expressions.size(), 1);
         Assertions.assertEquals(expressions.get(0), expr);
 
-
-        expr = PARSER.createExpression("a and b and c");
-        Expression a = PARSER.createExpression("a");
-        Expression b = PARSER.createExpression("b");
-        Expression c = PARSER.createExpression("c");
+        expr = PARSER.parseExpression("a and b and c");
+        Expression a = PARSER.parseExpression("a");
+        Expression b = PARSER.parseExpression("b");
+        Expression c = PARSER.parseExpression("c");
 
         expressions = ExpressionUtils.extractConjunct(expr);
         Assertions.assertEquals(expressions.size(), 3);
@@ -55,15 +54,14 @@ public class ExpressionUtilsTest {
         Assertions.assertEquals(expressions.get(2), c);
 
 
-        expr = PARSER.createExpression("(a or b) and c and (e or f)");
+        expr = PARSER.parseExpression("(a or b) and c and (e or f)");
         expressions = ExpressionUtils.extractConjunct(expr);
-        Expression aOrb = PARSER.createExpression("a or b");
-        Expression eOrf = PARSER.createExpression("e or f");
+        Expression aOrb = PARSER.parseExpression("a or b");
+        Expression eOrf = PARSER.parseExpression("e or f");
         Assertions.assertEquals(expressions.size(), 3);
         Assertions.assertEquals(expressions.get(0), aOrb);
         Assertions.assertEquals(expressions.get(1), c);
         Assertions.assertEquals(expressions.get(2), eOrf);
-
     }
 
     @Test
@@ -71,16 +69,15 @@ public class ExpressionUtilsTest {
         List<Expression> expressions;
         Expression expr;
 
-        expr = PARSER.createExpression("a");
+        expr = PARSER.parseExpression("a");
         expressions = ExpressionUtils.extractDisjunct(expr);
         Assertions.assertEquals(expressions.size(), 1);
         Assertions.assertEquals(expressions.get(0), expr);
 
-
-        expr = PARSER.createExpression("a or b or c");
-        Expression a = PARSER.createExpression("a");
-        Expression b = PARSER.createExpression("b");
-        Expression c = PARSER.createExpression("c");
+        expr = PARSER.parseExpression("a or b or c");
+        Expression a = PARSER.parseExpression("a");
+        Expression b = PARSER.parseExpression("b");
+        Expression c = PARSER.parseExpression("c");
 
         expressions = ExpressionUtils.extractDisjunct(expr);
         Assertions.assertEquals(expressions.size(), 3);
@@ -88,11 +85,10 @@ public class ExpressionUtilsTest {
         Assertions.assertEquals(expressions.get(1), b);
         Assertions.assertEquals(expressions.get(2), c);
 
-
-        expr = PARSER.createExpression("(a and b) or c or (e and f)");
+        expr = PARSER.parseExpression("(a and b) or c or (e and f)");
         expressions = ExpressionUtils.extractDisjunct(expr);
-        Expression aAndb = PARSER.createExpression("a and b");
-        Expression eAndf = PARSER.createExpression("e and f");
+        Expression aAndb = PARSER.parseExpression("a and b");
+        Expression eAndf = PARSER.parseExpression("e and f");
         Assertions.assertEquals(expressions.size(), 3);
         Assertions.assertEquals(expressions.get(0), aAndb);
         Assertions.assertEquals(expressions.get(1), c);

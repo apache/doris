@@ -94,10 +94,8 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
             std::string file_path;
             Status st = ctx->exec_env()->small_file_mgr()->get_file(file_id, parts[2], &file_path);
             if (!st.ok()) {
-                std::stringstream ss;
-                ss << "PAUSE: failed to get file for config: " << item.first
-                   << ", error: " << st.get_error_msg();
-                return Status::InternalError(ss.str());
+                return Status::InternalError("PAUSE: failed to get file for config: {}, error: {}",
+                                             item.first, st.get_error_msg());
             }
             RETURN_IF_ERROR(set_conf(item.first, file_path));
         } else {
@@ -406,9 +404,7 @@ Status KafkaDataConsumer::commit(std::vector<RdKafka::TopicPartition*>& offset) 
     // Commit failure has no effect on Doris, subsequent tasks will continue to commit the new offset
     RdKafka::ErrorCode err = _k_consumer->commitAsync(offset);
     if (err != RdKafka::ERR_NO_ERROR) {
-        std::stringstream ss;
-        ss << "failed to commit kafka offset : " << RdKafka::err2str(err);
-        return Status::InternalError(ss.str());
+        return Status::InternalError("failed to commit kafka offset : {}", RdKafka::err2str(err));
     }
     return Status::OK();
 }

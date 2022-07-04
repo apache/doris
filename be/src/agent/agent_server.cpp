@@ -121,14 +121,14 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
         TTaskType::type task_type = task.task_type;
         int64_t signature = task.signature;
 
-#define HANDLE_TYPE(t_task_type, work_pool, req_member)                         \
-    case t_task_type:                                                           \
-        if (task.__isset.req_member) {                                          \
-            work_pool->submit_task(task);                                       \
-        } else {                                                                \
-            ret_st = Status::InvalidArgument(strings::Substitute(               \
-                    "task(signature=$0) has wrong request member", signature)); \
-        }                                                                       \
+#define HANDLE_TYPE(t_task_type, work_pool, req_member)                                          \
+    case t_task_type:                                                                            \
+        if (task.__isset.req_member) {                                                           \
+            work_pool->submit_task(task);                                                        \
+        } else {                                                                                 \
+            ret_st = Status::InvalidArgument("task(signature={}) has wrong request member = {}", \
+                                             signature, #req_member);                            \
+        }                                                                                        \
         break;
 
         // TODO(lingbin): It still too long, divided these task types into several categories
@@ -158,8 +158,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:
             if (!task.__isset.push_req) {
-                ret_st = Status::InvalidArgument(strings::Substitute(
-                        "task(signature=$0) has wrong request member", signature));
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = push_req", signature);
                 break;
             }
             if (task.push_req.push_type == TPushType::LOAD ||
@@ -168,22 +168,23 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             } else if (task.push_req.push_type == TPushType::DELETE) {
                 _delete_workers->submit_task(task);
             } else {
-                ret_st = Status::InvalidArgument(strings::Substitute(
-                        "task(signature=$0, type=$1, push_type=$2) has wrong push_type", signature,
-                        task_type, task.push_req.push_type));
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}, type={}, push_type={}) has wrong push_type", signature,
+                        task_type, task.push_req.push_type);
             }
             break;
         case TTaskType::ALTER:
             if (task.__isset.alter_tablet_req || task.__isset.alter_tablet_req_v2) {
                 _alter_tablet_workers->submit_task(task);
             } else {
-                ret_st = Status::InvalidArgument(strings::Substitute(
-                        "task(signature=$0) has wrong request member", signature));
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = alter_tablet_req",
+                        signature);
             }
             break;
         default:
-            ret_st = Status::InvalidArgument(strings::Substitute(
-                    "task(signature=$0, type=$1) has wrong task type", signature, task_type));
+            ret_st = Status::InvalidArgument("task(signature={}, type={}) has wrong task type",
+                                             signature, task_type);
             break;
         }
 #undef HANDLE_TYPE
