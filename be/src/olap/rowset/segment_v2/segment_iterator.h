@@ -102,9 +102,9 @@ private:
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
-    void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
-                                 std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
-                                 size_t select_size, vectorized::MutableColumns* mutable_columns);
+    Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
+                                   std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
+                                   size_t select_size, vectorized::MutableColumns* mutable_columns);
 
     template <class Container>
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
