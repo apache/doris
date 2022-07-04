@@ -429,6 +429,8 @@ public class ConnectContext {
 
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
+        currentDb = "";
+        currentDbId = -1;
     }
 
     public String getDatabase() {
