@@ -744,7 +744,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
@@ -831,7 +831,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
