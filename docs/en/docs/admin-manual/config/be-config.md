@@ -1544,7 +1544,7 @@ Translated with www.DeepL.com/Translator (free version)
 
 ### `quick_compaction_batch_size`
 * Type: int32
-* Description: trigger time,  when import times reach quick_compaction_batch_size will trigger immediately 
+* Description: trigger time, when import times reach quick_compaction_batch_size will trigger immediately 
 * Default: 10
 
 ### `quick_compaction_min_rowsets`
