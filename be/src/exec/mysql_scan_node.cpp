@@ -138,7 +138,7 @@ Status MysqlScanNode::write_text_slot(char* value, int value_length, SlotDescrip
     if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
                                      _tuple_pool.get())) {
         return Status::InternalError("Fail to convert mysql value:'{}' to {} on column:`{}`", value,
-                                     slot->type(), slot->col_name());
+                                     slot->type().debug_string(), slot->col_name());
     }
 
     return Status::OK();
