@@ -61,7 +61,8 @@ public class CatalogFactory {
         return constructorDataSource(log.getCatalogId(), log.getCatalogName(), log.getProps());
     }
 
-    private static DataSourceIf constructorDataSource(long catalogId, String name, Map<String, String> props) throws DdlException {
+    private static DataSourceIf constructorDataSource(long catalogId, String name, Map<String, String> props)
+            throws DdlException {
         String type = props.get("type");
         DataSourceIf dataSource;
         switch (type) {

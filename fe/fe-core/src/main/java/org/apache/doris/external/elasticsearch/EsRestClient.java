@@ -61,9 +61,7 @@ public class EsRestClient {
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
 
-    private static OkHttpClient networkClient = new OkHttpClient.Builder()
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build();
+    private static OkHttpClient networkClient = new OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build();
 
     private static OkHttpClient sslNetworkClient;
 
@@ -77,8 +75,7 @@ public class EsRestClient {
         this.nodes = nodes;
         this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-            this.builder.addHeader(HttpHeaders.AUTHORIZATION,
-                    Credentials.basic(authUser, authPassword));
+            this.builder.addHeader(HttpHeaders.AUTHORIZATION, Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
         this.httpSslEnable = httpSslEnable;
@@ -155,7 +152,7 @@ public class EsRestClient {
     }
 
     public List<String> getIndexes() {
-        String indexes = execute("/_cat/indices?h=index&format=json&s=index:asc");
+        String indexes = execute("_cat/indices?h=index&format=json&s=index:asc");
         if (indexes == null) {
             throw new DorisEsException("get es indexes error");
         }
@@ -187,11 +184,9 @@ public class EsRestClient {
      **/
     private synchronized OkHttpClient getOrCreateSslNetworkClient() {
         if (sslNetworkClient == null) {
-            sslNetworkClient = new OkHttpClient.Builder()
-                    .readTimeout(10, TimeUnit.SECONDS)
+            sslNetworkClient = new OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS)
                     .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
-                    .hostnameVerifier(new TrustAllHostnameVerifier())
-                    .build();
+                    .hostnameVerifier(new TrustAllHostnameVerifier()).build();
         }
         return sslNetworkClient;
     }
@@ -208,11 +203,9 @@ public class EsRestClient {
         if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
             currentNode = "http://" + currentNode;
         }
-        Request request = builder.get()
-                .url(currentNode + "/" + path)
-                .build();
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
+        Request request = builder.get().url(currentNode + "/" + path).build();
+        if (LOG.isInfoEnabled()) {
+            LOG.info("es rest client request URL: {}", currentNode + "/" + path);
         }
         return httpClient.newCall(request).execute();
     }
@@ -301,7 +294,7 @@ public class EsRestClient {
         SSLSocketFactory ssfFactory;
         try {
             SSLContext sc = SSLContext.getInstance("TLS");
-            sc.init(null, new TrustManager[]{new TrustAllCerts()}, new SecureRandom());
+            sc.init(null, new TrustManager[] {new TrustAllCerts()}, new SecureRandom());
             ssfFactory = sc.getSocketFactory();
         } catch (Exception e) {
             throw new DorisEsException("Errors happens when create ssl socket");

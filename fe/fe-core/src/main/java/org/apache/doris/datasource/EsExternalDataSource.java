@@ -19,7 +19,12 @@ package org.apache.doris.datasource;
 
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsUtil;
 
@@ -27,11 +32,14 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /**
  * External data source for elasticsearch
@@ -79,6 +87,7 @@ public class EsExternalDataSource extends ExternalDataSource {
         this.dsProperty.setProperties(props);
         dbNameToId.put("user", Catalog.getCurrentCatalog().getNextId());
         dbNameToId.put("system", Catalog.getCurrentCatalog().getNextId());
+        this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -134,6 +143,42 @@ public class EsExternalDataSource extends ExternalDataSource {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         return esRestClient.getIndexes();
+    }
+
+    @Override
+    public ExternalDatabase getDbOrDdlException(String dbName) throws DdlException {
+        return getDbOrException(dbName,
+                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    @Override
+    public <E extends Exception> ExternalDatabase getDbOrException(String dbName, Function<String, E> e) throws E {
+        ExternalDatabase db = getDbNullable(dbName);
+        if (db == null) {
+            throw e.apply(dbName);
+        }
+        return db;
+    }
+
+    @Override
+    public ExternalDatabase getDbOrAnalysisException(String dbName) throws AnalysisException {
+        return getDbOrException(dbName,
+                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    @Nullable
+    @Override
+    public ExternalDatabase getDbNullable(String dbName) {
+        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
+        if (!dbNameToId.containsKey(realDbName)) {
+            return null;
+        }
+        return new EsExternalDatabase(this, dbNameToId.get(realDbName), realDbName);
+    }
+
+    @Override
+    public Optional<ExternalDatabase> getDb(String dbName) {
+        return Optional.ofNullable(getDbNullable(dbName));
     }
 
     @Override
