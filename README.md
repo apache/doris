@@ -55,11 +55,11 @@ Doris mainly integrates the technology of [Google Mesa](https://research.google/
 
 ## Compile and install
 
-See [Compilation](https://doris.apache.org/install/source-install/compilation-with-ldb-toolchain.html)
+See [Compilation](https://doris.apache.org/docs/install/source-install/compilation.html)
 
 ## Getting start
 
-See [Basic Usage](https://doris.apache.org/install/source-install/compilation-with-ldb-toolchain.html)
+See [Getting Started](https://doris.apache.org/docs/get-starting/get-starting.html)
 
 ## Doris Connector
 
