@@ -89,7 +89,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
-    CREATE_AND_START_POOL(REFRESH_STORAGE_POLICY, _storage_refresh_policy_workers);
+    CREATE_AND_START_THREAD(REFRESH_STORAGE_POLICY, _storage_refresh_policy_workers);
     CREATE_AND_START_POOL(UPDATE_STORAGE_POLICY, _storage_update_policy_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD

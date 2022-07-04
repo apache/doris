@@ -194,7 +194,6 @@ void TaskWorkerPool::start() {
                              this);
         break;
     case TaskWorkerType::REFRESH_STORAGE_POLICY:
-        _worker_count = 1;
         cb = std::bind<void>(
                 &TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback, this);
         break;
@@ -1124,10 +1123,12 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
 
     while (_is_work) {
         _is_doing_work = false;
-        // wait at most report_task_interval_seconds, or being notified
-        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-        _worker_thread_condition_variable.wait_for(
-                worker_thread_lock, std::chrono::seconds(config::report_task_interval_seconds));
+        {
+            // wait at most report_task_interval_seconds, or being notified
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait_for(
+                    worker_thread_lock, std::chrono::seconds(config::report_task_interval_seconds));
+        }
         if (!_is_work) {
             break;
         }
@@ -1161,11 +1162,13 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 
     while (_is_work) {
         _is_doing_work = false;
-        // wait at most report_disk_state_interval_seconds, or being notified
-        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-        _worker_thread_condition_variable.wait_for(
-                worker_thread_lock,
-                std::chrono::seconds(config::report_disk_state_interval_seconds));
+        {
+            // wait at most report_disk_state_interval_seconds, or being notified
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait_for(
+                    worker_thread_lock,
+                    std::chrono::seconds(config::report_disk_state_interval_seconds));
+        }
         if (!_is_work) {
             break;
         }
@@ -1214,10 +1217,13 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
     while (_is_work) {
         _is_doing_work = false;
 
-        // wait at most report_tablet_interval_seconds, or being notified
-        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-        _worker_thread_condition_variable.wait_for(
-                worker_thread_lock, std::chrono::seconds(config::report_tablet_interval_seconds));
+        {
+            // wait at most report_tablet_interval_seconds, or being notified
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait_for(
+                    worker_thread_lock,
+                    std::chrono::seconds(config::report_tablet_interval_seconds));
+        }
         if (!_is_work) {
             break;
         }
@@ -1704,11 +1710,14 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
 void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
     while (_is_work) {
         _is_doing_work = false;
-        // wait at most report_task_interval_seconds, or being notified
-        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-        _worker_thread_condition_variable.wait_for(
-                worker_thread_lock,
-                std::chrono::seconds(config::storage_refresh_storage_policy_task_interval_seconds));
+        {
+            // wait at most report_task_interval_seconds, or being notified
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait_for(
+                    worker_thread_lock,
+                    std::chrono::seconds(
+                            config::storage_refresh_storage_policy_task_interval_seconds));
+        }
         if (!_is_work) {
             break;
         }
