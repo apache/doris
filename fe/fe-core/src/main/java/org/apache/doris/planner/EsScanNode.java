@@ -63,6 +63,9 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
+/**
+ * ScanNode for Elasticsearch.
+ **/
 public class EsScanNode extends ScanNode {
 
     private static final Logger LOG = LogManager.getLogger(EsScanNode.class);
@@ -74,8 +77,7 @@ public class EsScanNode extends ScanNode {
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
     private QueryBuilder queryBuilder;
-
-    boolean isFinalized = false;
+    private boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
@@ -122,7 +124,6 @@ public class EsScanNode extends ScanNode {
      *
      * @param desc the fields needs to read from ES
      * @param docValueContext the mapping for docvalues fields from origin field to doc_value fields
-     * @return
      */
     private int useDocValueScan(TupleDescriptor desc, Map<String, String> docValueContext) {
         ArrayList<SlotDescriptor> slotDescriptors = desc.getSlots();
@@ -284,15 +285,13 @@ public class EsScanNode extends ScanNode {
      * with one or more indices some indices could be pruned by using partition info
      * in index settings currently only support range partition setting
      *
-     * @param partitionInfo
-     * @return
-     * @throws AnalysisException
+     * @param partitionInfo partitionInfo
      */
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
         if (partitionInfo == null) {
             return null;
         }
-        PartitionPruner partitionPruner = null;
+        PartitionPruner partitionPruner;
         switch (partitionInfo.getType()) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
@@ -347,7 +346,7 @@ public class EsScanNode extends ScanNode {
             boolean hasFilter = false;
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             for (Expr expr : conjuncts) {
-                QueryBuilder queryBuilder = EsUtil.convertToEsDsl(expr);
+                QueryBuilder queryBuilder = EsUtil.toEsDsl(expr);
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);

@@ -45,7 +45,6 @@ import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.commons.lang3.StringUtils;
-import org.datanucleus.store.rdbms.sql.expression.ByteLiteral;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
@@ -233,43 +232,47 @@ public class EsUtil {
         }
     }
 
+    private static QueryBuilder toCompoundEsDsl(Expr expr) {
+        CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+        switch (compoundPredicate.getOp()) {
+            case AND: {
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0));
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1));
+                if (left != null && right != null) {
+                    return QueryBuilders.boolQuery().must(left).must(right);
+                }
+                return null;
+            }
+            case OR: {
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0));
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1));
+                if (left != null && right != null) {
+                    return QueryBuilders.boolQuery().should(left).should(right);
+                }
+                return null;
+            }
+            case NOT: {
+                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0));
+                if (child != null) {
+                    return QueryBuilders.boolQuery().mustNot(child);
+                }
+                return null;
+            }
+            default:
+                return null;
+        }
+    }
+
     /**
      * Doris expr to es dsl.
      **/
-    public static QueryBuilder convertToEsDsl(Expr expr) {
+    public static QueryBuilder toEsDsl(Expr expr) {
         if (expr == null) {
             return null;
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
-            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
-            switch (compoundPredicate.getOp()) {
-                case AND: {
-                    QueryBuilder left = convertToEsDsl(compoundPredicate.getChild(0));
-                    QueryBuilder right = convertToEsDsl(compoundPredicate.getChild(1));
-                    if (left != null && right != null) {
-                        return QueryBuilders.boolQuery().must(left).must(right);
-                    }
-                    return null;
-                }
-                case OR: {
-                    QueryBuilder left = convertToEsDsl(compoundPredicate.getChild(0));
-                    QueryBuilder right = convertToEsDsl(compoundPredicate.getChild(1));
-                    if (left != null && right != null) {
-                        return QueryBuilders.boolQuery().should(left).should(right);
-                    }
-                    return null;
-                }
-                case NOT: {
-                    QueryBuilder child = convertToEsDsl(compoundPredicate.getChild(0));
-                    if (child != null) {
-                        return QueryBuilders.boolQuery().mustNot(child);
-                    }
-                    return null;
-                }
-                default:
-                    return null;
-            }
+            return toCompoundEsDsl(expr);
         }
         TExprOpcode opCode = expr.getOpcode();
         String column = ((SlotRef) expr.getChild(0)).getColumnName();
@@ -346,6 +349,9 @@ public class EsUtil {
         return null;
     }
 
+    /**
+     * Transfer es type to doris type.
+     **/
     public static Type toDorisType(String esType) {
         // reference https://www.elastic.co/guide/en/elasticsearch/reference/8.3/sql-data-types.html
         switch (esType) {

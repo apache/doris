@@ -86,6 +86,7 @@ ESScanReader::ESScanReader(const std::string& target,
                     << REQUEST_PREFERENCE_PREFIX << _shards << "&" << filter_path;
         }
         _search_url = scratch.str();
+        LOG(INFO) << "_search_url: " << _search_url;
     } else {
         _exactly_once = false;
         std::stringstream scratch;
@@ -103,6 +104,8 @@ ESScanReader::ESScanReader(const std::string& target,
         }
         _init_scroll_url = scratch.str();
         _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + filter_path;
+        LOG(INFO) << "_init_scroll_url: " << _init_scroll_url;
+        LOG(INFO) << "_next_scroll_url: " << _next_scroll_url;
     }
     _eos = false;
 }

@@ -167,13 +167,13 @@ public class EsUtilTest extends EsTestCase {
         Expr ltExpr = new BinaryPredicate(Operator.LT, k1, intLiteral);
         Expr gtExpr = new BinaryPredicate(Operator.GT, k1, intLiteral);
         Expr efnExpr = new BinaryPredicate(Operator.EQ_FOR_NULL, new SlotRef(null, "k1"), new IntLiteral(3));
-        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.convertToEsDsl(eqExpr).toJson());
-        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.convertToEsDsl(neExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", EsUtil.convertToEsDsl(leExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", EsUtil.convertToEsDsl(geExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", EsUtil.convertToEsDsl(ltExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", EsUtil.convertToEsDsl(gtExpr).toJson());
-        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.convertToEsDsl(efnExpr).toJson());
+        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(eqExpr).toJson());
+        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.toEsDsl(neExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", EsUtil.toEsDsl(leExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", EsUtil.toEsDsl(geExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", EsUtil.toEsDsl(ltExpr).toJson());
+        Assert.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", EsUtil.toEsDsl(gtExpr).toJson());
+        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(efnExpr).toJson());
     }
 
     @Test
@@ -190,11 +190,11 @@ public class EsUtilTest extends EsTestCase {
                 binaryPredicate2);
         CompoundPredicate notPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT, binaryPredicate1, null);
         Assert.assertEquals("{\"bool\":{\"must\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
-                EsUtil.convertToEsDsl(andPredicate).toJson());
+                EsUtil.toEsDsl(andPredicate).toJson());
         Assert.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
-                EsUtil.convertToEsDsl(orPredicate).toJson());
+                EsUtil.toEsDsl(orPredicate).toJson());
         Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
-                EsUtil.convertToEsDsl(notPredicate).toJson());
+                EsUtil.toEsDsl(notPredicate).toJson());
     }
 
     @Test
@@ -203,8 +203,8 @@ public class EsUtilTest extends EsTestCase {
         IsNullPredicate isNullPredicate = new IsNullPredicate(k1, false);
         IsNullPredicate isNotNullPredicate = new IsNullPredicate(k1, true);
         Assert.assertEquals("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"k1\"}}}}",
-                EsUtil.convertToEsDsl(isNullPredicate).toJson());
-        Assert.assertEquals("{\"exists\":{\"field\":\"k1\"}}", EsUtil.convertToEsDsl(isNotNullPredicate).toJson());
+                EsUtil.toEsDsl(isNullPredicate).toJson());
+        Assert.assertEquals("{\"exists\":{\"field\":\"k1\"}}", EsUtil.toEsDsl(isNotNullPredicate).toJson());
     }
 
     @Test
@@ -216,9 +216,9 @@ public class EsUtilTest extends EsTestCase {
         LikePredicate likePredicate1 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral1);
         LikePredicate regexPredicate = new LikePredicate(LikePredicate.Operator.REGEXP, k1, stringLiteral2);
         LikePredicate likePredicate2 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral3);
-        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.convertToEsDsl(likePredicate1).toJson());
-        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.convertToEsDsl(regexPredicate).toJson());
-        Assert.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", EsUtil.convertToEsDsl(likePredicate2).toJson());
+        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(likePredicate1).toJson());
+        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(regexPredicate).toJson());
+        Assert.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", EsUtil.toEsDsl(likePredicate2).toJson());
     }
 
     @Test
@@ -231,9 +231,9 @@ public class EsUtilTest extends EsTestCase {
         intLiterals.add(intLiteral2);
         InPredicate isInPredicate = new InPredicate(k1, intLiterals, false);
         InPredicate isNotInPredicate = new InPredicate(k1, intLiterals, true);
-        Assert.assertEquals("{\"terms\":{\"k1\":[3,5]}}", EsUtil.convertToEsDsl(isInPredicate).toJson());
+        Assert.assertEquals("{\"terms\":{\"k1\":[3,5]}}", EsUtil.toEsDsl(isInPredicate).toJson());
         Assert.assertEquals("{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}",
-                EsUtil.convertToEsDsl(isNotInPredicate).toJson());
+                EsUtil.toEsDsl(isNotInPredicate).toJson());
     }
 
     @Test
@@ -245,7 +245,7 @@ public class EsUtilTest extends EsTestCase {
         exprs.add(k1);
         exprs.add(stringLiteral);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("esquery", exprs);
-        Assert.assertEquals(str, EsUtil.convertToEsDsl(functionCallExpr).toJson());
+        Assert.assertEquals(str, EsUtil.toEsDsl(functionCallExpr).toJson());
 
         SlotRef k2 = new SlotRef(null, "k2");
         IntLiteral intLiteral = new IntLiteral(5);
@@ -254,6 +254,6 @@ public class EsUtilTest extends EsTestCase {
                 new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate, functionCallExpr);
         Assert.assertEquals(
                 "{\"bool\":{\"must\":[{\"term\":{\"k2\":5}},{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}]}}",
-                EsUtil.convertToEsDsl(compoundPredicate).toJson());
+                EsUtil.toEsDsl(compoundPredicate).toJson());
     }
 }
