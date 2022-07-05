@@ -36,6 +36,7 @@ import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -165,7 +166,7 @@ public class EsScanNode extends ScanNode {
         properties.put(EsTable.ES_DSL, queryBuilder.toJson());
 
         // Be use it add es host_port and shardId to query.
-        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), msg.limit);
+        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isDocValueScanEnable(), ConnectContext.get().getSessionVariable().batchSize,  msg.limit);
         if (esUrls.getSearchUrl() != null) {
             properties.put(EsTable.SEARCH_URL, esUrls.getSearchUrl());
         } else {

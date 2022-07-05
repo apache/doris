@@ -17,8 +17,6 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.catalog.EsTable;
-
 import java.util.HashMap;
 import java.util.Map;
 

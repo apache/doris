@@ -259,33 +259,35 @@ public class EsUtilTest extends EsTestCase {
 
     @Test
     public void testGenEsUrls() {
-        EsUrls typeLimit = EsUtil.genEsUrls("test", "_doc", 10);
+        EsUrls typeLimit = EsUtil.genEsUrls("test", "_doc", false, 10, 1024);
         Assertions.assertEquals(
-                "/test/_doc/_search?terminate_after=10&filter_path=_scroll_id,hits.total,hits.hits._score,"
-                        + "hits.hits.fields", typeLimit.getSearchUrl());
+                "/test/_doc/_search?terminate_after=10&filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
+                typeLimit.getSearchUrl());
         Assertions.assertNull(typeLimit.getInitScrollUrl());
         Assertions.assertNull(typeLimit.getNextScrollUrl());
 
-        EsUrls noTypeLimit = EsUtil.genEsUrls("test", null, 10);
         Assertions.assertEquals(
-                "/test/_search?terminate_after=10&filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields",
-                noTypeLimit.getSearchUrl());
-        Assertions.assertNull(noTypeLimit.getInitScrollUrl());
-        Assertions.assertNull(noTypeLimit.getNextScrollUrl());
+                "/test/_search?terminate_after=10&filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
+                EsUtil.genEsUrls("test", null, false, 10, 1024).getSearchUrl());
 
-        EsUrls typeNoLimit = EsUtil.genEsUrls("test", "_doc", -1);
-        Assertions.assertEquals("/test/_doc/_search?scroll=5mfilter_path=_scroll_id,hits.total,hits.hits._score,"
-                + "hits.hits.fields&terminate_after=1024", typeNoLimit.getInitScrollUrl());
+        EsUrls typeNoLimit = EsUtil.genEsUrls("test", "_doc", false, -1, 1024);
         Assertions.assertEquals(
-                "/_search/scroll?filter_path=_scroll_id,hits.total,hits.hits._score," + "hits.hits.fields",
+                "/test/_doc/_search?scroll=5m&filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id&terminate_after=1024",
+                typeNoLimit.getInitScrollUrl());
+        Assertions.assertEquals("/_search/scroll?filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
                 typeNoLimit.getNextScrollUrl());
         Assertions.assertNull(typeNoLimit.getSearchUrl());
 
-        EsUrls noTypeNoLimit = EsUtil.genEsUrls("test", null, -1);
-        Assertions.assertEquals("/test/_search?scroll=5mfilter_path=_scroll_id,hits.total,hits.hits._score,"
-                + "hits.hits.fields&terminate_after=1024", noTypeNoLimit.getInitScrollUrl());
-        Assertions.assertEquals("/_search/scroll?filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields",
+        EsUrls noTypeNoLimit = EsUtil.genEsUrls("test", null, false, -1, 2048);
+        Assertions.assertEquals(
+                "/test/_search?scroll=5m&filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id&terminate_after=2048",
+                noTypeNoLimit.getInitScrollUrl());
+        Assertions.assertEquals("/_search/scroll?filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
                 noTypeNoLimit.getNextScrollUrl());
-        Assertions.assertNull(noTypeNoLimit.getSearchUrl());
+
+        EsUrls docValueTypeLimit = EsUtil.genEsUrls("test", "_doc", true, 100, 1024);
+        Assertions.assertEquals(
+                "/test/_doc/_search?terminate_after=100&filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields",
+                docValueTypeLimit.getSearchUrl());
     }
 }

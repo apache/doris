@@ -416,10 +416,17 @@ public class EsUtil {
         return null;
     }
 
+
+    // const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH =
+    //        "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
+    //// hits.hits._score used for processing field not exists in one batch
+    //const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH =
+    //        "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
     /**
      * Generate url for be to query es.
      **/
-    public static EsUrls genEsUrls(String index, String type, long limit) {
+    public static EsUrls genEsUrls(String index, String type, boolean docValueMode, long limit, long batchSize) {
+        String filterPath = docValueMode ? "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields" : "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
         if (limit <= 0) {
             StringBuilder initScrollUrl = new StringBuilder();
             StringBuilder nextScrollUrl = new StringBuilder();
@@ -427,10 +434,10 @@ public class EsUtil {
             if (StringUtils.isNotBlank(type)) {
                 initScrollUrl.append("/").append(type);
             }
-            initScrollUrl.append("/_search?scroll=5m")
-                    .append("filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields")
-                    .append("&terminate_after=1024");
-            nextScrollUrl.append("/_search/scroll?filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields");
+            initScrollUrl.append("/_search?scroll=5m&")
+                    .append(filterPath)
+                    .append("&terminate_after=").append(batchSize);
+            nextScrollUrl.append("/_search/scroll?").append(filterPath);
             return new EsUrls(null, initScrollUrl.toString(), nextScrollUrl.toString());
         } else {
             StringBuilder searchUrl = new StringBuilder();
@@ -439,7 +446,7 @@ public class EsUtil {
                 searchUrl.append("/").append(type);
             }
             searchUrl.append("/_search?terminate_after=").append(limit)
-                    .append("&filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields");
+                    .append("&").append(filterPath);
             return new EsUrls(searchUrl.toString(), null, null);
         }
     }
