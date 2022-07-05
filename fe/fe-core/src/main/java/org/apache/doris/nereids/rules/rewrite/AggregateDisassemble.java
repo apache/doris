@@ -17,11 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Function.CompareMode;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
@@ -29,17 +24,13 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.types.DataType;
 
-import com.clearspring.analytics.util.Lists;
-import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -68,17 +59,6 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             // TODO: shouldn't extract agg function from this field.
             for (NamedExpression namedExpression : outputExpressionList) {
                 namedExpression = (NamedExpression) namedExpression.clone();
-                List<AggregateFunction> functionCallList =
-                        namedExpression.collect(org.apache.doris.catalog.AggregateFunction.class::isInstance);
-                // TODO: we will have another mechanism to get corresponding stale agg func.
-                for (AggregateFunction functionCall : functionCallList) {
-                    org.apache.doris.catalog.AggregateFunction staleAggFunc = findAggFunc(functionCall);
-                    Type staleIntermediateType = staleAggFunc.getIntermediateType();
-                    Type staleRetType = staleAggFunc.getReturnType();
-                    if (staleIntermediateType != null && !staleIntermediateType.equals(staleRetType)) {
-                        functionCall.setIntermediate(DataType.convertFromCatalogDataType(staleIntermediateType));
-                    }
-                }
                 intermediateAggExpressionList.add(namedExpression);
             }
             LogicalAggregate localAgg = new LogicalAggregate(
@@ -89,24 +69,17 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             );
 
             Plan childPlan = plan(localAgg, plan.child(0));
-            List<Slot> stalePlanOutputSlotList = plan.getOutput();
-            List<Slot> childOutputSlotList = childPlan.getOutput();
-            int childOutputSize = stalePlanOutputSlotList.size();
-            Preconditions.checkState(childOutputSize == childOutputSlotList.size());
-            Map<Slot, Slot> staleToNew = new HashMap<>();
-            for (int i = 0; i < stalePlanOutputSlotList.size(); i++) {
-                staleToNew.put(stalePlanOutputSlotList.get(i), childOutputSlotList.get(i));
+
+            List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
+            for (int i = 0; i < agg.getOutputExpressionList().size(); i++) {
+                NamedExpression mergeOutput = (NamedExpression) new ReplaceSlotReference()
+                        .visit(agg.getOutputExpressionList().get(i),
+                                (SlotReference) localAgg.getOutputExpressionList().get(i).toSlot());
+                mergeOutputExpressionList.add(mergeOutput);
             }
-            List<Expression> groupByExpressionList = agg.getGroupByExprList();
-            for (int i = 0; i < groupByExpressionList.size(); i++) {
-                replaceSlot(staleToNew, groupByExpressionList, groupByExpressionList.get(i), i);
-            }
-            List<NamedExpression> mergeOutputExpressionList = agg.getOutputExpressionList();
-            for (int i = 0; i < mergeOutputExpressionList.size(); i++) {
-                replaceSlot(staleToNew, mergeOutputExpressionList, mergeOutputExpressionList.get(i), i);
-            }
+
             LogicalAggregate mergeAgg = new LogicalAggregate(
-                    groupByExpressionList,
+                    agg.getGroupByExprList(),
                     mergeOutputExpressionList,
                     true,
                     AggPhase.FIRST_MERGE
@@ -115,46 +88,10 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
-    private org.apache.doris.catalog.AggregateFunction findAggFunc(AggregateFunction functionCall) {
-        FunctionName functionName = new FunctionName(functionCall.getName());
-        List<Expression> expressionList = functionCall.getArguments();
-        List<Type> staleTypeList = expressionList.stream().map(Expression::getDataType)
-                .map(DataType::toCatalogDataType).collect(Collectors.toList());
-        Function staleFuncDesc = new Function(functionName, staleTypeList,
-                functionCall.getDataType().toCatalogDataType(),
-                // I think an aggregate function will never have a variable length parameters
-                false);
-        Function staleFunc = Catalog.getCurrentCatalog()
-                .getFunction(staleFuncDesc, CompareMode.IS_IDENTICAL);
-        Preconditions.checkArgument(staleFunc instanceof org.apache.doris.catalog.AggregateFunction);
-        return  (org.apache.doris.catalog.AggregateFunction) staleFunc;
-    }
-
-    @SuppressWarnings("unchecked")
-    private <T extends Expression> void replaceSlot(Map<Slot, Slot> staleToNew,
-            List<T> expressionList, Expression root, int index) {
-        if (index != -1) {
-            if (root instanceof Slot) {
-                Slot v = staleToNew.get(root);
-                if (v == null) {
-                    return;
-                }
-                expressionList.set(index, (T) v);
-                return;
-            }
-        }
-        List<Expression> children = root.children();
-        for (int i = 0; i < children.size(); i++) {
-            Expression cur = children.get(i);
-            if (!(cur instanceof Slot)) {
-                replaceSlot(staleToNew, expressionList, cur, -1);
-                continue;
-            }
-            Expression v = staleToNew.get(cur);
-            if (v == null) {
-                continue;
-            }
-            children.set(i, v);
+    private class ReplaceSlotReference extends DefaultExpressionRewriter<SlotReference> {
+        @Override
+        public Expression visitSlotReference(SlotReference slotReference, SlotReference newSlotReference) {
+            return newSlotReference;
         }
     }
 }

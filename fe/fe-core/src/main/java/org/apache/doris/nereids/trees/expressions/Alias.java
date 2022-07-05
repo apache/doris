@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -77,7 +78,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
 
     @Override
     public String sql() {
-        return null;
+        return child().sql() + " AS " + Utils.quoteIfNeeded(name);
     }
 
     @Override
@@ -87,7 +88,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
 
     @Override
     public String toString() {
-        return child().toString() + " AS " + name;
+        return child().toString() + " AS " + name + "#" + exprId;
     }
 
     @Override

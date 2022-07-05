@@ -95,7 +95,7 @@ public class LogicalAggregate extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "LogicalAggregate (" + "outputExpressionList: ["
+        return "LogicalAggregate (phase: [" + aggPhase.name() + "], outputExpressionList: ["
                 + StringUtils.join(outputExpressionList, ", ")
                 + "], groupByExprList: [" + StringUtils.join(groupByExprList, ", ") + "])";
     }

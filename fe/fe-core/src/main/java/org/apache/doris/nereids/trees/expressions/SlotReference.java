@@ -143,7 +143,7 @@ public class SlotReference extends Slot {
 
     @Override
     public SlotReference clone() {
-        return new SlotReference(name, getDataType(), nullable, Lists.newArrayList(qualifier));
+        return new SlotReference(exprId, name, getDataType(), nullable, Lists.newArrayList(qualifier));
     }
 
     public Slot withNullable(boolean newNullable) {
