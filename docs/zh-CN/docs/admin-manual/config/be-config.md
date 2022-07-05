@@ -1559,3 +1559,24 @@ webserver默认工作线程数
 * 类型: int32
 * 描述: String 类型最大长度的软限，单位是字节
 * 默认值: 1048576
+
+### `enable_quick_compaction`
+* 类型: bool
+* 描述: 是否开启quick_compaction,主要用在小数据量频繁导入的场景,通过快速compaction的机制及时合并导入版本可以有效避免-235的问题，小数据量的定义目前是根据行数来定义
+* 默认值: false
+
+### `quick_compaction_max_rows`
+* 类型: int32
+* 描述: 当导入的行数小于这个值认为这次导入是小数据量的导入，在快速合并时会被选中
+* 默认值: 1000
+
+### `quick_compaction_batch_size`
+* 类型: int32
+* 描述: 快速合并的触发时机，导入次数达到quick_compaction_batch_size时触发一次
+* 默认值: 10
+
+### `quick_compaction_min_rowsets`
+* 类型: int32
+* 描述: 最少进行合并的版本数，当选中的小数据量的rowset个数，大于这个值是才会进行真正的合并
+* 默认值: 10
+
