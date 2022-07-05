@@ -341,9 +341,9 @@ public final class AggregateInfo extends AggregateInfoBase {
             groupingExprs.addAll(expr0Children);
         }
 
-        if (distinctAggExprs_ == null) {
-            distinctAggExprs_ = new ArrayList<>();
-            distinctAggExprs_.addAll(distinctAggExprs);
+        if (distinctAggExprs == null) {
+            distinctAggExprs = new ArrayList<>();
+            distinctAggExprs.addAll(distinctAggExprs);
         }
         // remove DISTINCT aggregate functions from aggExprs
         aggregateExprs.removeAll(distinctAggExprs);
@@ -404,8 +404,8 @@ public final class AggregateInfo extends AggregateInfoBase {
         return secondPhaseDistinctAggInfo;
     }
 
-    public void setSecondPhaseDistinctAggInfo_(AggregateInfo secondPhaseDistinctAggInfo_) {
-        this.secondPhaseDistinctAggInfo = secondPhaseDistinctAggInfo_;
+    public void setSecondPhaseDistinctAggInfo_(AggregateInfo secondPhaseDistinctAggInfo) {
+        this.secondPhaseDistinctAggInfo = secondPhaseDistinctAggInfo;
     }
 
     /**

@@ -45,8 +45,6 @@ import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TTabletStatResult;
-import org.apache.doris.thrift.TTransmitDataParams;
-import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.UtFrameUtils;
 

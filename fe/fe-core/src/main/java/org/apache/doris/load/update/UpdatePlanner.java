@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -64,7 +64,7 @@ public class UpdatePlanner extends OriginalPlanner {
     private List<ScanNode> scanNodeList = Lists.newArrayList();
 
     public UpdatePlanner(long dbId, OlapTable targetTable, List<Expr> setExprs,
-                         TupleDescriptor srcTupleDesc, Analyzer analyzer) {
+            TupleDescriptor srcTupleDesc, Analyzer analyzer) {
         super(analyzer);
         this.targetDBId = dbId;
         this.targetTable = targetTable;
@@ -80,7 +80,8 @@ public class UpdatePlanner extends OriginalPlanner {
 
     public void plan(long txnId) throws UserException {
         // 1. gen scan node
-        OlapScanNode olapScanNode = new OlapScanNode(nodeIdGenerator.getNextId(), srcTupleDesc, "OlapScanNode");
+        OlapScanNode olapScanNode =
+                new OlapScanNode(nodeIdGenerator.getNextId(), srcTupleDesc, "OlapScanNode");
         /* BEGIN: Temporary code, this part of the code needs to be refactored */
         olapScanNode.closePreAggregation("This an update operation");
         olapScanNode.useBaseIndexId();
@@ -92,12 +93,12 @@ public class UpdatePlanner extends OriginalPlanner {
         }
         scanNodeList.add(olapScanNode);
         // 2. gen olap table sink
-        OlapTableSink olapTableSink = new OlapTableSink(targetTable, computeTargetTupleDesc(), null);
+        OlapTableSink olapTableSink =
+                new OlapTableSink(targetTable, computeTargetTupleDesc(), null);
         olapTableSink.init(analyzer.getContext().queryId(), txnId, targetDBId,
                 analyzer.getContext().getSessionVariable().queryTimeoutS,
-                analyzer.getContext().getSessionVariable().sendBatchParallelism,
-            false,
-            analyzer.getDescTbl());
+                analyzer.getContext().getSessionVariable().sendBatchParallelism, false,
+                analyzer.getDescTbl());
         olapTableSink.complete();
         // 3. gen plan fragment
         PlanFragment planFragment = new PlanFragment(fragmentIdGenerator.getNextId(), olapScanNode,
@@ -123,23 +124,13 @@ public class UpdatePlanner extends OriginalPlanner {
     }
 
     /**
-     * There are three Rules of output exprs:
-     * RuleA: columns that need to be updated,
-     * use the right child of a set expr
-     *     base column: (k1, v1)
-     *     update stmt: set v1=1
-     *     output expr: k1, 1(use 1 as output expr)
-     * RuleB: columns that do not need to be updated,
-     * just add the original value of column -> slot ref
-     *     base column: (k1, v1)
-     *     update stmt: set v1 = 1
-     *     output expr: k1(use k1 slot ref as output expr), 1
-     * RuleC: the output columns is being added by the schema change job,
-     * need to add default value expr in output expr
-     *     base column: (k1, v1)
-     *     schema change job: add v2 column
-     *     full column: (k1, v1, v2)
-     *     output expr: k1, v1, default_value(v2)
+     * There are three Rules of output exprs: RuleA: columns that need to be updated, use the right
+     * child of a set expr base column: (k1, v1) update stmt: set v1=1 output expr: k1, 1(use 1 as
+     * output expr) RuleB: columns that do not need to be updated, just add the original value of
+     * column -> slot ref base column: (k1, v1) update stmt: set v1 = 1 output expr: k1(use k1 slot
+     * ref as output expr), 1 RuleC: the output columns is being added by the schema change job,
+     * need to add default value expr in output expr base column: (k1, v1) schema change job: add v2
+     * column full column: (k1, v1, v2) output expr: k1, v1, default_value(v2)
      */
     private List<Expr> computeOutputExprs() throws AnalysisException {
         Map<String, Expr> columnNameToSetExpr = Maps.newHashMap();
@@ -153,7 +144,8 @@ public class UpdatePlanner extends OriginalPlanner {
         Map<String, SlotDescriptor> columnNameToSrcSlotDesc = Maps.newHashMap();
         for (SlotDescriptor srcSlotDesc : srcTupleDesc.getSlots()) {
             // pay attention to case ignore of column name
-            columnNameToSrcSlotDesc.put(srcSlotDesc.getColumn().getName().toLowerCase(), srcSlotDesc);
+            columnNameToSrcSlotDesc.put(srcSlotDesc.getColumn().getName().toLowerCase(),
+                    srcSlotDesc);
         }
 
         // compute output expr
@@ -161,9 +153,11 @@ public class UpdatePlanner extends OriginalPlanner {
         for (int i = 0; i < targetTable.getFullSchema().size(); i++) {
             Column column = targetTable.getFullSchema().get(i);
             // pay attention to case ignore of column name
-            String originColumnName = (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)
-                    ? column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()) : column.getName())
-                    .toLowerCase();
+            String originColumnName =
+                    (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)
+                            ? column.getName()
+                                    .substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length())
+                            : column.getName()).toLowerCase();
             Expr setExpr = columnNameToSetExpr.get(originColumnName);
             SlotDescriptor srcSlotDesc = columnNameToSrcSlotDesc.get(originColumnName);
             if (setExpr != null) {
@@ -182,7 +176,8 @@ public class UpdatePlanner extends OriginalPlanner {
                     if (column.isAllowNull()) {
                         defaultExpr = NullLiteral.create(column.getType());
                     } else {
-                        throw new AnalysisException("column has no source field, column=" + column.getName());
+                        throw new AnalysisException(
+                                "column has no source field, column=" + column.getName());
                     }
                 }
                 defaultExpr.analyze(analyzer);

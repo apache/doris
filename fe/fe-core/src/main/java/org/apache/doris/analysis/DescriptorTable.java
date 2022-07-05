@@ -25,11 +25,10 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.qe.dict.IDict;
 import org.apache.doris.thrift.TColumnDict;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TGlobalDict;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.doris.thrift.TGlobalDict;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

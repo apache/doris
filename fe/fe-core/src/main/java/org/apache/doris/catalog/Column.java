@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -82,7 +82,7 @@ public class Column implements Writable {
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "stats")
-    private ColumnStats stats;     // cardinality and selectivity etc.
+    private ColumnStats stats; // cardinality and selectivity etc.
     @SerializedName(value = "children")
     private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
@@ -126,8 +126,8 @@ public class Column implements Writable {
         this(name, type, false, null, false, null, "");
     }
 
-    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, String defaultValue,
-            String comment) {
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType,
+            String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, false, defaultValue, comment);
     }
 
@@ -244,11 +244,13 @@ public class Column implements Writable {
     }
 
     public boolean isDeleteSignColumn() {
-        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(DELETE_SIGN, true);
+        return !visible && aggregationType == AggregateType.REPLACE
+                && nameEquals(DELETE_SIGN, true);
     }
 
     public boolean isSequenceColumn() {
-        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
+        return !visible && aggregationType == AggregateType.REPLACE
+                && nameEquals(SEQUENCE_COL, true);
     }
 
     public PrimitiveType getDataType() {
@@ -291,7 +293,8 @@ public class Column implements Writable {
         return this.isAggregationTypeImplicit;
     }
 
-    public void setAggregationType(AggregateType aggregationType, boolean isAggregationTypeImplicit) {
+    public void setAggregationType(AggregateType aggregationType,
+            boolean isAggregationTypeImplicit) {
         this.aggregationType = aggregationType;
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
     }
@@ -384,7 +387,8 @@ public class Column implements Writable {
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
-        // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in `AlterReplicaTask`.
+        // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in
+        // `AlterReplicaTask`.
         // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
         // If we need to use `defineExpr` and call defineExpr.treeToThrift(),
         // make sure it is analyzed, or NPE will thrown.
@@ -409,8 +413,8 @@ public class Column implements Writable {
             childrenTColumn.setColumnType(childrenTColumnType);
             childrenTColumn.setIsAllowNull(children.isAllowNull());
             // TODO: If we don't set the aggregate type for children, the type will be
-            //  considered as TAggregationType::SUM after deserializing in BE.
-            //  For now, we make children inherit the aggregate type from their parent.
+            // considered as TAggregationType::SUM after deserializing in BE.
+            // For now, we make children inherit the aggregate type from their parent.
             if (tColumn.getAggregationType() != null) {
                 childrenTColumn.setAggregationType(tColumn.getAggregationType());
             }
@@ -428,15 +432,16 @@ public class Column implements Writable {
         }
 
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
-            throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
+            throw new DdlException(
+                    "Can not change " + getDataType() + " to " + other.getDataType());
         }
 
         if (type.isNumericType() && other.type.isStringType()) {
             Integer lSize = type.getColumnStringRepSize();
             Integer rSize = other.type.getColumnStringRepSize();
             if (rSize < lSize) {
-                throw new DdlException(
-                        "Can not change from wider type " + type.toSql() + " to narrower type " + other.type.toSql());
+                throw new DdlException("Can not change from wider type " + type.toSql()
+                        + " to narrower type " + other.type.toSql());
             }
         }
 
@@ -458,17 +463,20 @@ public class Column implements Writable {
             }
         }
 
-        if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
-                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
-                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
+        if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR)
+                || (getDataType() == PrimitiveType.CHAR
+                        && other.getDataType() == PrimitiveType.VARCHAR)
+                || (getDataType() == PrimitiveType.CHAR
+                        && other.getDataType() == PrimitiveType.CHAR)) {
             if (getStrLen() > other.getStrLen()) {
                 throw new DdlException("Cannot shorten string length");
             }
         }
 
         // now we support convert decimal to varchar type
-        if (getDataType() == PrimitiveType.DECIMALV2 && (other.getDataType() == PrimitiveType.VARCHAR
-                || other.getDataType() == PrimitiveType.STRING)) {
+        if (getDataType() == PrimitiveType.DECIMALV2
+                && (other.getDataType() == PrimitiveType.VARCHAR
+                        || other.getDataType() == PrimitiveType.STRING)) {
             return;
         }
     }
@@ -530,13 +538,13 @@ public class Column implements Writable {
         }
     }
 
-	public boolean isLowCardinality() {
-		return lowCardinality;
-	}
+    public boolean isLowCardinality() {
+        return lowCardinality;
+    }
 
-	public void setLowCardinality(boolean lowCardinality) {
-		this.lowCardinality = lowCardinality;
-	}
+    public void setLowCardinality(boolean lowCardinality) {
+        this.lowCardinality = lowCardinality;
+    }
 
     public String toSql() {
         return toSql(false);
@@ -556,7 +564,8 @@ public class Column implements Writable {
         } else {
             sb.append(" NOT NULL");
         }
-        if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
+        if (defaultValue != null && getDataType() != PrimitiveType.HLL
+                && getDataType() != PrimitiveType.BITMAP) {
             sb.append(" DEFAULT \"").append(defaultValue).append("\"");
         }
         if (StringUtils.isNotBlank(comment)) {
@@ -564,7 +573,7 @@ public class Column implements Writable {
         }
         sb.append("COMMENT \"").append(getComment(true)).append("\" ");
         if (lowCardinality) {
-        	sb.append("LowCardinality(" + this.dictEleNum + ")");
+            sb.append("LowCardinality(" + this.dictEleNum + ")");
         }
 
         return sb.toString();
@@ -577,8 +586,9 @@ public class Column implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, getDataType(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
-                getDefaultValue(), getStrLen(), getPrecision(), getScale(), comment, visible, children);
+        return Objects.hash(name, getDataType(), aggregationType, isAggregationTypeImplicit, isKey,
+                isAllowNull, getDefaultValue(), getStrLen(), getPrecision(), getScale(), comment,
+                visible, children);
     }
 
     @Override

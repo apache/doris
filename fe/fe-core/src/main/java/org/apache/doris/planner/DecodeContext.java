@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.qe.dict.IDict;
-import org.apache.doris.statistics.ColumnDict;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -48,7 +47,7 @@ public class DecodeContext {
 
     private final Map<Integer, IDict> dictSlotIdToColumnDict = new HashMap<>();
 
-    private final  Set<Integer> encodeNeededSlotSet = new HashSet<>();
+    private final Set<Integer> encodeNeededSlotSet = new HashSet<>();
 
     private final Set<Integer> dictOptimizationDisabledSlot = new HashSet<>();
 
@@ -58,7 +57,7 @@ public class DecodeContext {
 
     private final Analyzer analyzer;
 
-    private final PlannerContext ctx_;
+    private final PlannerContext ctx;
 
     private final Map<PlanNode, DecodeNode> childToDecodeNode = new HashMap<>();
 
@@ -66,8 +65,8 @@ public class DecodeContext {
 
     private boolean containsUnsupportedOpt = false;
 
-    public DecodeContext(PlannerContext ctx_, DescriptorTable tableDescriptor, Analyzer analyzer) {
-        this.ctx_ = ctx_;
+    public DecodeContext(PlannerContext ctx, DescriptorTable tableDescriptor, Analyzer analyzer) {
+        this.ctx = ctx;
         this.tableDescriptor = tableDescriptor;
         this.analyzer = analyzer;
     }
@@ -99,7 +98,8 @@ public class DecodeContext {
 
     public TupleDescriptor generateTupleDesc(TupleId src) {
         TupleDescriptor originTupleDesc = tableDescriptor.getTupleDesc(src);
-        TupleDescriptor tupleDesc = tableDescriptor.copyTupleDescriptor(src, "tuple-with-dict-slots");
+        TupleDescriptor tupleDesc =
+                tableDescriptor.copyTupleDescriptor(src, "tuple-with-dict-slots");
         tupleDesc.setTable(originTupleDesc.getTable());
         tupleDesc.setRef(originTupleDesc.getRef());
         tupleDesc.setAliases(originTupleDesc.getAliases_(), originTupleDesc.hasExplicitAlias());
@@ -114,9 +114,9 @@ public class DecodeContext {
 
     public SlotDescriptor getDictSlotDesc(int slotId) {
         Integer dictSlotId = slotIdToDictSlotId.get(slotId);
-            if (dictSlotId == null) {
-                return null;
-            }
+        if (dictSlotId == null) {
+            return null;
+        }
         return tableDescriptor.getSlotDesc(new SlotId(dictSlotId));
     }
 
@@ -130,13 +130,14 @@ public class DecodeContext {
         slotRef.setType(Type.SMALLINT);
     }
 
-    public DecodeNode newDecodeNode(PlanNode child, List<Integer> originSlotIdSet, ArrayList<TupleId> output) {
+    public DecodeNode newDecodeNode(PlanNode child, List<Integer> originSlotIdSet,
+            ArrayList<TupleId> output) {
         Map<Integer, Long> slotIdToDictId = new HashMap<>();
         for (Integer slotId : originSlotIdSet) {
             IDict columnDict = slotIdToColumnDict.get(slotId);
             slotIdToDictId.put(slotId, columnDict.getDictId());
         }
-        DecodeNode decodeNode =  new DecodeNode(ctx_.getNextNodeId(), child, slotIdToDictId, output);
+        DecodeNode decodeNode = new DecodeNode(ctx.getNextNodeId(), child, slotIdToDictId, output);
         childToDecodeNode.put(child, decodeNode);
         return decodeNode;
     }
@@ -182,7 +183,7 @@ public class DecodeContext {
                 slotIdList.add(slotId);
                 return;
             }
-         } else if (expr instanceof FunctionCallExpr) {
+        } else if (expr instanceof FunctionCallExpr) {
             FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
             String functionName = functionCallExpr.getFnName().getFunction();
             if (FunctionSet.DICT_SUPPORT_FUNC_SET.contains(functionName)) {
@@ -216,7 +217,7 @@ public class DecodeContext {
     }
 
     public PlanNodeId generateNextNodeId() {
-        return ctx_.getNextNodeId();
+        return ctx.getNextNodeId();
     }
 
     public AggregateInfo getSecondPhaseAggInfo(AggregationNode aggNode) {

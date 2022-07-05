@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
@@ -37,9 +37,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.dict.IDict;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
-import org.apache.doris.qe.dict.IDict;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -76,11 +76,12 @@ public class AggregationNode extends PlanNode {
     // If true, use streaming preaggregation algorithm. Not valid if this is a merge agg.
     private boolean useStreamingPreagg;
 
-    private static Set<String> dictAggregationSupportedFunction = Sets.newHashSet(FunctionSet.COUNT);
+    private static Set<String> dictAggregationSupportedFunction =
+            Sets.newHashSet(FunctionSet.COUNT);
 
     /**
-     * Create an agg node that is not an intermediate node.
-     * isIntermediate is true if it is a slave node in a 2-part agg plan.
+     * Create an agg node that is not an intermediate node. isIntermediate is true if it is a slave
+     * node in a 2-part agg plan.
      */
     public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo) {
         super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", StatisticalType.AGG_NODE);
@@ -112,11 +113,11 @@ public class AggregationNode extends PlanNode {
     }
 
     /**
-     * Sets this node as a preaggregation. Only valid to call this if it is not marked
-     * as a preaggregation
+     * Sets this node as a preaggregation. Only valid to call this if it is not marked as a
+     * preaggregation
      */
     public void setIsPreagg(PlannerContext ctx) {
-        useStreamingPreagg =  ctx.getQueryOptions().isSetDisableStreamPreaggregations()
+        useStreamingPreagg = ctx.getQueryOptions().isSetDisableStreamPreaggregations()
                 && !ctx.getQueryOptions().disable_stream_preaggregations
                 && aggInfo.getGroupingExprs().size() > 0;
     }
@@ -137,8 +138,7 @@ public class AggregationNode extends PlanNode {
     }
 
     /**
-     * Have this node materialize the aggregation's intermediate tuple instead of
-     * the output tuple.
+     * Have this node materialize the aggregation's intermediate tuple instead of the output tuple.
      */
     public void setIntermediateTuple() {
         Preconditions.checkState(!tupleIds.isEmpty());
@@ -163,11 +163,11 @@ public class AggregationNode extends PlanNode {
             // capture dependencies with non-SlotRef exprs.
             // Set<SlotId> groupBySlots = Sets.newHashSet();
             // for (int i = 0; i < aggInfo.getGroupingExprs().size(); ++i) {
-            //    if (aggInfo.getGroupingExprs().get(i).unwrapSlotRef(true) == null) continue;
-            //    groupBySlots.add(aggInfo.getOutputTupleDesc().getSlots().get(i).getId());
+            // if (aggInfo.getGroupingExprs().get(i).unwrapSlotRef(true) == null) continue;
+            // groupBySlots.add(aggInfo.getOutputTupleDesc().getSlots().get(i).getId());
             // }
             // ArrayList<Expr> bindingPredicates =
-            //         analyzer.getBoundPredicates(tupleIds.get(0), groupBySlots, true);
+            // analyzer.getBoundPredicates(tupleIds.get(0), groupBySlots, true);
             ArrayList<Expr> bindingPredicates = Lists.newArrayList();
             conjuncts.addAll(bindingPredicates);
 
@@ -208,8 +208,8 @@ public class AggregationNode extends PlanNode {
         // cardinality: product of # of distinct values produced by grouping exprs
         for (Expr groupingExpr : groupingExprs) {
             long numDistinct = groupingExpr.getNumDistinctValues();
-            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-                numDistinct));
+            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct="
+                    + Long.toString(numDistinct));
             if (numDistinct == -1) {
                 cardinality = -1;
                 break;
@@ -246,8 +246,8 @@ public class AggregationNode extends PlanNode {
         for (Expr groupingExpr : groupingExprs) {
             long numDistinct = groupingExpr.getNumDistinctValues();
             // TODO: remove these before 1.0
-            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-                numDistinct));
+            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct="
+                    + Long.toString(numDistinct));
             if (numDistinct == -1) {
                 cardinality = -1;
                 break;
@@ -287,8 +287,8 @@ public class AggregationNode extends PlanNode {
 
     @Override
     protected String debugString() {
-        return MoreObjects.toStringHelper(this).add("aggInfo", aggInfo.debugString()).addValue(
-            super.debugString()).toString();
+        return MoreObjects.toStringHelper(this).add("aggInfo", aggInfo.debugString())
+                .addValue(super.debugString()).toString();
     }
 
     @Override
@@ -300,10 +300,8 @@ public class AggregationNode extends PlanNode {
             aggregateFunctions.add(e.treeToThrift());
         }
         msg.agg_node =
-            new TAggregationNode(
-                aggregateFunctions,
-                aggInfo.getIntermediateTupleId().asInt(),
-                aggInfo.getOutputTupleId().asInt(), needsFinalize);
+                new TAggregationNode(aggregateFunctions, aggInfo.getIntermediateTupleId().asInt(),
+                        aggInfo.getOutputTupleId().asInt(), needsFinalize);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
@@ -330,18 +328,19 @@ public class AggregationNode extends PlanNode {
             return output.toString();
         }
 
-        if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
-            output.append(detailPrefix + "output: ").append(
-                getExplainString(aggInfo.getAggregateExprs()) + "\n");
+        if (aggInfo.getAggregateExprs() != null
+                && aggInfo.getMaterializedAggregateExprs().size() > 0) {
+            output.append(detailPrefix + "output: ")
+                    .append(getExplainString(aggInfo.getAggregateExprs()) + "\n");
         }
         // TODO: group by can be very long. Break it into multiple lines
-        output.append(detailPrefix + "group by: ").append(
-            getExplainString(aggInfo.getGroupingExprs()) + "\n");
+        output.append(detailPrefix + "group by: ")
+                .append(getExplainString(aggInfo.getGroupingExprs()) + "\n");
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix + "having: ").append(getExplainString(conjuncts) + "\n");
         }
-        output.append(detailPrefix).append(String.format(
-            "cardinality=%s", cardinality)).append("\n");
+        output.append(detailPrefix).append(String.format("cardinality=%s", cardinality))
+                .append("\n");
         return output.toString();
     }
 
@@ -390,11 +389,10 @@ public class AggregationNode extends PlanNode {
         List<FunctionCallExpr> aggExprList = aggInfo.getAggregateExprs();
         if (aggExprList != null) {
             aggExprList.forEach(e -> {
-                    if (!dictAggregationSupportedFunction.contains(e.getFnName().getFunction())) {
-                        SlotId.getAllSlotIdFromExpr(e, disabledDictOptimizationSlotIdSet);
-                    }
+                if (!dictAggregationSupportedFunction.contains(e.getFnName().getFunction())) {
+                    SlotId.getAllSlotIdFromExpr(e, disabledDictOptimizationSlotIdSet);
                 }
-            );
+            });
         }
 
         findEncodeNeedSlot(context);
@@ -409,11 +407,9 @@ public class AggregationNode extends PlanNode {
             this.originTupleIds = tupleIds;
             this.aggInfo = aggInfo;
             this.tupleIds = aggInfo.getOutputTupleId().asList();
-            tupleIds.stream()
-                .map(id -> context.getTableDesc().getTupleDesc(id))
-                    .map(TupleDescriptor::getSlots)
-                        .flatMap(Collection::stream)
-                            .forEach(s -> s.setIsMaterialized(true));
+            tupleIds.stream().map(id -> context.getTableDesc().getTupleDesc(id))
+                    .map(TupleDescriptor::getSlots).flatMap(Collection::stream)
+                    .forEach(s -> s.setIsMaterialized(true));
             aggInfo.materializeRequiredSlots(context.getAnalyzer(), null);
         } else {
             for (SlotRef slotRef : requireEncodeSlotRefList) {
@@ -423,32 +419,28 @@ public class AggregationNode extends PlanNode {
             }
 
             try {
-                ArrayList<Integer> materializedSlots = aggInfo.getMaterializedSlots_();
+                ArrayList<Integer> materializedSlots = aggInfo.getMaterializedSlots();
                 originTupleIds = tupleIds;
                 ArrayList<FunctionCallExpr> allAggExprs = aggInfo.getAggregateExprs();
-                ArrayList<FunctionCallExpr> distinctAggExprs = aggInfo.getDistinctAggExprs_();
+                ArrayList<FunctionCallExpr> distinctAggExprs = aggInfo.getDistinctAggExprs();
                 ArrayList<Expr> grouppingExprs = aggInfo.getGroupingExprs();
                 PlanNode planNode = getChild(0);
                 if (planNode.getOriginTupleIds() != null) {
                     ArrayList<TupleId> childNewTupleIds = planNode.getTupleIds();
                     ArrayList<TupleId> childOldTupleIds = planNode.getOriginTupleIds();
-                    DictPlanner.exprUpdate(childNewTupleIds,
-                        childOldTupleIds,
-                        allAggExprs,
-                        context);
-                    DictPlanner.exprUpdate(planNode.getTupleIds(),
-                        childOldTupleIds,
-                        grouppingExprs,
-                        context);
-                    DictPlanner.exprUpdate(planNode.getTupleIds(),
-                        childOldTupleIds,
-                        distinctAggExprs,
-                        context);
+                    DictPlanner.exprUpdate(childNewTupleIds, childOldTupleIds, allAggExprs,
+                            context);
+                    DictPlanner.exprUpdate(planNode.getTupleIds(), childOldTupleIds, grouppingExprs,
+                            context);
+                    DictPlanner.exprUpdate(planNode.getTupleIds(), childOldTupleIds,
+                            distinctAggExprs, context);
                 }
                 if (distinctAggExprs != null) {
                     allAggExprs.addAll(distinctAggExprs);
-                    if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
-                        grouppingExprs.remove(distinctAggExprs.get(0).getChild(0).ignoreImplicitCast());
+                    if (distinctAggExprs.get(0).getFnName().getFunction()
+                            .equalsIgnoreCase("group_concat")) {
+                        grouppingExprs
+                                .remove(distinctAggExprs.get(0).getChild(0).ignoreImplicitCast());
                     } else {
                         for (Expr expr : distinctAggExprs.get(0).getChildren()) {
                             grouppingExprs.remove(expr.ignoreImplicitCast());
@@ -457,19 +449,19 @@ public class AggregationNode extends PlanNode {
                     grouppingExprs.removeAll(distinctAggExprs);
                 }
                 AggregateInfo origin = aggInfo;
-                aggInfo = AggregateInfo.create(
-                    aggInfo.getGroupingExprs(),
-                    allAggExprs,
-                    null,
-                    context.getAnalyzer());
+                aggInfo = AggregateInfo.create(aggInfo.getGroupingExprs(), allAggExprs, null,
+                        context.getAnalyzer());
                 tupleIds = aggInfo.getOutputTupleId().asList();
-                aggInfo.setMaterializedSlots_(materializedSlots);
-                aggInfo.getMergeAggInfo().setMaterializedSlots_(materializedSlots);
+                aggInfo.setMaterializedSlots(materializedSlots);
+                aggInfo.getMergeAggInfo().setMaterializedSlots(materializedSlots);
                 if (aggInfo.isDistinctAgg()) {
-                    AggregateInfo secondPhaseAggInfo =  aggInfo.getSecondPhaseDistinctAggInfo();
-                    AggregateInfo originMergeAggInfoOfSecondPhaseAgg = origin.getSecondPhaseDistinctAggInfo().getMergeAggInfo();
-                    secondPhaseAggInfo.setMaterializedSlots_(origin.getSecondPhaseDistinctAggInfo().getMaterializedSlots_());
-                    secondPhaseAggInfo.getMergeAggInfo().setMaterializedSlots_(originMergeAggInfoOfSecondPhaseAgg.getMaterializedSlots_());
+                    AggregateInfo secondPhaseAggInfo = aggInfo.getSecondPhaseDistinctAggInfo();
+                    AggregateInfo originMergeAggInfoOfSecondPhaseAgg =
+                            origin.getSecondPhaseDistinctAggInfo().getMergeAggInfo();
+                    secondPhaseAggInfo.setMaterializedSlots(
+                            origin.getSecondPhaseDistinctAggInfo().getMaterializedSlots());
+                    secondPhaseAggInfo.getMergeAggInfo().setMaterializedSlots(
+                            originMergeAggInfoOfSecondPhaseAgg.getMaterializedSlots());
                     context.putNewFatherAgg(this, secondPhaseAggInfo);
                 }
                 TupleDescriptor newOutputTupleDesc = aggInfo.getOutputTupleDesc();
@@ -479,13 +471,14 @@ public class AggregationNode extends PlanNode {
                 // with the keySet of DecodeContext::dictSlotIdToColumnDict
                 for (SlotDescriptor slotDescriptor : newOutputTupleDesc.getSlots()) {
                     slotDescriptor.setIsMaterialized(true);
-                    for (Expr expr: slotDescriptor.getSourceExprs()) {
+                    for (Expr expr : slotDescriptor.getSourceExprs()) {
                         if (expr instanceof SlotRef) {
                             SlotRef slotRef = (SlotRef) expr;
                             int slotId = slotRef.getSlotId().asInt();
                             IDict columnDict = context.getColumnDictByDictSlotId(slotId);
                             if (columnDict != null) {
-                                context.addAvailableDict(slotDescriptor.getId().asInt(), columnDict);
+                                context.addAvailableDict(slotDescriptor.getId().asInt(),
+                                        columnDict);
                             }
                         }
                     }
@@ -504,7 +497,7 @@ public class AggregationNode extends PlanNode {
         DescriptorTable tableDesc = context.getTableDesc();
         List<SlotId> newOutputSlotIds = new ArrayList<>();
         List<SlotDescriptor> slotDescriptorList = newTupleDesc.getSlots();
-        for (SlotId slotId: outputSlotIds) {
+        for (SlotId slotId : outputSlotIds) {
             SlotDescriptor slotDesc = tableDesc.getSlotDesc(slotId);
             int slotDescOffset = slotDesc.getSlotOffset();
             newOutputSlotIds.add(slotDescriptorList.get(slotDescOffset).getId());
@@ -560,10 +553,8 @@ public class AggregationNode extends PlanNode {
                         continue;
                     }
                     SlotDescriptor slotDesc = slotRef.getDesc();
-                    slotDesc.getSourceExprs()
-                        .stream()
-                        .filter(e -> e instanceof SlotRef
-                        ).forEach(e -> slotRefQueue.add((SlotRef) e));
+                    slotDesc.getSourceExprs().stream().filter(e -> e instanceof SlotRef)
+                            .forEach(e -> slotRefQueue.add((SlotRef) e));
                 }
             }
         }
@@ -575,17 +566,12 @@ public class AggregationNode extends PlanNode {
         List<Integer> originSlotInOutput = null;
         if (outputSlotIds != null) {
             // TODO: should handle all the expr type instead of slotRef only
-            originSlotInOutput = outputSlotIds
-                .stream().map(SlotId::asInt)
-                .filter(originSlotIdSet::contains)
-                .collect(Collectors.toList());
+            originSlotInOutput = outputSlotIds.stream().map(SlotId::asInt)
+                    .filter(originSlotIdSet::contains).collect(Collectors.toList());
         } else {
             originSlotInOutput =
-                    aggInfo.getOutputTupleDesc().getSlots()
-                    .stream()
-                    .map(d -> d.getId().asInt())
-                    .filter(originSlotIdSet::contains)
-                    .collect(Collectors.toList());
+                    aggInfo.getOutputTupleDesc().getSlots().stream().map(d -> d.getId().asInt())
+                            .filter(originSlotIdSet::contains).collect(Collectors.toList());
 
         }
         if (originSlotInOutput.isEmpty()) {
@@ -597,12 +583,13 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) throws NotImplementedException {
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer)
+            throws NotImplementedException {
         outputSlotIds = Lists.newArrayList();
         for (TupleId tupleId : tupleIds) {
             for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
-                if (slotDescriptor.isMaterialized() &&
-                    (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                if (slotDescriptor.isMaterialized() && (requiredSlotIdSet == null
+                        || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
                     outputSlotIds.add(slotDescriptor.getId());
                 }
             }

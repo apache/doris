@@ -92,7 +92,6 @@ Status VOlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _rf_locks.push_back(std::make_unique<std::mutex>());
     }
 
-    RETURN_IF_ERROR(OlapScanNode::init(tnode, state));
     return Status::OK();
 }
 
@@ -291,8 +290,6 @@ Status VOlapScanNode::open(RuntimeState* state) {
         }
     }
 
-    assert(state);
-    RETURN_IF_ERROR(OlapScanNode::init(tnode, state));
     return Status::OK();
 }
 

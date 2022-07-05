@@ -111,8 +111,6 @@ Status NodeChannel::init(RuntimeState* state) {
     _timeout_watch.start();
     _max_pending_batches_bytes = _parent->_load_mem_limit / 20; //TODO: session variable percent
 
-    _runtime_state = state;
-
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
     return Status::OK();
@@ -141,8 +139,8 @@ void NodeChannel::open() {
     assert(_state);
     for (size_t i = 0; i < request.schema().slot_descs_size(); ++i) {
         auto slot = request.mutable_schema()->mutable_slot_descs(i);
-        auto dict = _state->get_global_dict(slot->id());
-        if (dict) {
+        if (_state->has_global_dict(slot->id())) {
+            auto dict = _state->get_global_dict(slot->id());
             slot->set_is_dict_encoded(true);
             for (size_t j = 0; j < dict->dict_value_num(); ++j) {
                 const auto& val = dict->get_value(j);

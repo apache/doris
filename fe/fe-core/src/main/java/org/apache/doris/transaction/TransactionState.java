@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -41,7 +41,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,8 +62,8 @@ public class TransactionState implements Writable {
     public static final TxnStateComparator TXN_ID_COMPARATOR = new TxnStateComparator();
 
     public enum LoadJobSourceType {
-        FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
-        BACKEND_STREAMING(2),         // streaming load use this type
+        FRONTEND(1), // old dpp load, mini load, insert stmt(not streaming type) use this type
+        BACKEND_STREAMING(2), // streaming load use this type
         INSERT_STREAMING(3), // insert stmt (streaming type), update stmt use this type
         ROUTINE_LOAD_TASK(4), // routine load task use this type
         BATCH_LOAD_JOB(5); // load job v2 for broker load
@@ -98,11 +97,7 @@ public class TransactionState implements Writable {
     }
 
     public enum TxnStatusChangeReason {
-        DB_DROPPED,
-        TIMEOUT,
-        OFFSET_OUT_OF_RANGE,
-        PAUSE,
-        NO_PARTITIONS;
+        DB_DROPPED, TIMEOUT, OFFSET_OUT_OF_RANGE, PAUSE, NO_PARTITIONS;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -127,8 +122,7 @@ public class TransactionState implements Writable {
     }
 
     public enum TxnSourceType {
-        FE(1),
-        BE(2);
+        FE(1), BE(2);
 
         public int value() {
             return flag;
@@ -156,8 +150,7 @@ public class TransactionState implements Writable {
         public TxnSourceType sourceType;
         public String ip;
 
-        public TxnCoordinator() {
-        }
+        public TxnCoordinator() {}
 
         public TxnCoordinator(TxnSourceType sourceType, String ip) {
             this.sourceType = sourceType;
@@ -201,12 +194,14 @@ public class TransactionState implements Writable {
     // In the beforeStateTransform() phase, we will get the callback object through the callbackId,
     // and if we get it, we will save it in this variable.
     // The main function of this variable is to retain a reference to this callback object.
-    // In order to prevent in the afterStateTransform() phase the callback object may have been removed
+    // In order to prevent in the afterStateTransform() phase the callback object may have been
+    // removed
     // from the CallbackFactory, resulting in the inability to obtain the object, causing some bugs
     // such as
     // 1. the write lock of callback object has been called in beforeStateTransform()
     // 2. callback object has been removed from CallbackFactory
-    // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
+    // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be
+    // released.
     private TxnStateChangeCallback callback = null;
     private long timeoutMs = Config.stream_load_default_timeout_second;
     private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000;
@@ -237,7 +232,7 @@ public class TransactionState implements Writable {
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
+        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); //mocked, to avoid NPE
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
@@ -252,8 +247,9 @@ public class TransactionState implements Writable {
         this.authCode = UUID.randomUUID().toString();
     }
 
-    public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
-            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
+    public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label,
+            TUniqueId requestId, LoadJobSourceType sourceType, TxnCoordinator txnCoordinator,
+            long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
@@ -397,9 +393,11 @@ public class TransactionState implements Writable {
         }
     }
 
-    public void beforeStateTransform(TransactionStatus transactionStatus) throws TransactionException {
+    public void beforeStateTransform(TransactionStatus transactionStatus)
+            throws TransactionException {
         // before status changed
-        callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
+        callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory()
+                .getCallback(callbackId);
         if (callback != null) {
             switch (transactionStatus) {
                 case ABORTED:
@@ -415,23 +413,25 @@ public class TransactionState implements Writable {
             switch (transactionStatus) {
                 case COMMITTED:
                     // Maybe listener has been deleted. The txn need to be aborted later.
-                    throw new TransactionException(
-                            "Failed to commit txn when callback " + callbackId + "could not be found");
+                    throw new TransactionException("Failed to commit txn when callback "
+                            + callbackId + "could not be found");
                 default:
                     break;
             }
         }
     }
 
-    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated) throws UserException {
+    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated)
+            throws UserException {
         afterStateTransform(transactionStatus, txnOperated, null);
     }
 
-    public void afterStateTransform(TransactionStatus transactionStatus,
-            boolean txnOperated, String txnStatusChangeReason) throws UserException {
+    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated,
+            String txnStatusChangeReason) throws UserException {
         // after status changed
         if (callback == null) {
-            callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
+            callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory()
+                    .getCallback(callbackId);
         }
         if (callback != null) {
             switch (transactionStatus) {
@@ -451,8 +451,8 @@ public class TransactionState implements Writable {
     }
 
     public void replaySetTransactionStatus() {
-        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(
-                callbackId);
+        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr()
+                .getCallbackFactory().getCallback(callbackId);
         if (callback != null) {
             if (transactionStatus == TransactionStatus.ABORTED) {
                 callback.replayOnAborted(this);
@@ -533,9 +533,11 @@ public class TransactionState implements Writable {
     }
 
     // Return true if this txn is related to streaming load/insert/routine load task.
-    // We call these tasks "Short" tasks because they will be cleaned up in a short time after they are finished.
+    // We call these tasks "Short" tasks because they will be cleaned up in a short time after they
+    // are finished.
     public boolean isShortTxn() {
-        return sourceType == LoadJobSourceType.BACKEND_STREAMING || sourceType == LoadJobSourceType.INSERT_STREAMING
+        return sourceType == LoadJobSourceType.BACKEND_STREAMING
+                || sourceType == LoadJobSourceType.INSERT_STREAMING
                 || sourceType == LoadJobSourceType.ROUTINE_LOAD_TASK;
     }
 
@@ -544,7 +546,7 @@ public class TransactionState implements Writable {
         return (transactionStatus == TransactionStatus.PREPARE
                 && currentMillis - prepareTime > timeoutMs)
                 || (transactionStatus == TransactionStatus.PRECOMMITTED
-                && currentMillis - preCommitTime > preCommittedTimeoutMs);
+                        && currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
     public synchronized void addTableIndexes(OlapTable table) {
@@ -575,7 +577,8 @@ public class TransactionState implements Writable {
         sb.append(", coordinator: ").append(txnCoordinator.toString());
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
-        sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
+        sb.append(", replica ids: ")
+                .append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
         sb.append(", prepare time: ").append(prepareTime);
         sb.append(", commit time: ").append(commitTime);
         sb.append(", finish time: ").append(finishTime);
@@ -643,19 +646,19 @@ public class TransactionState implements Writable {
         for (int i = 0; i < tableIdList.size(); i++) {
             out.writeLong(tableIdList.get(i));
         }
-    	if (invalidTableColumns == null) {
-    		out.writeInt(0);
-    	} else {
-    		out.writeInt(invalidTableColumns.size());
-    		for (long invalidTableId : invalidTableColumns.keySet()) {
-    			Set<String> invalidCols =  invalidTableColumns.get(invalidTableId);
-    			out.writeLong(invalidTableId);
-    			out.writeInt(invalidCols.size());
-    			for (String colName : invalidCols) {
-    				Text.writeString(out, colName);
-    			}
-    		}
-    	}
+        if (invalidTableColumns == null) {
+            out.writeInt(0);
+        } else {
+            out.writeInt(invalidTableColumns.size());
+            for (long invalidTableId : invalidTableColumns.keySet()) {
+                Set<String> invalidCols = invalidTableColumns.get(invalidTableId);
+                out.writeLong(invalidTableId);
+                out.writeInt(invalidCols.size());
+                for (String colName : invalidCols) {
+                    Text.writeString(out, colName);
+                }
+            }
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -668,7 +671,8 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
+        txnCoordinator =
+                new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
@@ -694,19 +698,19 @@ public class TransactionState implements Writable {
             tableIdList.add(in.readLong());
         }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_109) {
-        	int invalidTableNum = in.readInt();
-        	if (invalidTableNum > 0) {
-        		invalidTableColumns = Maps.newHashMap();
-        		for (int i = 0; i < invalidTableNum; ++i) {
-        			long invalidTableId = in.readLong();
-        			int invalidColNum = in.readInt();
-        			Set<String> invalidCols =  Sets.newHashSet();
-        			for (int j = 0; j < invalidColNum; ++j) {
-        				invalidCols.add(Text.readString(in));
-        			}
-        			invalidTableColumns.put(invalidTableId, invalidCols);
-        		}
-        	}
+            int invalidTableNum = in.readInt();
+            if (invalidTableNum > 0) {
+                invalidTableColumns = Maps.newHashMap();
+                for (int i = 0; i < invalidTableNum; ++i) {
+                    long invalidTableId = in.readLong();
+                    int invalidColNum = in.readInt();
+                    Set<String> invalidCols = Sets.newHashSet();
+                    for (int j = 0; j < invalidColNum; ++j) {
+                        invalidCols.add(Text.readString(in));
+                    }
+                    invalidTableColumns.put(invalidTableId, invalidCols);
+                }
+            }
         }
     }
 
@@ -722,11 +726,11 @@ public class TransactionState implements Writable {
         return this.errMsg;
     }
 
-	public Map<Long, Set<String>> getInvalidTableColumns() {
-		return invalidTableColumns;
-	}
+    public Map<Long, Set<String>> getInvalidTableColumns() {
+        return invalidTableColumns;
+    }
 
-	public void setInvalidTableColumns(Map<Long, Set<String>> invalidTableColumns) {
-		this.invalidTableColumns = invalidTableColumns;
-	}
+    public void setInvalidTableColumns(Map<Long, Set<String>> invalidTableColumns) {
+        this.invalidTableColumns = invalidTableColumns;
+    }
 }

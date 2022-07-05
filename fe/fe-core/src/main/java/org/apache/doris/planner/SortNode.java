@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
@@ -58,8 +58,8 @@ public class SortNode extends PlanNode {
     // info_.sortTupleSlotExprs_ substituted with the outputSmap_ for materialized slots in init().
     List<Expr> resolvedTupleExprs;
     private final SortInfo info;
-    private final boolean  useTopN;
-    private final boolean  isDefaultLimit;
+    private final boolean useTopN;
+    private final boolean isDefaultLimit;
     private long offset;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
@@ -69,7 +69,7 @@ public class SortNode extends PlanNode {
      * Constructor.
      */
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
-                    boolean isDefaultLimit, long offset) {
+            boolean isDefaultLimit, long offset) {
         super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
@@ -86,7 +86,8 @@ public class SortNode extends PlanNode {
      * Clone 'inputSortNode' for distributed Top-N.
      */
     public SortNode(PlanNodeId id, SortNode inputSortNode, PlanNode child) {
-        super(id, inputSortNode, inputSortNode.useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
+        super(id, inputSortNode, inputSortNode.useTopN ? "TOP-N" : "SORT",
+                StatisticalType.SORT_NODE);
         this.info = inputSortNode.info;
         this.useTopN = inputSortNode.useTopN;
         this.isDefaultLimit = inputSortNode.isDefaultLimit;
@@ -216,8 +217,8 @@ public class SortNode extends PlanNode {
         info.substituteOrderingExprs(outputSmap, analyzer);
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("sort id " + tupleIds.get(0).toString() + " smap: "
-                    + outputSmap.debugString());
+            LOG.debug(
+                    "sort id " + tupleIds.get(0).toString() + " smap: " + outputSmap.debugString());
             LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
         }
     }
@@ -249,9 +250,10 @@ public class SortNode extends PlanNode {
         for (Boolean isAsc : info.getIsAscOrder()) {
             strings.add(isAsc ? "a" : "d");
         }
-        return MoreObjects.toStringHelper(this).add("ordering_exprs",
-                Expr.debugString(info.getOrderingExprs())).add("is_asc",
-                "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
+        return MoreObjects.toStringHelper(this)
+                .add("ordering_exprs", Expr.debugString(info.getOrderingExprs()))
+                .add("is_asc", "[" + Joiner.on(" ").join(strings) + "]")
+                .addValue(super.debugString()).toString();
     }
 
     @Override

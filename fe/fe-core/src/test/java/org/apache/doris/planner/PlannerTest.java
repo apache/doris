@@ -499,7 +499,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, qSQL);
         stmtExecutor.execute();
     }
-    
+
     public void testDictPlan() throws Exception {
         String testSql1 = "SELECT count(col3) FROM db1.dict_test GROUP BY col1, col2";
         String plan = getSQLPlanOrErrorMsg(testSql1);

@@ -144,13 +144,11 @@ public class AggregateFunction extends Function {
         return fn;
     }
 
-    public static AggregateFunction createBuiltin(String name,
-                                                  List<Type> argTypes, Type retType, Type intermediateType,
-                                                  boolean hasVarArgs, boolean ignoresDistinct,
-                                                  boolean isAnalyticFn,
-                                                  boolean returnsNonNullOnEmpty,
-                                                  boolean vectorized) {
-        AggregateFunction fn = new AggregateFunction(new FunctionName(name), argTypes, retType, intermediateType, hasVarArgs);
+    public static AggregateFunction createBuiltin(String name, List<Type> argTypes, Type retType,
+            Type intermediateType, boolean hasVarArgs, boolean ignoresDistinct,
+            boolean isAnalyticFn, boolean returnsNonNullOnEmpty, boolean vectorized) {
+        AggregateFunction fn = new AggregateFunction(new FunctionName(name), argTypes, retType,
+                intermediateType, hasVarArgs);
         fn.setBinaryType(TFunctionBinaryType.BUILTIN);
         fn.ignoresDistinct = ignoresDistinct;
         fn.isAnalyticFn = isAnalyticFn;

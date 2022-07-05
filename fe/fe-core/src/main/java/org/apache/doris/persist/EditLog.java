@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -78,8 +78,7 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * EditLog maintains a log of the memory modifications.
- * Current we support only file editLog.
+ * EditLog maintains a log of the memory modifications. Current we support only file editLog.
  */
 public class EditLog {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);
@@ -141,7 +140,8 @@ public class EditLog {
                 case OperationType.OP_SAVE_TRANSACTION_ID: {
                     String idString = ((Text) journal.getData()).toString();
                     long id = Long.parseLong(idString);
-                    Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
+                    Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator()
+                            .initTransactionId(id + 1);
                     break;
                 }
                 case OperationType.OP_CREATE_DB: {
@@ -158,7 +158,8 @@ public class EditLog {
                     DatabaseInfo dbInfo = (DatabaseInfo) journal.getData();
                     String dbName = dbInfo.getDbName();
                     LOG.info("Begin to unprotect alter db info {}", dbName);
-                    catalog.replayAlterDatabaseQuota(dbName, dbInfo.getQuota(), dbInfo.getQuotaType());
+                    catalog.replayAlterDatabaseQuota(dbName, dbInfo.getQuota(),
+                            dbInfo.getQuotaType());
                     break;
                 }
                 case OperationType.OP_ERASE_DB: {
@@ -182,6 +183,7 @@ public class EditLog {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
                     LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
                             .getId());
+
                     catalog.replayCreateTable(info.getDbName(), info.getTable());
                     break;
                 }
@@ -190,6 +192,7 @@ public class EditLog {
                     LOG.info("Begin to unprotect alter external table schema. db = " + info.getDbName() + " table = "
                             + info.getTableName());
                     catalog.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
+
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
@@ -503,18 +506,23 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_LINKDB: {
-                    final DropLinkDbAndUpdateDbInfo param = (DropLinkDbAndUpdateDbInfo) journal.getData();
+                    final DropLinkDbAndUpdateDbInfo param =
+                            (DropLinkDbAndUpdateDbInfo) journal.getData();
                     catalog.replayDropLinkDb(param);
                     break;
                 }
                 case OperationType.OP_ADD_BROKER: {
-                    final BrokerMgr.ModifyBrokerInfo param = (BrokerMgr.ModifyBrokerInfo) journal.getData();
-                    catalog.getBrokerMgr().replayAddBrokers(param.brokerName, param.brokerAddresses);
+                    final BrokerMgr.ModifyBrokerInfo param =
+                            (BrokerMgr.ModifyBrokerInfo) journal.getData();
+                    catalog.getBrokerMgr().replayAddBrokers(param.brokerName,
+                            param.brokerAddresses);
                     break;
                 }
                 case OperationType.OP_DROP_BROKER: {
-                    final BrokerMgr.ModifyBrokerInfo param = (BrokerMgr.ModifyBrokerInfo) journal.getData();
-                    catalog.getBrokerMgr().replayDropBrokers(param.brokerName, param.brokerAddresses);
+                    final BrokerMgr.ModifyBrokerInfo param =
+                            (BrokerMgr.ModifyBrokerInfo) journal.getData();
+                    catalog.getBrokerMgr().replayDropBrokers(param.brokerName,
+                            param.brokerAddresses);
                     break;
                 }
                 case OperationType.OP_DROP_ALL_BROKER: {
@@ -552,7 +560,8 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
-                    catalog.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
+                    catalog.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository,
+                            true);
                     break;
                 }
                 case OperationType.OP_DROP_REPOSITORY: {
@@ -616,7 +625,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_ENCRYPTKEY: {
-                    EncryptKeySearchDesc encryptKeySearchDesc = (EncryptKeySearchDesc) journal.getData();
+                    EncryptKeySearchDesc encryptKeySearchDesc =
+                            (EncryptKeySearchDesc) journal.getData();
                     EncryptKeyHelper.replayDropEncryptKey(encryptKeySearchDesc);
                     break;
                 }
@@ -626,18 +636,21 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BACKEND_REPLICAS_INFO: {
-                    BackendReplicasInfo backendReplicasInfo = (BackendReplicasInfo) journal.getData();
+                    BackendReplicasInfo backendReplicasInfo =
+                            (BackendReplicasInfo) journal.getData();
                     Catalog.getCurrentCatalog().replayBackendReplicasInfo(backendReplicasInfo);
                     break;
                 }
                 case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                     RoutineLoadJob routineLoadJob = (RoutineLoadJob) journal.getData();
-                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayCreateRoutineLoadJob(routineLoadJob);
+                    Catalog.getCurrentCatalog().getRoutineLoadManager()
+                            .replayCreateRoutineLoadJob(routineLoadJob);
                     break;
                 }
                 case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
                     RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
-                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayChangeRoutineLoadJob(operation);
+                    Catalog.getCurrentCatalog().getRoutineLoadManager()
+                            .replayChangeRoutineLoadJob(operation);
                     break;
                 }
                 case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
@@ -667,13 +680,16 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                    SyncJob.SyncJobUpdateStateInfo info = (SyncJob.SyncJobUpdateStateInfo) journal.getData();
+                    SyncJob.SyncJobUpdateStateInfo info =
+                            (SyncJob.SyncJobUpdateStateInfo) journal.getData();
                     catalog.getSyncJobManager().replayUpdateSyncJobState(info);
                     break;
                 }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
-                    FetchStreamLoadRecord fetchStreamLoadRecord = (FetchStreamLoadRecord) journal.getData();
-                    catalog.getStreamLoadRecordMgr().replayFetchStreamLoadRecord(fetchStreamLoadRecord);
+                    FetchStreamLoadRecord fetchStreamLoadRecord =
+                            (FetchStreamLoadRecord) journal.getData();
+                    catalog.getStreamLoadRecordMgr()
+                            .replayFetchStreamLoadRecord(fetchStreamLoadRecord);
                     break;
                 }
                 case OperationType.OP_CREATE_RESOURCE: {
@@ -682,7 +698,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_RESOURCE: {
-                    final DropResourceOperationLog operationLog = (DropResourceOperationLog) journal.getData();
+                    final DropResourceOperationLog operationLog =
+                            (DropResourceOperationLog) journal.getData();
                     catalog.getResourceMgr().replayDropResource(operationLog);
                     break;
                 }
@@ -716,7 +733,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
-                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
+                    BatchAlterJobPersistInfo batchAlterJobV2 =
+                            (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
                         catalog.getMaterializedViewHandler().replayAlterJobV2(alterJobV2);
                     }
@@ -730,13 +748,14 @@ public class EditLog {
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
-                    ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
+                    ModifyTablePropertyOperationLog log =
+                            (ModifyTablePropertyOperationLog) journal.getData();
                     catalog.replayModifyTableProperty(opCode, log);
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
-                    ModifyTableDefaultDistributionBucketNumOperationLog log
-                            = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
+                    ModifyTableDefaultDistributionBucketNumOperationLog log =
+                            (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
                     catalog.replayModifyTableDefaultDistributionBucketNum(log);
                     break;
                 }
@@ -757,12 +776,14 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_SET_REPLICA_STATUS: {
-                    SetReplicaStatusOperationLog log = (SetReplicaStatusOperationLog) journal.getData();
+                    SetReplicaStatusOperationLog log =
+                            (SetReplicaStatusOperationLog) journal.getData();
                     catalog.replaySetReplicaStatus(log);
                     break;
                 }
                 case OperationType.OP_REMOVE_ALTER_JOB_V2: {
-                    RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
+                    RemoveAlterJobV2OperationLog log =
+                            (RemoveAlterJobV2OperationLog) journal.getData();
                     switch (log.getType()) {
                         case ROLLUP:
                             catalog.getMaterializedViewHandler().replayRemoveAlterJobV2(log);
@@ -776,18 +797,20 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_MODIFY_COMMENT: {
-                    ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
+                    ModifyCommentOperationLog operation =
+                            (ModifyCommentOperationLog) journal.getData();
                     catalog.getAlterInstance().replayModifyComment(operation);
                     break;
                 }
                 case OperationType.OP_MODIFY_COL_SETTINGS: {
-                	ModifyColumnSettingsLog operation = (ModifyColumnSettingsLog) journal.getData();
+                    ModifyColumnSettingsLog operation = (ModifyColumnSettingsLog) journal.getData();
                     catalog.getAlterInstance().replayModifyColumnSettings(operation);
                     break;
-                
+
                 }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
-                    AlterRoutineLoadJobOperationLog log = (AlterRoutineLoadJobOperationLog) journal.getData();
+                    AlterRoutineLoadJobOperationLog log =
+                            (AlterRoutineLoadJobOperationLog) journal.getData();
                     catalog.getRoutineLoadManager().replayAlterRoutineLoadJob(log);
                     break;
                 }
@@ -812,12 +835,14 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_SQL_BLOCK_RULE: {
-                    DropSqlBlockRuleOperationLog log = (DropSqlBlockRuleOperationLog) journal.getData();
+                    DropSqlBlockRuleOperationLog log =
+                            (DropSqlBlockRuleOperationLog) journal.getData();
                     catalog.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
-                    ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
+                    ModifyTableEngineOperationLog log =
+                            (ModifyTableEngineOperationLog) journal.getData();
                     catalog.getAlterInstance().replayProcessModifyEngine(log);
                     break;
                 }
@@ -1403,7 +1428,8 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_REPLICATION_NUM, info);
     }
 
-    public void logModifyDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog info) {
+    public void logModifyDefaultDistributionBucketNum(
+            ModifyTableDefaultDistributionBucketNumOperationLog info) {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, info);
     }
 
@@ -1446,11 +1472,11 @@ public class EditLog {
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
     }
-    
+
     public void logModifyComment(ModifyCommentOperationLog op) {
         logEdit(OperationType.OP_MODIFY_COMMENT, op);
     }
-    
+
     public void logModifyColSettings(ModifyColumnSettingsLog op) {
         logEdit(OperationType.OP_MODIFY_COL_SETTINGS, op);
     }

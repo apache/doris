@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -43,8 +43,8 @@ public abstract class Planner {
 
     public abstract List<ScanNode> getScanNodes();
 
-    public abstract void plan(StatementBase queryStmt,
-             TQueryOptions queryOptions) throws UserException;
+    public abstract void plan(StatementBase queryStmt, TQueryOptions queryOptions)
+            throws UserException;
 
     public String getExplainString(ExplainOptions explainOptions) {
         Preconditions.checkNotNull(explainOptions);
@@ -61,9 +61,9 @@ public abstract class Planner {
         }
 
         // print text plan
-        org.apache.doris.thrift.TExplainLevel
-                explainLevel = explainOptions.isVerbose()
-                ? org.apache.doris.thrift.TExplainLevel.VERBOSE : org.apache.doris.thrift.TExplainLevel.NORMAL;
+        org.apache.doris.thrift.TExplainLevel explainLevel =
+                explainOptions.isVerbose() ? org.apache.doris.thrift.TExplainLevel.VERBOSE
+                        : org.apache.doris.thrift.TExplainLevel.NORMAL;
         StringBuilder str = new StringBuilder();
         for (int i = 0; i < fragments.size(); ++i) {
             PlanFragment fragment = fragments.get(i);
@@ -81,48 +81,11 @@ public abstract class Planner {
     }
 
     public void appendTupleInfo(StringBuilder stringBuilder) {}
-    /**
-     * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
-     * a list such that element i of that list can only consume output of the following fragments j > i.
-     */
-    public void createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
-            throws UserException {
-        QueryStmt queryStmt;
-        if (statement instanceof InsertStmt) {
-            queryStmt = ((InsertStmt) statement).getQueryStmt();
-        } else {
-            queryStmt = (QueryStmt) statement;
-        }
 
-        plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
-        singleNodePlanner = new SingleNodePlanner(plannerContext);
-        PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
-        if (VectorizedUtil.isVectorized()) {
-            singleNodePlan.convertToVectoriezd();
-        }
 
-        if (analyzer.getContext() != null
-                && analyzer.getContext().getSessionVariable().isEnableProjection()
-                && statement instanceof SelectStmt) {
-            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
-            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-        }
-
-        if (VectorizedUtil.isVectorized() && ConnectContext.get().getSessionVariable().isEnableLowCardinalityOpt()) {
-            DictPlanner dictPlanner = new DictPlanner(plannerContext,
-                analyzer.getDescTbl(), analyzer, queryStmt.getResultExprs());
-            singleNodePlan = dictPlanner.plan(singleNodePlan);
-        }
-
-        if (statement instanceof InsertStmt) {
-            InsertStmt insertStmt = (InsertStmt) statement;
-            insertStmt.prepareExpressions();
-        }
-    }
-    
-        // TODO chenhao16 , no used materialization work
-        // compute referenced slots before calling computeMemLayout()
-        //analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
+    // TODO chenhao16 , no used materialization work
+    // compute referenced slots before calling computeMemLayout()
+    // analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
 
     public List<PlanFragment> getFragments() {
         return fragments;

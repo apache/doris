@@ -150,6 +150,13 @@ public class OriginalPlanner extends Planner {
             projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
         }
 
+        if (VectorizedUtil.isVectorized()
+                && ConnectContext.get().getSessionVariable().isEnableLowCardinalityOpt()) {
+            DictPlanner dictPlanner = new DictPlanner(plannerContext, analyzer.getDescTbl(),
+                    analyzer, queryStmt.getResultExprs());
+            singleNodePlan = dictPlanner.plan(singleNodePlan);
+        }
+
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();

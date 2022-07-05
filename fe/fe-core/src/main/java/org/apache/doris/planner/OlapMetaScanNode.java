@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -33,9 +33,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TMetaScanNode;
@@ -73,9 +74,8 @@ public class OlapMetaScanNode extends ScanNode {
 
     private List<TScanRangeLocations> result;
 
-    public OlapMetaScanNode(PlanNodeId id,
-                            TupleDescriptor tupleDesc) {
-        super(id, tupleDesc, NODE_NAME, NodeType.META_SCAN_NODE);
+    public OlapMetaScanNode(PlanNodeId id, TupleDescriptor tupleDesc) {
+        super(id, tupleDesc, NODE_NAME, StatisticalType.META_SCAN_NODE);
         this.olapTable = (OlapTable) tupleDesc.getTable();
         result = getScanRangeLocations(0);
     }
@@ -103,36 +103,42 @@ public class OlapMetaScanNode extends ScanNode {
                 List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion);
                 if (replicas.isEmpty()) {
                     LOG.error("no queryable replica found in tablet {}. visible version {}",
-                        tabletId, visibleVersion);
+                            tabletId, visibleVersion);
                     if (LOG.isDebugEnabled()) {
                         for (Replica replica : tablet.getReplicas()) {
                             LOG.debug("tablet {}, replica: {}", tabletId, replica.toString());
                         }
                     }
-                    throw new RuntimeException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
+                    throw new RuntimeException(
+                            "Failed to get scan range, no queryable replica found in tablet: "
+                                    + tabletId);
                 }
 
                 Collections.shuffle(replicas);
                 boolean tabletIsNull = true;
                 List<String> errs = Lists.newArrayList();
                 for (Replica replica : replicas) {
-                    Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                    Backend backend =
+                            Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
                     if (backend == null || !backend.isAlive()) {
                         LOG.debug("backend {} not exists or is not alive for replica {}",
-                            replica.getBackendId(), replica.getId());
-                        errs.add(replica.getId() + "'s backend " + replica.getBackendId() + " does not exist or not alive");
+                                replica.getBackendId(), replica.getId());
+                        errs.add(replica.getId() + "'s backend " + replica.getBackendId()
+                                + " does not exist or not alive");
                         continue;
                     }
                     String ip = backend.getHost();
                     int port = backend.getBePort();
-                    TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
+                    TScanRangeLocation scanRangeLocation =
+                            new TScanRangeLocation(new TNetworkAddress(ip, port));
                     scanRangeLocation.setBackendId(replica.getBackendId());
                     scanRangeLocations.addToLocations(scanRangeLocation);
                     paloRange.addToHosts(new TNetworkAddress(ip, port));
                     tabletIsNull = false;
                 }
                 if (tabletIsNull) {
-                    throw new RuntimeException(tabletId + " have no queryable replicas. err: " + Joiner.on(", ").join(errs));
+                    throw new RuntimeException(tabletId + " have no queryable replicas. err: "
+                            + Joiner.on(", ").join(errs));
                 }
                 TScanRange scanRange = new TScanRange();
                 scanRange.setPaloScanRange(paloRange);
@@ -146,15 +152,16 @@ public class OlapMetaScanNode extends ScanNode {
 
     public DataPartition constructInputPartitionByDistributionInfo() throws UserException {
         ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
-        if ((colocateTableIndex.isColocateTable(olapTable.getId())
-            && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId())))
-            || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
-            || olapTable.getPartitions().size() == 1) {
+        if ((colocateTableIndex.isColocateTable(olapTable.getId()) && !colocateTableIndex
+                .isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId())))
+                || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || olapTable.getPartitions().size() == 1) {
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             if (!(distributionInfo instanceof HashDistributionInfo)) {
                 return DataPartition.RANDOM;
             }
-            List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            List<Column> distributeColumns =
+                    ((HashDistributionInfo) distributionInfo).getDistributionColumns();
             List<Expr> dataDistributeExprs = Lists.newArrayList();
             for (Column column : distributeColumns) {
                 SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
@@ -181,7 +188,7 @@ public class OlapMetaScanNode extends ScanNode {
     }
 
     private void checkSlot(SlotRef slotRef) {
-        Table slotRefTable = slotRef.getTable();
+        TableIf slotRefTable = slotRef.getTable();
         Preconditions.checkState(slotRefTable.getId() == olapTable.getId());
         SlotDescriptor slotDesc = slotRef.getDesc();
         Preconditions.checkState(getTupleDesc().getSlots().contains(slotDesc));

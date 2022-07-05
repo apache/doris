@@ -42,8 +42,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.qe.dict.GlobalDictManger;
-import org.apache.doris.qe.dict.IDict;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;

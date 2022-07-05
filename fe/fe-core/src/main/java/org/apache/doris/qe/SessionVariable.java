@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -76,13 +76,16 @@ public class SessionVariable implements Serializable, Writable {
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
-    public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
+    public static final String DISABLE_STREAMING_PREAGGREGATIONS =
+            "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
-    public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM =
+            "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
-    public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
+    public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE =
+            "enable_exchange_node_parallel_merge";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -100,18 +103,19 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
     /*
-     * configure the mem limit of load process on BE.
-     * Previously users used exec_mem_limit to set memory limits.
-     * To maintain compatibility, the default value of load_mem_limit is 0,
-     * which means that the load memory limit is still using exec_mem_limit.
-     * Users can set a value greater than zero to explicitly specify the load memory limit.
-     * This variable is mainly for INSERT operation, because INSERT operation has both query and load part.
-     * Using only the exec_mem_limit variable does not make a good distinction of memory limit between the two parts.
+     * configure the mem limit of load process on BE. Previously users used exec_mem_limit to set
+     * memory limits. To maintain compatibility, the default value of load_mem_limit is 0, which
+     * means that the load memory limit is still using exec_mem_limit. Users can set a value greater
+     * than zero to explicitly specify the load memory limit. This variable is mainly for INSERT
+     * operation, because INSERT operation has both query and load part. Using only the
+     * exec_mem_limit variable does not make a good distinction of memory limit between the two
+     * parts.
      */
     public static final String LOAD_MEM_LIMIT = "load_mem_limit";
     public static final String USE_V2_ROLLUP = "use_v2_rollup";
     public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
-    public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
+    public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL =
+            "rewrite_count_distinct_to_bitmap_hll";
     public static final String EVENT_SCHEDULER = "event_scheduler";
     public static final String STORAGE_ENGINE = "storage_engine";
     // Compatible with datagrip mysql
@@ -122,7 +126,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
     public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
-    public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
+    public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN =
+            "max_pushdown_conditions_per_column";
 
     // when true, the partition column must be set to NOT NULL.
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
@@ -142,7 +147,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_FILTERS_MAX_NUM = "runtime_filters_max_num";
     // Runtime filter type used, For testing, Corresponds to TRuntimeFilterType
     public static final String RUNTIME_FILTER_TYPE = "runtime_filter_type";
-    // if the right table is greater than this value in the hash join,  we will ignore IN filter
+    // if the right table is greater than this value in the hash join, we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
     // max ms to wait transaction publish finish when exec insert stmt.
@@ -164,7 +169,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
 
-    public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
+    public static final String PARTITION_PRUNE_ALGORITHM_VERSION =
+            "partition_prune_algorithm_version";
 
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
@@ -185,11 +191,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
-    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
-            = "trim_tailing_spaces_for_external_table_query";
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY =
+            "trim_tailing_spaces_for_external_table_query";
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
-    
+
     public static final String ENABLE_LOW_CARDINALITY_OPT = "enable_low_cardinality_optimize";
 
     public static final String ENABLE_NEREIDS = "enable_nereids";
@@ -283,19 +289,23 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = QUERY_CACHE_TYPE)
     public int queryCacheType = 0;
 
-    // The number of seconds the server waits for activity on an interactive connection before closing it
+    // The number of seconds the server waits for activity on an interactive connection before
+    // closing it
     @VariableMgr.VarAttr(name = INTERACTIVE_TIMTOUT)
     public int interactiveTimeout = 3600;
 
-    // The number of seconds the server waits for activity on a noninteractive connection before closing it.
+    // The number of seconds the server waits for activity on a noninteractive connection before
+    // closing it.
     @VariableMgr.VarAttr(name = WAIT_TIMEOUT)
     public int waitTimeoutS = 28800;
 
-    // The number of seconds to wait for a block to be written to a connection before aborting the write
+    // The number of seconds to wait for a block to be written to a connection before aborting the
+    // write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
     public int netWriteTimeout = 60;
 
-    // The number of seconds to wait for a block to be written to a connection before aborting the write
+    // The number of seconds to wait for a block to be written to a connection before aborting the
+    // write
     @VariableMgr.VarAttr(name = NET_READ_TIMEOUT)
     public int netReadTimeout = 60;
 
@@ -333,8 +343,7 @@ public class SessionVariable implements Serializable, Writable {
     public String preferJoinMethod = "broadcast";
 
     /*
-     * the parallel exec instance num for one Fragment in one BE
-     * 1 means disable this feature
+     * the parallel exec instance num for one Fragment in one BE 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
     public int parallelExecInstanceNum = 1;
@@ -474,15 +483,12 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableArrayType = false;
 
     /**
-     * as the new optimizer is not mature yet, use this var
-     * to control whether to use new optimizer, remove it when
-     * the new optimizer is fully developed. I hope that day
-     * would be coming soon.
+     * as the new optimizer is not mature yet, use this var to control whether to use new optimizer,
+     * remove it when the new optimizer is fully developed. I hope that day would be coming soon.
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
     private boolean enableNereids = false;
-    boolean enableArrayType = false;
-    
+
     @VariableMgr.VarAttr(name = ENABLE_LOW_CARDINALITY_OPT)
     private boolean enableLowCardinalityOpt = true;
 
@@ -965,10 +971,11 @@ public class SessionVariable implements Serializable, Writable {
         return trimTailingSpacesForExternalTableQuery;
     }
 
-    public void setTrimTailingSpacesForExternalTableQuery(boolean trimTailingSpacesForExternalTableQuery) {
+    public void setTrimTailingSpacesForExternalTableQuery(
+            boolean trimTailingSpacesForExternalTableQuery) {
         this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
     }
-    
+
     public void setEnableProjection(boolean enableProjection) {
         this.enableProjection = enableProjection;
     }
@@ -1011,8 +1018,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     /**
-     * Serialize to thrift object.
-     * Used for rest api.
+     * Serialize to thrift object. Used for rest api.
      **/
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
@@ -1204,7 +1210,8 @@ public class SessionVariable implements Serializable, Writable {
                         f.set(this, val);
                         break;
                     default:
-                        throw new IllegalArgumentException("Unknown field type: " + f.getType().getSimpleName());
+                        throw new IllegalArgumentException(
+                                "Unknown field type: " + f.getType().getSimpleName());
                 }
             }
         } catch (IllegalAccessException e) {
@@ -1236,14 +1243,6 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setLoadMemLimit(loadMemLimit);
         return queryOptions;
-    }
-    
-    public boolean isDictTest() {
-        return dictTest;
-    }
-
-    public void setDictTest(boolean dictTest) {
-        this.dictTest = dictTest;
     }
 
 }

@@ -72,7 +72,7 @@ public abstract class AggregateInfoBase {
     // Populated in materializeRequiredSlots() which must be implemented by subclasses.
     protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
 
-    protected ArrayList<FunctionCallExpr> distinctAggExprs_;
+    protected ArrayList<FunctionCallExpr> distinctAggExprs;
 
     protected AggregateInfoBase(ArrayList<Expr> groupingExprs,
                                 ArrayList<FunctionCallExpr> aggExprs)  {
@@ -219,8 +219,8 @@ public abstract class AggregateInfoBase {
         return outputTupleDesc.getId();
     }
 
-    public void setOutputTupleDesc_(TupleDescriptor outputTupleDesc_) {
-        this.outputTupleDesc = outputTupleDesc_;
+    public void setOutputTupleDesc_(TupleDescriptor outputTupleDesc) {
+        this.outputTupleDesc = outputTupleDesc;
     }
 
     public boolean requiresIntermediateTuple() {
@@ -244,12 +244,12 @@ public abstract class AggregateInfoBase {
         return false;
     }
 
-    public ArrayList<Integer> getMaterializedSlots_() {
+    public ArrayList<Integer> getMaterializedSlots() {
         return materializedSlots;
     }
 
-    public void setMaterializedSlots_(ArrayList<Integer> materializedSlots_) {
-        this.materializedSlots = materializedSlots_;
+    public void setMaterializedSlots(ArrayList<Integer> materializedSlots) {
+        this.materializedSlots = materializedSlots;
     }
 
     /**
@@ -284,7 +284,7 @@ public abstract class AggregateInfoBase {
 
     protected abstract String tupleDebugName();
 
-    public ArrayList<FunctionCallExpr> getDistinctAggExprs_() {
-        return distinctAggExprs_;
+    public ArrayList<FunctionCallExpr> getDistinctAggExprs() {
+        return distinctAggExprs;
     }
 }
