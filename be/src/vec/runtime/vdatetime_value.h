@@ -202,7 +202,7 @@ public:
     // load week_of_year table: from 1950-01-01 to 2029-12-30
     // week_of_year_table
 #include "vec/runtime/week_of_year.data"
-
+#include "vec/runtime/week.data"
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use diffrent creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.
