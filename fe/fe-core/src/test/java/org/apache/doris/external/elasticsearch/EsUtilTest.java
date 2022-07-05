@@ -40,6 +40,7 @@ import org.json.simple.JSONValue;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -193,8 +194,7 @@ public class EsUtilTest extends EsTestCase {
                 EsUtil.toEsDsl(andPredicate).toJson());
         Assert.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
                 EsUtil.toEsDsl(orPredicate).toJson());
-        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
-                EsUtil.toEsDsl(notPredicate).toJson());
+        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.toEsDsl(notPredicate).toJson());
     }
 
     @Test
@@ -250,10 +250,42 @@ public class EsUtilTest extends EsTestCase {
         SlotRef k2 = new SlotRef(null, "k2");
         IntLiteral intLiteral = new IntLiteral(5);
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, k2, intLiteral);
-        CompoundPredicate compoundPredicate =
-                new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate, functionCallExpr);
+        CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate,
+                functionCallExpr);
         Assert.assertEquals(
                 "{\"bool\":{\"must\":[{\"term\":{\"k2\":5}},{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}]}}",
                 EsUtil.toEsDsl(compoundPredicate).toJson());
+    }
+
+    @Test
+    public void testGenEsUrls() {
+        EsUrls typeLimit = EsUtil.genEsUrls("test", "_doc", 10);
+        Assertions.assertEquals(
+                "/test/_doc/_search?terminate_after=10&filter_path=_scroll_id,hits.total,hits.hits._score,"
+                        + "hits.hits.fields", typeLimit.getSearchUrl());
+        Assertions.assertNull(typeLimit.getInitScrollUrl());
+        Assertions.assertNull(typeLimit.getNextScrollUrl());
+
+        EsUrls noTypeLimit = EsUtil.genEsUrls("test", null, 10);
+        Assertions.assertEquals(
+                "/test/_search?terminate_after=10&filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields",
+                noTypeLimit.getSearchUrl());
+        Assertions.assertNull(noTypeLimit.getInitScrollUrl());
+        Assertions.assertNull(noTypeLimit.getNextScrollUrl());
+
+        EsUrls typeNoLimit = EsUtil.genEsUrls("test", "_doc", -1);
+        Assertions.assertEquals("/test/_doc/_search?scroll=5mfilter_path=_scroll_id,hits.total,hits.hits._score,"
+                + "hits.hits.fields&terminate_after=1024", typeNoLimit.getInitScrollUrl());
+        Assertions.assertEquals(
+                "/_search/scroll?filter_path=_scroll_id,hits.total,hits.hits._score," + "hits.hits.fields",
+                typeNoLimit.getNextScrollUrl());
+        Assertions.assertNull(typeNoLimit.getSearchUrl());
+
+        EsUrls noTypeNoLimit = EsUtil.genEsUrls("test", null, -1);
+        Assertions.assertEquals("/test/_search?scroll=5mfilter_path=_scroll_id,hits.total,hits.hits._score,"
+                + "hits.hits.fields&terminate_after=1024", noTypeNoLimit.getInitScrollUrl());
+        Assertions.assertEquals("/_search/scroll?filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields",
+                noTypeNoLimit.getNextScrollUrl());
+        Assertions.assertNull(noTypeNoLimit.getSearchUrl());
     }
 }

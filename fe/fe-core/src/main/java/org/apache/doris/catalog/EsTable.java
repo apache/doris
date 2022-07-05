@@ -60,12 +60,15 @@ public class EsTable extends Table {
     public static final String VERSION = "version";
     public static final String DOC_VALUES_MODE = "doc_values_mode";
 
-    public static final String TRANSPORT_HTTP = "http";
     public static final String DOC_VALUE_SCAN = "enable_docvalue_scan";
     public static final String KEYWORD_SNIFF = "enable_keyword_sniff";
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
     public static final String NODES_DISCOVERY = "nodes_discovery";
     public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
+    public static final String ES_DSL = "es_dsl";
+    public static final String INIT_SCROLL_URL = "init_scroll_url";
+    public static final String NEXT_SCROLL_URL = "next_scroll_url";
+    public static final String SEARCH_URL = "search_url";
 
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
 
@@ -94,8 +97,6 @@ public class EsTable extends Table {
 
     // which type used for `indexName`
     private String mappingType = null;
-    // only support http
-    private String transport = "http";
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
@@ -263,7 +264,6 @@ public class EsTable extends Table {
         if (mappingType != null) {
             tableContext.put("mappingType", mappingType);
         }
-        tableContext.put("transport", transport);
         if (majorVersion != null) {
             tableContext.put("majorVersion", majorVersion.toString());
         }
@@ -296,7 +296,7 @@ public class EsTable extends Table {
             if (mappingType != null) {
                 sb.append(mappingType);
             }
-            sb.append(transport);
+            sb.append("http");
         } else {
             for (Map.Entry<String, String> entry : tableContext.entrySet()) {
                 sb.append(entry.getKey());
@@ -335,7 +335,6 @@ public class EsTable extends Table {
         passwd = tableContext.get("passwd");
         indexName = tableContext.get("indexName");
         mappingType = tableContext.get("mappingType");
-        transport = tableContext.get("transport");
         if (tableContext.containsKey("majorVersion")) {
             try {
                 majorVersion = EsMajorVersion.parse(tableContext.get("majorVersion"));
@@ -400,10 +399,6 @@ public class EsTable extends Table {
 
     public String getMappingType() {
         return mappingType;
-    }
-
-    public String getTransport() {
-        return transport;
     }
 
     public PartitionInfo getPartitionInfo() {

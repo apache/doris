@@ -415,4 +415,32 @@ public class EsUtil {
         }
         return null;
     }
+
+    /**
+     * Generate url for be to query es.
+     **/
+    public static EsUrls genEsUrls(String index, String type, long limit) {
+        if (limit <= 0) {
+            StringBuilder initScrollUrl = new StringBuilder();
+            StringBuilder nextScrollUrl = new StringBuilder();
+            initScrollUrl.append("/").append(index);
+            if (StringUtils.isNotBlank(type)) {
+                initScrollUrl.append("/").append(type);
+            }
+            initScrollUrl.append("/_search?scroll=5m")
+                    .append("filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields")
+                    .append("&terminate_after=1024");
+            nextScrollUrl.append("/_search/scroll?filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields");
+            return new EsUrls(null, initScrollUrl.toString(), nextScrollUrl.toString());
+        } else {
+            StringBuilder searchUrl = new StringBuilder();
+            searchUrl.append("/").append(index);
+            if (StringUtils.isNotBlank(type)) {
+                searchUrl.append("/").append(type);
+            }
+            searchUrl.append("/_search?terminate_after=").append(limit)
+                    .append("&filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields");
+            return new EsUrls(searchUrl.toString(), null, null);
+        }
+    }
 }

@@ -31,6 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.external.elasticsearch.EsUrls;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
@@ -52,6 +53,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import lombok.SneakyThrows;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -145,14 +147,11 @@ public class EsScanNode extends ScanNode {
         return useDocValue ? 1 : 0;
     }
 
+    @SneakyThrows
     @Override
     protected void toThrift(TPlanNode msg) {
         buildQuery();
-        if (EsTable.TRANSPORT_HTTP.equals(table.getTransport())) {
-            msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
-        } else {
-            msg.node_type = TPlanNodeType.ES_SCAN_NODE;
-        }
+        msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.USER, table.getUserName());
         properties.put(EsTable.PASSWORD, table.getPasswd());
@@ -162,6 +161,16 @@ public class EsScanNode extends ScanNode {
         if (table.isDocValueScanEnable()) {
             esScanNode.setDocvalueContext(table.docValueContext());
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
+        }
+        properties.put(EsTable.ES_DSL, queryBuilder.toJson());
+
+        // Be use it add es host_port and shardId to query.
+        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), msg.limit);
+        if (esUrls.getSearchUrl() != null) {
+            properties.put(EsTable.SEARCH_URL, esUrls.getSearchUrl());
+        } else {
+            properties.put(EsTable.INIT_SCROLL_URL, esUrls.getInitScrollUrl());
+            properties.put(EsTable.NEXT_SCROLL_URL, esUrls.getNextScrollUrl());
         }
         if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
@@ -223,8 +232,7 @@ public class EsScanNode extends ScanNode {
                 int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
-                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress()
-                            : item.getAddress());
+                    shardAllocations.add(item.getHttpAddress());
                 }
 
                 Collections.shuffle(shardAllocations, random);

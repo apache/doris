@@ -17,9 +17,16 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
+/**
+ * Pack url.
+ **/
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class EsUrls {
 
     private String searchUrl;
