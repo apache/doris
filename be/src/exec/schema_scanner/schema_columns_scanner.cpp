@@ -192,7 +192,18 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
 
     // TABLE_CATALOG
-    { tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset()); }
+    {
+        if (!_db_result.__isset.catalogs) {
+            tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
+        } else {
+            void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
+            StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+            std::string catalog_name = _db_result.catalogs[_db_index - 1];
+            str_slot->ptr = (char*)pool->allocate(catalog_name.size());
+            str_slot->len = catalog_name.size();
+            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+        }
+    }
     // TABLE_SCHEMA
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
@@ -391,6 +402,9 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
 Status SchemaColumnsScanner::get_new_desc() {
     TDescribeTableParams desc_params;
     desc_params.__set_db(_db_result.dbs[_db_index - 1]);
+    if (_db_result.__isset.catalogs) {
+        desc_params.__set_catalog(_db_result.catalogs[_db_index - 1]);
+    }
     desc_params.__set_table_name(_table_result.tables[_table_index++]);
     if (nullptr != _param->current_user_ident) {
         desc_params.__set_current_user_ident(*(_param->current_user_ident));
@@ -416,7 +430,11 @@ Status SchemaColumnsScanner::get_new_desc() {
 
 Status SchemaColumnsScanner::get_new_table() {
     TGetTablesParams table_params;
-    table_params.__set_db(_db_result.dbs[_db_index++]);
+    table_params.__set_db(_db_result.dbs[_db_index]);
+    if (_db_result.__isset.catalogs) {
+        table_params.__set_catalog(_db_result.catalogs[_db_index]);
+    }
+    _db_index++;
     if (nullptr != _param->table) {
         table_params.__set_pattern(*(_param->table));
     }
