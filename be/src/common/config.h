@@ -295,12 +295,6 @@ CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 CONF_mInt32(max_base_compaction_threads, "4");
 CONF_mInt32(max_cumu_compaction_threads, "10");
 
-// This config can be set to limit thread number in convert rowset thread pool.
-CONF_mInt32(convert_rowset_thread_num, "0");
-
-// initial sleep interval in seconds of scan alpha rowset
-CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
-
 // This config can be set to limit thread number in  smallcompaction thread pool.
 CONF_mInt32(quick_compaction_max_threads, "10");
 

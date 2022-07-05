@@ -22,26 +22,10 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap/rowset")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap/rowset")
   
 add_library(Rowset STATIC
-    bit_field_reader.cpp
-    bit_field_writer.cpp
-    column_data.cpp
-    column_reader.cpp
-    column_writer.cpp
-    column_data_writer.cpp
-    segment_group.cpp
-    run_length_byte_reader.cpp
-    run_length_byte_writer.cpp
-    run_length_integer_reader.cpp
-    run_length_integer_writer.cpp
     unique_rowset_id_generator.cpp
-    segment_reader.cpp
-    segment_writer.cpp
     rowset.cpp
     rowset_factory.cpp
     rowset_meta_manager.cpp
-    alpha_rowset.cpp
-    alpha_rowset_reader.cpp
-    alpha_rowset_writer.cpp
     alpha_rowset_meta.cpp
     beta_rowset.cpp
     beta_rowset_reader.cpp

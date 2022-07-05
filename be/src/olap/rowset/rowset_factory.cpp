@@ -21,8 +21,6 @@
 
 #include "beta_rowset.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
 
@@ -32,8 +30,7 @@ Status RowsetFactory::create_rowset(const TabletSchema* schema,
                                     const FilePathDesc& rowset_path_desc,
                                     RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
-        rowset->reset(new AlphaRowset(schema, rowset_path_desc, rowset_meta));
-        return (*rowset)->init();
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID);
     }
     if (rowset_meta->rowset_type() == BETA_ROWSET) {
         rowset->reset(new BetaRowset(schema, rowset_path_desc, rowset_meta));
@@ -45,8 +42,7 @@ Status RowsetFactory::create_rowset(const TabletSchema* schema,
 Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context,
                                            std::unique_ptr<RowsetWriter>* output) {
     if (context.rowset_type == ALPHA_ROWSET) {
-        output->reset(new AlphaRowsetWriter);
-        return (*output)->init(context);
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID);
     }
     if (context.rowset_type == BETA_ROWSET) {
         output->reset(new BetaRowsetWriter);

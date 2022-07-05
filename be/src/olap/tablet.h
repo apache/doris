@@ -268,8 +268,6 @@ public:
         return _tablet_meta->all_beta();
     }
 
-    void find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const;
-
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                 const SegmentsOverlapPB& overlap,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);

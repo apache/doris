@@ -29,25 +29,20 @@ add_library(Olap STATIC
     base_compaction.cpp
     base_tablet.cpp
     bloom_filter.hpp
-    bloom_filter_reader.cpp
-    bloom_filter_writer.cpp
     block_column_predicate.cpp
     byte_buffer.cpp
     collect_iterator.cpp
     compaction.cpp
     compaction_permit_limiter.cpp
     compress.cpp
-    convert_rowset.cpp
     cumulative_compaction.cpp
     cumulative_compaction_policy.cpp
     delete_handler.cpp
     delta_writer.cpp
     file_helper.cpp
-    file_stream.cpp
     generic_iterators.cpp
     hll.cpp
     bloom_filter_predicate.cpp
-    in_stream.cpp
     key_coder.cpp
     lru_cache.cpp
     memtable.cpp
@@ -55,11 +50,9 @@ add_library(Olap STATIC
     merger.cpp
     null_predicate.cpp
     olap_cond.cpp
-    olap_index.cpp
     olap_meta.cpp
     olap_server.cpp
     options.cpp
-    out_stream.cpp
     page_cache.cpp
     push_handler.cpp
     reader.cpp
@@ -71,14 +64,11 @@ add_library(Olap STATIC
     schema.cpp
     schema_change.cpp
     storage_migration_v2.cpp
-    serialize.cpp
     storage_engine.cpp
     data_dir.cpp
     short_key_index.cpp
     snapshot_manager.cpp
     stream_index_common.cpp
-    stream_index_reader.cpp
-    stream_index_writer.cpp
     stream_name.cpp
     tablet.cpp
     tablet_manager.cpp

@@ -19,7 +19,6 @@
 
 #include "common/logging.h"
 #include "olap/row.h"
-#include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "runtime/tuple.h"

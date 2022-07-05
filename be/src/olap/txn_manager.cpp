@@ -38,7 +38,6 @@
 #include "olap/lru_cache.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
-#include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"

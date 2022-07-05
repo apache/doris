@@ -19,7 +19,6 @@
 
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
 #include "vec/columns/column_nullable.h"
 
 using namespace doris::vectorized;
@@ -31,43 +30,6 @@ NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
 
 PredicateType NullPredicate::type() const {
     return _is_null ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL;
-}
-
-void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
-    uint16_t n = batch->size();
-    if (n == 0) {
-        return;
-    }
-    uint16_t* sel = batch->selected();
-    bool* null_array = batch->column(_column_id)->is_null();
-    if (batch->column(_column_id)->no_nulls() && _is_null) {
-        batch->set_size(0);
-        batch->set_selected_in_use(true);
-        return;
-    }
-
-    if (batch->column(_column_id)->no_nulls() && !_is_null) {
-        return;
-    }
-
-    uint16_t new_size = 0;
-    if (batch->selected_in_use()) {
-        for (uint16_t j = 0; j != n; ++j) {
-            uint16_t i = sel[j];
-            sel[new_size] = i;
-            new_size += (null_array[i] == _is_null);
-        }
-        batch->set_size(new_size);
-    } else {
-        for (uint16_t i = 0; i != n; ++i) {
-            sel[new_size] = i;
-            new_size += (null_array[i] == _is_null);
-        }
-        if (new_size < n) {
-            batch->set_size(new_size);
-            batch->set_selected_in_use(true);
-        }
-    }
 }
 
 void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {

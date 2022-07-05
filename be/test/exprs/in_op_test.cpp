@@ -25,7 +25,6 @@
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/vectorized_row_batch.h"
 #include "util/debug_util.h"
 
 namespace doris {
@@ -144,89 +143,6 @@ TEST_F(InOpTest, PrepareTest) {
     Expr* expr = create_expr();
     EXPECT_TRUE(expr != nullptr);
     EXPECT_TRUE(expr->prepare(_runtime_state, *_row_desc).ok());
-}
-
-TEST_F(InOpTest, NormalTest) {
-    Expr* expr = create_expr();
-    EXPECT_TRUE(expr != nullptr);
-    EXPECT_TRUE(expr->prepare(_runtime_state, *_row_desc).ok());
-    int capacity = 256;
-    VectorizedRowBatch* vec_row_batch = _object_pool->add(
-            new VectorizedRowBatch(*_runtime_state->desc_tbl().get_tuple_descriptor(0), capacity));
-    MemPool* mem_pool = vec_row_batch->mem_pool();
-    int32_t* vec_data = reinterpret_cast<int32_t*>(mem_pool->allocate(sizeof(int32_t) * capacity));
-    vec_row_batch->column(0)->set_col_data(vec_data);
-
-    for (int i = 0; i < capacity; ++i) {
-        vec_data[i] = i;
-    }
-
-    vec_row_batch->set_size(capacity);
-    expr->evaluate(vec_row_batch);
-    EXPECT_EQ(vec_row_batch->size(), 128);
-
-    Tuple tuple;
-    int vv = 0;
-
-    while (vec_row_batch->get_next_tuple(&tuple)) {
-        EXPECT_EQ(vv++, *reinterpret_cast<int32_t*>(tuple.get_slot(4)));
-    }
-}
-
-TEST_F(InOpTest, SimplePerformanceTest) {
-    for (int capacity = 128; capacity <= 1024 * 128; capacity *= 2) {
-        Expr* expr = create_expr();
-        EXPECT_TRUE(expr != nullptr);
-        EXPECT_TRUE(expr->prepare(_runtime_state, *_row_desc).ok());
-        int size = 1024 * 1024 / capacity;
-        VectorizedRowBatch* vec_row_batches[size];
-        srand(time(nullptr));
-
-        for (int i = 0; i < size; ++i) {
-            vec_row_batches[i] = _object_pool->add(new VectorizedRowBatch(
-                    *_runtime_state->desc_tbl().get_tuple_descriptor(0), capacity));
-            MemPool* mem_pool = vec_row_batches[i]->mem_pool();
-            int32_t* vec_data =
-                    reinterpret_cast<int32_t*>(mem_pool->allocate(sizeof(int32_t) * capacity));
-            vec_row_batches[i]->column(0)->set_col_data(vec_data);
-
-            for (int i = 0; i < capacity; ++i) {
-                vec_data[i] = rand() % 256;
-            }
-
-            vec_row_batches[i]->set_size(capacity);
-        }
-
-        RowBatch* row_batches[size];
-
-        for (int i = 0; i < size; ++i) {
-            row_batches[i] = _object_pool->add(new RowBatch(*_row_desc, capacity));
-            vec_row_batches[i]->to_row_batch(row_batches[i]);
-        }
-
-        MonotonicStopWatch stopwatch;
-        stopwatch.start();
-
-        for (int i = 0; i < size; ++i) {
-            expr->evaluate(vec_row_batches[i]);
-        }
-
-        uint64_t vec_time = stopwatch.elapsed_time();
-        VLOG_CRITICAL << PrettyPrinter::print(vec_time, TCounterType::TIME_NS);
-
-        stopwatch.start();
-
-        for (int i = 0; i < size; ++i) {
-            for (int j = 0; j < capacity; ++j) {
-                ExecNode::eval_conjuncts(&expr, 1, row_batches[i]->get_row(j));
-            }
-        }
-
-        uint64_t row_time = stopwatch.elapsed_time();
-        VLOG_CRITICAL << PrettyPrinter::print(row_time, TCounterType::TIME_NS);
-
-        VLOG_CRITICAL << "capacity: " << capacity << " multiple: " << row_time / vec_time;
-    }
 }
 
 } // namespace doris

@@ -39,7 +39,6 @@
 #include "olap/olap_common.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
-#include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/schema_change.h"
 #include "olap/tablet.h"
@@ -631,20 +630,6 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
         local_cache = _tablet_stat_list_cache;
     }
     result->__set_tablet_stat_list(*local_cache);
-}
-
-void TabletManager::find_tablet_have_alpha_rowset(std::vector<TabletSharedPtr>& tablets) {
-    for (const auto& tablets_shard : _tablets_shards) {
-        std::shared_lock rdlock(tablets_shard.lock);
-        for (const auto& tablet_map : tablets_shard.tablet_map) {
-            const TabletSharedPtr& tablet_ptr = tablet_map.second;
-            if (!tablet_ptr->all_beta() &&
-                tablet_ptr->can_do_compaction(tablet_ptr->data_dir()->path_hash(),
-                                              BASE_COMPACTION)) {
-                tablets.push_back(tablet_ptr);
-            }
-        }
-    }
 }
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
