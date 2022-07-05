@@ -29,6 +29,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.PartitionDesc;
@@ -37,12 +38,14 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.commons.lang3.StringUtils;
+import org.datanucleus.store.rdbms.sql.expression.ByteLiteral;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
@@ -271,9 +274,10 @@ public class EsUtil {
         TExprOpcode opCode = expr.getOpcode();
         String column = ((SlotRef) expr.getChild(0)).getColumnName();
         if (expr instanceof BinaryPredicate) {
-            Object value = extractDorisLiteral(expr.getChild(1));
+            Object value = toDorisLiteral(expr.getChild(1));
             switch (opCode) {
                 case EQ:
+                case EQ_FOR_NULL:
                     return QueryBuilders.termQuery(column, value);
                 case NE:
                     return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value));
@@ -285,8 +289,6 @@ public class EsUtil {
                     return QueryBuilders.rangeQuery(column).lte(value);
                 case LT:
                     return QueryBuilders.rangeQuery(column).lt(value);
-                case EQ_FOR_NULL:
-                    return QueryBuilders.termQuery(column, value);
                 default:
                     return null;
             }
@@ -327,7 +329,7 @@ public class EsUtil {
         }
         if (expr instanceof InPredicate) {
             InPredicate inPredicate = (InPredicate) expr;
-            List<Object> values = inPredicate.getListChildren().stream().map(EsUtil::extractDorisLiteral)
+            List<Object> values = inPredicate.getListChildren().stream().map(EsUtil::toDorisLiteral)
                     .collect(Collectors.toList());
             if (inPredicate.isNotIn()) {
                 return QueryBuilders.boolQuery().mustNot(QueryBuilders.termsQuery(column, values));
@@ -344,7 +346,42 @@ public class EsUtil {
         return null;
     }
 
-    private static Object extractDorisLiteral(Expr expr) {
+    public static Type toDorisType(String esType) {
+        // reference https://www.elastic.co/guide/en/elasticsearch/reference/8.3/sql-data-types.html
+        switch (esType) {
+            case "null":
+                return Type.NULL;
+            case "boolean":
+                return Type.BOOLEAN;
+            case "byte":
+                return Type.TINYINT;
+            case "short":
+                return Type.SMALLINT;
+            case "integer":
+                return Type.INT;
+            case "long":
+            case "unsigned_long":
+                return Type.BIGINT;
+            case "float":
+            case "half_float":
+                return Type.FLOAT;
+            case "double":
+            case "scaled_float":
+                return Type.DOUBLE;
+            case "keyword":
+            case "text":
+            case "ip":
+            case "nested":
+            case "object":
+                return Type.STRING;
+            case "date":
+                return Type.DATE;
+            default:
+                return Type.INVALID;
+        }
+    }
+
+    private static Object toDorisLiteral(Expr expr) {
         if (!expr.isLiteral()) {
             return null;
         }
@@ -363,6 +400,9 @@ public class EsUtil {
         } else if (expr instanceof IntLiteral) {
             IntLiteral intLiteral = (IntLiteral) expr;
             return intLiteral.getValue();
+        } else if (expr instanceof LargeIntLiteral) {
+            LargeIntLiteral largeIntLiteral = (LargeIntLiteral) expr;
+            return largeIntLiteral.getLongValue();
         } else if (expr instanceof StringLiteral) {
             StringLiteral stringLiteral = (StringLiteral) expr;
             return stringLiteral.getStringValue();

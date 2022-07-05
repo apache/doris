@@ -464,7 +464,7 @@ public class EsTable extends Table {
             JSONObject field = (JSONObject) mappingProps.get(key);
             // Complex types are not currently supported.
             if (field.containsKey("type")) {
-                Type type = toDorisType(field.get("type").toString());
+                Type type = EsUtil.toDorisType(field.get("type").toString());
                 if (!type.isInvalid()) {
                     Column column = new Column();
                     column.setName(key);
@@ -476,40 +476,5 @@ public class EsTable extends Table {
             }
         }
         return columns;
-    }
-
-    private Type toDorisType(String esType) {
-        // reference https://www.elastic.co/guide/en/elasticsearch/reference/8.3/sql-data-types.html
-        switch (esType) {
-            case "null":
-                return Type.NULL;
-            case "boolean":
-                return Type.BOOLEAN;
-            case "byte":
-                return Type.TINYINT;
-            case "short":
-                return Type.SMALLINT;
-            case "integer":
-                return Type.INT;
-            case "long":
-            case "unsigned_long":
-                return Type.BIGINT;
-            case "float":
-            case "half_float":
-                return Type.FLOAT;
-            case "double":
-            case "scaled_float":
-                return Type.DOUBLE;
-            case "keyword":
-            case "text":
-            case "ip":
-            case "nested":
-            case "object":
-                return Type.STRING;
-            case "date":
-                return Type.DATE;
-            default:
-                return Type.INVALID;
-        }
     }
 }
