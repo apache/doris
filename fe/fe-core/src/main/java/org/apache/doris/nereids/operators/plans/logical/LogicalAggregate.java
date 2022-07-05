@@ -58,7 +58,7 @@ public class LogicalAggregate extends LogicalUnaryOperator {
         this.groupByExprList = groupByExprList;
         this.outputExpressionList = outputExpressionList;
         this.disassembled = false;
-        this.aggPhase = AggPhase.FIRST;
+        this.aggPhase = AggPhase.FIRST_MERGE;
     }
 
     public LogicalAggregate(List<Expression> groupByExprList,
@@ -134,5 +134,10 @@ public class LogicalAggregate extends LogicalUnaryOperator {
     @Override
     public int hashCode() {
         return Objects.hash(groupByExprList, outputExpressionList, partitionExprList, aggPhase);
+    }
+
+    public LogicalAggregate withGroupByAndOutput(List<Expression> groupByExprList,
+            List<NamedExpression> outputExpressionList) {
+        return new LogicalAggregate(groupByExprList, outputExpressionList, disassembled, aggPhase);
     }
 }

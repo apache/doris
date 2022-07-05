@@ -51,7 +51,7 @@ public class BindFunction implements AnalysisRuleFactory {
                 logicalAggregate().then(agg -> {
                     List<Expression> groupBy = bind(agg.operator.getGroupByExprList());
                     List<NamedExpression> output = bind(agg.operator.getOutputExpressionList());
-                    LogicalAggregate op = new LogicalAggregate(groupBy, output);
+                    LogicalAggregate op = agg.operator.withGroupByAndOutput(groupBy, output);
                     return plan(op, agg.child());
                 })
             )
@@ -60,7 +60,7 @@ public class BindFunction implements AnalysisRuleFactory {
 
     private <E extends Expression> List<E> bind(List<E> exprList) {
         return exprList.stream()
-            .map(expr -> FunctionBinder.INSTANCE.bind(expr))
+            .map(FunctionBinder.INSTANCE::bind)
             .collect(Collectors.toList());
     }
 

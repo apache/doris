@@ -65,6 +65,7 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -120,18 +121,14 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanFragment inputPlanFragment = visit(agg.child(0), context);
 
         AggregationNode aggregationNode;
-        List<Slot> slotList = new ArrayList<>();
+        List<Slot> slotList = ImmutableList.copyOf(agg.getOutput());
         PhysicalAggregation physicalAggregation = agg.getOperator();
         AggregateInfo.AggPhase phase = physicalAggregation.getAggPhase().toExec();
 
         List<Expression> groupByExpressionList = physicalAggregation.getGroupByExprList();
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
-                // Since output of plan doesn't contain the slots of groupBy, which is actually needed by
-                // the BE execution, so we have to collect them and add to the slotList to generate corresponding
-                // TupleDesc.
-                .peek(x -> slotList.addAll(x.collect(SlotReference.class::isInstance)))
-                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
-        slotList.addAll(agg.getOutput());
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toCollection(ArrayList::new));
         TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
 
         List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
@@ -143,7 +140,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         List<Expression> partitionExpressionList = physicalAggregation.getPartitionExprList();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
-                .map(e -> (FunctionCallExpr) ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         // todo: support DISTINCT
         AggregateInfo aggInfo;
         switch (phase) {

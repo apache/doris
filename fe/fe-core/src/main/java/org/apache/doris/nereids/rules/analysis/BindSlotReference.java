@@ -81,7 +81,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             agg.operator.getGroupByExprList(), agg.children(), agg);
                     List<NamedExpression> output = bind(
                             agg.operator.getOutputExpressionList(), agg.children(), agg);
-                    LogicalAggregate op = new LogicalAggregate(groupBy, output);
+                    LogicalAggregate op = agg.operator.withGroupByAndOutput(groupBy, output);
                     return plan(op, agg.child());
                 })
             ),
