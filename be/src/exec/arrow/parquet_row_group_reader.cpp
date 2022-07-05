@@ -207,6 +207,7 @@ bool RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;
     for (int i = 0; i < conjuncts.size(); i++) {
+        // todo: duan lu
         Expr* conjunct = conjuncts[i]->root();
         if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
             _eval_binary_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
@@ -294,11 +295,13 @@ bool RowGroupReader::_eval_in_val(PrimitiveType conjunct_type, std::vector<void*
         break;
     }
     case TYPE_STRING:
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        std::vector<char*> in_values;
+        std::vector<const char*> in_values;
         for (auto val : in_pred_values) {
-            char* value = reinterpret_cast<char**>(val)[0];
+            const char* value = ((std::string*)val)->c_str();
             in_values.emplace_back(value);
         }
         if (in_values.empty()) {
@@ -306,13 +309,13 @@ bool RowGroupReader::_eval_in_val(PrimitiveType conjunct_type, std::vector<void*
         }
         if (in_values.size() >= 2) {
             std::sort(in_values.begin(), in_values.end());
-            char* in_min = in_values.front();
-            char* in_max = in_values.back();
+            const char* in_min = in_values.front();
+            const char* in_max = in_values.back();
             if (strcmp(in_max, min_bytes) < 0 || strcmp(in_min, max_bytes) > 0) {
                 return true;
             }
         } else {
-            char* value = in_values[0];
+            const char* value = in_values[0];
             if (strcmp(value, min_bytes) < 0 || strcmp(value, max_bytes) > 0) {
                 return true;
             }
@@ -359,9 +362,11 @@ bool RowGroupReader::_eval_eq(PrimitiveType conjunct_type, void* value, const ch
         break;
     }
     case TYPE_STRING:
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        char* conjunct_value = (char*)value;
+        const char* conjunct_value = ((std::string*)value)->c_str();
         if (strcmp(conjunct_value, min_bytes) < 0 || strcmp(conjunct_value, max_bytes) > 0) {
             return true;
         }
@@ -406,10 +411,12 @@ bool RowGroupReader::_eval_gt(PrimitiveType conjunct_type, void* value, const ch
         break;
     }
     case TYPE_STRING:
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
     case TYPE_DATE:
     case TYPE_DATETIME: {
         //            case TYPE_TIME:
-        char* conjunct_value = (char*)value;
+        const char* conjunct_value = ((std::string*)value)->c_str();
         if (strcmp(max_bytes, conjunct_value) <= 0) {
             return true;
         }
@@ -454,10 +461,12 @@ bool RowGroupReader::_eval_ge(PrimitiveType conjunct_type, void* value, const ch
         break;
     }
     case TYPE_STRING:
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
     case TYPE_DATE:
     case TYPE_DATETIME: {
         //            case TYPE_TIME:
-        char* conjunct_value = (char*)value;
+        const char* conjunct_value = ((std::string*)value)->c_str();
         if (strcmp(max_bytes, conjunct_value) < 0) {
             return true;
         }
@@ -502,10 +511,12 @@ bool RowGroupReader::_eval_lt(PrimitiveType conjunct_type, void* value, const ch
         break;
     }
     case TYPE_STRING:
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
     case TYPE_DATE:
     case TYPE_DATETIME: {
         //            case TYPE_TIME:
-        char* conjunct_value = (char*)value;
+        const char* conjunct_value = ((std::string*)value)->c_str();
         if (strcmp(min_bytes, conjunct_value) >= 0) {
             return true;
         }
@@ -550,10 +561,12 @@ bool RowGroupReader::_eval_le(PrimitiveType conjunct_type, void* value, const ch
         break;
     }
     case TYPE_STRING:
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
     case TYPE_DATE:
     case TYPE_DATETIME: {
         //            case TYPE_TIME:
-        char* conjunct_value = (char*)value;
+        const char* conjunct_value = ((std::string*)value)->c_str();
         if (strcmp(min_bytes, conjunct_value) > 0) {
             return true;
         }
