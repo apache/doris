@@ -179,6 +179,14 @@ public class SortNode extends PlanNode {
         LOG.debug("stats Sort: cardinality=" + Long.toString(cardinality));
     }
 
+    public void init() throws UserException {
+        this.resolvedTupleExprs = Lists.newArrayList();
+        List<Expr> slotExprs = info.getSortTupleSlotExprs();
+        for (int i = 0; i < slotExprs.size(); ++i) {
+            resolvedTupleExprs.add(slotExprs.get(i));
+        }
+    }
+
     public void init(Analyzer analyzer) throws UserException {
         // Compute the memory layout for the generated tuple.
         computeStats(analyzer);

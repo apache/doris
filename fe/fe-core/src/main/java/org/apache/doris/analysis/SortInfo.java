@@ -64,6 +64,7 @@ public class SortInfo {
     // sortTupleDesc_.
     private List<Expr> sortTupleSlotExprs;
 
+
     public SortInfo(List<Expr> orderingExprs, List<Boolean> isAscOrder,
                     List<Boolean> nullsFirstParams) {
         Preconditions.checkArgument(orderingExprs.size() == isAscOrder.size());
@@ -115,6 +116,16 @@ public class SortInfo {
             SlotDescriptor slotDesc = sortTupleDesc.getSlots().get(i);
             slotDesc.setSourceExpr(sortTupleSlotExprs.get(i));
         }
+    }
+
+    /**
+     * Sets tupleInfo.
+     * Just for Nereids.
+     */
+    public void setTupleInfo(
+            TupleDescriptor tupleDesc, List<Expr> sourceExprs) {
+        sortTupleDesc = tupleDesc;
+        sortTupleSlotExprs = sourceExprs;
     }
 
     public List<Expr> getOrderingExprs() {
