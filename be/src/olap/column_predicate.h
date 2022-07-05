@@ -28,7 +28,6 @@ using namespace doris::segment_v2;
 
 namespace doris {
 
-class VectorizedRowBatch;
 class Schema;
 class RowBlockV2;
 
@@ -63,9 +62,6 @@ public:
     virtual ~ColumnPredicate() = default;
 
     virtual PredicateType type() const = 0;
-
-    //evaluate predicate on VectorizedRowBatch
-    virtual void evaluate(VectorizedRowBatch* batch) const = 0;
 
     // evaluate predicate on ColumnBlock
     virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
