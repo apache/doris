@@ -18,6 +18,7 @@
 #include "vec/exec/join/vhash_join_node.h"
 
 #include "gen_cpp/PlanNodes_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
@@ -26,7 +27,6 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
-#include "gutil/strings/substitute.h"
 
 namespace doris::vectorized {
 
