@@ -222,10 +222,21 @@ struct ProcessHashTableProbe {
                                                                          _build_block_rows[j]);
                                 }
                             } else {
-                                auto& column = *_build_blocks[_build_block_offsets[j]]
-                                                        .get_by_position(i)
-                                                        .column;
-                                mcol[i + column_offset]->insert_from(column, _build_block_rows[j]);
+                                if (_build_block_offsets[j] == -1) {
+                                    // the only case to reach here:
+                                    // 1. left anti join with other conjuncts, and
+                                    // 2. equal conjuncts does not match
+                                    // since nullptr is emplaced back to visited_map,
+                                    // the output value of the build side does not matter,
+                                    // just insert default value
+                                    mcol[i + column_offset]->insert_default();
+                                } else {
+                                    auto& column = *_build_blocks[_build_block_offsets[j]]
+                                                            .get_by_position(i)
+                                                            .column;
+                                    mcol[i + column_offset]->insert_from(column,
+                                                                         _build_block_rows[j]);
+                                }
                             }
                         }
                     } else {

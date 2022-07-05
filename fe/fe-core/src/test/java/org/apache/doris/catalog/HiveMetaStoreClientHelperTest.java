@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
@@ -81,6 +82,19 @@ public class HiveMetaStoreClientHelperTest {
     }
 
     @Test
+    public void testSingleConvertExpr3() throws DdlException, AnalysisException {
+        List<Expr> exprs = new ArrayList<>();
+        SlotRef slotref = new SlotRef(tableName, p1);
+        slotref.setType(Type.STRING);
+        exprs.add(new BinaryPredicate(Operator.GE, slotref, LiteralExpr.create("1", Type.STRING)));
+
+        // where p_col1 >= 1 => match => (p_col1 >= 1)
+        ExprNodeGenericFuncDesc funcDesc = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                exprs, partitionKeys, tableNameString);
+        Assert.assertEquals("(p_col1 >= '1')", funcDesc.getExprString());
+    }
+
+    @Test
     public void testSingleConvertExpr4() throws DdlException, AnalysisException {
         List<Expr> exprs = new ArrayList<>();
         SlotRef slotref = new SlotRef(tableName, p1);
@@ -97,16 +111,17 @@ public class HiveMetaStoreClientHelperTest {
     }
 
     @Test
-    public void testSingleConvertExpr3() throws DdlException, AnalysisException {
+    public void testSingleConvertExpr5() throws DdlException, AnalysisException {
         List<Expr> exprs = new ArrayList<>();
         SlotRef slotref = new SlotRef(tableName, p1);
         slotref.setType(Type.STRING);
-        exprs.add(new BinaryPredicate(Operator.GE, slotref, LiteralExpr.create("1", Type.STRING)));
+        CastExpr castExpr = new CastExpr(Type.STRING, LiteralExpr.create("1", Type.INT));
+        exprs.add(new BinaryPredicate(Operator.EQ, slotref, castExpr));
 
-        // where p_col1 >= 1 => match => (p_col1 >= 1)
+        // where p_col1 = cast 1 as String =>  match => (p_col1 = 1)
         ExprNodeGenericFuncDesc funcDesc = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs, partitionKeys, tableNameString);
-        Assert.assertEquals("(p_col1 >= '1')", funcDesc.getExprString());
+        Assert.assertEquals("(p_col1 = '1')", funcDesc.getExprString());
     }
 
     @Test

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -37,6 +38,37 @@ import java.util.Map;
 public class DataSourceProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
+
+    public String getOrDefault(String key, String defaultVal) {
+        return properties.getOrDefault(key, defaultVal);
+    }
+
+    public Map<String, String> getDfsProperties() {
+        Map<String, String> dfsProperties = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(HiveTable.HIVE_HDFS_PREFIX)) {
+                dfsProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return dfsProperties;
+    }
+
+    public Map<String, String> getS3Properties() {
+        Map<String, String> s3Properties = Maps.newHashMap();
+        if (properties.containsKey(HiveTable.S3_AK)) {
+            s3Properties.put("fs.s3a.access.key", properties.get(HiveTable.S3_AK));
+        }
+        if (properties.containsKey(HiveTable.S3_SK)) {
+            s3Properties.put("fs.s3a.secret.key", properties.get(HiveTable.S3_SK));
+        }
+        if (properties.containsKey(HiveTable.S3_ENDPOINT)) {
+            s3Properties.put("fs.s3a.endpoint", properties.get(HiveTable.S3_ENDPOINT));
+        }
+        s3Properties.put("fs.s3.impl.disable.cache", "true");
+        s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        s3Properties.put("fs.s3a.attempts.maximum", "2");
+        return s3Properties;
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {
