@@ -441,4 +441,9 @@ public class SlotRef extends Expr {
         Preconditions.checkNotNull(desc);
         return desc.getIsNullable();
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
+    }
 }

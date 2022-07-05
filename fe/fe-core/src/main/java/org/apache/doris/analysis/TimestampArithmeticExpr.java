@@ -213,8 +213,8 @@ public class TimestampArithmeticExpr extends Expr {
                     (op == ArithmeticExpr.Operator.ADD) ? "ADD" : "SUB");
         }
 
-        fn = getBuiltinFunction(analyzer, funcOpName.toLowerCase(),
-                collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        fn = getBuiltinFunction(funcOpName.toLowerCase(), collectChildReturnTypes(),
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 

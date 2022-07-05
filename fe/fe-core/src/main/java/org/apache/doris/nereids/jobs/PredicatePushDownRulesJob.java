@@ -15,34 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 
-//
-public class DefaultValueExpr extends Expr {
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-    }
+import com.google.common.collect.ImmutableList;
 
-    @Override
-    protected String toSqlImpl() {
-        return null;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-
-    }
-
-    @Override
-    public Expr clone() {
-        return null;
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
+/**
+ * execute predicate push down job.
+ */
+public class PredicatePushDownRulesJob extends BatchRulesJob {
+    public PredicatePushDownRulesJob(PlannerContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                topDownBatch(ImmutableList.of(
+                        new PushPredicateThroughJoin())
+                )));
     }
 }

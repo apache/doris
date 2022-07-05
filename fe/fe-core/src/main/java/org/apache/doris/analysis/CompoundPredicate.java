@@ -256,4 +256,9 @@ public class CompoundPredicate extends Predicate {
     public boolean isNullable() {
         return hasNullableChild();
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
+    }
 }

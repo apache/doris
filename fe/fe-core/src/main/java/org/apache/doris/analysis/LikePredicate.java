@@ -134,8 +134,8 @@ public class LikePredicate extends Predicate {
             uncheckedCastChild(Type.VARCHAR, 0);
         }
 
-        fn = getBuiltinFunction(analyzer, op.toString(),
-                collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        fn = getBuiltinFunction(op.toString(), collectChildReturnTypes(),
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
 
         if (!getChild(1).getType().isNull() && getChild(1).isLiteral() && (op == Operator.REGEXP)) {
             // let's make sure the pattern works
@@ -154,4 +154,10 @@ public class LikePredicate extends Predicate {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
 
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
+        fn = getBuiltinFunction(op.toString(), collectChildReturnTypes(),
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+    }
 }

@@ -1617,8 +1617,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
      */
-    protected Function getBuiltinFunction(
-            Analyzer analyzer, String name, Type[] argTypes, Function.CompareMode mode)
+    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
@@ -1633,8 +1632,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return f;
     }
 
-    protected Function getTableFunction(String name, Type[] argTypes,
-                                        Function.CompareMode mode) {
+    protected Function getTableFunction(String name, Type[] argTypes, Function.CompareMode mode) {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
@@ -1974,5 +1972,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return children.get(0).isNullable();
         }
         return true;
+    }
+
+    public final void finalizeForNereids() throws AnalysisException {
+        if (isAnalyzed()) {
+            return;
+        }
+        for (Expr child : children) {
+            child.finalizeForNereids();
+        }
+        finalizeImplForNereids();
+        analysisDone();
+    }
+
+    public void finalizeImplForNereids() throws AnalysisException {
+        throw new AnalysisException("analyze for Nereids do not implementation.");
     }
 }

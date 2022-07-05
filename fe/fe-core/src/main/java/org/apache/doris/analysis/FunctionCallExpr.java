@@ -793,15 +793,13 @@ public class FunctionCallExpr extends Expr {
      * @throws AnalysisException
      */
     public void analyzeImplForDefaultValue() throws AnalysisException {
-        fn = getBuiltinFunction(null, fnName.getFunction(), new Type[0],
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         type = fn.getReturnType();
         for (int i = 0; i < children.size(); ++i) {
             if (getChild(i).getType().isNull()) {
                 uncheckedCastChild(Type.BOOLEAN, i);
             }
         }
-        return;
     }
 
     @Override
@@ -825,8 +823,7 @@ public class FunctionCallExpr extends Expr {
             // There is no version of COUNT() that takes more than 1 argument but after
             // the equal, we only need count(*).
             // TODO: fix how we equal count distinct.
-            fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[0],
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
 
             // Make sure BE doesn't see any TYPE_NULL exprs
@@ -854,7 +851,7 @@ public class FunctionCallExpr extends Expr {
             if (!VectorizedUtil.isVectorized()) {
                 type = getChild(0).type.getMaxResolutionType();
             }
-            fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{type},
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{type},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
             Type compatibleType = this.children.get(0).getType();
@@ -867,7 +864,7 @@ public class FunctionCallExpr extends Expr {
                 }
             }
 
-            fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.WINDOW_FUNNEL)) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
@@ -895,14 +892,14 @@ public class FunctionCallExpr extends Expr {
                 }
                 childTypes[i] = children.get(i).type;
             }
-            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
             childTypes[1] = assignmentCompatibleType;
             childTypes[2] = assignmentCompatibleType;
-            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
@@ -917,7 +914,7 @@ public class FunctionCallExpr extends Expr {
                 // now first find function in built-in functions
                 if (Strings.isNullOrEmpty(fnName.getDb())) {
                     Type[] childTypes = collectChildReturnTypes();
-                    fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
+                    fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                             Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 }
 
@@ -1256,5 +1253,10 @@ public class FunctionCallExpr extends Expr {
             character = iterator.next();
         }
         return result.toString();
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
     }
 }

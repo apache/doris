@@ -73,8 +73,7 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
         }
         Type[] childTypes = new Type[1];
         childTypes[0] = Type.BIGINT;
-        fn = getBuiltinFunction(analyzer, getFnName().getFunction(), childTypes,
-                Function.CompareMode.IS_IDENTICAL);
+        fn = getBuiltinFunction(getFnName().getFunction(), childTypes, Function.CompareMode.IS_IDENTICAL);
         this.type = fn.getReturnType();
     }
 

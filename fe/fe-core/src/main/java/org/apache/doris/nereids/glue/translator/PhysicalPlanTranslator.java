@@ -21,13 +21,11 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -40,23 +38,27 @@ import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
@@ -64,8 +66,6 @@ import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -82,7 +82,23 @@ import java.util.stream.Collectors;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, PlanTranslatorContext> {
-    private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
+    /**
+     * The left and right child of origin predicates need to be swap sometimes.
+     * Case A:
+     * select * from t1 join t2 on t2.id=t1.id
+     * The left plan node is t1 and the right plan node is t2.
+     * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
+     * In this situation, the children of predicate need to be swap => t1.id=t2.id.
+     */
+    private static Expression swapEqualToForChildrenOrder(EqualTo<?, ?> equalTo, List<Slot> leftOutput) {
+        Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toSet());
+        if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
+            return equalTo;
+        } else {
+            return new EqualTo<>(equalTo.right(), equalTo.left());
+        }
+    }
 
     public void translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
         visit(physicalPlan, context);
@@ -103,7 +119,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         PlanFragment inputPlanFragment = visit(agg.child(0), context);
 
-        AggregationNode aggregationNode = null;
+        AggregationNode aggregationNode;
         List<Slot> slotList = new ArrayList<>();
         PhysicalAggregation physicalAggregation = agg.getOperator();
         AggregateInfo.AggPhase phase = physicalAggregation.getAggPhase().toExec();
@@ -129,7 +145,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> (FunctionCallExpr) ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         // todo: support DISTINCT
-        AggregateInfo aggInfo = null;
+        AggregateInfo aggInfo;
         switch (phase) {
             case FIRST:
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
@@ -240,15 +256,15 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         return mergeFragment;
     }
 
-    // TODO: 1. support broadcast join / co-locate / bucket shuffle join later
+    // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
     //       2. For ssb, there are only binary equal predicate, we shall support more in the future.
     @Override
     public PlanFragment visitPhysicalHashJoin(
             PhysicalBinaryPlan<PhysicalHashJoin, Plan, Plan> hashJoin, PlanTranslatorContext context) {
+        // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
+        PlanFragment rightFragment = visit(hashJoin.child(1), context);
         PlanFragment leftFragment = visit(hashJoin.child(0), context);
-        PlanFragment rightFragment = visit(hashJoin.child(0), context);
         PhysicalHashJoin physicalHashJoin = hashJoin.getOperator();
-        Expression predicateExpr = physicalHashJoin.getCondition().get();
 
         //        Expression predicateExpr = physicalHashJoin.getCondition().get();
         //        List<Expression> eqExprList = Utils.getEqConjuncts(hashJoin.child(0).getOutput(),
@@ -259,14 +275,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
 
         if (joinType.equals(JoinType.CROSS_JOIN)
-                || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN) && false /* eqExprList.isEmpty() */) {
+                || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN)
+                && !physicalHashJoin.getCondition().isPresent()) {
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
                     rightFragment.getPlanRoot(), null);
             crossJoinNode.setLimit(physicalHashJoin.getLimit());
-            List<Expr> conjuncts = Utils.extractConjuncts(predicateExpr).stream()
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .collect(Collectors.toCollection(ArrayList::new));
-            crossJoinNode.addConjuncts(conjuncts);
             ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), rightFragment.getPlanRoot(), false);
             exchangeNode.setNumInstances(rightFragmentPlanRoot.getNumInstances());
             exchangeNode.setFragment(leftFragment);
@@ -277,24 +290,22 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             context.addPlanFragment(leftFragment);
             return leftFragment;
         }
-        List<Expr> execEqConjunctList = Lists.newArrayList(ExpressionTranslator.translate(predicateExpr, context));
+
+        Expression eqJoinExpression = physicalHashJoin.getCondition().get();
+        List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()
+                .map(EqualTo.class::cast)
+                .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,
                 JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, Lists.newArrayList());
 
-        ExchangeNode leftExch = new ExchangeNode(context.nextNodeId(), leftFragmentPlanRoot, false);
-        leftExch.setNumInstances(leftFragmentPlanRoot.getNumInstances());
-        ExchangeNode rightExch = new ExchangeNode(context.nextNodeId(), leftFragmentPlanRoot, false);
-        rightExch.setNumInstances(rightFragmentPlanRoot.getNumInstances());
+        hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
         hashJoinNode.setChild(0, leftFragmentPlanRoot);
-        hashJoinNode.setChild(1, leftFragmentPlanRoot);
-        hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
-        hashJoinNode.setLimit(physicalHashJoin.getLimit());
-        leftFragment.setDestination((ExchangeNode) rightFragment.getPlanRoot());
-        rightFragment.setDestination((ExchangeNode) leftFragmentPlanRoot);
-        PlanFragment result = new PlanFragment(context.nextFragmentId(), hashJoinNode, leftFragment.getDataPartition());
-        context.addPlanFragment(result);
-        return result;
+        connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
+        leftFragment.setPlanRoot(hashJoinNode);
+        return leftFragment;
     }
 
     // TODO: generate expression mapping when be project could do in ExecNode
@@ -318,15 +329,18 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 requiredSlotIdList.add(((SlotRef) expr).getDesc().getId().asInt());
             }
         }
-        for (TupleId tupleId : inputPlanNode.getTupleIds()) {
-            TupleDescriptor tupleDescriptor = context.getTupleDesc(tupleId);
-            Preconditions.checkNotNull(tupleDescriptor);
-            List<SlotDescriptor> slotDescList = tupleDescriptor.getSlots();
-            slotDescList.removeIf(slotDescriptor -> !requiredSlotIdList.contains(slotDescriptor.getId().asInt()));
-            for (int i = 0; i < slotDescList.size(); i++) {
-                slotDescList.get(i).setSlotOffset(i);
-            }
-        }
+        return inputFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalFilter(
+            PhysicalUnaryPlan<PhysicalFilter, Plan> filterPlan, PlanTranslatorContext context) {
+        PlanFragment inputFragment = visit(filterPlan.child(0), context);
+        PlanNode planNode = inputFragment.getPlanRoot();
+        PhysicalFilter filter = filterPlan.getOperator();
+        Expression expression = filter.getPredicates();
+        List<Expression> expressionList = ExpressionUtils.extractConjunct(expression);
+        expressionList.stream().map(e -> ExpressionTranslator.translate(e, context)).forEach(planNode::addConjunct);
         return inputFragment;
     }
 
@@ -338,20 +352,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         for (Expr child : root.getChildren()) {
             extractExecSlot(child, slotRefList);
         }
-    }
-
-    @Override
-    public PlanFragment visitPhysicalFilter(
-            PhysicalUnaryPlan<PhysicalFilter, Plan> filterPlan, PlanTranslatorContext context) {
-        PlanFragment inputFragment = visit(filterPlan.child(0), context);
-        PlanNode planNode = inputFragment.getPlanRoot();
-        PhysicalFilter filter = filterPlan.getOperator();
-        Expression expression = filter.getPredicates();
-        List<Expression> expressionList = Utils.extractConjuncts(expression);
-        expressionList.stream().map(e -> {
-            return ExpressionTranslator.translate(e, context);
-        }).forEach(planNode::addConjunct);
-        return inputFragment;
     }
 
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, PlanTranslatorContext context, Table table) {
@@ -371,6 +371,16 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         childFragment.setDestination(exchangeNode);
         childFragment.setOutputPartition(parentPartition);
         return parentFragment;
+    }
+
+    private void connectChildFragment(PlanNode node, int childIdx,
+            PlanFragment parentFragment, PlanFragment childFragment,
+            PlanTranslatorContext context) {
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), childFragment.getPlanRoot(), false);
+        exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
+        exchangeNode.setFragment(parentFragment);
+        node.setChild(childIdx, exchangeNode);
+        childFragment.setDestination(exchangeNode);
     }
 
     /**
