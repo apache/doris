@@ -167,7 +167,7 @@ private:
             int str_size = offsets[i] - offsets[i - 1] - 1;
             // return null if start > src.length
             if (start[i] > str_size) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map);
+                StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
             // return "" if len < 0 or str == 0 or start == 0
