@@ -76,7 +76,7 @@ private:
         const auto& target_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         PaddedPODArray<UInt8>* dst_null_map = nullptr;
-        ColumnPtr array_nested_column = nullptr;
+        MutableColumnPtr array_nested_column = nullptr;
         IColumn* dst_column;
         if (nested_null_map) {
             auto dst_nested_column = ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
@@ -120,11 +120,9 @@ private:
                 if (src_data[off + pos] == target_data[row]) {
                     ++count;
                 } else {
+                    dst_data.push_back(src_data[off + pos]);
                     if (nested_null_map) {
-                        dst_data.push_back(src_data[off + pos]);
                         dst_null_map->push_back(0);
-                    } else {
-                        dst_data.push_back(src_data[off + pos]);
                     }
                 }
             }
@@ -148,7 +146,7 @@ private:
         const auto& target_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         PaddedPODArray<UInt8>* dst_null_map = nullptr;
-        ColumnPtr array_nested_column = nullptr;
+        MutableColumnPtr array_nested_column = nullptr;
         IColumn* dst_column;
         if (nested_null_map) {
             auto dst_nested_column = ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
@@ -164,7 +162,7 @@ private:
 
         auto& dst_offs = reinterpret_cast<ColumnString&>(*dst_column).get_offsets();
         auto& dst_chars = reinterpret_cast<ColumnString&>(*dst_column).get_chars();
-        dst_offs.reserve(src_offs.back());
+        dst_offs.reserve(src_offs.size());
         dst_chars.reserve(src_offs.back());
 
         auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
@@ -189,8 +187,8 @@ private:
             for (size_t pos = 0; pos < len; ++pos) {
                 if (nested_null_map && nested_null_map[off + pos]) {
                     // case: array:[Null], target:'str' ==> [Null]
-                    dst_chars.push_back(0);
-                    dst_offs.push_back(dst_offs.back() + 1);
+                    // dst_chars.push_back(0);
+                    dst_offs.push_back(dst_offs.back());
                     dst_null_map->push_back(1);
                     continue;
                 }
@@ -203,18 +201,11 @@ private:
                 if (std::string_view(src_raw_v, src_len) == std::string_view(target_raw_v, target_len)) {
                     ++count;
                 } else {
-                    if (src_len == 1) {
-                        // case: array:[''], target:'str' ==> ['']
-                        dst_chars.push_back(0);
-                        dst_offs.push_back(dst_offs.back() + 1);
-                    } else {
-                        const size_t old_size = dst_chars.size();
-                        const size_t new_size = old_size + src_len;
-                        dst_chars.resize(new_size);
-                        memcpy(&dst_chars[old_size], &src_chars[src_pos], src_len);
-                        dst_offs.push_back(new_size);
-                    }
-
+                    const size_t old_size = dst_chars.size();
+                    const size_t new_size = old_size + src_len;
+                    dst_chars.resize(new_size);
+                    memcpy(&dst_chars[old_size], &src_chars[src_pos], src_len);
+                    dst_offs.push_back(new_size);
                     if (nested_null_map) {
                         dst_null_map->push_back(0);
                     }
