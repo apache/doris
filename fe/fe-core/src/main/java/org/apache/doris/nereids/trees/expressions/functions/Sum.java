@@ -51,7 +51,7 @@ public class Sum extends AggregateFunction implements UnaryExpression<Expression
 
     @Override
     public boolean nullable() {
-        return false;
+        return child().nullable();
     }
 
     @Override
