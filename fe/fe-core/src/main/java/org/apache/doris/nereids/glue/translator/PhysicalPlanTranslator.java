@@ -389,7 +389,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         try {
             f.exec();
         } catch (Exception e) {
-            throw new RuntimeException("Unexpected Exception: ", e);
+            throw new RuntimeException(e.getMessage(), e);
         }
     }
 

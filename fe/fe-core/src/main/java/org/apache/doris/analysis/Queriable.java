@@ -35,4 +35,6 @@ public interface Queriable {
     List<Expr> getResultExprs();
 
     ArrayList<String> getColLabels();
+
+    String toDigest();
 }
