@@ -1537,3 +1537,24 @@ Translated with www.DeepL.com/Translator (free version)
 * Type: int32
 * Description: The maximum amount of data read by each OlapScanner.
 * Default: 1024
+
+### `enable_quick_compaction`
+* Type: bool
+* Description: enable quick compaction,It is mainly used in the scenario of frequent import of small amount of data. The problem of -235 can be effectively avoided by merging the imported versions in time through the mechanism of rapid compaction. The definition of small amount of data is currently defined according to the number of rows
+* Default: false
+
+### `quick_compaction_max_rows`
+* Type: int32
+* Description: When the number of imported rows is less than this value, it is considered that this import is an import of small amount of data, which will be selected during quick compaction
+* Default: 1000
+
+### `quick_compaction_batch_size`
+* Type: int32
+* Description: trigger time, when import times reach quick_compaction_batch_size will trigger immediately 
+* Default: 10
+
+### `quick_compaction_min_rowsets`
+* Type: int32
+* Description: at least the number of versions to be compaction, and the number of rowsets with a small amount of data in the selection. If it is greater than this value, the real compaction will be carried out
+* Default: 10
+
