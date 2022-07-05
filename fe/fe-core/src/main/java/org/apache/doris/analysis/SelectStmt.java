@@ -880,7 +880,8 @@ public class SelectStmt extends QueryStmt {
             if (analyzer.isSemiJoined(tableRef.getId())) {
                 continue;
             }
-            expandStar(new TableName(tableRef.getAliasAsName().getDb(),
+            expandStar(new TableName(tableRef.getAliasAsName().getCtl(),
+                            tableRef.getAliasAsName().getDb(),
                             tableRef.getAliasAsName().getTbl()),
                     tableRef.getDesc());
 

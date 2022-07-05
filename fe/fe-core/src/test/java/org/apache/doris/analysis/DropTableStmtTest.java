@@ -31,6 +31,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class DropTableStmtTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+
     private TableName tbl;
     private TableName noDbTbl;
     private Analyzer analyzer;
@@ -44,8 +46,8 @@ public class DropTableStmtTest {
 
     @Before
     public void setUp() {
-        tbl = new TableName("db1", "table1");
-        noDbTbl = new TableName("", "table1");
+        tbl = new TableName(internalCtl, "db1", "table1");
+        noDbTbl = new TableName(internalCtl, "", "table1");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
         new Expectations() {
@@ -95,7 +97,7 @@ public class DropTableStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoTableFail() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, new TableName("db1", ""), true);
+        DropTableStmt stmt = new DropTableStmt(false, new TableName(internalCtl, "db1", ""), true);
         stmt.analyze(noDbAnalyzer);
         Assert.fail("No Exception throws.");
     }

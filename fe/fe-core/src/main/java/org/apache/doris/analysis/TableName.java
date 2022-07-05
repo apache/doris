@@ -63,13 +63,6 @@ public class TableName implements Writable {
         this.tbl = tbl;
     }
 
-    /**
-     * Initialize catalog in analyze.
-     */
-    public TableName(String db, String tbl) {
-        this(null, db, tbl);
-    }
-
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(ctl)) {
             ctl = analyzer.getDefaultCatalog();
@@ -131,17 +124,16 @@ public class TableName implements Writable {
 
     /**
      * Analyzer.registerTableRef task alias of index 1 as the legal implicit alias.
-     * Cluster is deprecated, so we'd better remove cluster in external catalog, and
-     * keep the same in internal catalog.
      */
     public String[] tableAliases() {
         if (ctl == null || ctl.equals(InternalDataSource.INTERNAL_DS_NAME)) {
             return new String[] {toString(), getNoClusterString(), tbl};
         } else {
-            // Three level table aliases: ctl.db.tbl, db.tbl, tbl
             return new String[] {
+                    toString(), // with cluster name
+                    getNoClusterString(), // without cluster name, legal implicit alias
+                    String.format("%s.%s", db, tbl),
                     String.format("%s.%s", ClusterNamespace.getNameFromFullName(db), tbl),
-                    getNoClusterString(), // legal implicit alias
                     tbl
             };
         }

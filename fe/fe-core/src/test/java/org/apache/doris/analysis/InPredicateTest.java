@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -27,6 +28,7 @@ import org.junit.Test;
 import java.util.List;
 
 public class InPredicateTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     /*
     InPredicate1: k1 in (1,2)
@@ -35,7 +37,7 @@ public class InPredicateTest {
      */
     @Test
     public void testIntersection() throws AnalysisException {
-        SlotRef slotRef1 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef1 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild1 = new IntLiteral(1);
         LiteralExpr literalChild2 = new IntLiteral(2);
         List<Expr> literalChildren1 = Lists.newArrayList();
@@ -43,7 +45,7 @@ public class InPredicateTest {
         literalChildren1.add(literalChild2);
         InPredicate inPredicate1 = new InPredicate(slotRef1, literalChildren1, false);
 
-        SlotRef slotRef2 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild3 = new LargeIntLiteral("2");
         LiteralExpr literalChild4 = new LargeIntLiteral("3");
         List<Expr> literalChildren2 = Lists.newArrayList();
@@ -76,7 +78,7 @@ public class InPredicateTest {
      */
     @Test
     public void testUnion() throws AnalysisException {
-        SlotRef slotRef1 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef1 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild1 = new IntLiteral(1);
         LiteralExpr literalChild2 = new IntLiteral(2);
         List<Expr> literalChildren1 = Lists.newArrayList();
@@ -84,7 +86,7 @@ public class InPredicateTest {
         literalChildren1.add(literalChild2);
         InPredicate inPredicate1 = new InPredicate(slotRef1, literalChildren1, false);
 
-        SlotRef slotRef2 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild3 = new LargeIntLiteral("1");
         List<Expr> literalChildren2 = Lists.newArrayList();
         literalChildren2.add(literalChild3);
@@ -110,7 +112,7 @@ public class InPredicateTest {
 
     @Test
     public void testIntersectionWithDateV2() throws AnalysisException {
-        SlotRef slotRef1 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef1 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild1 = new DateLiteral(2022, 5, 19, Type.DATE);
         LiteralExpr literalChild2 = new DateLiteral(2022, 5, 20, Type.DATEV2);
         List<Expr> literalChildren1 = Lists.newArrayList();
@@ -118,7 +120,7 @@ public class InPredicateTest {
         literalChildren1.add(literalChild2);
         InPredicate inPredicate1 = new InPredicate(slotRef1, literalChildren1, false);
 
-        SlotRef slotRef2 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild3 = new DateLiteral(2022, 5, 19, Type.DATEV2);
         LiteralExpr literalChild4 = new DateLiteral(2022, 5, 21, Type.DATE);
         List<Expr> literalChildren2 = Lists.newArrayList();
@@ -151,7 +153,7 @@ public class InPredicateTest {
      */
     @Test
     public void testUnionWithDateV2() throws AnalysisException {
-        SlotRef slotRef1 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef1 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild1 = new DateLiteral(2022, 5, 19, Type.DATE);
         LiteralExpr literalChild2 = new DateLiteral(2022, 5, 20, Type.DATEV2);
         LiteralExpr literalChild3 = new DateLiteral(2022, 5, 20, 0, 0, 0, Type.DATETIME);
@@ -161,7 +163,7 @@ public class InPredicateTest {
         literalChildren1.add(literalChild3);
         InPredicate inPredicate1 = new InPredicate(slotRef1, literalChildren1, false);
 
-        SlotRef slotRef2 = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalChild4 = new DateLiteral(2022, 5, 19, Type.DATE);
         LiteralExpr literalChild5 = new DateLiteral(2022, 5, 20, 0, 0, 0, Type.DATETIMEV2);
         List<Expr> literalChildren2 = Lists.newArrayList();
