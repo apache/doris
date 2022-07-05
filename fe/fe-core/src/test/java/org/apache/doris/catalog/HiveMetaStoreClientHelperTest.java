@@ -47,6 +47,8 @@ public class HiveMetaStoreClientHelperTest {
     private static final String p1 = "p_col1";
     private static final String p2 = "p_col2";
 
+    private static final String alwaysTrue = "(1 = 1)";
+
     @BeforeClass
     public static void beforeAll() {
         tableNameString = "test_table";
@@ -65,7 +67,7 @@ public class HiveMetaStoreClientHelperTest {
         // where col1 = 1 => no match => (1 = 1)
         ExprNodeGenericFuncDesc funcDesc = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs, partitionKeys, tableNameString);
-        Assert.assertEquals("(1 = 1)", funcDesc.getExprString());
+        Assert.assertEquals(alwaysTrue, funcDesc.getExprString());
     }
 
     @Test
@@ -107,7 +109,7 @@ public class HiveMetaStoreClientHelperTest {
         // where p_col1 in (1) => no match => (1 = 1)
         ExprNodeGenericFuncDesc funcDesc = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs, partitionKeys, tableNameString);
-        Assert.assertEquals("(1 = 1)", funcDesc.getExprString());
+        Assert.assertEquals(alwaysTrue, funcDesc.getExprString());
     }
 
     @Test
@@ -128,80 +130,129 @@ public class HiveMetaStoreClientHelperTest {
     public void testCompoundConvertExpr1() throws DdlException, AnalysisException {
         SlotRef slotref1 = new SlotRef(tableName, p1);
         slotref1.setType(Type.STRING);
-        BinaryPredicate predicate1 = new BinaryPredicate(Operator.EQ, slotref1,
+        BinaryPredicate p_col1 = new BinaryPredicate(Operator.EQ, slotref1,
                 LiteralExpr.create("1", Type.STRING));
 
         SlotRef slotref2 = new SlotRef(tableName, col1);
         slotref2.setType(Type.STRING);
-        BinaryPredicate predicate2 = new BinaryPredicate(Operator.EQ, slotref2,
+        BinaryPredicate col1 = new BinaryPredicate(Operator.EQ, slotref2,
                 LiteralExpr.create("1", Type.STRING));
 
-        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                predicate1, predicate2);
+        CompoundPredicate p_col1_and_col1 = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                p_col1, col1);
 
         List<Expr> exprs1 = new ArrayList<>();
-        exprs1.add(compoundPredicate1);
+        exprs1.add(p_col1_and_col1);
 
         // where p_col1 = 1 and col1 = 1 => only match (p_col1 = 1)  => (p_col1 = 1)
         ExprNodeGenericFuncDesc funcDesc1 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs1, partitionKeys, tableNameString);
         Assert.assertEquals("(p_col1 = '1')", funcDesc1.getExprString());
 
-        CompoundPredicate compoundPredicate2 = new CompoundPredicate(CompoundPredicate.Operator.OR,
-                predicate1, predicate2);
+        CompoundPredicate p_col1_or_col1 = new CompoundPredicate(CompoundPredicate.Operator.OR,
+                p_col1, col1);
         List<Expr> exprs2 = new ArrayList<>();
-        exprs2.add(compoundPredicate2);
+        exprs2.add(p_col1_or_col1);
         // where p_col1 = 1 or col1 = 1 => always true  => (1 = 1)
         ExprNodeGenericFuncDesc funcDesc2 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs2, partitionKeys, tableNameString);
-        Assert.assertEquals("(1 = 1)", funcDesc2.getExprString());
+        Assert.assertEquals(alwaysTrue, funcDesc2.getExprString());
 
 
-        CompoundPredicate predicate3 = new CompoundPredicate(CompoundPredicate.Operator.NOT, predicate2, null);
+        CompoundPredicate not_p_col1 = new CompoundPredicate(CompoundPredicate.Operator.NOT, p_col1, null);
 
-        CompoundPredicate compoundPredicate3 = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                predicate3, predicate2);
+        CompoundPredicate not_p_col1_and_col1 = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                not_p_col1, col1);
         List<Expr> exprs3 = new ArrayList<>();
-        exprs3.add(compoundPredicate3);
+        exprs3.add(not_p_col1_and_col1);
         // where p_col1 = 1 and not (col1 = 1) => no match  => (1 = 1)
         ExprNodeGenericFuncDesc funcDesc3 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs3, partitionKeys, tableNameString);
-        Assert.assertEquals("(1 = 1)", funcDesc3.getExprString());
+        Assert.assertEquals(alwaysTrue, funcDesc3.getExprString());
 
-
-        CompoundPredicate compoundPredicate4 = new CompoundPredicate(CompoundPredicate.Operator.OR,
-                predicate3, predicate2);
+        CompoundPredicate not_p_col1_or_col1 = new CompoundPredicate(CompoundPredicate.Operator.OR,
+                not_p_col1, col1);
         List<Expr> exprs4 = new ArrayList<>();
-        exprs4.add(compoundPredicate4);
+        exprs4.add(not_p_col1_or_col1);
         // where p_col1 = 1 or not (col1 = 1) => not (col1 = 1) as always true  =>  1 = 1
         ExprNodeGenericFuncDesc funcDesc4 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs4, partitionKeys, tableNameString);
-        Assert.assertEquals("(1 = 1)", funcDesc4.getExprString());
+        Assert.assertEquals(alwaysTrue, funcDesc4.getExprString());
     }
 
     @Test
     public void testCompoundConvertExpr2() throws DdlException, AnalysisException {
         SlotRef slotref1 = new SlotRef(tableName, p1);
         slotref1.setType(Type.STRING);
-        BinaryPredicate predicate1 = new BinaryPredicate(Operator.EQ, slotref1,
+        BinaryPredicate p_col1 = new BinaryPredicate(Operator.EQ, slotref1,
                 LiteralExpr.create("1", Type.STRING));
 
         SlotRef slotref2 = new SlotRef(tableName, col1);
         slotref2.setType(Type.STRING);
-        BinaryPredicate predicate2 = new BinaryPredicate(Operator.EQ, slotref2,
+        BinaryPredicate col1 = new BinaryPredicate(Operator.EQ, slotref2,
                 LiteralExpr.create("1", Type.STRING));
-
         CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                predicate1, predicate2);
+                p_col1, col1);
+        CompoundPredicate compoundPredicate2 = new CompoundPredicate(CompoundPredicate.Operator.OR,
+                p_col1, col1);
 
         SlotRef slotref3 = new SlotRef(tableName, p2);
         slotref3.setType(Type.STRING);
-        BinaryPredicate predicate3 = new BinaryPredicate(Operator.EQ, slotref3,
+        BinaryPredicate p_col2 = new BinaryPredicate(Operator.EQ, slotref3,
                 LiteralExpr.create("1", Type.STRING));
 
         List<Expr> exprs1 = new ArrayList<>();
-        exprs1.add(compoundPredicate1);
-        exprs1.add(predicate3);
+        exprs1.add(new CompoundPredicate(CompoundPredicate.Operator.AND, compoundPredicate1, p_col2));
+        // where (p_col1 = 1 and col1 = 1) and (p_col2 = 1) => match (p_col1 = 1 and p_col2 = 1)
+        ExprNodeGenericFuncDesc funcDesc1 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                exprs1, partitionKeys, tableNameString);
+        Assert.assertEquals("((p_col1 = '1') and (p_col2 = '1'))", funcDesc1.getExprString());
+
+        List<Expr> exprs2 = new ArrayList<>();
+        exprs2.add(new CompoundPredicate(CompoundPredicate.Operator.AND, compoundPredicate2, p_col2));
+        // where (p_col1 = 1 or col1 = 1) and (p_col2 = 1) => match (p_col2 = 1) => (p_col2 = '1')
+        ExprNodeGenericFuncDesc funcDesc2 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                exprs2, partitionKeys, tableNameString);
+        Assert.assertEquals("(p_col2 = '1')", funcDesc2.getExprString());
+
+        List<Expr> exprs3 = new ArrayList<>();
+        exprs3.add(new CompoundPredicate(CompoundPredicate.Operator.OR, compoundPredicate1, p_col2));
+        // where (p_col1 = 1 and col1 = 1) orc (p_col2 = 1) => match (p_col1 = 1 or p_col2 = 1)
+        ExprNodeGenericFuncDesc funcDesc3 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                exprs3, partitionKeys, tableNameString);
+        Assert.assertEquals("((p_col1 = '1') or (p_col2 = '1'))", funcDesc3.getExprString());
+
+        List<Expr> exprs4 = new ArrayList<>();
+        exprs4.add(new CompoundPredicate(CompoundPredicate.Operator.OR, compoundPredicate2, p_col2));
+        // where (p_col1 = 1 or col1 = 1) or (p_col2 = 1) => no match => (1 = 1)
+        ExprNodeGenericFuncDesc funcDesc4 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                exprs4, partitionKeys, tableNameString);
+        Assert.assertEquals(alwaysTrue, funcDesc4.getExprString());
+    }
+
+    @Test
+    public void testCompoundConvertExpr3() throws DdlException, AnalysisException {
+        SlotRef slotref1 = new SlotRef(tableName, p1);
+        slotref1.setType(Type.STRING);
+        BinaryPredicate p_col1 = new BinaryPredicate(Operator.EQ, slotref1,
+                LiteralExpr.create("1", Type.STRING));
+
+        SlotRef slotref2 = new SlotRef(tableName, col1);
+        slotref2.setType(Type.STRING);
+        BinaryPredicate col1 = new BinaryPredicate(Operator.EQ, slotref2,
+                LiteralExpr.create("1", Type.STRING));
+
+        CompoundPredicate p_col1_and_col1 = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                p_col1, col1);
+
+        SlotRef slotref3 = new SlotRef(tableName, p2);
+        slotref3.setType(Type.STRING);
+        BinaryPredicate p_col2 = new BinaryPredicate(Operator.EQ, slotref3,
+                LiteralExpr.create("1", Type.STRING));
+
+        List<Expr> exprs1 = new ArrayList<>();
+        exprs1.add(p_col1_and_col1);
+        exprs1.add(p_col2);
 
         // where (p_col1 = 1 and col1 = 1) and (p_col2 = 1) => match (p_col1 = 1) and  (p_col2 = 1) =>
         ExprNodeGenericFuncDesc funcDesc1 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
@@ -209,16 +260,16 @@ public class HiveMetaStoreClientHelperTest {
         Assert.assertEquals("((p_col1 = '1') and (p_col2 = '1'))", funcDesc1.getExprString());
 
 
-        CompoundPredicate compoundPredicate2 = new CompoundPredicate(CompoundPredicate.Operator.OR,
-                predicate1, predicate2);
+        CompoundPredicate p_col1_or_col1 = new CompoundPredicate(CompoundPredicate.Operator.OR,
+                p_col1, col1);
         List<Expr> exprs2 = new ArrayList<>();
-        exprs2.add(compoundPredicate2);
-        exprs2.add(predicate3);
+        exprs2.add(p_col1_or_col1);
+        exprs2.add(p_col2);
 
-        // where (p_col1 = 1 or col1 = 1) and (p_col2 = 1) => match (1 = 1) and  (p_col2 = 1) =>
+        // where (p_col1 = 1 or col1 = 1) and (p_col2 = 1) => match (p_col2 = 1) => (p_col2 = '1')
         ExprNodeGenericFuncDesc funcDesc2 = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                 exprs2, partitionKeys, tableNameString);
-        Assert.assertEquals("((1 = 1) and (p_col2 = '1'))", funcDesc2.getExprString());
+        Assert.assertEquals("(p_col2 = '1')", funcDesc2.getExprString());
     }
 
 }

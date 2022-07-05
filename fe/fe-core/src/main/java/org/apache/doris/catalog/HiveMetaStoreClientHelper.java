@@ -440,8 +440,8 @@ public class HiveMetaStoreClientHelper {
     }
 
     private static class ExprNodeGenericFuncDescContext {
-        private final ExprNodeGenericFuncDesc funcDesc;
-        private final boolean eligible;
+        private ExprNodeGenericFuncDesc funcDesc = null;
+        private boolean eligible = false;
 
         public ExprNodeGenericFuncDescContext(ExprNodeGenericFuncDesc funcDesc) {
             this.funcDesc = funcDesc;
@@ -449,8 +449,6 @@ public class HiveMetaStoreClientHelper {
         }
 
         public ExprNodeGenericFuncDescContext() {
-            this.funcDesc = null;
-            this.eligible = false;
         }
 
         /**
@@ -466,20 +464,20 @@ public class HiveMetaStoreClientHelper {
     }
 
     private static ExprNodeGenericFuncDescContext convertToHivePartitionExpr(Expr dorisExpr,
-            List<String> partitions, String tblName) throws DdlException {
+            List<String> partitionKeys, String tblName) throws DdlException {
         if (dorisExpr == null) {
             return new ExprNodeGenericFuncDescContext();
         }
 
         if (dorisExpr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) dorisExpr;
+            ExprNodeGenericFuncDescContext left = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(0), partitionKeys, tblName);
+            ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(1), partitionKeys, tblName);
+
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    ExprNodeGenericFuncDescContext left = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(1), partitions, tblName);
-
                     if (left.isEligible() && right.isEligible()) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
                         andArgs.add(left.getFuncDesc());
@@ -494,10 +492,6 @@ public class HiveMetaStoreClientHelper {
                     }
                 }
                 case OR: {
-                    ExprNodeGenericFuncDescContext left = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(1), partitions, tblName);
                     if (left.isEligible() && right.isEligible()) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
                         andArgs.add(left.getFuncDesc());
@@ -506,18 +500,19 @@ public class HiveMetaStoreClientHelper {
                     } else {
                         // If it is not a partition key, this is an always true expr.
                         // Or if is a partition key and also is a not supportedOp, this is an always true expr.
-                        return new ExprNodeGenericFuncDescContext(genAlwaysTrueExpr(tblName));
+                        return new ExprNodeGenericFuncDescContext();
                     }
                 }
                 default:
+                    // TODO: support NOT predicate for CompoundPredicate
                     return new ExprNodeGenericFuncDescContext();
             }
         }
-        return binaryExprDesc(dorisExpr, partitions, tblName);
+        return binaryExprDesc(dorisExpr, partitionKeys, tblName);
     }
 
     private static ExprNodeGenericFuncDescContext binaryExprDesc(Expr dorisExpr,
-            List<String> partitions, String tblName) throws DdlException {
+            List<String> partitionKeys, String tblName) throws DdlException {
         TExprOpcode opcode = dorisExpr.getOpcode();
         switch (opcode) {
             case EQ:
@@ -536,7 +531,7 @@ public class HiveMetaStoreClientHelper {
                 }
                 String colName = slotRef.getColumnName();
                 // check whether colName is partition column or not
-                if (!partitions.contains(colName)) {
+                if (!partitionKeys.contains(colName)) {
                     return new ExprNodeGenericFuncDescContext();
                 }
                 PrimitiveType dorisPrimitiveType = slotRef.getType().getPrimitiveType();
@@ -567,6 +562,7 @@ public class HiveMetaStoreClientHelper {
                         return new ExprNodeGenericFuncDescContext();
                 }
             default:
+                // TODO: support in predicate
                 return new ExprNodeGenericFuncDescContext();
         }
     }

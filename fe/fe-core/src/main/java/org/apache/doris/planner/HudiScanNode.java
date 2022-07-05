@@ -159,10 +159,6 @@ public class HudiScanNode extends BrokerScanNode {
      */
     @Override
     protected void getFileStatus() throws DdlException {
-        if (partitionKeys.size() > 0) {
-            hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    conjuncts, partitionKeys, hudiTable.getName());
-        }
         // set fileStatusesList as empty, we do not need fileStatusesList
         fileStatusesList = Lists.newArrayList();
         filesAdded = 0;
