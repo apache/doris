@@ -692,10 +692,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                                     _streaming_pre_places.data(), &_agg_arena_pool);
                         }
 
-                        // will serialize value data to string column
-                        std::vector<VectorBufferWriter> value_buffer_writers;
                         bool mem_reuse = out_block->mem_reuse();
-                        auto serialize_string_type = std::make_shared<DataTypeString>();
                         MutableColumns value_columns;
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                             if (mem_reuse) {
@@ -704,18 +701,15 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                                                 .mutate());
                             } else {
                                 // slot type of value it should always be string type
-                                value_columns.emplace_back(serialize_string_type->create_column());
+                                value_columns.emplace_back(_aggregate_evaluators[i]->data_type()->create_column());
                             }
-                            value_buffer_writers.emplace_back(
-                                    *reinterpret_cast<ColumnString*>(value_columns[i].get()));
                         }
 
                         for (size_t j = 0; j < rows; ++j) {
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                                _aggregate_evaluators[i]->function()->serialize(
+                                _aggregate_evaluators[i]->function()->insert_result_into(
                                         _streaming_pre_places[j] + _offsets_of_aggregate_states[i],
-                                        value_buffer_writers[i]);
-                                value_buffer_writers[i].commit();
+                                        value_columns[i]->assume_mutable_ref());
                             }
                         }
 
@@ -733,7 +727,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             }
                             for (int i = 0; i < value_columns.size(); ++i) {
                                 columns_with_schema.emplace_back(std::move(value_columns[i]),
-                                                                 serialize_string_type, "");
+                                                                 _aggregate_evaluators[i]->data_type(), "");
                             }
                             out_block->swap(Block(columns_with_schema));
                         } else {
@@ -943,17 +937,13 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
         }
     }
 
-    // will serialize data to string column
-    std::vector<VectorBufferWriter> value_buffer_writers;
-    auto serialize_string_type = std::make_shared<DataTypeString>();
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        value_data_types[i] = serialize_string_type;
+        value_data_types[i] = _aggregate_evaluators[i]->data_type();
         if (mem_reuse) {
             value_columns[i] = std::move(*block->get_by_position(i + key_size).column).mutate();
         } else {
-            value_columns[i] = serialize_string_type->create_column();
+            value_columns[i] = value_data_types[i]->create_column();
         }
-        value_buffer_writers.emplace_back(*reinterpret_cast<ColumnString*>(value_columns[i].get()));
     }
 
     std::visit(
@@ -969,9 +959,8 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
 
                     // serialize values
                     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                        _aggregate_evaluators[i]->function()->serialize(
-                                mapped + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
-                        value_buffer_writers[i].commit();
+                        _aggregate_evaluators[i]->function()->insert_result_into(
+                                mapped + _offsets_of_aggregate_states[i], value_columns[i]->assume_mutable_ref());
                     }
                     ++iter;
                 }
@@ -984,10 +973,9 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
                             key_columns[0]->insert_data(nullptr, 0);
                             auto mapped = agg_method.data.get_null_key_data();
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                                _aggregate_evaluators[i]->function()->serialize(
+                                _aggregate_evaluators[i]->function()->insert_result_into(
                                         mapped + _offsets_of_aggregate_states[i],
-                                        value_buffer_writers[i]);
-                                value_buffer_writers[i].commit();
+                                        value_columns[i]->assume_mutable_ref());
                             }
                             *eos = true;
                         }
@@ -1059,38 +1047,9 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
             },
             _agg_data._aggregated_method_variant);
 
-    std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
-
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-        int col_id =
-                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
-        if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(col_id).column;
-            if (column->is_nullable()) {
-                column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
-            }
-
-            for (int j = 0; j < rows; ++j) {
-                VectorBufferReader buffer_reader(((ColumnString*)(column.get()))->get_data_at(j));
-                _create_agg_status(deserialize_buffer.get());
-
-                _aggregate_evaluators[i]->function()->deserialize(
-                        deserialize_buffer.get() + _offsets_of_aggregate_states[i], buffer_reader,
-                        &_agg_arena_pool);
-
-                _aggregate_evaluators[i]->function()->merge(
-                        places.data()[j] + _offsets_of_aggregate_states[i],
-                        deserialize_buffer.get() + _offsets_of_aggregate_states[i],
-                        &_agg_arena_pool);
-
-                _destroy_agg_status(deserialize_buffer.get());
-            }
-        } else {
-            _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
+        _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
                                                         places.data(), &_agg_arena_pool);
-        }
     }
     return Status::OK();
 }
