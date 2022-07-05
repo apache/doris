@@ -252,6 +252,8 @@ private:
 
     void _hash_table_init();
 
+    static const int _MAX_BUILD_BLOCK_COUNT = 128;
+
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
