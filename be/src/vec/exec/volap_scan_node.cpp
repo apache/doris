@@ -1839,10 +1839,9 @@ Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& sca
 
 void VOlapScanNode::init_output_slots() {
     for (const auto& slot_desc : _tuple_desc->slots()) {
-        _output_slot_flags.emplace_back(
-                _output_slot_ids.empty() ||
-                std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
-                          slot_desc->id()) != _output_slot_ids.end());
+        _output_slot_flags.emplace_back(_output_slot_ids.empty() ||
+                                        std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
+                                                  slot_desc->id()) != _output_slot_ids.end());
     }
 }
 
