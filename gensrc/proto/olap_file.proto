@@ -304,5 +304,6 @@ message DeleteBitmapPB {
     repeated string rowset_ids = 1;
     repeated uint32 segment_ids = 2;
     repeated int64 versions = 3;
+    // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
 }

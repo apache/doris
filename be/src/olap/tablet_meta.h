@@ -265,7 +265,7 @@ private:
  * "rowset id 1, segment id 1" is deleted/overitten by some loads at "version 2"
  */
 class DeleteBitmap {
-    public:
+public:
     mutable std::shared_mutex lock;
     using SegmentId = uint32_t;
     using Version = uint32_t;
