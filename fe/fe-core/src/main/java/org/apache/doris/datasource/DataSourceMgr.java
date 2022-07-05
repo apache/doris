@@ -116,8 +116,12 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     }
 
     public DataSourceIf getCatalogOrAnalysisException(String name) throws AnalysisException {
-        return getCatalogOrException(name, ds -> new AnalysisException(
-                ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(ds), ErrorCode.ERR_UNKNOWN_CATALOG));
+        return getCatalogOrException(name, ds -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(ds),
+                ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
+    public List<Long> getCatalogIds() {
+        return Lists.newArrayList(idToCatalog.keySet());
     }
 
     public DatabaseIf getDbNullable(long dbId) {

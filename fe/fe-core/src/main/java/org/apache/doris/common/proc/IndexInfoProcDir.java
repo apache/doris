@@ -91,7 +91,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                             builder.toString()));
                 }
             } else {
-                result.addRow(Lists.newArrayList("-1", table.getName(), "", "", "", "", ""));
+                result.addRow(Lists.newArrayList(String.valueOf(table.getId()), table.getName(), "", "", "", "", ""));
             }
 
             return result;

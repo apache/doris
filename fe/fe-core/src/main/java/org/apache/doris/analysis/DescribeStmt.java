@@ -37,12 +37,12 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
@@ -50,10 +50,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class DescribeStmt extends ShowStmt {
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
@@ -77,17 +75,6 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("Password", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Database", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Table", ScalarType.createVarchar(30)))
-                    .build();
-
-    // The same columns in IndexSchemaProcNode.TITLE_NAMES
-    private static final ShowResultSetMetaData HMS_EXTERNAL_TABLE_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
                     .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
@@ -114,47 +101,35 @@ public class DescribeStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         dbTableName.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
-                ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
+        if (!Catalog.getCurrentCatalog().getAuth()
+                .checkTblPriv(ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTableName.toString());
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    dbTableName.toString());
         }
 
-        DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr()
-                .getCatalogOrAnalysisException(dbTableName.getCtl()).getDbOrAnalysisException(dbTableName.getDb());
+        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(dbTableName.getCtl());
+        DatabaseIf db = ds.getDbOrAnalysisException(dbTableName.getDb());
         TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();
         try {
             if (!isAllTables) {
-                if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
-                    hmsSchema = table.getFullSchema().stream().map(col -> Arrays.asList(
-                                    col.getName(),
-                                    col.getType().toSql().toUpperCase(Locale.ROOT),
-                                    Boolean.toString(col.isAllowNull()),
-                                    Boolean.toString(col.isKey()),
-                                    Strings.nullToEmpty(col.getDefaultValue()),
-                                    "" /* no extra field */))
-                            .collect(Collectors.toList());
+                // show base table schema only
+                String procString = "/catalogs/" + ds.getId() + "/" + db.getId() + "/" + table.getId() + "/"
+                        + TableProcDir.INDEX_SCHEMA + "/";
+                if (table.getType() == TableType.OLAP) {
+                    procString += ((OlapTable) table).getBaseIndexId();
                 } else {
-                    // show base table schema only
-                    String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                            + "/";
-                    if (table.getType() == TableType.OLAP) {
-                        procString += ((OlapTable) table).getBaseIndexId();
-                    } else {
-                        procString += table.getId();
-                    }
+                    procString += table.getId();
+                }
 
-                    node = ProcService.getInstance().open(procString);
-                    if (node == null) {
-                        throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
-                    }
+                node = ProcService.getInstance().open(procString);
+                if (node == null) {
+                    throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
                 }
             } else {
                 Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
@@ -272,9 +247,6 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         if (!isAllTables) {
-            if (hmsSchema != null) {
-                return HMS_EXTERNAL_TABLE_META_DATA;
-            }
             ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
             ProcResult result = null;

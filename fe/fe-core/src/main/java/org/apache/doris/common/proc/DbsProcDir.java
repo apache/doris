@@ -21,9 +21,11 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.DataSourceIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -44,9 +46,11 @@ public class DbsProcDir implements ProcDirInterface {
             .build();
 
     private Catalog catalog;
+    private DataSourceIf ds;
 
-    public DbsProcDir(Catalog catalog) {
+    public DbsProcDir(Catalog catalog, DataSourceIf ds) {
         this.catalog = catalog;
+        this.ds = ds;
     }
 
     @Override
@@ -67,7 +71,7 @@ public class DbsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        DatabaseIf db = catalog.getInternalDataSource().getDbNullable(dbId);
+        DatabaseIf db = ds.getDbNullable(dbId);
         if (db == null) {
             throw new AnalysisException("Database " + dbId + " does not exist");
         }
@@ -81,7 +85,7 @@ public class DbsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<String> dbNames = catalog.getInternalDataSource().getDbNames();
+        List<String> dbNames = ds.getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {
             // empty
             return result;
@@ -90,7 +94,7 @@ public class DbsProcDir implements ProcDirInterface {
         // get info
         List<List<Comparable>> dbInfos = new ArrayList<>();
         for (String dbName : dbNames) {
-            DatabaseIf db = catalog.getInternalDataSource().getDbNullable(dbName);
+            DatabaseIf db = ds.getDbNullable(dbName);
             if (db == null) {
                 continue;
             }
@@ -102,13 +106,14 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(dbName);
                 dbInfo.add(tableNum);
 
-                long usedDataQuota = ((Database) db).getUsedDataQuotaWithLock();
-                long dataQuota = ((Database) db).getDataQuota();
+                long usedDataQuota = (db instanceof Database) ? ((Database) db).getUsedDataQuotaWithLock() : 0;
+                long dataQuota = (db instanceof Database) ? ((Database) db).getDataQuota() : 0;
                 String readableUsedQuota = DebugUtil.printByteWithUnit(usedDataQuota);
                 String readableQuota = DebugUtil.printByteWithUnit(dataQuota);
-                String lastCheckTime = TimeUtils.longToTimeString(((Database) db).getLastCheckTime());
-                long replicaCount = ((Database) db).getReplicaCountWithLock();
-                long replicaQuota = ((Database) db).getReplicaQuota();
+                String lastCheckTime = (db instanceof Database) ? TimeUtils.longToTimeString(
+                        ((Database) db).getLastCheckTime()) : FeConstants.null_string;
+                long replicaCount = (db instanceof Database) ? ((Database) db).getReplicaCountWithLock() : 0;
+                long replicaQuota = (db instanceof Database) ? ((Database) db).getReplicaQuota() : 0;
                 dbInfo.add(readableUsedQuota);
                 dbInfo.add(readableQuota);
                 dbInfo.add(lastCheckTime);

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -587,7 +588,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testPauseRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -620,6 +621,12 @@ public class RoutineLoadManagerTest {
                 database.getId();
                 minTimes = 0;
                 result = 1L;
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
                 catalog.getAuth();
                 minTimes = 0;
                 result = paloAuth;
@@ -652,7 +659,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt,
-            @Mocked Catalog catalog, @Mocked InternalDataSource ds, @Mocked Database database,
+            @Mocked Catalog catalog, @Mocked InternalDataSource ds, @Mocked Database database, @Mocked Table tbl,
             @Mocked PaloAuth paloAuth, @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -681,6 +688,12 @@ public class RoutineLoadManagerTest {
                 database.getId();
                 minTimes = 0;
                 result = 1L;
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
                 catalog.getAuth();
                 minTimes = 0;
                 result = paloAuth;
@@ -697,7 +710,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testStopRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -726,6 +739,12 @@ public class RoutineLoadManagerTest {
                 database.getId();
                 minTimes = 0;
                 result = 1L;
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
                 catalog.getAuth();
                 minTimes = 0;
                 result = paloAuth;
@@ -894,7 +913,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -923,6 +942,12 @@ public class RoutineLoadManagerTest {
                 database.getId();
                 minTimes = 0;
                 result = 1L;
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
                 catalog.getAuth();
                 minTimes = 0;
                 result = paloAuth;
@@ -940,7 +965,7 @@ public class RoutineLoadManagerTest {
     @Test
     public void testPauseAndResumeAllRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt,
             @Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -981,6 +1006,12 @@ public class RoutineLoadManagerTest {
                 database.getId();
                 minTimes = 0;
                 result = 1L;
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
                 catalog.getAuth();
                 minTimes = 0;
                 result = paloAuth;
