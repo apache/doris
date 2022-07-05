@@ -120,6 +120,10 @@ Status AvroScanner::open_file_reader() {
 
     const TBrokerRangeDesc& range = _ranges[_next_range];
 
+    if (range.__isset.avro_schema_name) {
+        _avro_schema_name = range.avro_schema_name;
+    }
+
     switch (range.file_type) {
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
@@ -150,7 +154,7 @@ Status AvroScanner::open_avro_reader() {
     }
 
     _cur_avro_reader = new AvroReader(_state, _counter, _profile, _cur_file_reader, nullptr);
-    RETURN_IF_ERROR(_cur_avro_reader->init());
+    RETURN_IF_ERROR(_cur_avro_reader->init(_avro_schema_name));
     return Status::OK();
 }
 
@@ -189,18 +193,19 @@ AvroReader::~AvroReader() {
     _close();
 }
 
-Status AvroReader::init() {
-    bool exist = FileUtils::check_exist(config::avro_schema_file_path);
+Status AvroReader::init(std::string avro_schema_name) {
+    std::string schema_path = config::custom_config_dir + std::string("/") + avro_schema_name;
+    bool exist = FileUtils::check_exist(schema_path);
     if (!exist) {
         return Status::InternalError("there is no avro schema file at " +
-                                     config::avro_schema_file_path +
+                                     schema_path +
                                      ". Please put an schema file in json format.");
-    } else {
-        try {
-            _schema = avro::compileJsonSchemaFromFile(config::avro_schema_file_path.c_str());
-        } catch (avro::Exception& e) {
-            return Status::InternalError(std::string("schema get from json failed.") + e.what());
-        }
+    }
+
+    try {
+        _schema = avro::compileJsonSchemaFromFile(schema_path.c_str());
+    } catch (avro::Exception& e) {
+        return Status::InternalError(std::string("getting schema from json failed.") + e.what());
     }
 
     if (_schema.root()->type() != avro::AVRO_RECORD) {
@@ -368,11 +373,11 @@ AvroReader::DeserializeFn AvroReader::createDeserializeFn(avro::NodePtr root_nod
     case avro::AVRO_RECORD:
         [[fallthrough]];
     default: {
-        throw avro::Exception("Not support " + root_node->type() + std::string("type yet."));
+        throw avro::Exception("Not support " + root_node->type() + std::string(" type yet."));
     } break;
     }
     throw avro::Exception("Type " + slot_desc->type().type +
-                          std::string("is not compatible with Avro ") +
+                          std::string(" is not compatible with Avro ") +
                           avro::ValidSchema(root_node).toJson(false));
 }
 

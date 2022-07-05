@@ -58,6 +58,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String jsonRoot;
     private boolean fuzzyParse;
     private boolean readJsonByLine;
+    private String avroSchemaName;
 
     // optional
     private ImportColumnDescs columnExprDescs = new ImportColumnDescs();
@@ -91,6 +92,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.numAsString = false;
         this.fuzzyParse = false;
         this.readJsonByLine = false;
+        this.avroSchemaName = "";
     }
 
     public TUniqueId getId() {
@@ -179,6 +181,11 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public boolean isReadJsonByLine() {
         return readJsonByLine;
+    }
+
+    @Override
+    public String getAvroSchemaName() {
+        return avroSchemaName;
     }
 
     @Override
@@ -302,6 +309,13 @@ public class StreamLoadTask implements LoadTaskInfo {
             numAsString = request.isNumAsString();
             fuzzyParse = request.isFuzzyParse();
             readJsonByLine = request.isReadJsonByLine();
+        }
+        if (request.getFormatType() == TFileFormatType.FORMAT_AVRO) {
+            if (request.getAvroSchemaName() != null) {
+                avroSchemaName = request.getAvroSchemaName();
+            } else {
+                throw new AnalysisException("Should have a specified avro schema name while using AVRO format.");
+            }
         }
         if (request.isSetMergeType()) {
             try {

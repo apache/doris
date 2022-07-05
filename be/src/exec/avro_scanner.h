@@ -89,6 +89,7 @@ private:
     int _next_range;
     bool _cur_reader_eof;
     bool _scanner_eof;
+    std::string _avro_schema_name;
 
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
 };
@@ -99,7 +100,7 @@ public:
                FileReader* file_reader, LineReader* line_reader);
     ~AvroReader();
 
-    Status init();
+    Status init(std::string avro_schema_name);
 
     Status read_avro_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                          MemPool* tuple_pool, bool* is_empty_row, bool* eof);

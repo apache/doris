@@ -103,6 +103,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String JSONROOT = "json_root";
     public static final String NUM_AS_STRING = "num_as_string";
     public static final String FUZZY_PARSE = "fuzzy_parse";
+    public static final String AVRO_SCHEMA_NAME = "avro_schema_name";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -135,6 +136,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(EXEC_MEM_LIMIT_PROPERTY)
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
+            .add(AVRO_SCHEMA_NAME)
             .build();
 
     private final LabelName labelName;
@@ -171,6 +173,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean stripOuterArray = false;
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
+    private String avroSchemaName = "";
 
     private LoadTask.MergeType mergeType;
 
@@ -276,6 +279,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getJsonRoot() {
         return jsonRoot;
+    }
+
+    public String getAvroSchemaName() {
+        return avroSchemaName;
     }
 
     public String getKafkaBrokerList() {
@@ -469,6 +476,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 fuzzyParse = Boolean.valueOf(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
             } else if (format.equalsIgnoreCase("avro")) {
                 format = "avro";
+                avroSchemaName = jobProperties.getOrDefault(AVRO_SCHEMA_NAME, "");
+                if (Strings.isNullOrEmpty(avroSchemaName)) {
+                    throw new UserException("Avro format need to specify one schema.");
+                }
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
             }

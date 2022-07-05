@@ -201,6 +201,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private static final String PROPS_JSONPATHS = "jsonpaths";
     private static final String PROPS_JSONROOT = "json_root";
     private static final String PROPS_FUZZY_PARSE = "fuzzy_parse";
+    private static final String PROPS_AVRO_SCHEMA_NAME = "avro_schema_name";
 
 
     protected int currentTaskConcurrentNum;
@@ -336,6 +337,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_FUZZY_PARSE, "true");
         } else {
             jobProperties.put(PROPS_FUZZY_PARSE, "false");
+        }
+        if (!Strings.isNullOrEmpty(stmt.getAvroSchemaName())) {
+            jobProperties.put(PROPS_AVRO_SCHEMA_NAME, stmt.getAvroSchemaName());
+        } else {
+            jobProperties.put(PROPS_AVRO_SCHEMA_NAME, "");
         }
     }
 
@@ -556,6 +562,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public boolean isFuzzyParse() {
         return Boolean.valueOf(jobProperties.get(PROPS_FUZZY_PARSE));
+    }
+
+    @Override
+    public String getAvroSchemaName() {
+        return jobProperties.get(PROPS_AVRO_SCHEMA_NAME);
     }
 
     @Override
@@ -1402,6 +1413,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
         appendProperties(sb, PROPS_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), false);
+        appendProperties(sb, PROPS_AVRO_SCHEMA_NAME, getAvroSchemaName(), false);
         appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
         appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);

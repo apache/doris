@@ -159,6 +159,7 @@ struct TBrokerRangeDesc {
     18: optional bool read_by_column_def;
     // csv with header type
     19: optional string header_type;
+    20: optional string avro_schema_name;
 }
 
 struct TBrokerScanRangeParams {

@@ -66,6 +66,8 @@ public interface LoadTaskInfo {
 
     boolean isReadJsonByLine();
 
+    String getAvroSchemaName();
+
     String getPath();
 
     double getMaxFilterRatio();

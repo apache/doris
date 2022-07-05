@@ -286,6 +286,9 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
                                      http_req->header(HTTP_FORMAT_KEY));
     }
 
+    if (ctx->format == TFileFormatType::FORMAT_AVRO && http_req->header(HTTP_AVRO_SCHEMA_NAME).empty()) {
+        return Status::InternalError("should give an avro schema name while using avro format");
+    }
     if (ctx->two_phase_commit && config::disable_stream_load_2pc) {
         return Status::InternalError("Two phase commit (2PC) for stream load was disabled");
     }
@@ -503,6 +506,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     } else {
         request.__set_read_json_by_line(false);
+    }
+
+    if (!http_req->header(HTTP_AVRO_SCHEMA_NAME).empty()) {
+        request.__set_avro_schema_name(http_req->header(HTTP_AVRO_SCHEMA_NAME));
     }
 
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {

@@ -541,6 +541,7 @@ struct TStreamLoadPutRequest {
     37: optional bool load_to_single_tablet
     38: optional string header_type
     39: optional string hidden_columns
+    40: optional string avro_schema_name
 }
 
 struct TStreamLoadPutResult {
