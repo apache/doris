@@ -85,13 +85,19 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
+    public String toString() {
+        return child().toString() + " AS " + name;
+    }
+
+    @Override
+    public Alias<CHILD_TYPE> clone() {
+        CHILD_TYPE childType = (CHILD_TYPE) children.get(0).clone();
+        return new Alias<>(childType, name);
+    }
+
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Alias<>(children.get(0), name);
     }
 
-    @Override
-    public String toString() {
-        return child().toString() + " AS " + name;
-    }
 }
