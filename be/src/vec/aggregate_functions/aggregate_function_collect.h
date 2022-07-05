@@ -142,9 +142,7 @@ struct AggregateFunctionCollectListData<StringRef> {
 
     AggregateFunctionCollectListData<ElementType>() { data = ColVecType::create(); }
 
-    void add(const IColumn& column, size_t row_num) {
-        data->insert_from(column, row_num);
-    }
+    void add(const IColumn& column, size_t row_num) { data->insert_from(column, row_num); }
 
     void merge(const AggregateFunctionCollectListData& rhs) {
         data->insert_range_from(*rhs.data, 0, rhs.data->size());
