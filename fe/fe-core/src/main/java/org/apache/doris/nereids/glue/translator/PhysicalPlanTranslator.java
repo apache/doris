@@ -326,15 +326,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 requiredSlotIdList.add(((SlotRef) expr).getDesc().getId().asInt());
             }
         }
-//        for (TupleId tupleId : inputPlanNode.getTupleIds()) {
-//            TupleDescriptor tupleDescriptor = context.getTupleDesc(tupleId);
-//            Preconditions.checkNotNull(tupleDescriptor);
-//            List<SlotDescriptor> slotDescList = tupleDescriptor.getSlots();
-//            slotDescList.removeIf(slotDescriptor -> !requiredSlotIdList.contains(slotDescriptor.getId().asInt()));
-//            for (int i = 0; i < slotDescList.size(); i++) {
-//                slotDescList.get(i).setSlotOffset(i);
-//            }
-//        }
         return inputFragment;
     }
 

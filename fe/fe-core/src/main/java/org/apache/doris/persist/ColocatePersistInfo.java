@@ -23,7 +23,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
@@ -36,7 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * PersistInfo for ColocateTableIndex
+ * PersistInfo for ColocateTableIndex.
  */
 public class ColocatePersistInfo implements Writable {
     @SerializedName(value = "groupId")
@@ -50,13 +50,19 @@ public class ColocatePersistInfo implements Writable {
 
     }
 
-    public static ColocatePersistInfo createForAddTable(GroupId groupId,
-            long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
+    private ColocatePersistInfo(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
+        this.groupId = groupId;
+        this.tableId = tableId;
+        this.backendsPerBucketSeq = backendsPerBucketSeq;
+    }
+
+    public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId,
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq);
     }
 
     public static ColocatePersistInfo createForBackendsPerBucketSeq(GroupId groupId,
-                                                                    Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq);
     }
 
@@ -72,10 +78,9 @@ public class ColocatePersistInfo implements Writable {
         return new ColocatePersistInfo(new GroupId(-1, -1), tableId, Maps.newHashMap());
     }
 
-    private ColocatePersistInfo(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
-        this.groupId = groupId;
-        this.tableId = tableId;
-        this.backendsPerBucketSeq = backendsPerBucketSeq;
+    public static ColocatePersistInfo read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ColocatePersistInfo.class);
     }
 
     public long getTableId() {
@@ -88,11 +93,6 @@ public class ColocatePersistInfo implements Writable {
 
     public Map<Tag, List<List<Long>>> getBackendsPerBucketSeq() {
         return backendsPerBucketSeq;
-    }
-
-    public static ColocatePersistInfo read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ColocatePersistInfo.class);
     }
 
     @Override
@@ -136,9 +136,8 @@ public class ColocatePersistInfo implements Writable {
 
         ColocatePersistInfo info = (ColocatePersistInfo) obj;
 
-        return tableId == info.tableId
-                && groupId.equals(info.groupId)
-                && backendsPerBucketSeq.equals(info.backendsPerBucketSeq);
+        return tableId == info.tableId && groupId.equals(info.groupId) && backendsPerBucketSeq.equals(
+                info.backendsPerBucketSeq);
     }
 
     @Override

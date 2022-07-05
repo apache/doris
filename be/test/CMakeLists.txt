@@ -319,6 +319,7 @@ set(UTIL_TEST_FILES
     util/array_parser_test.cpp
     util/quantile_state_test.cpp
     util/hdfs_storage_backend_test.cpp
+    util/interval_tree_test.cpp
 )
 set(VEC_TEST_FILES
     vec/aggregate_functions/agg_test.cpp

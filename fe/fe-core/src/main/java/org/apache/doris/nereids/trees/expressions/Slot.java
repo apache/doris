@@ -32,4 +32,8 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
     public Slot toSlot() {
         return this;
     }
+
+    public Slot withNullable(boolean newNullable) {
+        throw new RuntimeException("Do not implement");
+    }
 }

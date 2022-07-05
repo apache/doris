@@ -351,7 +351,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
         } else if (stmt instanceof ShowCatalogStmt) {
-            handleDatasource();
+            handleShowCatalogs();
         } else {
             handleEmtpy();
         }
@@ -909,7 +909,6 @@ public class ShowExecutor {
         ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
-
         OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
         table.readLock();
         try {
@@ -2248,7 +2247,7 @@ public class ShowExecutor {
         resultSet = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showStmt);
     }
 
-    public void handleDatasource() throws AnalysisException {
+    public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Catalog.getCurrentCatalog().getDataSourceMgr().showCatalogs(showStmt);
     }

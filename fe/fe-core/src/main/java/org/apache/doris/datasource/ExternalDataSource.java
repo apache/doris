@@ -19,9 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -36,8 +33,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.function.Function;
 
 /**
  * The abstract class for all types of external data sources.
@@ -104,56 +99,6 @@ public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabas
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public Optional<ExternalDatabase> getDb(String dbName) {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public Optional<ExternalDatabase> getDb(long dbId) {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public <E extends Exception> ExternalDatabase getDbOrException(String dbName, Function<String, E> e) throws E {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public <E extends Exception> ExternalDatabase getDbOrException(long dbId, Function<Long, E> e) throws E {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public ExternalDatabase getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public ExternalDatabase getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public ExternalDatabase getDbOrDdlException(String dbName) throws DdlException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public ExternalDatabase getDbOrDdlException(long dbId) throws DdlException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public ExternalDatabase getDbOrAnalysisException(String dbName) throws AnalysisException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public ExternalDatabase getDbOrAnalysisException(long dbId) throws AnalysisException {
         throw new NotImplementedException();
     }
 
