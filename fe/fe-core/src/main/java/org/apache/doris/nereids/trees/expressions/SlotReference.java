@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang.StringUtils;
 
@@ -138,5 +139,10 @@ public class SlotReference extends Slot {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 0);
         return this;
+    }
+
+    @Override
+    public SlotReference clone() {
+        return new SlotReference(name, getDataType(), nullable, Lists.newArrayList(qualifier));
     }
 }

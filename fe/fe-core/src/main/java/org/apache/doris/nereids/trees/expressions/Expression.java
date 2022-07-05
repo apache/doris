@@ -83,6 +83,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         return false;
     }
 
+    public Expression clone() {
+        throw new RuntimeException("Unimplemented method");
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalHeapSort;
+import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -40,6 +41,10 @@ public class RuleSet {
     public static final List<Rule<Plan>> EXPLORATION_RULES = planRuleFactories()
             .add(new JoinCommutative(false))
             .add(new JoinLeftAssociative())
+            .build();
+
+    public static final List<Rule<Plan>> REWRITE_RULES = planRuleFactories()
+            .add(new AggregateDisassemble())
             .build();
 
     public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()

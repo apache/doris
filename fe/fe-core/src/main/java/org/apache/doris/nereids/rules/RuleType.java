@@ -38,6 +38,7 @@ public enum RuleType {
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
 
     // rewrite rules
+    AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
     PUSH_DOWN_PREDICATE_THROUGH_JOIN(RuleTypeClass.REWRITE),
 
