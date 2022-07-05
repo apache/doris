@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.operators;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
@@ -35,7 +35,7 @@ public abstract class OperatorVisitor<R, C> {
 
     public abstract R visitOperator(Operator operator, C context);
 
-    public R visitPhysicalAggregation(PhysicalAggregation physicalAggregation, C context) {
+    public R visitPhysicalAggregation(PhysicalAggregate physicalAggregate, C context) {
         return null;
     }
 

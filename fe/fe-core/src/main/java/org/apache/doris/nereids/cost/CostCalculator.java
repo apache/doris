@@ -22,7 +22,7 @@ import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.OperatorVisitor;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
@@ -62,7 +62,7 @@ public class CostCalculator {
         }
 
         @Override
-        public CostEstimate visitPhysicalAggregation(PhysicalAggregation physicalAggregation, PlanContext context) {
+        public CostEstimate visitPhysicalAggregation(PhysicalAggregate physicalAggregate, PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             return CostEstimate.ofCpu(statistics.computeSize());
         }

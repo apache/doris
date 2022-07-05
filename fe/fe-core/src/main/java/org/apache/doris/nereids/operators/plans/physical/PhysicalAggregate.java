@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Physical aggregation plan operator.
  */
-public class PhysicalAggregation extends PhysicalUnaryOperator {
+public class PhysicalAggregate extends PhysicalUnaryOperator {
 
     private final List<Expression> groupByExprList;
 
@@ -52,7 +52,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
      * @param partitionExprList partition expr list, used for analytic agg.
      * @param usingStream whether it's stream agg.
      */
-    public PhysicalAggregation(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList,
+    public PhysicalAggregate(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList,
             List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
         super(OperatorType.PHYSICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
@@ -84,7 +84,7 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalAggregation((PhysicalUnaryPlan<PhysicalAggregation, Plan>) plan, context);
+        return visitor.visitPhysicalAggregate((PhysicalUnaryPlan<PhysicalAggregate, Plan>) plan, context);
     }
 
     @Override

@@ -30,7 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.operators.plans.JoinType;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
@@ -65,7 +65,6 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -115,41 +114,44 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
      * Translate Agg.
      */
     @Override
-    public PlanFragment visitPhysicalAggregation(
-            PhysicalUnaryPlan<PhysicalAggregation, Plan> agg, PlanTranslatorContext context) {
+    public PlanFragment visitPhysicalAggregate(
+            PhysicalUnaryPlan<PhysicalAggregate, Plan> agg, PlanTranslatorContext context) {
 
         PlanFragment inputPlanFragment = visit(agg.child(0), context);
+        PhysicalAggregate physicalAggregate = agg.getOperator();
 
-        AggregationNode aggregationNode;
-        List<Slot> slotList = ImmutableList.copyOf(agg.getOutput());
-        PhysicalAggregation physicalAggregation = agg.getOperator();
-        AggregateInfo.AggPhase phase = physicalAggregation.getAggPhase().toExec();
-
-        List<Expression> groupByExpressionList = physicalAggregation.getGroupByExprList();
+        List<Slot> slotList = new ArrayList<>();
+        List<Expression> groupByExpressionList = physicalAggregate.getGroupByExprList();
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toCollection(ArrayList::new));
+                // Since output of plan doesn't contain the slots of groupBy, which is actually needed by
+                // the BE execution, so we have to collect them and add to the slotList to generate corresponding
+                // TupleDesc.
+                .peek(x -> slotList.addAll(x.collect(SlotReference.class::isInstance)))
+                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
+        slotList.addAll(agg.getOutput());
         TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
 
-        List<NamedExpression> outputExpressionList = physicalAggregation.getOutputExpressionList();
+        List<NamedExpression> outputExpressionList = physicalAggregate.getOutputExpressionList();
         ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
                 .map(e -> e.<List<AggregateFunction>>collect(AggregateFunction.class::isInstance))
                 .flatMap(List::stream)
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
-        List<Expression> partitionExpressionList = physicalAggregation.getPartitionExprList();
+        List<Expression> partitionExpressionList = physicalAggregate.getPartitionExprList();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+
         // todo: support DISTINCT
+        AggregationNode aggregationNode;
         AggregateInfo aggInfo;
-        switch (phase) {
+        switch (physicalAggregate.getAggPhase()) {
             case FIRST:
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST);
                 aggregationNode = new AggregationNode(context.nextNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
                 aggregationNode.unsetNeedsFinalize();
-                aggregationNode.setUseStreamingPreagg(physicalAggregation.isUsingStream());
+                aggregationNode.setUseStreamingPreagg(physicalAggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
                 if (!partitionExpressionList.isEmpty()) {
                     inputPlanFragment.setOutputPartition(DataPartition.hashPartitioned(execPartitionExpressions));
@@ -202,7 +204,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     }
 
     @Override
-    public PlanFragment visitPhysicalSort(PhysicalUnaryPlan<PhysicalHeapSort, Plan> sort,
+    public PlanFragment visitPhysicalHeapSort(PhysicalUnaryPlan<PhysicalHeapSort, Plan> sort,
             PlanTranslatorContext context) {
         PlanFragment childFragment = visit(sort.child(0), context);
         PhysicalHeapSort physicalHeapSort = sort.getOperator();
@@ -261,15 +263,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
         PlanFragment rightFragment = visit(hashJoin.child(1), context);
         PlanFragment leftFragment = visit(hashJoin.child(0), context);
-        PhysicalHashJoin physicalHashJoin = hashJoin.getOperator();
-
-        //        Expression predicateExpr = physicalHashJoin.getCondition().get();
-        //        List<Expression> eqExprList = Utils.getEqConjuncts(hashJoin.child(0).getOutput(),
-        //                hashJoin.child(1).getOutput(), predicateExpr);
-        JoinType joinType = physicalHashJoin.getJoinType();
-
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
+        PhysicalHashJoin physicalHashJoin = hashJoin.getOperator();
+        JoinType joinType = physicalHashJoin.getJoinType();
 
         if (joinType.equals(JoinType.CROSS_JOIN)
                 || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN)
@@ -286,23 +283,24 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             leftFragment.setPlanRoot(crossJoinNode);
             context.addPlanFragment(leftFragment);
             return leftFragment;
+        } else {
+            Expression eqJoinExpression = physicalHashJoin.getCondition().get();
+            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()
+                    .map(EqualTo.class::cast)
+                    .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+
+            HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot,
+                    rightFragmentPlanRoot,
+                    JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, Lists.newArrayList());
+
+            hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
+            hashJoinNode.setChild(0, leftFragmentPlanRoot);
+            connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
+            leftFragment.setPlanRoot(hashJoinNode);
+            return leftFragment;
         }
-
-        Expression eqJoinExpression = physicalHashJoin.getCondition().get();
-        List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()
-                .map(EqualTo.class::cast)
-                .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
-
-        HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot,
-                JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, Lists.newArrayList());
-
-        hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
-        hashJoinNode.setChild(0, leftFragmentPlanRoot);
-        connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
-        leftFragment.setPlanRoot(hashJoinNode);
-        return leftFragment;
     }
 
     // TODO: generate expression mapping when be project could do in ExecNode
