@@ -21,13 +21,11 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -331,15 +329,15 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 requiredSlotIdList.add(((SlotRef) expr).getDesc().getId().asInt());
             }
         }
-        for (TupleId tupleId : inputPlanNode.getTupleIds()) {
-            TupleDescriptor tupleDescriptor = context.getTupleDesc(tupleId);
-            Preconditions.checkNotNull(tupleDescriptor);
-            List<SlotDescriptor> slotDescList = tupleDescriptor.getSlots();
-            slotDescList.removeIf(slotDescriptor -> !requiredSlotIdList.contains(slotDescriptor.getId().asInt()));
-            for (int i = 0; i < slotDescList.size(); i++) {
-                slotDescList.get(i).setSlotOffset(i);
-            }
-        }
+//        for (TupleId tupleId : inputPlanNode.getTupleIds()) {
+//            TupleDescriptor tupleDescriptor = context.getTupleDesc(tupleId);
+//            Preconditions.checkNotNull(tupleDescriptor);
+//            List<SlotDescriptor> slotDescList = tupleDescriptor.getSlots();
+//            slotDescList.removeIf(slotDescriptor -> !requiredSlotIdList.contains(slotDescriptor.getId().asInt()));
+//            for (int i = 0; i < slotDescList.size(); i++) {
+//                slotDescList.get(i).setSlotOffset(i);
+//            }
+//        }
         return inputFragment;
     }
 
