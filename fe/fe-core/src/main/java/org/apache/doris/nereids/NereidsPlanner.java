@@ -30,9 +30,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.AnalyzeRulesJob;
-import org.apache.doris.nereids.jobs.OptimizeRulesJob;
-import org.apache.doris.nereids.jobs.PredicatePushDownRulesJob;
+import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
+import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
+import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
+import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -146,6 +147,9 @@ public class NereidsPlanner extends Planner {
 
         PredicatePushDownRulesJob predicatePushDownRulesJob = new PredicatePushDownRulesJob(plannerContext);
         predicatePushDownRulesJob.execute();
+
+        DisassembleRulesJob disassembleRulesJob = new DisassembleRulesJob(plannerContext);
+        disassembleRulesJob.execute();
 
         OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
         optimizeRulesJob.execute();

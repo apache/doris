@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs;
+package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;

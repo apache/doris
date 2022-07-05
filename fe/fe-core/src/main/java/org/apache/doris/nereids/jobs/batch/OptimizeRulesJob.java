@@ -15,33 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs;
+package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.rules.analysis.BindFunction;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindSlotReference;
-import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 
 import com.google.common.collect.ImmutableList;
 
 /**
- * Execute the analysis job.
+ * cascade optimizer added.
  */
-public class AnalyzeRulesJob extends BatchRulesJob {
-
-    /**
-     * Execute the analysis job
-     * @param plannerContext planner context for execute job
-     */
-    public AnalyzeRulesJob(PlannerContext plannerContext) {
+public class OptimizeRulesJob extends BatchRulesJob {
+    public OptimizeRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(
-                        new BindRelation(),
-                        new BindSlotReference(),
-                        new BindFunction(),
-                        new ProjectToGlobalAggregate())
-                )));
+                optimize()
+        ));
     }
 }
