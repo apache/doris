@@ -909,7 +909,6 @@ public class ShowExecutor {
         ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
-
         OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
         table.readLock();
         try {
