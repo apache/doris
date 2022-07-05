@@ -74,7 +74,7 @@ FROM scratch
 COPY --from=builder / /
 ENV JAVA_HOME="/usr/lib/jvm/java-11" \
     MAVEN_HOME="/usr/share/maven" \
-    REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
+    REPOSITORY_URL="" \
     DEFAULT_DIR="/var/local" \
     PATH="/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
