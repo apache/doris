@@ -159,8 +159,7 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     auto checker = [&](int index) {
         return _conjunct_to_predicate[index] != -1 && list[_conjunct_to_predicate[index]];
     };
-    std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
-    _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
+    _peel_pushed_vconjunct(state, checker);
 
     RETURN_IF_ERROR(start_scanners());
 
