@@ -36,7 +36,7 @@ public class Regexp<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends
 
     @Override
     public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
+        return left().nullable();
     }
 
     @Override
