@@ -29,13 +29,13 @@ RUN yum clean all
 
 # install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
-    wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz && \
+    wget -q -O /tmp/apache-maven.tar.gz https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
     tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \
     rm -f /tmp/apache-maven.tar.gz && \
     ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz \
+RUN wget https://nodejs.org/dist/v16.3.0/node-v16.3.0-linux-arm64.tar.xz \
     -q -O /tmp/node-v16.3.0-linux-arm64.tar.xz \
     && cd /tmp/ && tar -xf node-v16.3.0-linux-arm64.tar.xz \
     && cp -r node-v16.3.0-linux-arm64/* /usr/local/ \
