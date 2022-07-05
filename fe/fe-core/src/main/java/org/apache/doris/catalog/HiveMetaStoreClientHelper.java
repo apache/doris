@@ -440,6 +440,8 @@ public class HiveMetaStoreClientHelper {
     }
 
     private static class ExprNodeGenericFuncDescContext {
+        private static final ExprNodeGenericFuncDescContext BAD_CONTEXT = new ExprNodeGenericFuncDescContext();
+
         private ExprNodeGenericFuncDesc funcDesc = null;
         private boolean eligible = false;
 
@@ -448,7 +450,7 @@ public class HiveMetaStoreClientHelper {
             this.eligible = true;
         }
 
-        public ExprNodeGenericFuncDescContext() {
+        private ExprNodeGenericFuncDescContext() {
         }
 
         /**
@@ -466,7 +468,7 @@ public class HiveMetaStoreClientHelper {
     private static ExprNodeGenericFuncDescContext convertToHivePartitionExpr(Expr dorisExpr,
             List<String> partitionKeys, String tblName) throws DdlException {
         if (dorisExpr == null) {
-            return new ExprNodeGenericFuncDescContext();
+            return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
 
         if (dorisExpr instanceof CompoundPredicate) {
@@ -488,7 +490,7 @@ public class HiveMetaStoreClientHelper {
                     } else if (right.isEligible()) {
                         return right;
                     } else {
-                        return new ExprNodeGenericFuncDescContext();
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
                 }
                 case OR: {
@@ -500,12 +502,12 @@ public class HiveMetaStoreClientHelper {
                     } else {
                         // If it is not a partition key, this is an always true expr.
                         // Or if is a partition key and also is a not supportedOp, this is an always true expr.
-                        return new ExprNodeGenericFuncDescContext();
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
                 }
                 default:
                     // TODO: support NOT predicate for CompoundPredicate
-                    return new ExprNodeGenericFuncDescContext();
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
             }
         }
         return binaryExprDesc(dorisExpr, partitionKeys, tblName);
@@ -527,12 +529,12 @@ public class HiveMetaStoreClientHelper {
                 SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
                 LiteralExpr literalExpr = convertDorisExprToLiteralExpr(eq.getChild(1));
                 if (slotRef == null || literalExpr == null) {
-                    return new ExprNodeGenericFuncDescContext();
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 String colName = slotRef.getColumnName();
                 // check whether colName is partition column or not
                 if (!partitionKeys.contains(colName)) {
-                    return new ExprNodeGenericFuncDescContext();
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 PrimitiveType dorisPrimitiveType = slotRef.getType().getPrimitiveType();
                 PrimitiveTypeInfo hivePrimitiveType = convertToHiveColType(dorisPrimitiveType);
@@ -541,7 +543,7 @@ public class HiveMetaStoreClientHelper {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
                         return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
                     } else {
-                        return new ExprNodeGenericFuncDescContext();
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
                 }
                 switch (opcode) {
@@ -559,11 +561,11 @@ public class HiveMetaStoreClientHelper {
                     case LT:
                         return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
                     default:
-                        return new ExprNodeGenericFuncDescContext();
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
             default:
                 // TODO: support in predicate
-                return new ExprNodeGenericFuncDescContext();
+                return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
     }
 
