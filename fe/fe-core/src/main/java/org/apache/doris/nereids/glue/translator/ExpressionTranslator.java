@@ -28,6 +28,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -62,8 +63,23 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
 
-    public static Expr translate(Expression expression, PlanTranslatorContext planContext) {
-        return expression.accept(INSTANCE, planContext);
+    /**
+     * The entry function of ExpressionTranslator, call {@link Expr#finalizeForNereids()} to generate
+     * some attributes using in BE.
+     *
+     * @param expression nereids expression
+     * @param context translator context
+     * @return stale planner's expr
+     */
+    public static Expr translate(Expression expression, PlanTranslatorContext context) {
+        Expr staleExpr =  expression.accept(INSTANCE, context);
+        try {
+            staleExpr.finalizeForNereids();
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(
+                    "Translate Nereids expression to stale expression failed. " + e.getMessage(), e);
+        }
+        return staleExpr;
     }
 
     @Override
@@ -159,7 +175,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitCompoundPredicate(CompoundPredicate compoundPredicate, PlanTranslatorContext context) {
         NodeType nodeType = compoundPredicate.getType();
-        org.apache.doris.analysis.CompoundPredicate.Operator staleOp = null;
+        org.apache.doris.analysis.CompoundPredicate.Operator staleOp;
         switch (nodeType) {
             case OR:
                 staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.OR;
@@ -171,7 +187,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.NOT;
                 break;
             default:
-                throw new RuntimeException(String.format("Unknown node type: %s", nodeType.name()));
+                throw new AnalysisException(String.format("Unknown node type: %s", nodeType.name()));
         }
         return new org.apache.doris.analysis.CompoundPredicate(staleOp,
                 compoundPredicate.child(0).accept(this, context),

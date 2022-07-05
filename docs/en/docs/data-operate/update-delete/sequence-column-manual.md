@@ -209,10 +209,10 @@ MySQL [test]> select * from test_table;
 +---------+------------+----------+-------------+---------+
 | user_id | date       | group_id | modify_date | keyword |
 +---------+------------+----------+-------------+---------+
-|       1 | 2020-02-22 |        1 | 2020-03-05  | c       |
+|       1 | 2020-02-22 |        1 | 2020-02-23  | b       |
 +---------+------------+----------+-------------+---------+
 ```
-Because the sequence column for the newly imported data are all smaller than the values already in the table, they cannot be replaced
+In this import, the b is eventually retained in the keyword column because the value of the sequence column (the value in modify_date) is the maximum value: '2020-02-23'.
 Try importing the following data again
 
 ```
@@ -228,5 +228,5 @@ MySQL [test]> select * from test_table;
 |       1 | 2020-02-22 |        1 | 2020-03-23  | w       |
 +---------+------------+----------+-------------+---------+
 ```
-At this point, you can replace the original data in the table
+At this point, you can replace the original data in the table. To sum up, if the key is the same in the imported data of the same batch, the sequence column value will be compared. Select the record with the largest value to import into the Doris table,and the sequence column between different batches will not work.
 
