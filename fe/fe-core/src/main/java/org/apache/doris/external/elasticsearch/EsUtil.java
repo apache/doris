@@ -93,7 +93,7 @@ public class EsUtil {
 
 
     /**
-     * Get the json object from specified jsonObject.
+     * Get the json object from specified jsonObject
      */
     public static JSONObject getJsonObject(JSONObject jsonObject, String key, int fromIndex) {
         int firstOccr = key.indexOf('.', fromIndex);

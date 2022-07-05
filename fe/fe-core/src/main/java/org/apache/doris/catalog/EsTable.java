@@ -296,7 +296,6 @@ public class EsTable extends Table {
             if (mappingType != null) {
                 sb.append(mappingType);
             }
-            sb.append("http");
         } else {
             for (Map.Entry<String, String> entry : tableContext.entrySet()) {
                 sb.append(entry.getKey());
