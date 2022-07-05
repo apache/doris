@@ -36,11 +36,17 @@ public enum RuleType {
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
-
     // rewrite rules
     AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
-    COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
+    // predicate push down rules
     PUSH_DOWN_PREDICATE_THROUGH_JOIN(RuleTypeClass.REWRITE),
+    // column prune rules,
+    COLUMN_PRUNE_AGGREGATION_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_FILTER_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_SORT_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_JOIN_CHILD(RuleTypeClass.REWRITE),
+
+    REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE(RuleTypeClass.EXPLORATION),

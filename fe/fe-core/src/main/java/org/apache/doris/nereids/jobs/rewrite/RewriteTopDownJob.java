@@ -79,7 +79,6 @@ public class RewriteTopDownJob extends Job<Plan> {
                     return;
                 }
             }
-            logicalExpression.setApplied(rule);
         }
 
         for (Group childGroup : group.getLogicalExpression().children()) {

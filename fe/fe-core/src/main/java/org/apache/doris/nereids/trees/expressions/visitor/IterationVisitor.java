@@ -178,5 +178,5 @@ public abstract class IterationVisitor<C> extends DefaultExpressionVisitor<Void,
     public Void visitMod(Mod mod, C context) {
         return visitArithmetic(mod, context);
     }
-
 }
+
