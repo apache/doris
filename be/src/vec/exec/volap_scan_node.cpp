@@ -861,8 +861,6 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
     // 4.1 Filter idle conjunct which already trans to olap filters
     // this must be after build_scan_key, it will free the StringValue memory
     remove_pushed_conjuncts(state);
-    // 4.2 move the pushed function context
-    move_pushed_func_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
     // 5. Start multi thread to read several `Sub Sub ScanRange`
@@ -1039,29 +1037,31 @@ bool VOlapScanNode::is_key_column(const std::string& key_name) {
 }
 
 void VOlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
-    if (_pushed_conjuncts_index.empty()) {
+    if (_pushed_conjuncts_index.empty() && _pushed_func_conjuncts_index.empty()) {
         return;
     }
 
     // dispose direct conjunct first
     std::vector<ExprContext*> new_conjunct_ctxs;
     for (int i = 0; i < _direct_conjunct_size; ++i) {
-        if (std::find(_pushed_conjuncts_index.cbegin(), _pushed_conjuncts_index.cend(), i) ==
-            _pushed_conjuncts_index.cend()) {
-            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        if (!_pushed_conjuncts_index.empty() && _pushed_conjuncts_index.count(i)) {
+            _conjunct_ctxs[i]->close(state); // pushed condition, just close
+        } else if (!_pushed_func_conjuncts_index.empty() && _pushed_func_conjuncts_index.count(i)) {
+            _pushed_func_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]); // pushed functions, need keep ctxs
         } else {
-            _conjunct_ctxs[i]->close(state);
+            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
         }
     }
     auto new_direct_conjunct_size = new_conjunct_ctxs.size();
 
     // dispose hash join push down conjunct second
     for (int i = _direct_conjunct_size; i < _conjunct_ctxs.size(); ++i) {
-        if (std::find(_pushed_conjuncts_index.cbegin(), _pushed_conjuncts_index.cend(), i) ==
-            _pushed_conjuncts_index.cend()) {
-            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        if (!_pushed_conjuncts_index.empty() && _pushed_conjuncts_index.count(i)) {
+            _conjunct_ctxs[i]->close(state); // pushed condition, just close
+        } else if (!_pushed_func_conjuncts_index.empty() && _pushed_func_conjuncts_index.count(i)) {
+            _pushed_func_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]); // pushed functions, need keep ctxs
         } else {
-            _conjunct_ctxs[i]->close(state);
+            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
         }
     }
 
@@ -1088,36 +1088,6 @@ void VOlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
     auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
     std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
     _runtime_profile->add_info_string("NonPushdownPredicate", vconjunct_information);
-}
-
-void VOlapScanNode::move_pushed_func_conjuncts(RuntimeState *state) {
-    if (_pushed_func_conjuncts_index.empty()) {
-        return;
-    }
-
-    std::vector<ExprContext*> new_conjunct_ctxs;
-    for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        if (std::find(_pushed_func_conjuncts_index.cbegin(), _pushed_func_conjuncts_index.cend(), i) == _pushed_func_conjuncts_index.cend()){
-            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
-        } else {
-            _pushed_func_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
-        }
-    }
-
-    _conjunct_ctxs = std::move(new_conjunct_ctxs);
-    _direct_conjunct_size = _conjunct_ctxs.size();
-
-    // set vconjunct_ctx is empty, if all conjunct
-    if (_direct_conjunct_size == 0) {
-        if (_vconjunct_ctx_ptr != nullptr) {
-            (*_vconjunct_ctx_ptr)->close(state);
-            _vconjunct_ctx_ptr = nullptr;
-        }
-    }
-
-    // filter idle conjunct in vexpr_contexts
-    auto checker = [&](int index) { return _pushed_func_conjuncts_index.count(index); };
-    std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
 }
 
 // Construct the ColumnValueRange for one specified column

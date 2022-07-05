@@ -62,7 +62,6 @@ private:
     // only key column conjuncts will be remove as idle conjunct
     bool is_key_column(const std::string& key_name);
     void remove_pushed_conjuncts(RuntimeState* state);
-    void move_pushed_func_conjuncts(RuntimeState *state);
 
     Status start_scan(RuntimeState* state);
     void eval_const_conjuncts();
