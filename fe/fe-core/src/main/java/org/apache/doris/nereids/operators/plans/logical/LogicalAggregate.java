@@ -40,6 +40,8 @@ import java.util.Objects;
  * <p>
  * Each agg node only contains the select statement field of the same layer,
  * and other agg nodes in the subquery contain.
+ * Note: In general, the output of agg is a subset of the group by column plus aggregate column.
+ * In special cases. this relationship does not hold. for example, select k1+1, sum(v1) from table group by k1.
  */
 public class LogicalAggregate extends LogicalUnaryOperator {
 
