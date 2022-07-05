@@ -898,12 +898,12 @@ uint8_t VecDateTimeValue::week(uint8_t mode) const {
 }
 
 uint32_t VecDateTimeValue::year_week(uint8_t mode) const {
-    //mode=0 is used for yearweek()
-    if (mode == 0 && _year >= 1950 && _year < 2030) {
+    //mode=4 is used for yearweek()
+    if (mode == 4 && _year >= 1950 && _year < 2030) {
         DCHECK(_month < 13 && _day < 32);
         return year_week_table[_year - 1950][_month][_day];
     }
-    
+
     //not covered by year_week_table, calculate at runtime
     uint32_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
