@@ -235,6 +235,12 @@ private:
         } else if (check_column<ColumnInt32>(right_column)) {
             return _execute_number<NestedColumnType, ColumnInt32>(offsets, nested_column,
                                                                   right_column, nested_null_map);
+        } else if (right_column.is_date_type()) {
+            return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_column,
+                                                                 right_column, nested_null_map);
+        } else if (right_column.is_datetime_type()) {
+            return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_column,
+                                                                     right_column, nested_null_map);
         } else if (check_column<ColumnInt64>(right_column)) {
             return _execute_number<NestedColumnType, ColumnInt64>(offsets, nested_column,
                                                                   right_column, nested_null_map);
@@ -247,12 +253,6 @@ private:
         } else if (check_column<ColumnFloat64>(right_column)) {
             return _execute_number<NestedColumnType, ColumnFloat64>(offsets, nested_column,
                                                                     right_column, nested_null_map);
-        } else if (right_column.is_date_type()) {
-            return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_column,
-                                                                 right_column, nested_null_map);
-        } else if (right_column.is_datetime_type()) {
-            return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_column,
-                                                                     right_column, nested_null_map);
         } else if (check_column<ColumnDecimal128>(right_column)) {
             return _execute_number<NestedColumnType, ColumnDecimal128>(offsets, nested_column,
                                                                        right_column, nested_null_map);
