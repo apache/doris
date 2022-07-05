@@ -22,7 +22,7 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.LdapInfo;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;

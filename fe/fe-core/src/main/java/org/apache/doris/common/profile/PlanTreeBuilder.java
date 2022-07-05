@@ -25,7 +25,7 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.thrift.TExplainLevel;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 

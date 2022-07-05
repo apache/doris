@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -26,24 +26,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ListPartitionItem extends PartitionItem {
-    private List<PartitionKey> partitionKeys;
-
     public static ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
+
+    private List<PartitionKey> partitionKeys;
 
     public ListPartitionItem(List<PartitionKey> partitionKeys) {
         this.partitionKeys = partitionKeys;
-    }
-
-    public List<PartitionKey> getItems() {
-        return partitionKeys;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(partitionKeys.size());
-        for (PartitionKey partitionKey : partitionKeys) {
-            partitionKey.write(out);
-        }
     }
 
     public static ListPartitionItem read(DataInput input) throws IOException {
@@ -54,6 +42,29 @@ public class ListPartitionItem extends PartitionItem {
             partitionKeys.add(partitionKey);
         }
         return new ListPartitionItem(partitionKeys);
+    }
+
+    public List<PartitionKey> getItems() {
+        return partitionKeys;
+    }
+
+    @Override
+    public PartitionItem getIntersect(PartitionItem newItem) {
+        List<PartitionKey> newKeys = newItem.getItems();
+        for (PartitionKey newKey : newKeys) {
+            if (partitionKeys.contains(newKey)) {
+                return newItem;
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(partitionKeys.size());
+        for (PartitionKey partitionKey : partitionKeys) {
+            partitionKey.write(out);
+        }
     }
 
     @Override
@@ -68,17 +79,6 @@ public class ListPartitionItem extends PartitionItem {
             }
         }
         return Integer.compare(thisKeyLen, otherKeyLen);
-    }
-
-    @Override
-    public PartitionItem getIntersect(PartitionItem newItem) {
-        List<PartitionKey> newKeys = newItem.getItems();
-        for (PartitionKey newKey : newKeys) {
-            if (partitionKeys.contains(newKey)) {
-                return newItem;
-            }
-        }
-        return null;
     }
 
     @Override
