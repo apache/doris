@@ -49,10 +49,10 @@ Status ScanNode::prepare(RuntimeState* state) {
 // It relies on the logic of function convertConjunctsToAndCompoundPredicate() of FE splicing expr.
 // It requires FE to satisfy each splicing with 'and' expr, and spliced from left to right, in order.
 // Expr tree specific forms do not require requirements.
-std::string ScanNode::_peel_pushed_vconjunct(RuntimeState* state,
-                                             const std::function<bool(int)>& checker) {
+void ScanNode::_peel_pushed_vconjunct(RuntimeState* state,
+                                      const std::function<bool(int)>& checker) {
     if (_vconjunct_ctx_ptr == nullptr) {
-        return "null";
+        return;
     }
 
     int leaf_index = 0;
@@ -65,11 +65,8 @@ std::string ScanNode::_peel_pushed_vconjunct(RuntimeState* state,
             _vconjunct_ctx_ptr.reset(nullptr);
         } else {
             (*_vconjunct_ctx_ptr)->set_root(new_conjunct_expr_root);
-            return new_conjunct_expr_root->debug_string();
         }
     }
-
-    return "null";
 }
 
 } // namespace doris
