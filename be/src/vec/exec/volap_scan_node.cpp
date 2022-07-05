@@ -1559,7 +1559,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
         runtime_filter->consumer_close();
     }
 
-    for (auto& ctx: _stale_vexpr_ctxs) {
+    for (auto& ctx : _stale_vexpr_ctxs) {
         (*ctx)->close(state);
     }
 
