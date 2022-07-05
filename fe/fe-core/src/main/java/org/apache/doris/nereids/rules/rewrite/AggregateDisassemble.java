@@ -70,17 +70,17 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
 
             Plan childPlan = plan(localAgg, plan.child(0));
 
-            List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
-            for (int i = 0; i < agg.getOutputExpressionList().size(); i++) {
-                NamedExpression mergeOutput = (NamedExpression) new ReplaceSlotReference()
-                        .visit(agg.getOutputExpressionList().get(i),
-                                (SlotReference) localAgg.getOutputExpressionList().get(i).toSlot());
-                mergeOutputExpressionList.add(mergeOutput);
-            }
+//            List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
+//            for (int i = 0; i < agg.getOutputExpressionList().size(); i++) {
+//                NamedExpression mergeOutput = (NamedExpression) new ReplaceSlotReference()
+//                        .visit(agg.getOutputExpressionList().get(i),
+//                                (SlotReference) localAgg.getOutputExpressionList().get(i).toSlot());
+//                mergeOutputExpressionList.add(mergeOutput);
+//            }
 
             LogicalAggregate mergeAgg = new LogicalAggregate(
                     agg.getGroupByExprList(),
-                    mergeOutputExpressionList,
+                    agg.getOutputExpressionList(),
                     true,
                     AggPhase.FIRST_MERGE
             );
