@@ -546,7 +546,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     private void cancelInternal() {
         // clear tasks if has
-        AgentTaskQueue.removeBatchTask(rollupBatchTask, TTaskType.ALTER);
+        if (rollupBatchTask != null) {
+            AgentTaskQueue.removeBatchTask(rollupBatchTask, TTaskType.ALTER);
+        } else {
+            LOG.warn("rollupBatchTask is null");
+        }
         // remove all rollup indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);

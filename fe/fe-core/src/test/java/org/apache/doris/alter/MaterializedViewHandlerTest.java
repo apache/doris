@@ -250,6 +250,8 @@ public class MaterializedViewHandlerTest {
                 result = Lists.newArrayList(mvColumnItem);
                 olapTable.getBaseColumn(columnName1);
                 result = baseColumn1;
+                createMaterializedViewStmt.getMVKeysType();
+                result = KeysType.DUP_KEYS;
                 olapTable.getKeysType();
                 result = KeysType.DUP_KEYS;
             }
@@ -289,6 +291,8 @@ public class MaterializedViewHandlerTest {
                 result = mvName;
                 createMaterializedViewStmt.getMVColumnItemList();
                 result = Lists.newArrayList(mvColumnItem);
+                createMaterializedViewStmt.getMVKeysType();
+                result = KeysType.DUP_KEYS;
                 olapTable.getKeysType();
                 result = KeysType.DUP_KEYS;
                 olapTable.getPartitionColumnNames();

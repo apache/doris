@@ -18,9 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -86,8 +89,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
     private String baseIndexName;
     private String dbName;
+    private OlapTable olapTable = null;
     private KeysType mvKeysType = KeysType.DUP_KEYS;
-    //if process is replaying log, isReplay is true, otherwise is false, avoid replay process error report,
+    // if process is replaying log, isReplay is true, otherwise is false, avoid replay process error report,
     // only in Rollup or MaterializedIndexMeta is true
     private boolean isReplay = false;
 
@@ -136,11 +140,20 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
         selectStmt.analyze(analyzer);
-        if (selectStmt.getAggInfo() != null) {
-            mvKeysType = KeysType.AGG_KEYS;
-        }
+
         analyzeSelectClause();
         analyzeFromClause();
+
+        if (selectStmt.getAggInfo() != null) {
+            if (getOriginKeysType() != KeysType.DUP_KEYS) {
+                throw new AnalysisException("Only duplicate table support aggregate function("
+                        + selectStmt.getAggInfo().debugString() + ").");
+            }
+            mvKeysType = KeysType.AGG_KEYS;
+        } else {
+            mvKeysType = getOriginKeysType();
+        }
+
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
                                                 + selectStmt.getWhereClause().toSql());
@@ -154,6 +167,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                                                 + " limit " + selectStmt.getLimit());
         }
+    }
+
+    public KeysType getOriginKeysType() throws AnalysisException {
+        if (olapTable == null) {
+            return KeysType.DUP_KEYS;
+        }
+        return olapTable.getKeysType();
     }
 
     public void analyzeSelectClause() throws AnalysisException {
@@ -241,6 +261,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         TableName tableName = tableRefList.get(0).getName();
         baseIndexName = tableName.getTbl();
         dbName = tableName.getDb();
+
+        try {
+            Database currentDb = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            olapTable = (OlapTable) currentDb.getTableOrAnalysisException(baseIndexName);
+        } catch (Exception e) {
+            olapTable = null;
+        }
     }
 
     private void analyzeOrderByClause() throws AnalysisException {
@@ -293,7 +320,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
          * The keys type of Materialized view is aggregation.
          * All of group by columns are keys of materialized view.
          */
-        if (mvKeysType == KeysType.AGG_KEYS) {
+        if (mvKeysType.isAggregationFamily()) {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 if (mvColumnItem.getAggregationType() != null) {
                     break;

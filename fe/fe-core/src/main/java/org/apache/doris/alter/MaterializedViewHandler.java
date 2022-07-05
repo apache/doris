@@ -438,47 +438,65 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         // check if mv columns are valid
         // a. Aggregate or Unique table:
-        //     1. For aggregate table, mv columns with aggregate function should be same as base schema
-        //     2. For aggregate table, the column which is the key of base table should be the key of mv as well.
+        //     1. For aggregate table, mv columns with aggregate function should be same as base schema.
+        //     2. For unique table, the column which is the key of base table should be the key of mv as well.
         // b. Duplicate table:
         //     1. Columns resolved by semantics are legal
         // update mv columns
+        KeysType mvKeysType = addMVClause.getMVKeysType();
+        KeysType originKeysType = olapTable.getKeysType();
+        if (mvKeysType != originKeysType && (mvKeysType != KeysType.AGG_KEYS || originKeysType != KeysType.DUP_KEYS)) {
+            throw new DdlException("The materialized view modle type must be keep same with base table"
+                    + " or transform from duplicate to aggregate(origin :" + originKeysType + ", mv: " + mvKeysType
+                    + ").");
+        }
+
         List<MVColumnItem> mvColumnItemList = addMVClause.getMVColumnItemList();
         List<Column> newMVColumns = Lists.newArrayList();
-        int numOfKeys = 0;
-        if (olapTable.getKeysType().isAggregationFamily()) {
-            if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS) {
-                throw new DdlException("The materialized view of aggregation"
-                        + " or unique table must has grouping columns");
-            }
+        Boolean hasKey = false;
+
+        if (originKeysType.isAggregationFamily()) {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 String mvColumnName = mvColumnItem.getName();
                 Column baseColumn = olapTable.getColumn(mvColumnName);
-                if (mvColumnItem.isKey()) {
-                    ++numOfKeys;
-                }
                 if (baseColumn == null) {
-                    throw new DdlException("The mv column of agg or uniq table cannot be transformed "
-                            + "from original column[" + mvColumnItem.getBaseColumnName() + "]");
+                    throw new DdlException("The column[" + mvColumnName + "] not founded from base table, "
+                            + "maybe due to base table type not support this aggregate function");
                 }
+                if (baseColumn.isKey()) {
+                    hasKey = true;
+                }
+
                 Preconditions.checkNotNull(baseColumn, "Column[" + mvColumnName + "] does not exist");
                 AggregateType baseAggregationType = baseColumn.getAggregationType();
                 AggregateType mvAggregationType = mvColumnItem.getAggregationType();
                 if (baseColumn.isKey() && !mvColumnItem.isKey()) {
                     throw new DdlException("The column[" + mvColumnName + "] must be the key of materialized view");
                 }
+
+                if (!baseColumn.isKey() && KeysType.DUP_KEYS != originKeysType) {
+                    if (mvAggregationType == null) {
+                        mvAggregationType = baseColumn.getAggregationType();
+                        mvColumnItem.setAggregationType(mvAggregationType, true);
+                    } else {
+                        throw new DdlException(
+                                "The mv column of unique/aggregate table cannot include aggregate function("
+                                        + mvAggregationType + ")");
+                    }
+                }
+
                 if (baseAggregationType != mvAggregationType) {
                     throw new DdlException(
                             "The aggregation type of column[" + mvColumnName + "] must be same as the aggregate "
-                                    + "type of base column in aggregate table");
-                }
-                if (baseAggregationType != null && baseAggregationType.isReplaceFamily() && olapTable
-                        .getKeysNum() != numOfKeys) {
-                    throw new DdlException(
-                            "The materialized view should contain all keys of base table if there is a" + " REPLACE "
-                                    + "value");
+                                    + "type of base column in aggregate table(base: "
+                                    + baseAggregationType + ", mv: "
+                                    + mvAggregationType + ")");
                 }
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
+            }
+
+            if (KeysType.DUP_KEYS != originKeysType && !hasKey) {
+                throw new DdlException("The mv of unique/aggregate table must have key column.");
             }
         } else {
             Set<String> partitionOrDistributedColumnName = olapTable.getPartitionColumnNames();
@@ -673,13 +691,12 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
 
                     Column oneColumn = new Column(baseColumn);
+                    oneColumn.setIsKey(isKey);
                     if (isKey) {
                         hasKey = true;
-                        oneColumn.setIsKey(true);
                         oneColumn.setAggregationType(null, false);
                     } else {
                         meetValue = true;
-                        oneColumn.setIsKey(false);
                         oneColumn.setAggregationType(AggregateType.NONE, true);
                     }
                     rollupSchema.add(oneColumn);

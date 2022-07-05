@@ -665,7 +665,16 @@ public class MaterializedViewFunctionTest {
         String createK1K2MV = "create materialized view only_k1 as select k1 from " + TEST_TABLE_NAME + " group by "
                 + "k1;";
         String query = "select * from " + TEST_TABLE_NAME + ";";
-        dorisAssert.withMaterializedView(createK1K2MV).query(query).explainContains(TEST_TABLE_NAME);
+        try {
+            dorisAssert.withMaterializedView(createK1K2MV).query(query);
+            Assert.fail();
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+        String createK1K2MV2 = "create materialized view only_k1 as select k1 from " + TEST_TABLE_NAME;
+        dorisAssert.withMaterializedView(createK1K2MV2).query(query).explainContains(TEST_TABLE_NAME);
+
         dorisAssert.dropTable(TEST_TABLE_NAME, true);
     }
 
@@ -842,9 +851,7 @@ public class MaterializedViewFunctionTest {
                 + "(partition p1 values less than MAXVALUE) "
                 + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
-        String createMVSql = "create materialized view mv as select empid, " + FunctionSet.BITMAP_UNION
-                + "(salary) from agg_table "
-                + "group by empid;";
+        String createMVSql = "create materialized view mv as select empid, salary from agg_table;";
         dorisAssert.withMaterializedView(createMVSql);
         String query = "select count(distinct salary) from agg_table;";
         dorisAssert.query(query).explainContains("mv");
