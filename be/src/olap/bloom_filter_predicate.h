@@ -89,7 +89,8 @@ private:
         } else {
             uint24_t tmp_uint24_value;
             auto get_column_data = [](const vectorized::IColumn& column) {
-                if constexpr (std::is_same_v<file_type, uint24_t>) {
+                if constexpr (std::is_same_v<file_type, uint24_t> &&
+                              T == PrimitiveType::TYPE_DATE) {
                     return reinterpret_cast<const vectorized::PredicateColumnType<uint32_t>*>(
                                    &column)
                             ->get_data()
