@@ -108,7 +108,7 @@ public interface DatabaseIf<T extends TableIf> {
     }
 
     default T getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableName=" + t));
+        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
     }
 
     default T getTableOrMetaException(String tableName, TableIf.TableType tableType) throws MetaNotFoundException {
