@@ -42,8 +42,8 @@ public class HMSExternalDataSource extends ExternalDataSource {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDataSource.class);
 
     // Cache of db name to db id.
-    private Map<String, Long> dbNameToId = Maps.newConcurrentMap();
-    private Map<Long, HMSExternalDatabase> idToDb = Maps.newConcurrentMap();
+    private Map<String, Long> dbNameToId;
+    private Map<Long, HMSExternalDatabase> idToDb;
     private boolean initialized = false;
     protected HiveMetaStoreClient client;
 
@@ -63,6 +63,9 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     private void init() {
+        // Must set here. Because after replay from image, these 2 map will become null again.
+        dbNameToId = Maps.newConcurrentMap();
+        idToDb = Maps.newConcurrentMap();
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
         try {
