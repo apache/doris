@@ -25,6 +25,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -46,10 +48,12 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -90,18 +94,21 @@ public class NereidsPlanner extends Planner {
         PlanFragment root = fragments.get(0);
 
         // compute output exprs
+        Map<Integer, Expr> outputCandidates = Maps.newHashMap();
         List<Expr> outputExprs = Lists.newArrayList();
         for (TupleId tupleId : root.getPlanRoot().getTupleIds()) {
             TupleDescriptor tupleDescriptor = descTable.getTupleDesc(tupleId);
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
                 SlotRef slotRef = new SlotRef(slotDescriptor);
-                outputExprs.add(slotRef);
+                outputCandidates.put(slotDescriptor.getId().asInt(), slotRef);
             }
         }
+        physicalPlan.getOutput().stream().map(Slot::getExprId)
+                .map(Id::asInt).forEach(i -> outputExprs.add(outputCandidates.get(i)));
         root.setOutputExprs(outputExprs);
         root.getPlanRoot().convertToVectoriezd();
 
-        logicalPlanAdapter.setResultExprs(root.getOutputExprs());
+        logicalPlanAdapter.setResultExprs(outputExprs);
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
                 .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
