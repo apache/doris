@@ -22,7 +22,6 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/predicate_column.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -127,48 +126,45 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_nullable_ptr(FieldT
 vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type) {
     switch (type) {
     case OLAP_FIELD_TYPE_BOOL:
-        return doris::vectorized::PredicateColumnType<bool>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::UInt8>::create();
 
     case OLAP_FIELD_TYPE_TINYINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int8>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::Int8>::create();
 
     case OLAP_FIELD_TYPE_SMALLINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int16>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::Int16>::create();
 
     case OLAP_FIELD_TYPE_INT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int32>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::Int32>::create();
 
     case OLAP_FIELD_TYPE_FLOAT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Float32>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::Float32>::create();
 
     case OLAP_FIELD_TYPE_DOUBLE:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Float64>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::Float64>::create();
 
     case OLAP_FIELD_TYPE_BIGINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int64>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::Int64>::create();
 
     case OLAP_FIELD_TYPE_LARGEINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int128>::create();
+        return doris::vectorized::ColumnVector<doris::vectorized::Int128>::create();
 
     case OLAP_FIELD_TYPE_DATE:
-        return doris::vectorized::PredicateColumnType<uint32_t>::create();
+        return doris::vectorized::ColumnVector<uint32_t>::create();
 
     case OLAP_FIELD_TYPE_DATEV2:
-        return doris::vectorized::PredicateColumnType<uint32_t>::create();
+        return doris::vectorized::ColumnVector<uint32_t>::create();
 
     case OLAP_FIELD_TYPE_DATETIME:
-        return doris::vectorized::PredicateColumnType<uint64_t>::create();
+        return doris::vectorized::ColumnVector<uint64_t>::create();
 
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING:
-        if (config::enable_low_cardinality_optimize) {
-            return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(type);
-        }
-        return doris::vectorized::PredicateColumnType<StringValue>::create();
+        return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(type);
 
     case OLAP_FIELD_TYPE_DECIMAL:
-        return doris::vectorized::PredicateColumnType<decimal12_t>::create();
+        return doris::vectorized::ColumnComplexType<decimal12_t>::create();
 
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << type;

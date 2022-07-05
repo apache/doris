@@ -24,7 +24,6 @@
 #include "runtime/string_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/predicate_column.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -257,7 +256,7 @@ public:
     bool is_dict_code_converted() const { return _dict_code_converted; }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
-        auto res = vectorized::PredicateColumnType<StringValue>::create();
+        auto res = vectorized::ColumnString::create();
         res->reserve(_reserve_size);
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);

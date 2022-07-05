@@ -31,6 +31,7 @@
 #include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
+#include "runtime/string_value.h"
 
 namespace doris::vectorized {
 
@@ -102,6 +103,13 @@ public:
     StringRef get_data_at_with_terminating_zero(size_t n) const override {
         assert(n < size());
         return StringRef(&chars[offset_at(n)], size_at(n));
+    }
+
+    void get_string_value_array(StringValue* sv_arr) const {
+        for (size_t i = 0; i < size(); i++) {
+            sv_arr[i].ptr = (char*)(&chars[offset_at(i)]);
+            sv_arr[i].len = size_at(i);
+        }
     }
 
 /// Suppress gcc 7.3.1 warning: '*((void*)&<anonymous> +8)' may be used uninitialized in this function
@@ -222,6 +230,16 @@ public:
                              const int* indices_end) override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        auto* res_ptr = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        res_ptr->resize(sel_size);
+        for (size_t i = 0; i < sel_size; i++) {
+            uint16_t n = sel[i];
+            res_ptr->insert_data((char*)(&chars[offset_at(n)]), size_at(n) - 1);
+        }
+        return Status::OK();
+    }
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
 

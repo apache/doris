@@ -193,16 +193,43 @@ public:
         }
     }
 
+    void insert_many_pred_date(const char* data_ptr, size_t num) {
+        size_t intput_type_size = sizeof(uint24_t);
+        size_t res_type_size = sizeof(uint32_t);
+        char* input_data_ptr = const_cast<char*>(data_ptr);
+
+        char* res_ptr = (char*)data.get_end_ptr();
+        memset(res_ptr, 0, res_type_size * num);
+        for (int i = 0; i < num; i++) {
+            memcpy(res_ptr, input_data_ptr, intput_type_size);
+            res_ptr += res_type_size;
+            input_data_ptr += intput_type_size;
+        }
+        data.set_end_ptr(res_ptr);
+    }
+
+    void insert_many_date(const char* data_ptr, size_t num) override {
+        if (IColumn::is_pred) {
+            insert_many_pred_date(data_ptr, num);
+        } else {
+            insert_date_column(data_ptr, num);
+        }
+    }
+
+    void insert_many_datetime(const char* data_ptr, size_t num) override {
+        if (IColumn::is_pred) {
+            insert_many_default_type(data_ptr, num);
+        } else {
+            insert_datetime_column(data_ptr, num);
+        }
+    }
+
     /*
         use by date, datetime, basic type
     */
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
         if constexpr (std::is_same_v<T, vectorized::Int128>) {
             insert_many_in_copy_way(data_ptr, num);
-        } else if (IColumn::is_date) {
-            insert_date_column(data_ptr, num);
-        } else if (IColumn::is_date_time) {
-            insert_datetime_column(data_ptr, num);
         } else {
             insert_many_default_type(data_ptr, num);
         }
@@ -295,6 +322,38 @@ public:
     }
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+
+    Status insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        auto* res_ptr = reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr);
+        for (size_t i = 0; i < sel_size; i++) {
+            uint64_t value = data[sel[i]];
+            vectorized::VecDateTimeValue datetime =
+                    VecDateTimeValue::create_from_olap_datetime(value);
+            res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
+        }
+        return Status::OK();
+    }
+
+    uint64_t get_date_at(uint16_t idx) {
+        const T val = data[idx];
+        const char* val_ptr = reinterpret_cast<const char*>(&val);
+        uint64_t value = 0;
+        value = *(unsigned char*)(val_ptr + 2);
+        value <<= 8;
+        value |= *(unsigned char*)(val_ptr + 1);
+        value <<= 8;
+        value |= *(unsigned char*)(val_ptr);
+        return value;
+    }
+
+    Status insert_date_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        auto* res_ptr = reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr);
+        for (size_t i = 0; i < sel_size; i++) {
+            VecDateTimeValue date = VecDateTimeValue::create_from_olap_date(get_date_at(sel[i]));
+            res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+        }
+        return Status::OK();
+    }
 
     // note(wb) this method is only used in storage layer now
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {

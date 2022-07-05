@@ -29,6 +29,8 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
+#include "olap/decimal12.h"
+#include "vec/columns/column_decimal.h"
 
 namespace doris::vectorized {
 
@@ -60,6 +62,19 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override {
         data.push_back(*reinterpret_cast<const T*>(pos));
+    }
+
+    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
+        if constexpr (!std::is_same_v<T, BitmapValue> && !std::is_same_v<T, HyperLogLog>) {
+            char* data_begin_ptr = const_cast<char*>(data_ptr);
+            for (size_t i = 0; i < num; i++) {
+                decimal12_t dc12_value;
+                dc12_value.integer = *(int64_t*)(data_begin_ptr);
+                dc12_value.fraction = *(int32_t*)(data_begin_ptr + sizeof(int64_t));
+                data.push_back(dc12_value);
+                data_begin_ptr += sizeof(decimal12_t);
+            }
+        }
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
@@ -221,6 +236,21 @@ public:
     }
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        if constexpr (std::is_same_v<T, decimal12_t>) {
+            auto* res_ptr = reinterpret_cast<vectorized::ColumnDecimal<Decimal128>*>(col_ptr);
+            for (size_t i = 0; i < sel_size; i++) {
+                uint16_t n = sel[i];
+                auto& dv = reinterpret_cast<const decimal12_t&>(data[n]);
+                DecimalV2Value dv_data(dv.integer, dv.fraction);
+                res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
+            }
+            return Status::OK();
+        }
+        return Status::InternalError(
+                "currenly only deciaml can be used in column_complex.filter_by_selector");
+    }
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 

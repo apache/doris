@@ -392,7 +392,14 @@ public:
 
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
 
-        dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
+        // todo(wb) remove this branch after the data format is completely unified
+        if constexpr (Type == OLAP_FIELD_TYPE_DATE) {
+            dst->insert_many_date(get_data(_cur_index), max_fetch);
+        } else if constexpr (Type == OLAP_FIELD_TYPE_DATETIME) {
+            dst->insert_many_datetime(get_data(_cur_index), max_fetch);
+        } else {
+            dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
+        }
 
         *n = max_fetch;
         _cur_index += max_fetch;
@@ -420,7 +427,17 @@ public:
             data[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
         }
 
-        if (LIKELY(read_count > 0)) dst->insert_many_fix_len_data((const char*)data, read_count);
+        // todo(wb) transfer type info to IColumn
+        if (LIKELY(read_count > 0)) {
+            // todo(wb) remove this branch after the data format is completely unified
+            if constexpr (Type == OLAP_FIELD_TYPE_DATE) {
+                dst->insert_many_date((const char*)data, read_count);
+            } else if constexpr (Type == OLAP_FIELD_TYPE_DATETIME) {
+                dst->insert_many_datetime((const char*)data, read_count);
+            } else {
+                dst->insert_many_fix_len_data((const char*)data, read_count);
+            }
+        }
 
         *n = read_count;
         return Status::OK();

@@ -26,7 +26,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/predicate_column.h"
 
 namespace doris {
 namespace segment_v2 {

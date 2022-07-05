@@ -105,7 +105,7 @@ public:
 
     Status copy_column_data_to_block(doris::vectorized::IColumn* input_col_ptr,
                                      uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid,
-                                     size_t batch_size) {
+                                     size_t batch_size, FieldType field_type) {
         // Only the additional deleted filter condition need to materialize column be at the end of the block
         // We should not to materialize the column of query engine do not need. So here just return OK.
         // Eg:
@@ -128,7 +128,13 @@ public:
             raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
         }
 
-        return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
+        if (field_type == OLAP_FIELD_TYPE_DATE) {
+            return input_col_ptr->insert_date_to_res_column(sel_rowid_idx, select_size, raw_res_ptr);
+        } else if (field_type == OLAP_FIELD_TYPE_DATETIME) {
+            return input_col_ptr->insert_datetime_to_res_column(sel_rowid_idx, select_size, raw_res_ptr);
+        } else {
+            return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
+        }
     }
 
     void replace_by_position(size_t position, ColumnPtr&& res) {

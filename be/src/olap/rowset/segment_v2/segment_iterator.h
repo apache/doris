@@ -112,9 +112,10 @@ private:
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
             int block_cid = _schema_block_id_map[cid];
+            auto column_desc = _schema.column(cid);
             RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
                                                              sel_rowid_idx, select_size, block_cid,
-                                                             _opts.block_row_max));
+                                                             _opts.block_row_max, column_desc->type()));
         }
         return Status::OK();
     }

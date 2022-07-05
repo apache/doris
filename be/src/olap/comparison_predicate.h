@@ -185,12 +185,20 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
             } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<TReal>&>(
-                                           nested_column)
-                                           .get_data()
-                                           .data();
-
-                _base_loop_vec<true>(size, flags, null_map.data(), data_array, _value_real);
+                if constexpr (std::is_same_v<T, decimal12_t>) {
+                    auto* data_array = vectorized::check_and_get_column<
+                                               vectorized::ColumnComplexType<decimal12_t>>(nested_column)
+                                               ->get_data()
+                                               .data();
+                    _base_loop_vec<true>(size, flags, null_map.data(), data_array, _value_real);
+                } else {
+                    auto* data_array =
+                            vectorized::check_and_get_column<vectorized::ColumnVector<TReal>>(
+                                    nested_column)
+                                    ->get_data()
+                                    .data();
+                    _base_loop_vec<true>(size, flags, null_map.data(), data_array, _value_real);
+                }
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -207,13 +215,20 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
             } else {
-                auto* data_array =
-                        vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(
-                                column)
-                                ->get_data()
-                                .data();
-
-                _base_loop_vec<false>(size, flags, nullptr, data_array, _value_real);
+                if constexpr (std::is_same_v<T, decimal12_t>) {
+                    auto* data_array = vectorized::check_and_get_column<
+                                               vectorized::ColumnComplexType<decimal12_t>>(column)
+                                               ->get_data()
+                                               .data();
+                    _base_loop_vec<false>(size, flags, nullptr, data_array, _value_real);
+                } else {
+                    auto* data_array =
+                            vectorized::check_and_get_column<vectorized::ColumnVector<TReal>>(
+                                    column)
+                                    ->get_data()
+                                    .data();
+                    _base_loop_vec<false>(size, flags, nullptr, data_array, _value_real);
+                }
             }
         }
 
@@ -362,14 +377,36 @@ private:
             } else {
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
+        } else if (column->is_column_string()) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                auto* col_ptr = vectorized::check_and_get_column<vectorized::ColumnString>(column);
+                StringValue sv_arr[col_ptr->size()];
+                col_ptr->get_string_value_array(sv_arr);
+                _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, sv_arr,
+                                                    _value_real);
+            } else {
+                LOG(FATAL) << "column string must use stringvalue.";
+            }
         } else {
-            auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
-                            ->get_data()
-                            .data();
+            if constexpr (std::is_same_v<T, decimal12_t>) {
+                auto* data_array =
+                        vectorized::check_and_get_column<vectorized::ColumnComplexType<decimal12_t>>(
+                                column)
+                                ->get_data()
+                                .data();
 
-            _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
-                                                _value_real);
+                _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
+                                                    _value_real);
+            } else {
+                auto* data_array =
+                        vectorized::check_and_get_column<vectorized::ColumnVector<TReal>>(
+                                column)
+                                ->get_data()
+                                .data();
+
+                _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
+                                                    _value_real);
+            }
         }
     }
 
@@ -409,13 +446,30 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 return 0;
             }
+        } else if (column->is_column_string()) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                auto* col_ptr = vectorized::check_and_get_column<vectorized::ColumnString>(column);
+                StringValue sv_arr[col_ptr->size()];
+                col_ptr->get_string_value_array(sv_arr);
+                return _base_loop<is_nullable>(sel, size, null_map, sv_arr, _value_real);
+            } else {
+                LOG(FATAL) << "column string must use stringvalue.";
+                return 0;
+            }
         } else {
-            auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
-                            ->get_data()
-                            .data();
-
-            return _base_loop<is_nullable>(sel, size, null_map, data_array, _value_real);
+            if constexpr (std::is_same_v<T, decimal12_t>) {
+                auto* data_array = vectorized::check_and_get_column<
+                                           vectorized::ColumnComplexType<decimal12_t>>(column)
+                                           ->get_data()
+                                           .data();
+                return _base_loop<is_nullable>(sel, size, null_map, data_array, _value_real);
+            } else {
+                auto* data_array =
+                        vectorized::check_and_get_column<vectorized::ColumnVector<TReal>>(column)
+                                ->get_data()
+                                .data();
+                return _base_loop<is_nullable>(sel, size, null_map, data_array, _value_real);
+            }
         }
     }
 

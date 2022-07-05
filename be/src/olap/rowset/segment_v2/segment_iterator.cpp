@@ -805,18 +805,14 @@ void SegmentIterator::_init_current_block(
         if (_is_pred_column[cid] ||
             i >= block->columns()) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
+            current_columns[cid]->set_pred();
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
-
-            if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
-                current_columns[cid]->set_date_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
-                // TODO(Gabriel): support datetime v2
-                current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
-                current_columns[cid]->set_date_v2_type();
-            }
             current_columns[cid]->reserve(_opts.block_row_max);
+        }
+        
+        if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
+            current_columns[cid]->set_date_v2_type();
         }
     }
 }

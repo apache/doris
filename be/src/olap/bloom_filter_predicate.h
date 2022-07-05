@@ -26,7 +26,6 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/predicate_column.h"
 
 namespace doris {
 
@@ -81,18 +80,42 @@ private:
                     new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
                 }
             }
+        } else if (column.is_column_string()) {
+            if constexpr (std::is_same_v<file_type, StringValue>) {
+                auto* col_ptr = vectorized::check_and_get_column<vectorized::ColumnString>(column);
+                StringValue sv_arr[col_ptr->size()];
+                col_ptr->get_string_value_array(sv_arr);
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    sel[new_size] = idx;
+
+                    if constexpr (is_nullable) {
+                        new_size += !null_map[idx] && _specific_filter->find_olap_engine(
+                                                              (const char*)&(sv_arr[idx]));
+                    } else {
+                        new_size += _specific_filter->find_olap_engine(
+                                (const char*)&(sv_arr[idx]));
+                    }
+                }
+            } else {
+                LOG(FATAL) << "column string must use stringvalue.";
+            }
         } else {
             uint24_t tmp_uint24_value;
             auto get_column_data = [](const vectorized::IColumn& column) {
                 if constexpr (std::is_same_v<file_type, uint24_t> &&
                               T == PrimitiveType::TYPE_DATE) {
-                    return reinterpret_cast<const vectorized::PredicateColumnType<uint32_t>*>(
-                                   &column)
+                    return reinterpret_cast<const vectorized::ColumnVector<uint32_t>*>(&column)
                             ->get_data()
                             .data();
+                } else if constexpr (std::is_same_v<file_type, decimal12_t>) {
+                    auto* data_array = vectorized::check_and_get_column<
+                                               vectorized::ColumnComplexType<decimal12_t>>(column)
+                                               ->get_data()
+                                               .data();
+                    return data_array;
                 } else {
-                    return reinterpret_cast<const vectorized::PredicateColumnType<file_type>*>(
-                                   &column)
+                    return reinterpret_cast<const vectorized::ColumnVector<file_type>*>(&column)
                             ->get_data()
                             .data();
                 }
@@ -124,7 +147,8 @@ private:
         return new_size;
     }
 
-    std::shared_ptr<IBloomFilterFuncBase> _filter;
+std::shared_ptr<IBloomFilterFuncBase>
+        _filter;
     SpecificFilter* _specific_filter; // owned by _filter
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;

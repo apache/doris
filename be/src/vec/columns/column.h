@@ -192,6 +192,22 @@ public:
         LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
     }
 
+    virtual void insert_many_date(const char* data_ptr, size_t num) {
+        LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
+    }
+
+    virtual Status insert_date_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+        LOG(FATAL) << "Method insert_date_to_res_column is not supported for " << get_name();
+    }
+
+    virtual void insert_many_datetime(const char* data_ptr, size_t num) {
+        LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
+    }
+
+    virtual Status insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+        LOG(FATAL) << "Method insert_datetime_to_res_column is not supported for " << get_name();
+    }
+
     // todo(zeno) Use dict_args temp object to cover all arguments
     virtual void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                        const StringRef* dict, size_t data_num,
@@ -484,11 +500,13 @@ public:
     virtual void set_date_type() { is_date = true; }
     virtual void set_date_v2_type() { is_date_v2 = true; }
     virtual void set_datetime_type() { is_date_time = true; }
+    virtual void set_pred() { is_pred = true; }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
     bool is_date_v2 = false;
+    bool is_pred = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.

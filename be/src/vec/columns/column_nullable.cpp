@@ -194,6 +194,28 @@ ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) c
     return ColumnNullable::create(filtered_data, filtered_null_map);
 }
 
+Status ColumnNullable::insert_date_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
+    ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;
+    ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
+    RETURN_IF_ERROR(get_nested_column().insert_date_to_res_column(
+            sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
+    RETURN_IF_ERROR(get_null_map_column().filter_by_selector(
+            sel, sel_size, const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
+    return Status::OK();
+}
+
+Status ColumnNullable::insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
+    ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;
+    ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
+    RETURN_IF_ERROR(get_nested_column().insert_datetime_to_res_column(
+            sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
+    RETURN_IF_ERROR(get_null_map_column().filter_by_selector(
+            sel, sel_size, const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
+    return Status::OK();
+}
+
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
     ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;

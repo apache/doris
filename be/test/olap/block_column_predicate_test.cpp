@@ -28,7 +28,6 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
 #include "util/logging.h"
-#include "vec/columns/predicate_column.h"
 
 namespace doris {
 
@@ -98,7 +97,7 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN) {
 
 TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<int>::create());
+    block.push_back(vectorized::ColumnVector<int>::create());
 
     int value = 5;
     int rows = 10;
@@ -117,7 +116,7 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
 
     selected_size = single_column_block_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<vectorized::ColumnVector<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value);
 }
 
@@ -156,7 +155,7 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN) {
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<int>::create());
+    block.push_back(vectorized::ColumnVector<int>::create());
 
     int less_value = 5;
     int great_value = 3;
@@ -182,7 +181,7 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<vectorized::ColumnVector<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 }
 
@@ -221,7 +220,7 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN) {
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<int>::create());
+    block.push_back(vectorized::ColumnVector<int>::create());
 
     int less_value = 5;
     int great_value = 3;
@@ -247,7 +246,7 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 10);
-    auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<vectorized::ColumnVector<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
 }
 
@@ -314,7 +313,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN) {
 
 TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<int>::create());
+    block.push_back(vectorized::ColumnVector<int>::create());
 
     int less_value = 5;
     int great_value = 3;
@@ -345,7 +344,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 4);
-    auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<vectorized::ColumnVector<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
     EXPECT_EQ(pred_col->get_data()[sel_idx[1]], 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[2]], 2);
@@ -426,7 +425,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN) {
 
 TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<int>::create());
+    block.push_back(vectorized::ColumnVector<int>::create());
 
     int less_value = 5;
     int great_value = 3;
@@ -457,7 +456,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx, selected_size);
 
-    auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<vectorized::ColumnVector<int>*>(block[col_idx].get());
     EXPECT_EQ(selected_size, 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 

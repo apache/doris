@@ -239,7 +239,7 @@ private:
 
         if constexpr (std::is_same_v<T, uint24_t>) {
             auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<uint32_t>>(
+                    vectorized::check_and_get_column<vectorized::ColumnVector<uint32_t>>(
                             column);
             auto& data_array = nested_col_ptr->get_data();
 
@@ -298,9 +298,67 @@ private:
             } else {
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
+        } else if (column->is_column_string()) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                auto* col_ptr = vectorized::check_and_get_column<vectorized::ColumnString>(column);
+                StringValue sv_arr[col_ptr->size()];
+                col_ptr->get_string_value_array(sv_arr);
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if constexpr (is_opposite) {
+                                sel[new_size++] = idx;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if constexpr (!is_opposite) {
+                        if (_operator(_values.find(reinterpret_cast<const T&>(sv_arr[idx])),
+                                      _values.end())) {
+                            sel[new_size++] = idx;
+                        }
+                    } else {
+                        if (!_operator(_values.find(reinterpret_cast<const T&>(sv_arr[idx])),
+                                       _values.end())) {
+                            sel[new_size++] = idx;
+                        }
+                    }
+                }
+            } else {
+                LOG(FATAL) << "column string must use stringvalue.";
+            }
+        } else if constexpr (std::is_same_v<T, decimal12_t>) {
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::ColumnComplexType<T>>(column);
+            auto& data_array = nested_col_ptr->get_data();
+            for (uint16_t i = 0; i < size; i++) {
+                uint16_t idx = sel[i];
+                if constexpr (is_nullable) {
+                    if ((*null_map)[idx]) {
+                        if constexpr (is_opposite) {
+                            sel[new_size++] = idx;
+                        }
+                        continue;
+                    }
+                }
+
+                if constexpr (!is_opposite) {
+                    if (_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                  _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                } else {
+                    if (!_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                   _values.end())) {
+                        sel[new_size++] = idx;
+                    }
+                }
+            }
         } else {
             auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
+                    vectorized::check_and_get_column<vectorized::ColumnVector<T>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {

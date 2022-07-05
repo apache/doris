@@ -104,6 +104,16 @@ public:
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
 
+    void insert_many_date(const char* data_ptr, size_t num) override {
+        get_null_map_column().fill(0, num);
+        get_nested_column().insert_many_date(data_ptr, num);
+    }
+
+    void insert_many_datetime(const char* data_ptr, size_t num) override {
+        get_null_map_column().fill(0, num);
+        get_nested_column().insert_many_datetime(data_ptr, num);
+    }
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t data_num, uint32_t dict_num) override {
         get_null_map_column().fill(0, data_num);
@@ -135,6 +145,8 @@ public:
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status insert_date_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
@@ -173,6 +185,7 @@ public:
     void set_date_type() override { get_nested_column().set_date_type(); }
     void set_date_v2_type() override { get_nested_column().set_date_v2_type(); }
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
+    void set_pred() { get_nested_column().set_pred(); }
 
     bool is_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
