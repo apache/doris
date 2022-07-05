@@ -22,7 +22,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -50,13 +49,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 /**
  * Internal representation of db-related metadata. Owned by Catalog instance.
@@ -457,7 +454,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     /**
      * This is a thread-safe method when nameToTable is a concurrent hash map
      */
-    @Nullable
+    @Override
     public Table getTableNullable(String tableName) {
         if (Catalog.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
@@ -474,97 +471,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     /**
      * This is a thread-safe method when idToTable is a concurrent hash map
      */
-    @Nullable
+    @Override
     public Table getTableNullable(long tableId) {
         return idToTable.get(tableId);
-    }
-
-    public Optional<Table> getTable(String tableName) {
-        return Optional.ofNullable(getTableNullable(tableName));
-    }
-
-    public Optional<Table> getTable(long tableId) {
-        return Optional.ofNullable(getTableNullable(tableId));
-    }
-
-    public <E extends Exception> Table getTableOrException(
-            String tableName, java.util.function.Function<String, E> e) throws E {
-        Table table = getTableNullable(tableName);
-        if (table == null) {
-            throw e.apply(tableName);
-        }
-        return table;
-    }
-
-    public <E extends Exception> Table getTableOrException(
-            long tableId, java.util.function.Function<Long, E> e) throws E {
-        Table table = getTableNullable(tableId);
-        if (table == null) {
-            throw e.apply(tableId);
-        }
-        return table;
-    }
-
-    public Table getTableOrMetaException(String tableName) throws MetaNotFoundException {
-        return getTableOrException(tableName, t -> new MetaNotFoundException("unknown table, tableName=" + t));
-    }
-
-    public Table getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
-    }
-
-    @SuppressWarnings("unchecked")
-    public Table getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
-        Table table = getTableOrMetaException(tableName);
-        if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not "
-                    + tableType + ", tableName=" + tableName + ", type=" + table.getType());
-        }
-        return table;
-    }
-
-    @SuppressWarnings("unchecked")
-    public Table getTableOrMetaException(long tableId, TableType tableType) throws MetaNotFoundException {
-        Table table = getTableOrMetaException(tableId);
-        if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not " + tableType
-                    + ", tableId=" + tableId + ", type=" + table.getType());
-        }
-        return table;
-    }
-
-    public Table getTableOrDdlException(String tableName) throws DdlException {
-        return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
-    }
-
-    public OlapTable getOlapTableOrDdlException(String tableName) throws DdlException {
-        Table table = getTableOrDdlException(tableName);
-        if (!(table instanceof OlapTable)) {
-            throw new DdlException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
-        }
-        return (OlapTable) table;
-    }
-
-    public Table getTableOrDdlException(long tableId) throws DdlException {
-        return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
-    }
-
-    public Table getTableOrAnalysisException(String tableName) throws AnalysisException {
-        return getTableOrException(tableName,
-                t -> new AnalysisException(ErrorCode.ERR_UNKNOWN_TABLE.formatErrorMsg(t, fullQualifiedName)));
-    }
-
-    public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
-        Table table = getTableOrAnalysisException(tableName);
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
-        }
-        return (OlapTable) table;
-    }
-
-    public Table getTableOrAnalysisException(long tableId) throws AnalysisException {
-        return getTableOrException(tableId,
-                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }
 
     public int getMaxReplicationNum() {
