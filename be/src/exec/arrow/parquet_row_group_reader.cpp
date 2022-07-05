@@ -207,7 +207,6 @@ bool RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;
     for (int i = 0; i < conjuncts.size(); i++) {
-        // todo: duan lu
         Expr* conjunct = conjuncts[i]->root();
         if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
             _eval_binary_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
