@@ -82,8 +82,8 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     .collect(Collectors.toList());
 
             List<NamedExpression> updateOutputExpressionList = Lists.newArrayList();
-            updateOutputExpressionList.addAll(aggregateFunctionAliasMap.values());
             updateOutputExpressionList.addAll(updateGroupByAliasList);
+            updateOutputExpressionList.addAll(aggregateFunctionAliasMap.values());
             List<Expression> updateGroupByExpressionList = groupByExpressionList;
 
             List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
