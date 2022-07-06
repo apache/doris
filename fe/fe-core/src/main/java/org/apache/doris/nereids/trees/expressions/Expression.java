@@ -98,4 +98,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         Expression that = (Expression) o;
         return Objects.equals(children(), that.children());
     }
+
+    @Override
+    public int hashCode() {
+        return 0;
+    }
 }

@@ -31,7 +31,7 @@ public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
         return logicalAggregate().then(agg -> plan(
             new PhysicalAggregate(
                 // TODO: for use a function to judge whether use stream
-                agg.getOperator().getGroupByExprList(),
+                agg.getOperator().getGroupByExpressionList(),
                 agg.getOperator().getOutputExpressionList(),
                 agg.getOperator().getPartitionExprList(),
                 agg.getOperator().getAggPhase(),

@@ -147,13 +147,14 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .peek(a -> aggFunctionSMap.put(a, new SlotReference(a.sql(), a.getDataType(),
                         a.nullable(), Collections.emptyList())))
                 .collect(Collectors.toList());
+        ArrayList<FunctionCallExpr> execAggExpressions = aggregateFunctionList.stream()
+                .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
+                .collect(Collectors.toCollection(ArrayList::new));
         List<Slot> slotList = Lists.newArrayList();
         slotList.addAll(groupSlotList);
         slotList.addAll(aggFunctionSMap.values());
         TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
-        ArrayList<FunctionCallExpr> execAggExpressions = aggregateFunctionList.stream()
-                .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
-                .collect(Collectors.toCollection(ArrayList::new));
+
         // TODO: 3. generate a project node
 
         // process partition list

@@ -22,26 +22,36 @@ import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * TODO: if instance count is 1, shouldn't disassemble the agg operator
  * Used to generate the merge agg node for distributed execution.
- * Do this in following steps:
- *  1. clone output expr list, find all agg function
- *  2. set found agg function intermediaType
- *  3. create new child plan rooted at new local agg
- *  4. update the slot referenced by expr of merge agg
- *  5. create plan rooted at merge agg, return it.
+ * If we have a query: SELECT SUM(v) + 1 FROM t GROUP BY k + 1
+ * the initial plan is:
+ *   Aggregate(phase: [FIRST], outputExpr: SUM(v1 * v2) + 1, groupByExpr: k + 1)
+ *   +-- childPlan
+ * we should rewrite to:
+ *   Aggregate(phase: [FIRST_MERGE], outputExpr: [SUM(a) + 1], groupByExpr: [b])
+ *   +-- Aggregate(phase: [FIRST], outputExpr: [SUM(v1 * v2) as a, (k + 1) as b], groupByExpr: [k + 1])
+ *       +-- childPlan
+ *
+ * TODO:
+ *     1. if instance count is 1, shouldn't disassemble the agg operator
+ *     2. we need another rule to removing duplicated expressions in group by expression list
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
 
@@ -55,31 +65,63 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             Operator operator = plan.getOperator();
             LogicalAggregate agg = (LogicalAggregate) operator;
             List<NamedExpression> outputExpressionList = agg.getOutputExpressionList();
-            List<NamedExpression> intermediateAggExpressionList = Lists.newArrayList();
-            // TODO: shouldn't extract agg function from this field.
-            for (NamedExpression namedExpression : outputExpressionList) {
-                namedExpression = (NamedExpression) namedExpression.clone();
-                intermediateAggExpressionList.add(namedExpression);
+            List<Expression> groupByExpressionList = agg.getGroupByExpressionList();
+
+            Map<AggregateFunction, NamedExpression> aggregateFunctionAliasMap = Maps.newHashMap();
+            for (NamedExpression outputExpression : outputExpressionList) {
+                outputExpression.foreach(e -> {
+                    if (e instanceof AggregateFunction) {
+                        AggregateFunction a = (AggregateFunction) e;
+                        aggregateFunctionAliasMap.put(a, new Alias<>(a, a.sql()));
+                    }
+                });
             }
+
+            List<NamedExpression> updateGroupByAliasList = groupByExpressionList.stream()
+                    .map(g -> new Alias<>(g, g.sql()))
+                    .collect(Collectors.toList());
+
+            List<NamedExpression> updateOutputExpressionList = Lists.newArrayList();
+            updateOutputExpressionList.addAll(aggregateFunctionAliasMap.values());
+            updateOutputExpressionList.addAll(updateGroupByAliasList);
+            List<Expression> updateGroupByExpressionList = groupByExpressionList;
+
+            List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
+            for (NamedExpression o : outputExpressionList) {
+                if (o.contains(AggregateFunction.class::isInstance)) {
+                    mergeOutputExpressionList.add((NamedExpression) new AggregateFunctionParamsRewriter()
+                            .visit(o, aggregateFunctionAliasMap));
+                } else {
+                    for (int i = 0; i < updateGroupByAliasList.size(); i++) {
+                        // TODO: we need to do sub tree match and replace. but we do not have semanticEquals now.
+                        if (o instanceof SlotReference) {
+                            if (o.equals(groupByExpressionList.get(i))) {
+                                mergeOutputExpressionList.add(updateGroupByAliasList.get(i));
+                                break;
+                            }
+                        } else if (o instanceof Alias) {
+                            if (o.child(0).equals(groupByExpressionList.get(i))) {
+                                mergeOutputExpressionList.add(updateGroupByAliasList.get(i).toSlot());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            List<Expression> mergeGroupByExpressionList = updateGroupByAliasList.stream()
+                    .map(NamedExpression::toSlot).collect(Collectors.toList());
+
             LogicalAggregate localAgg = new LogicalAggregate(
-                    agg.getGroupByExprList().stream().map(Expression::clone).collect(Collectors.toList()),
-                    intermediateAggExpressionList,
+                    updateGroupByExpressionList,
+                    updateOutputExpressionList,
                     true,
                     AggPhase.FIRST
             );
 
             Plan childPlan = plan(localAgg, plan.child(0));
 
-            List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
-            for (int i = 0; i < agg.getOutputExpressionList().size(); i++) {
-                NamedExpression mergeOutput = (NamedExpression) new ReplaceSlotReference()
-                        .visit(agg.getOutputExpressionList().get(i),
-                                (SlotReference) localAgg.getOutputExpressionList().get(i).toSlot());
-                mergeOutputExpressionList.add(mergeOutput);
-            }
-
             LogicalAggregate mergeAgg = new LogicalAggregate(
-                    agg.getGroupByExprList(),
+                    mergeGroupByExpressionList,
                     mergeOutputExpressionList,
                     true,
                     AggPhase.FIRST_MERGE
@@ -88,10 +130,16 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
-    private class ReplaceSlotReference extends DefaultExpressionRewriter<SlotReference> {
+    private static class AggregateFunctionParamsRewriter
+            extends DefaultExpressionRewriter<Map<AggregateFunction, NamedExpression>> {
         @Override
-        public Expression visitSlotReference(SlotReference slotReference, SlotReference newSlotReference) {
-            return newSlotReference;
+        public Expression visitBoundFunction(BoundFunction boundFunction,
+                Map<AggregateFunction, NamedExpression> context) {
+            if (boundFunction instanceof AggregateFunction) {
+                return boundFunction.withChildren(Lists.newArrayList(context.get(boundFunction)));
+            } else {
+                return boundFunction;
+            }
         }
     }
 }

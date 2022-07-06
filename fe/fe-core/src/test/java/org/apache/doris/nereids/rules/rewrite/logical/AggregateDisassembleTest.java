@@ -29,8 +29,10 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -59,9 +61,11 @@ public class AggregateDisassembleTest implements Plans {
     }
 
     @Test
-    public void aggregateDisassembleTestTest1() {
-        List<Expression> groupExpressionList = Lists.newArrayList(rStudent.getOutput().get(2).toSlot());
+    public void aggregateDisassembleTest() {
+        List<Expression> groupExpressionList = Lists.newArrayList(
+                new Add<>(rStudent.getOutput().get(2).toSlot(), new Literal(1)));
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                new Alias<>(new Add<>(rStudent.getOutput().get(2).toSlot(), new Literal(1)), "key"),
                 new Alias<>(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
 
