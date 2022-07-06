@@ -135,7 +135,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlotList = Lists.newArrayList();
         for (Expression e : groupByExpressionList) {
-            if (e instanceof SlotReference && outputExpressionList.contains(e)) {
+            if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.contains(e::equals))) {
                 groupSlotList.add((SlotReference) e);
             } else {
                 groupSlotList.add(new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()));
