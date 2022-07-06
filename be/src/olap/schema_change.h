@@ -233,7 +233,8 @@ private:
                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
     Status _internal_sorting(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
-                             const Version& temp_delta_versions, TabletSharedPtr new_tablet,
+                             const Version& temp_delta_versions, int64_t oldest_write_timestamp,
+                             int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
                              RowsetTypePB new_rowset_type, SegmentsOverlapPB segments_overlap,
                              RowsetSharedPtr* rowset);
 

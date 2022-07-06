@@ -1554,6 +1554,8 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     RowsetSharedPtr rowset = rowset_reader->rowset();
     SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
+    int64_t oldest_write_timestamp = rowset->oldest_write_timestamp();
+    int64_t newest_write_timestamp = rowset->newest_write_timestamp();
     _temp_delta_versions.first = _temp_delta_versions.second;
 
     auto new_block =
@@ -1571,7 +1573,8 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         RowsetSharedPtr rowset;
         RETURN_IF_ERROR(_internal_sorting(
                 blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                new_tablet, BETA_ROWSET, segments_overlap, &rowset));
+                oldest_write_timestamp, newest_write_timestamp, new_tablet, BETA_ROWSET,
+                segments_overlap, &rowset));
         src_rowsets.push_back(rowset);
 
         for (auto& block : blocks) {
@@ -1649,14 +1652,15 @@ bool SchemaChangeWithSorting::_internal_sorting(
 
 Status VSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
-        TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
-        SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
+        int64_t oldest_write_timestamp, int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
+        RowsetTypePB new_rowset_type, SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     MultiBlockMerger merger(new_tablet);
 
     std::unique_ptr<RowsetWriter> rowset_writer;
-    RETURN_IF_ERROR(
-            new_tablet->create_rowset_writer(version, VISIBLE, segments_overlap, &rowset_writer));
+    RETURN_IF_ERROR(new_tablet->create_rowset_writer(version, VISIBLE, segments_overlap,
+                                                     oldest_write_timestamp, newest_write_timestamp,
+                                                     &rowset_writer));
 
     Defer defer {[&]() {
         new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
