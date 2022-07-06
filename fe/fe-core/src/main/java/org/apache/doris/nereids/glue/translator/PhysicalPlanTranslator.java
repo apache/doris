@@ -140,7 +140,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             if (e instanceof SlotReference && outputExpressionList.contains(e)) {
                 groupSlotList.add((SlotReference) e);
             } else {
-                groupSlotList.add(new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()))
+                groupSlotList.add(new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()));
             }
         }
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
