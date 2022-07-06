@@ -117,9 +117,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     }
 
     size_t MAX_PENDING_BYTES = _load_mem_limit / 3;
-    while (get_pending_bytes() > MAX_PENDING_BYTES) {
+    while (get_pending_bytes() > MAX_PENDING_BYTES && !state->is_cancelled()) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
-        if (state->is_cancelled()) break;
     }
 
     for (int i = 0; i < num_rows; ++i) {
