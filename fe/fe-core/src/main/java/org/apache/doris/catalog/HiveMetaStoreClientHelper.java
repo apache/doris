@@ -68,9 +68,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Deque;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Stack;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -400,61 +401,120 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Convert Doris expr to Hive expr, only for partition column
-     * @param dorisExpr
-     * @param partitions
      * @param tblName
      * @return
      * @throws DdlException
      * @throws SemanticException
      */
-    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr,
-            List<String> partitions, String tblName) throws DdlException {
+    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(List<Expr> conjuncts,
+            List<String> partitionKeys, String tblName) throws DdlException {
+        List<ExprNodeDesc> hivePredicates = new ArrayList<>();
+
+        for (Expr conjunct : conjuncts) {
+            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    conjunct, partitionKeys, tblName).getFuncDesc();
+            if (hiveExpr != null) {
+                hivePredicates.add(hiveExpr);
+            }
+        }
+        int count = hivePredicates.size();
+        // combine all predicate by `and`
+        // compoundExprs must have at least 2 predicates
+        if (count >= 2) {
+            return HiveMetaStoreClientHelper.getCompoundExpr(hivePredicates, "and");
+        } else if (count == 1) {
+            // only one predicate
+            return (ExprNodeGenericFuncDesc) hivePredicates.get(0);
+        } else {
+            return genAlwaysTrueExpr(tblName);
+        }
+    }
+
+    private static ExprNodeGenericFuncDesc genAlwaysTrueExpr(String tblName) throws DdlException {
+        // have no predicate, make a dummy predicate "1=1" to get all partitions
+        HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
+                new HiveMetaStoreClientHelper.ExprBuilder(tblName);
+        return exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
+                .val(TypeInfoFactory.intTypeInfo, 1)
+                .pred("=", 2).build();
+    }
+
+    private static class ExprNodeGenericFuncDescContext {
+        private static final ExprNodeGenericFuncDescContext BAD_CONTEXT = new ExprNodeGenericFuncDescContext();
+
+        private ExprNodeGenericFuncDesc funcDesc = null;
+        private boolean eligible = false;
+
+        public ExprNodeGenericFuncDescContext(ExprNodeGenericFuncDesc funcDesc) {
+            this.funcDesc = funcDesc;
+            this.eligible = true;
+        }
+
+        private ExprNodeGenericFuncDescContext() {
+        }
+
+        /**
+         * Check eligible before use the expr in CompoundPredicate for `and` and `or` .
+         */
+        public boolean isEligible() {
+            return eligible;
+        }
+
+        public ExprNodeGenericFuncDesc getFuncDesc() {
+            return funcDesc;
+        }
+    }
+
+    private static ExprNodeGenericFuncDescContext convertToHivePartitionExpr(Expr dorisExpr,
+            List<String> partitionKeys, String tblName) throws DdlException {
         if (dorisExpr == null) {
-            return null;
+            return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
 
         if (dorisExpr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) dorisExpr;
+            ExprNodeGenericFuncDescContext left = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(0), partitionKeys, tblName);
+            ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(1), partitionKeys, tblName);
+
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    if (left != null && right != null) {
+                    if (left.isEligible() && right.isEligible()) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
-                        andArgs.add(left);
-                        andArgs.add(right);
-                        return getCompoundExpr(andArgs, "and");
-                    } else if (left != null && right == null) {
+                        andArgs.add(left.getFuncDesc());
+                        andArgs.add(right.getFuncDesc());
+                        return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "and"));
+                    } else if (left.isEligible()) {
                         return left;
-                    } else if (left == null && right != null) {
+                    } else if (right.isEligible()) {
                         return right;
+                    } else {
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
-                    return null;
                 }
                 case OR: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    if (left != null && right != null) {
-                        List<ExprNodeDesc> orArgs = new ArrayList<>();
-                        orArgs.add(left);
-                        orArgs.add(right);
-                        return getCompoundExpr(orArgs, "or");
-                    } else if (left != null && right == null) {
-                        return left;
-                    } else if (left == null && right != null) {
-                        return right;
+                    if (left.isEligible() && right.isEligible()) {
+                        List<ExprNodeDesc> andArgs = new ArrayList<>();
+                        andArgs.add(left.getFuncDesc());
+                        andArgs.add(right.getFuncDesc());
+                        return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "or"));
+                    } else {
+                        // If it is not a partition key, this is an always true expr.
+                        // Or if is a partition key and also is a not supportedOp, this is an always true expr.
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
-                    return null;
                 }
                 default:
-                    return null;
+                    // TODO: support NOT predicate for CompoundPredicate
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
             }
         }
+        return binaryExprDesc(dorisExpr, partitionKeys, tblName);
+    }
 
+    private static ExprNodeGenericFuncDescContext binaryExprDesc(Expr dorisExpr,
+            List<String> partitionKeys, String tblName) throws DdlException {
         TExprOpcode opcode = dorisExpr.getOpcode();
         switch (opcode) {
             case EQ:
@@ -465,68 +525,59 @@ public class HiveMetaStoreClientHelper {
             case LT:
             case EQ_FOR_NULL:
                 BinaryPredicate eq = (BinaryPredicate) dorisExpr;
+                // Make sure the col slot is always first
                 SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
-                LiteralExpr literalExpr = null;
-                if (slotRef == null && eq.getChild(0).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(0);
-                    slotRef = convertDorisExprToSlotRef(eq.getChild(1));
-                } else if (eq.getChild(1).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(1);
-                }
+                LiteralExpr literalExpr = convertDorisExprToLiteralExpr(eq.getChild(1));
                 if (slotRef == null || literalExpr == null) {
-                    return null;
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 String colName = slotRef.getColumnName();
                 // check whether colName is partition column or not
-                if (!partitions.contains(colName)) {
-                    return null;
+                if (!partitionKeys.contains(colName)) {
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 PrimitiveType dorisPrimitiveType = slotRef.getType().getPrimitiveType();
                 PrimitiveTypeInfo hivePrimitiveType = convertToHiveColType(dorisPrimitiveType);
                 Object value = extractDorisLiteral(literalExpr);
-                ExprBuilder exprBuilder = new ExprBuilder(tblName);
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, "NULL")
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
                     } else {
-                        return null;
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
                 }
                 switch (opcode) {
                     case EQ:
                     case EQ_FOR_NULL:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "=");
                     case NE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("!=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "!=");
                     case GE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">=");
                     case GT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">");
                     case LE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<=");
                     case LT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
                     default:
-                        return null;
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
             default:
-                return null;
+                // TODO: support in predicate
+                return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
+    }
 
+    private static ExprNodeGenericFuncDescContext genExprDesc(
+            String tblName,
+            PrimitiveTypeInfo hivePrimitiveType,
+            String colName,
+            Object value,
+            String op) throws DdlException {
+        ExprBuilder exprBuilder = new ExprBuilder(tblName);
+        exprBuilder.col(hivePrimitiveType, colName).val(hivePrimitiveType, value);
+        return new ExprNodeGenericFuncDescContext(exprBuilder.pred(op, 2).build());
     }
 
     public static ExprNodeGenericFuncDesc getCompoundExpr(List<ExprNodeDesc> args, String op) throws DdlException {
@@ -551,6 +602,18 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return slotRef;
+    }
+
+    private static LiteralExpr convertDorisExprToLiteralExpr(Expr expr) {
+        LiteralExpr literalExpr = null;
+        if (expr instanceof LiteralExpr) {
+            literalExpr = (LiteralExpr) expr;
+        } else if (expr instanceof CastExpr) {
+            if (expr.getChild(0) instanceof LiteralExpr) {
+                literalExpr = (LiteralExpr) expr.getChild(0);
+            }
+        }
+        return literalExpr;
     }
 
     private static Object extractDorisLiteral(Expr expr) {
@@ -636,17 +699,17 @@ public class HiveMetaStoreClientHelper {
      */
     public static class ExprBuilder {
         private final String tblName;
-        private final Stack<ExprNodeDesc> stack = new Stack<>();
+        private final Deque<ExprNodeDesc> queue = new LinkedList<>();
 
         public ExprBuilder(String tblName) {
             this.tblName = tblName;
         }
 
         public ExprNodeGenericFuncDesc build() throws DdlException {
-            if (stack.size() != 1) {
-                throw new DdlException("Build Hive expression Failed: " + stack.size());
+            if (queue.size() != 1) {
+                throw new DdlException("Build Hive expression Failed: " + queue.size());
             }
-            return (ExprNodeGenericFuncDesc) stack.pop();
+            return (ExprNodeGenericFuncDesc) queue.pollFirst();
         }
 
         public ExprBuilder pred(String name, int args) throws DdlException {
@@ -656,10 +719,10 @@ public class HiveMetaStoreClientHelper {
         private ExprBuilder fn(String name, TypeInfo ti, int args) throws DdlException {
             List<ExprNodeDesc> children = new ArrayList<>();
             for (int i = 0; i < args; ++i) {
-                children.add(stack.pop());
+                children.add(queue.pollFirst());
             }
             try {
-                stack.push(new ExprNodeGenericFuncDesc(ti,
+                queue.offerLast(new ExprNodeGenericFuncDesc(ti,
                         FunctionRegistry.getFunctionInfo(name).getGenericUDF(), children));
             } catch (SemanticException e) {
                 LOG.warn("Build Hive expression failed: semantic analyze exception: {}", e.getMessage());
@@ -669,12 +732,12 @@ public class HiveMetaStoreClientHelper {
         }
 
         public ExprBuilder col(TypeInfo ti, String col) {
-            stack.push(new ExprNodeColumnDesc(ti, col, tblName, true));
+            queue.offerLast(new ExprNodeColumnDesc(ti, col, tblName, true));
             return this;
         }
 
         public ExprBuilder val(TypeInfo ti, Object val) {
-            stack.push(new ExprNodeConstantDesc(ti, val));
+            queue.offerLast(new ExprNodeConstantDesc(ti, val));
             return this;
         }
     }
