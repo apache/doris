@@ -59,12 +59,4 @@ suite("test_array_functions_by_literal", "all") {
     qt_sql "select [1,2,NULL][3]"
     qt_sql "select [1,2,NULL][2]"
     qt_sql "select [][-1]"
-
-    // array_remove function
-    qt_sql "select array_remove([1,2,3], 1)"
-    qt_sql "select array_remove([1,2,3], 4)"
-    qt_sql "select array_remove([1,2,3,NULL], NULL)"
-    qt_sql "select array_remove([], NULL)"
-    qt_sql "select array_remove(NULL, 1)"
-    qt_sql "select array_remove(NULL, NULL)"
 }
