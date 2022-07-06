@@ -19,7 +19,7 @@
 
 #include "io/file_writer.h"
 #include "runtime/file_result_writer.h"
-#include "vec/sink/result_sink.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 
