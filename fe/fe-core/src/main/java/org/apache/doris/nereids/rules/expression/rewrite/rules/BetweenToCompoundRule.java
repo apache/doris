@@ -23,34 +23,18 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Not;
 
 /**
- * Rewrites BetweenPredicates into an equivalent conjunctive/disjunctive
- * CompoundPredicate.
+ * Rewrites BetweenPredicates into an equivalent conjunctive CompoundPredicate,
+ * "not between" is first processed by the BetweenToCompoundRule and then by the SimplifyNotExprRule.
  * Examples:
  * A BETWEEN X AND Y ==> A >= X AND A <= Y
- * A NOT BETWEEN X AND Y ==> A < X OR A > Y
  */
 public class BetweenToCompoundRule extends AbstractExpressionRewriteRule {
 
     public static BetweenToCompoundRule INSTANCE = new BetweenToCompoundRule();
-
-    @Override
-    public Expression visitNot(Not expr, ExpressionRewriteContext context) {
-        Expression child = expr.child();
-        if (child instanceof Between) {
-            Between between = (Between) child;
-            Expression left = new LessThan<>(between.getCompareExpr(), between.getLowerBound());
-            Expression right = new GreaterThan<>(between.getCompareExpr(), between.getUpperBound());
-            return new CompoundPredicate<>(NodeType.OR, left, right);
-        }
-        return expr;
-    }
 
     @Override
     public Expression visitBetween(Between expr, ExpressionRewriteContext context) {

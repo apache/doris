@@ -33,9 +33,9 @@ import java.util.List;
 public class ExpressionRuleExecutor {
 
     public static final List<ExpressionRewriteRule> REWRITE_RULES = ImmutableList.of(
+        new BetweenToCompoundRule(),
         new SimplifyNotExprRule(),
-        new NormalizeExpressionRule(),
-        new BetweenToCompoundRule()
+        new NormalizeExpressionRule()
     );
 
     private final ExpressionRewriteContext ctx;
