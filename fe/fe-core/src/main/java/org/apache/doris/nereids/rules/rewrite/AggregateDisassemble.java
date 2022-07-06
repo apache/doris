@@ -136,7 +136,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
         public Expression visitBoundFunction(BoundFunction boundFunction,
                 Map<AggregateFunction, NamedExpression> context) {
             if (boundFunction instanceof AggregateFunction) {
-                return boundFunction.withChildren(Lists.newArrayList(context.get(boundFunction)));
+                return boundFunction.withChildren(Lists.newArrayList(context.get(boundFunction).toSlot()));
             } else {
                 return boundFunction;
             }
