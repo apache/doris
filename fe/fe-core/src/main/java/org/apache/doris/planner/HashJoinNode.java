@@ -1039,11 +1039,15 @@ public class HashJoinNode extends PlanNode {
     }
 
     SlotRef getMappedInputSlotRef(SlotRef slotRef) {
-        Expr mappedExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
-        if (mappedExpr != null && mappedExpr instanceof SlotRef) {
-            return (SlotRef) mappedExpr;
+        if (vSrcToOutputSMap != null) {
+            Expr mappedExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
+            if (mappedExpr != null && mappedExpr instanceof SlotRef) {
+                return (SlotRef) mappedExpr;
+            } else {
+                return null;
+            }
         } else {
-            return null;
+            return slotRef;
         }
     }
 }
