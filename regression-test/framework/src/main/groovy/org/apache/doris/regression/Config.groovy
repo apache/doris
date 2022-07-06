@@ -43,8 +43,6 @@ class Config {
     public String feHttpUser
     public String feHttpPassword
 
-    public String beHttpAddress
-
     public String suitePath
     public String dataPath
     public String pluginPath
@@ -79,7 +77,7 @@ class Config {
     Config() {}
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
-           String feHttpAddress, String feHttpUser, String feHttpPassword, String beHttpAddress,
+           String feHttpAddress, String feHttpUser, String feHttpPassword,
            String suitePath, String dataPath, String testGroups, String excludeGroups,
            String testSuites, String excludeSuites, String testDirectories, String excludeDirectories,
            String pluginPath) {
@@ -90,7 +88,6 @@ class Config {
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
-        this.beHttpAddress = beHttpAddress
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.testGroups = testGroups
@@ -152,7 +149,6 @@ class Config {
                 .toSet()
 
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
-        config.beHttpAddress = cmd.getOptionValue(beHttpAddressOpt, config.beHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
             int port = Integer.valueOf(config.feHttpAddress.split(":")[1])
@@ -194,7 +190,6 @@ class Config {
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
-            configToString(obj.beHttpAddress),
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.testGroups),
@@ -243,11 +238,6 @@ class Config {
         if (config.feHttpAddress == null) {
             config.feHttpAddress = "127.0.0.1:8030"
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
-        }
-
-        if (config.beHttpAddress == null) {
-            config.beHttpAddress = "127.0.0.1:8040"
-            log.info("Set beHttpAddress to '${config.beHttpAddress}' because not specify.".toString())
         }
 
         if (config.feHttpUser == null) {
