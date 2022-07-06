@@ -121,17 +121,27 @@ private:
 
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
-    vectorized::MutableColumnPtr& _get_column_for_vec_predicate(int vec_pred_id) {
-        auto predicate = _pre_eval_block_predicate[vec_pred_id];
-        auto column_id = predicate->column_id();
-        auto& column = _current_return_columns[column_id];
-        // Dictionary column should do something to initial.
-        if (PredicateTypeTraits::is_range(predicate->type())) {
-            column->convert_dict_codes_if_necessary();
-        } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-            column->generate_hash_values_for_runtime_filter();
+    // Dictionary column should do something to initial.
+    void _convert_dict_code_for_predicate_if_necessary() {
+        for (auto predicate : _short_cir_eval_predicate) {
+            auto& column = _current_return_columns[predicate->column_id()];
+            auto* col_ptr = column.get();
+            if (PredicateTypeTraits::is_range(predicate->type())) {
+                col_ptr->convert_dict_codes_if_necessary();
+            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+                col_ptr->generate_hash_values_for_runtime_filter();
+            }
         }
-        return column;
+
+        for (auto predicate : _pre_eval_block_predicate) {
+            auto& column = _current_return_columns[predicate->column_id()];
+            auto* col_ptr = column.get();
+            if (PredicateTypeTraits::is_range(predicate->type())) {
+                col_ptr->convert_dict_codes_if_necessary();
+            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+                col_ptr->generate_hash_values_for_runtime_filter();
+            }
+        }
     }
 
 private:

@@ -160,8 +160,9 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
-                      bool* flags) const override {
+    template <bool is_and>
+    __attribute__((flatten)) void evaluate_vec_internal(const vectorized::IColumn& column,
+                                                        uint16_t size, bool* flags) const {
         if (column.is_nullable()) {
             auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -180,8 +181,8 @@ public:
                                                  : dict_column_ptr->find_code(_value);
                     auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<true, false>(size, flags, null_map.data(), data_array,
-                                                dict_code);
+                    _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
+                                                 dict_code);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
@@ -191,7 +192,7 @@ public:
                                            .get_data()
                                            .data();
 
-                _base_loop_vec<true, false>(size, flags, null_map.data(), data_array, _value_real);
+                _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value_real);
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -203,7 +204,7 @@ public:
                                                  : dict_column_ptr->find_code(_value);
                     auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<false, false>(size, flags, nullptr, data_array, dict_code);
+                    _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
@@ -214,7 +215,7 @@ public:
                                 ->get_data()
                                 .data();
 
-                _base_loop_vec<false, false>(size, flags, nullptr, data_array, _value_real);
+                _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value_real);
             }
         }
 
@@ -225,68 +226,14 @@ public:
         }
     }
 
+    void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
+                      bool* flags) const override {
+        evaluate_vec_internal<false>(column, size, flags);
+    }
+
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override {
-        if (column.is_nullable()) {
-            auto* nullable_column_ptr =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& nested_column = nullable_column_ptr->get_nested_column();
-            auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                     nullable_column_ptr->get_null_map_column())
-                                     .get_data();
-
-            if (nested_column.is_column_dictionary()) {
-                if constexpr (std::is_same_v<T, StringValue>) {
-                    auto* dict_column_ptr =
-                            vectorized::check_and_get_column<vectorized::ColumnDictI32>(
-                                    nested_column);
-                    auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
-                                                           _value, _is_greater(), _is_eq())
-                                                 : dict_column_ptr->find_code(_value);
-                    auto* data_array = dict_column_ptr->get_data().data();
-
-                    _base_loop_vec<true, true>(size, flags, null_map.data(), data_array, dict_code);
-                } else {
-                    LOG(FATAL) << "column_dictionary must use StringValue predicate.";
-                }
-            } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<TReal>&>(
-                                           nested_column)
-                                           .get_data()
-                                           .data();
-
-                _base_loop_vec<true, true>(size, flags, null_map.data(), data_array, _value_real);
-            }
-        } else {
-            if (column.is_column_dictionary()) {
-                if constexpr (std::is_same_v<T, StringValue>) {
-                    auto* dict_column_ptr =
-                            vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                    auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
-                                                           _value, _is_greater(), _is_eq())
-                                                 : dict_column_ptr->find_code(_value);
-                    auto* data_array = dict_column_ptr->get_data().data();
-
-                    _base_loop_vec<false, true>(size, flags, nullptr, data_array, dict_code);
-                } else {
-                    LOG(FATAL) << "column_dictionary must use StringValue predicate.";
-                }
-            } else {
-                auto* data_array =
-                        vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(
-                                column)
-                                ->get_data()
-                                .data();
-
-                _base_loop_vec<false, true>(size, flags, nullptr, data_array, _value_real);
-            }
-        }
-
-        if (_opposite) {
-            for (uint16_t i = 0; i < size; i++) {
-                flags[i] = !flags[i];
-            }
-        }
+        evaluate_vec_internal<true>(column, size, flags);
     }
 
 private:
@@ -379,8 +326,11 @@ private:
     }
 
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
-    void _base_loop_vec(uint16_t size, bool* __restrict bflags, const uint8_t* __restrict null_map,
-                        const TArray* __restrict data_array, const TValue& value) const {
+    __attribute__((flatten)) void _base_loop_vec(uint16_t size, bool* __restrict bflags,
+                                                 const uint8_t* __restrict null_map,
+                                                 const TArray* __restrict data_array,
+                                                 const TValue& value) const {
+        //uint8_t helps compiler to generate vectorized code
         uint8_t* flags = reinterpret_cast<uint8_t*>(bflags);
         if constexpr (is_and) {
             for (uint16_t i = 0; i < size; i++) {

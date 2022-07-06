@@ -874,14 +874,15 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     }
 
     uint16_t original_size = selected_size;
-    bool ret_flags[selected_size];
+    bool ret_flags[original_size];
     DCHECK(_pre_eval_block_predicate.size() > 0);
-
-    auto& column = _get_column_for_vec_predicate(0);
-    _pre_eval_block_predicate[0]->evaluate_vec(*column, selected_size, ret_flags);
+    auto column_id = _pre_eval_block_predicate[0]->column_id();
+    auto& column = _current_return_columns[column_id];
+    _pre_eval_block_predicate[0]->evaluate_vec(*column, original_size, ret_flags);
     for (int i = 1; i < _pre_eval_block_predicate.size(); i++) {
-        auto& column2 = _get_column_for_vec_predicate(i);
-        _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, selected_size, ret_flags);
+        auto column_id2 = _pre_eval_block_predicate[i]->column_id();
+        auto& column2 = _current_return_columns[column_id2];
+        _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, original_size, ret_flags);
     }
 
     uint16_t new_size = 0;
@@ -930,15 +931,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
-        auto* col_ptr = short_cir_column.get();
-
-        // Dictionary column should do something to initial.
-        if (PredicateTypeTraits::is_range(predicate->type())) {
-            col_ptr->convert_dict_codes_if_necessary();
-        } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-            col_ptr->generate_hash_values_for_runtime_filter();
-        }
-
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
     _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
@@ -1026,6 +1018,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     if (!_is_need_vec_eval && !_is_need_short_eval) {
         _output_non_pred_columns(block);
     } else {
+        _convert_dict_code_for_predicate_if_necessary();
         uint16_t selected_size = nrows_read;
         uint16_t sel_rowid_idx[selected_size];
 
