@@ -39,7 +39,12 @@ TEST(function_string_test, function_string_substr_test) {
                 {{std::string("hello word"), -5, 5}, std::string(" word")},
                 {{std::string("hello word"), 1, 12}, std::string("hello word")},
                 {{std::string("HELLO,!^%"), 4, 2}, std::string("LO")},
-                {{std::string(""), 5, 4}, Null()},
+                {{std::string(""), 5, 4}, std::string("")},
+                {{std::string(""), -1, 4}, std::string("")},
+                {{std::string("12"), 3, 4}, std::string("")},
+                {{std::string(""), 0, 4}, std::string("")},
+                {{std::string("123"), 0, 4}, std::string("")},
+                {{std::string("123"), 1, 0}, std::string("")},
                 {{Null(), 5, 4}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
@@ -53,7 +58,11 @@ TEST(function_string_test, function_string_substr_test) {
                 {{std::string("hello word"), -5}, std::string(" word")},
                 {{std::string("hello word"), 1}, std::string("hello word")},
                 {{std::string("HELLO,!^%"), 4}, std::string("LO,!^%")},
-                {{std::string(""), 5, 4}, Null()},
+                {{std::string(""), 5}, std::string("")},
+                {{std::string(""), -1}, std::string("")},
+                {{std::string("12"), 3}, std::string("")},
+                {{std::string(""), 0}, std::string("")},
+                {{std::string("123"), 0}, std::string("")},
                 {{Null(), 5, 4}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
@@ -82,7 +91,10 @@ TEST(function_string_test, function_string_strleft_test) {
                         {{std::string("hel  lo  "), 5}, std::string("hel  ")},
                         {{std::string("hello word"), 20}, std::string("hello word")},
                         {{std::string("HELLO,!^%"), 7}, std::string("HELLO,!")},
-                        {{std::string(""), 2}, Null()},
+                        {{std::string(""), 2}, std::string("")},
+                        {{std::string(""), -2}, std::string("")},
+                        {{std::string(""), 0}, std::string("")},
+                        {{std::string("123"), 0}, std::string("")},
                         {{Null(), 3}, Null()}};
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
