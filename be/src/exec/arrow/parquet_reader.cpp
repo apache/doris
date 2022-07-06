@@ -47,7 +47,7 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size
 ParquetReaderWrap::~ParquetReaderWrap() {
     _closed = true;
     _queue_writer_cond.notify_one();
-   _thread.join();
+    _thread.join();
 }
 
 Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
