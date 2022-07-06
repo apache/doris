@@ -190,9 +190,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 aggregationNode.unsetNeedsFinalize();
                 aggregationNode.setUseStreamingPreagg(physicalAggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
-                if (!partitionExpressionList.isEmpty()) {
-                    inputPlanFragment.setOutputPartition(DataPartition.hashPartitioned(execPartitionExpressions));
-                }
                 inputPlanFragment.setPlanRoot(aggregationNode);
                 PlanFragment mergeFragment = createParentFragment(inputPlanFragment, mergePartition, context);
                 return mergeFragment;
@@ -408,6 +405,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, parentPartition);
         childFragment.setDestination(exchangeNode);
         childFragment.setOutputPartition(parentPartition);
+        context.addPlanFragment(parentFragment);
         return parentFragment;
     }
 
