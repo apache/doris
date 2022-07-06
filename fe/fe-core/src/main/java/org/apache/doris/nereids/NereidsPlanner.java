@@ -19,13 +19,8 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Id;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -49,12 +44,10 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -95,17 +88,9 @@ public class NereidsPlanner extends Planner {
         PlanFragment root = fragments.get(0);
 
         // compute output exprs
-        Map<Integer, Expr> outputCandidates = Maps.newHashMap();
         List<Expr> outputExprs = Lists.newArrayList();
-        for (TupleId tupleId : root.getPlanRoot().getTupleIds()) {
-            TupleDescriptor tupleDescriptor = descTable.getTupleDesc(tupleId);
-            for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                SlotRef slotRef = new SlotRef(slotDescriptor);
-                outputCandidates.put(slotDescriptor.getId().asInt(), slotRef);
-            }
-        }
         physicalPlan.getOutput().stream().map(Slot::getExprId)
-                .map(Id::asInt).forEach(i -> outputExprs.add(outputCandidates.get(i)));
+                .forEach(exprId -> outputExprs.add(planTranslatorContext.findSlotRef(exprId)));
         root.setOutputExprs(outputExprs);
         root.getPlanRoot().convertToVectoriezd();
 
