@@ -67,6 +67,7 @@ import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -155,6 +156,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
+        // 3. generate output tuple
         // TODO: currently, we only support sum(a), if we want to support sum(a) + 1, we need to
         //  split merge agg to project(agg) and generate tuple like what first phase agg do.
         List<Slot> slotList = Lists.newArrayList();
@@ -162,15 +164,19 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         if (agg.getOperator().getAggPhase() == AggPhase.FIRST_MERGE) {
             slotList.addAll(groupSlotList);
             slotList.addAll(aggFunctionOutput);
-            outputTupleDesc = generateTupleDesc(slotList, context, null);
+            outputTupleDesc = generateTupleDesc(slotList, null, context);
         } else {
-            outputTupleDesc = generateTupleDesc(agg.getOutput(), context, null);
+            outputTupleDesc = generateTupleDesc(agg.getOutput(), null, context);
         }
 
         // process partition list
         List<Expression> partitionExpressionList = physicalAggregate.getPartitionExprList();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+        DataPartition mergePartition = DataPartition.UNPARTITIONED;
+        if (CollectionUtils.isNotEmpty(execPartitionExpressions)) {
+            mergePartition = DataPartition.hashPartitioned(execGroupingExpressions);
+        }
 
         // todo: support DISTINCT
         AggregationNode aggregationNode;
@@ -187,7 +193,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 if (!partitionExpressionList.isEmpty()) {
                     inputPlanFragment.setOutputPartition(DataPartition.hashPartitioned(execPartitionExpressions));
                 }
-                break;
+                inputPlanFragment.setPlanRoot(aggregationNode);
+                PlanFragment mergeFragment = createParentFragment(inputPlanFragment, mergePartition, context);
+                return mergeFragment;
             case FIRST_MERGE:
                 for (FunctionCallExpr execAggExpression : execAggExpressions) {
                     execAggExpression.setMergeAggFn(true);
@@ -196,12 +204,12 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST_MERGE);
                 aggregationNode = new AggregationNode(context.nextPlanNodeId(),
                         inputPlanFragment.getPlanRoot(), aggInfo);
-                break;
+                inputPlanFragment.setPlanRoot(aggregationNode);
+                inputPlanFragment.setOutputPartition(mergePartition);
+                return inputPlanFragment;
             default:
                 throw new RuntimeException("Unsupported yet");
         }
-        inputPlanFragment.setPlanRoot(aggregationNode);
-        return inputPlanFragment;
     }
 
     @Override
@@ -215,10 +223,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .getExpressions()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, olapTable.getName());
-        // TODO: Do we really need tableName here?
         TableName tableName = new TableName("", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
@@ -233,6 +240,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);
         // Create PlanFragment
+        // TODO: add data partition after we have physical properties
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);
         context.addPlanFragment(planFragment);
         return planFragment;
@@ -256,7 +264,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         });
 
         List<Slot> outputList = sort.getOutput();
-        TupleDescriptor tupleDesc = generateTupleDesc(outputList, context, null);
+        TupleDescriptor tupleDesc = generateTupleDesc(outputList, null, context);
         SortInfo sortInfo = new SortInfo(execOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
 
         PlanNode childNode = childFragment.getPlanRoot();
@@ -384,7 +392,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         }
     }
 
-    private TupleDescriptor generateTupleDesc(List<Slot> slotList, PlanTranslatorContext context, Table table) {
+    private TupleDescriptor generateTupleDesc(List<Slot> slotList, Table table, PlanTranslatorContext context) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
@@ -394,10 +402,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     }
 
     private PlanFragment createParentFragment(PlanFragment childFragment, DataPartition parentPartition,
-            PlanTranslatorContext ctx) {
-        ExchangeNode exchangeNode = new ExchangeNode(ctx.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+            PlanTranslatorContext context) {
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
-        PlanFragment parentFragment = new PlanFragment(ctx.nextFragmentId(), exchangeNode, parentPartition);
+        PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, parentPartition);
         childFragment.setDestination(exchangeNode);
         childFragment.setOutputPartition(parentPartition);
         return parentFragment;
