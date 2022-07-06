@@ -50,6 +50,8 @@ public enum NodeType {
     AND,
     OR,
     BETWEEN,
+    LIKE,
+    REGEXP,
     MULTIPLY,
     DIVIDE,
     MOD,
