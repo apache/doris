@@ -37,7 +37,7 @@ FileArrowScanner::FileArrowScanner(RuntimeState* state, RuntimeProfile* profile,
           _arrow_batch_cur_idx(0) {}
 
 FileArrowScanner::~FileArrowScanner() {
-    close();
+    FileArrowScanner::close();
 }
 
 Status FileArrowScanner::_open_next_reader() {

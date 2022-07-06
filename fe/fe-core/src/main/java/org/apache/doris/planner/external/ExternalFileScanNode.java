@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
@@ -254,11 +255,13 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
 
-        // Todo: now every split will assign one scan range, we can merge them for optimize.
+        TScanRangeLocations curLocations = newLocations(context.params);
+        long fragmentSize = 0;
+        int fileNum = 0;
+
         for (InputSplit split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
 
-            TScanRangeLocations curLocations = newLocations(context.params);
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
                     partitionKeys);
 
@@ -269,7 +272,17 @@ public class ExternalFileScanNode extends ExternalScanNode {
             Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
                     + " with table split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
+            fragmentSize += fileSplit.getLength();
+            fileNum++;
 
+            if (fragmentSize > 256L * 1024 * 1024 *  1024 || fileNum > 128) {
+                scanRangeLocations.add(curLocations);
+                curLocations = newLocations(context.params);
+                fragmentSize = 0;
+                fileNum = 0;
+            }
+        }
+        if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
             scanRangeLocations.add(curLocations);
         }
     }
@@ -311,6 +324,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         // set hdfs params for hdfs file type.
         if (scanProvider.getTableFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(scanProvider.getTableProperties());
+            tHdfsParams.addToHdfsConf(new THdfsConf("dfs.client.read.shortcircuit", "false"));
             rangeDesc.setHdfsParams(tHdfsParams);
         }
         return rangeDesc;
@@ -340,6 +354,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
+        LOG.info("There is {} fragments on the be nodes.", scanRangeLocations.size());
         return scanRangeLocations;
     }
 
