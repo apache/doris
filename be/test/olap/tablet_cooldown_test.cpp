@@ -201,7 +201,7 @@ TEST_F(TabletCooldownTest, normal) {
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    tablet->set_cooldown_resource(kResourceId);
+    tablet->set_storage_policy(kResourceId);
     st = tablet->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
     st = tablet->cooldown(); // rowset [2-2]
