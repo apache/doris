@@ -50,7 +50,6 @@ public:
     void* get_slot(TupleRow* row);
     Tuple* get_tuple(TupleRow* row);
     bool is_null_bit_set(TupleRow* row);
-    static bool vector_compute_fn(Expr* expr, VectorizedRowBatch* batch);
     static bool is_nullable(Expr* expr);
     virtual std::string debug_string() const override;
     virtual bool is_constant() const override { return false; }
@@ -82,10 +81,6 @@ private:
     TupleId _tuple_id;       // used for desc this slot from
     bool _is_nullable;
 };
-
-inline bool SlotRef::vector_compute_fn(Expr* expr, VectorizedRowBatch* /* batch */) {
-    return true;
-}
 
 inline void* SlotRef::get_value(Expr* expr, TupleRow* row) {
     SlotRef* ref = (SlotRef*)expr;

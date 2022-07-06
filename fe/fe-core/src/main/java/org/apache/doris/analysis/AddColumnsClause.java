@@ -29,7 +29,9 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Map;
 
-// add some columns to one index.
+/**
+ * add some columns to one index.
+ */
 public class AddColumnsClause extends AlterTableClause {
     private List<ColumnDef> columnDefs;
     private String rollupName;

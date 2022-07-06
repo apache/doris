@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Logical join plan operator.
@@ -72,11 +73,35 @@ public class LogicalJoin extends LogicalBinaryOperator {
 
     @Override
     public List<Slot> computeOutput(Plan leftInput, Plan rightInput) {
+
+        List<Slot> newLeftOutput = leftInput.getOutput().stream().map(o -> o.withNullable(true))
+                .collect(Collectors.toList());
+
+        List<Slot> newRightOutput = rightInput.getOutput().stream().map(o -> o.withNullable(true))
+                .collect(Collectors.toList());
+
         switch (joinType) {
             case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
                 return ImmutableList.copyOf(leftInput.getOutput());
             case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
                 return ImmutableList.copyOf(rightInput.getOutput());
+            case LEFT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(leftInput.getOutput())
+                        .addAll(newRightOutput)
+                        .build();
+            case RIGHT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(newLeftOutput)
+                        .addAll(rightInput.getOutput())
+                        .build();
+            case FULL_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(newLeftOutput)
+                        .addAll(newRightOutput)
+                        .build();
             default:
                 return ImmutableList.<Slot>builder()
                         .addAll(leftInput.getOutput())

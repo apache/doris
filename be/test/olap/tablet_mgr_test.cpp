@@ -24,7 +24,6 @@
 #include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"

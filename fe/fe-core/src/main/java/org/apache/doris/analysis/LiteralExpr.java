@@ -247,4 +247,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     public boolean isNullable() {
         return this instanceof NullLiteral;
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
+    }
 }

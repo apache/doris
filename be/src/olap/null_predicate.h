@@ -25,15 +25,11 @@
 
 namespace doris {
 
-class VectorizedRowBatch;
-
 class NullPredicate : public ColumnPredicate {
 public:
     NullPredicate(uint32_t column_id, bool is_null, bool opposite = false);
 
     PredicateType type() const override;
-
-    void evaluate(VectorizedRowBatch* batch) const override;
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 

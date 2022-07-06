@@ -18,6 +18,7 @@
 #include "vec/exec/join/vhash_join_node.h"
 
 #include "gen_cpp/PlanNodes_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
@@ -686,7 +687,7 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     // avoid vector expand change block address.
     // one block can store 4g data, _build_blocks can store 128*4g data.
     // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
-    _build_blocks.reserve(128);
+    _build_blocks.reserve(_MAX_BUILD_BLOCK_COUNT);
 }
 
 HashJoinNode::~HashJoinNode() = default;
@@ -1023,6 +1024,9 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     int64_t last_mem_used = 0;
     bool eos = false;
 
+    // make one block for each 4 gigabytes
+    constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
+
     Block block;
     while (!eos) {
         block.clear_column_data();
@@ -1036,9 +1040,12 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
             mutable_block.merge(block);
         }
 
-        // make one block for each 4 gigabytes
-        constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
         if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
+            if (_build_blocks.size() == _MAX_BUILD_BLOCK_COUNT) {
+                return Status::NotSupported(
+                        strings::Substitute("data size of right table in hash join > $0",
+                                            BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
+            }
             _build_blocks.emplace_back(mutable_block.to_block());
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
@@ -1050,8 +1057,15 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         }
     }
 
-    _build_blocks.emplace_back(mutable_block.to_block());
-    RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
+    if (!mutable_block.empty()) {
+        if (_build_blocks.size() == _MAX_BUILD_BLOCK_COUNT) {
+            return Status::NotSupported(
+                    strings::Substitute("data size of right table in hash join > $0",
+                                        BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
+        }
+        _build_blocks.emplace_back(mutable_block.to_block());
+        RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
+    }
 
     return std::visit(
             [&](auto&& arg) -> Status {

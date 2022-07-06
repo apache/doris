@@ -90,8 +90,7 @@ Expr::Expr(const Expr& expr)
           _output_column(expr._output_column),
           _fn(expr._fn),
           _fn_context_index(expr._fn_context_index),
-          _constant_val(expr._constant_val),
-          _vector_compute_fn(expr._vector_compute_fn) {}
+          _constant_val(expr._constant_val) {}
 
 Expr::Expr(const TypeDescriptor& type)
         : _opcode(TExprOpcode::INVALID_OPCODE),

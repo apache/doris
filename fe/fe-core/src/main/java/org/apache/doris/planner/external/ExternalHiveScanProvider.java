@@ -32,16 +32,13 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
-import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -89,7 +86,8 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
                 .stream().map(FieldSchema::getName).collect(Collectors.toList());
 
         if (partitionKeys.size() > 0) {
-            ExprNodeGenericFuncDesc hivePartitionPredicate = extractHivePartitionPredicate(exprs, partitionKeys);
+            ExprNodeGenericFuncDesc hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    exprs, partitionKeys, hmsTable.getName());
 
             String metaStoreUris = getMetaStoreUrl();
             List<Partition> hivePartitions = HiveMetaStoreClientHelper.getHivePartitions(
@@ -120,33 +118,6 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
-    }
-
-    private ExprNodeGenericFuncDesc extractHivePartitionPredicate(List<Expr> conjuncts, List<String> partitionKeys)
-            throws DdlException {
-        ExprNodeGenericFuncDesc hivePartitionPredicate;
-        List<ExprNodeDesc> exprNodeDescs = new ArrayList<>();
-        for (Expr conjunct : conjuncts) {
-            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(conjunct,
-                    partitionKeys, hmsTable.getName());
-            if (hiveExpr != null) {
-                exprNodeDescs.add(hiveExpr);
-            }
-        }
-        int count = exprNodeDescs.size();
-
-        if (count >= 2) {
-            hivePartitionPredicate = HiveMetaStoreClientHelper.getCompoundExpr(exprNodeDescs, "and");
-        } else if (count == 1) {
-            hivePartitionPredicate = (ExprNodeGenericFuncDesc) exprNodeDescs.get(0);
-        } else {
-            HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
-                    new HiveMetaStoreClientHelper.ExprBuilder(hmsTable.getName());
-            hivePartitionPredicate = exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
-                    .val(TypeInfoFactory.intTypeInfo, 1)
-                    .pred("=", 2).build();
-        }
-        return hivePartitionPredicate;
     }
 
     @Override

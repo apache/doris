@@ -161,13 +161,6 @@ public class AnalyzeSSBTest extends TestWithFeService {
         if (!checkPlanBound(root))  {
             return false;
         }
-
-        List<Plan> children = root.children();
-        for (Plan child : children) {
-            if (!checkPlanBound((LogicalPlan) child)) {
-                return false;
-            }
-        }
         return true;
     }
 
@@ -177,6 +170,13 @@ public class AnalyzeSSBTest extends TestWithFeService {
     private boolean checkPlanBound(LogicalPlan plan) {
         if (plan instanceof Unbound) {
             return false;
+        }
+
+        List<Plan> children = plan.children();
+        for (Plan child : children) {
+            if (!checkPlanBound((LogicalPlan) child)) {
+                return false;
+            }
         }
 
         List<Expression> expressions = plan.getOperator().getExpressions();

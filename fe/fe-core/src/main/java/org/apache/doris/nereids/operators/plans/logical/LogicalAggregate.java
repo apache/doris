@@ -40,14 +40,17 @@ import java.util.Objects;
  * <p>
  * Each agg node only contains the select statement field of the same layer,
  * and other agg nodes in the subquery contain.
+ * Note: In general, the output of agg is a subset of the group by column plus aggregate column.
+ * In special cases. this relationship does not hold. for example, select k1+1, sum(v1) from table group by k1.
  */
 public class LogicalAggregate extends LogicalUnaryOperator {
 
+    private final boolean disassembled;
     private final List<Expression> groupByExprList;
     private final List<NamedExpression> outputExpressionList;
     private List<Expression> partitionExprList;
 
-    private AggPhase aggPhase;
+    private final AggPhase aggPhase;
 
     /**
      * Desc: Constructor for LogicalAggregation.
@@ -56,6 +59,18 @@ public class LogicalAggregate extends LogicalUnaryOperator {
         super(OperatorType.LOGICAL_AGGREGATION);
         this.groupByExprList = groupByExprList;
         this.outputExpressionList = outputExpressionList;
+        this.disassembled = false;
+        this.aggPhase = AggPhase.FIRST;
+    }
+
+    public LogicalAggregate(List<Expression> groupByExprList,
+            List<NamedExpression> outputExpressionList,
+            boolean disassembled, AggPhase aggPhase) {
+        super(OperatorType.LOGICAL_AGGREGATION);
+        this.groupByExprList = groupByExprList;
+        this.outputExpressionList = outputExpressionList;
+        this.disassembled = disassembled;
+        this.aggPhase = aggPhase;
     }
 
     public List<Expression> getPartitionExprList() {
@@ -97,7 +112,13 @@ public class LogicalAggregate extends LogicalUnaryOperator {
         return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(outputExpressionList).build();
     }
 
-    @Override
+    public boolean isDisassembled() {
+        return disassembled;
+    }
+
+    /**
+     * Determine the equality with another operator
+     */
     public boolean equals(Object o) {
         if (this == o) {
             return true;
