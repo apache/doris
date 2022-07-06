@@ -1644,18 +1644,18 @@ std::shared_ptr<MemTracker>& Tablet::get_compaction_mem_tracker(CompactionType c
 Status Tablet::cooldown() {
     std::unique_lock schema_change_lock(_schema_change_lock, std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
-        LOG(WARNING) << "schema change is running. tablet=" << tablet_id();
+        LOG(WARNING) << "Failed to own schema_change_lock. tablet=" << tablet_id();
         return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
     // Check executing serially with compaction task.
     std::unique_lock base_compaction_lock(_base_compaction_lock, std::try_to_lock);
     if (!base_compaction_lock.owns_lock()) {
-        LOG(WARNING) << "base compaction is running. tablet=" << tablet_id();
+        LOG(WARNING) << "Failed to own base_compaction_lock. tablet=" << tablet_id();
         return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
     std::unique_lock cumu_compaction_lock(_cumulative_compaction_lock, std::try_to_lock);
     if (!cumu_compaction_lock.owns_lock()) {
-        LOG(WARNING) << "cumulative compaction is running. tablet=" << tablet_id();
+        LOG(WARNING) << "Failed to own cumu_compaction_lock. tablet=" << tablet_id();
         return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
     auto dest_fs = io::FileSystemMap::instance()->get(cooldown_resource());
