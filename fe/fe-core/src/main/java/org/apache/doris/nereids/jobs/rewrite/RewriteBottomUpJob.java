@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -42,18 +42,19 @@ public class RewriteBottomUpJob extends Job<Plan> {
     private final List<Rule<Plan>> rules;
     private final boolean childrenOptimized;
 
-    public RewriteBottomUpJob(Group group, PlannerContext context, List<RuleFactory<Plan>> factories) {
+
+    public RewriteBottomUpJob(Group group, JobContext context, List<RuleFactory<Plan>> factories) {
         this(group, factories.stream()
                 .flatMap(factory -> factory.buildRules().stream())
                 .collect(Collectors.toList()), context, false);
     }
 
-    public RewriteBottomUpJob(Group group, List<Rule<Plan>> rules, PlannerContext context) {
+    public RewriteBottomUpJob(Group group, List<Rule<Plan>> rules, JobContext context) {
         this(group, rules, context, false);
     }
 
     private RewriteBottomUpJob(Group group, List<Rule<Plan>> rules,
-            PlannerContext context, boolean childrenOptimized) {
+            JobContext context, boolean childrenOptimized) {
         super(JobType.BOTTOM_UP_REWRITE, context);
         this.group = Objects.requireNonNull(group, "group cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
@@ -76,11 +77,11 @@ public class RewriteBottomUpJob extends Job<Plan> {
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
-                List<Plan> afters = rule.transform(before, context);
+                List<Plan> afters = rule.transform(before, context.getPlannerContext());
                 Preconditions.checkArgument(afters.size() == 1);
                 Plan after = afters.get(0);
                 if (after != before) {
-                    GroupExpression groupExpr = context.getOptimizerContext()
+                    GroupExpression groupExpr = context.getPlannerContext()
                             .getMemo()
                             .copyIn(after, group, rule.isRewrite());
                     groupExpr.setApplied(rule);

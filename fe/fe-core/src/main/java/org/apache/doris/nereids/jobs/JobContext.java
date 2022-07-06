@@ -15,27 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.scheduler;
+package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 
 /**
- * Single thread, serial scheduler.
+ * Context for one job in Nereids' cascades framework.
  */
-public class SimpleJobScheduler implements JobScheduler {
-    @Override
-    public void executeJob(Job job, PlannerContext context) {
+public class JobContext {
+    private final PlannerContext plannerContext;
+    private final PhysicalProperties requiredProperties;
+    private final double costUpperBound;
 
+    public JobContext(PlannerContext plannerContext, PhysicalProperties requiredProperties, double costUpperBound) {
+        this.plannerContext = plannerContext;
+        this.requiredProperties = requiredProperties;
+        this.costUpperBound = costUpperBound;
     }
 
-    @Override
-    public void executeJobPool(PlannerContext plannerContext) throws AnalysisException {
-        JobPool pool = plannerContext.getJobPool();
-        while (!pool.isEmpty()) {
-            Job job = pool.pop();
-            job.execute();
-        }
+    public PlannerContext getPlannerContext() {
+        return plannerContext;
+    }
+
+    public PhysicalProperties getRequiredProperties() {
+        return requiredProperties;
+    }
+
+    public double getCostUpperBound() {
+        return costUpperBound;
     }
 }

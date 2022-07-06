@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
@@ -139,8 +140,10 @@ public class AnalyzeSSBTest extends TestWithFeService {
     private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
         Memo memo = new Memo();
         memo.initialize(inputPlan);
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, connectContext, new PhysicalProperties());
+
+        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
 
         executeRewriteBottomUpJob(plannerContext, new BindFunction());
         executeRewriteBottomUpJob(plannerContext, new BindRelation());
@@ -150,11 +153,11 @@ public class AnalyzeSSBTest extends TestWithFeService {
     }
 
     private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory<Plan> ruleFactory) {
-        OptimizerContext optimizerContext = plannerContext.getOptimizerContext();
-        Group rootGroup = optimizerContext.getMemo().getRoot();
-        RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup, plannerContext, ImmutableList.of(ruleFactory));
-        optimizerContext.pushJob(job);
-        optimizerContext.getJobScheduler().executeJobPool(plannerContext);
+        Group rootGroup = plannerContext.getMemo().getRoot();
+        RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup,
+                plannerContext.getCurrentJobContext(), ImmutableList.of(ruleFactory));
+        plannerContext.pushJob(job);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
     }
 
     private boolean checkBound(LogicalPlan root) {
