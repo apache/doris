@@ -121,7 +121,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         PhysicalAggregate physicalAggregate = agg.getOperator();
 
         List<Slot> slotList = new ArrayList<>();
-        slotList.addAll(agg.getOutput());
         List<Expression> groupByExpressionList = physicalAggregate.getGroupByExprList();
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 // Since output of plan doesn't contain the slots of groupBy, which is actually needed by
@@ -129,6 +128,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 // TupleDesc.
                 .peek(x -> slotList.addAll(x.collect(SlotReference.class::isInstance)))
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
+        slotList.addAll(agg.getOutput());
         TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
 
         List<NamedExpression> outputExpressionList = physicalAggregate.getOutputExpressionList();

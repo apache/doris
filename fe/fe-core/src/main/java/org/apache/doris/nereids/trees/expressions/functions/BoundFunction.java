@@ -71,7 +71,7 @@ public abstract class BoundFunction extends Expression {
                 .stream()
                 .map(Expression::sql)
                 .collect(Collectors.joining(", "));
-        return name + "(" + args + ")#";
+        return name + "(" + args + ")";
     }
 
     @Override
