@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/mysql_result_writer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/large_int_value.h"
