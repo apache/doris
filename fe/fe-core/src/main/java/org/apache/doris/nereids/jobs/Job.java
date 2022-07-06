@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
@@ -33,19 +32,19 @@ import java.util.stream.Collectors;
  */
 public abstract class Job<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     protected JobType type;
-    protected PlannerContext context;
+    protected JobContext context;
 
-    public Job(JobType type, PlannerContext context) {
+    public Job(JobType type, JobContext context) {
         this.type = type;
         this.context = context;
     }
 
     public void pushTask(Job job) {
-        context.getOptimizerContext().pushJob(job);
+        context.getPlannerContext().pushJob(job);
     }
 
     public RuleSet getRuleSet() {
-        return context.getOptimizerContext().getRuleSet();
+        return context.getPlannerContext().getRuleSet();
     }
 
     /**
