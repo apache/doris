@@ -320,7 +320,7 @@ Status VEsHttpScanNode::scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
             }
             _block_queue.push_back(block);
 
-            // Notify reader to
+            // Notify reader to process
             _queue_reader_cond.notify_one();
         }
     }

@@ -257,7 +257,7 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
         // Queue size Must be smaller than _max_buffered_batches
         _block_queue.push_back(block);
 
-        // Notify reader to
+        // Notify reader to process
         _queue_reader_cond.notify_one();
     }
     return Status::OK();

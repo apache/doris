@@ -360,7 +360,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             // Queue size Must be smaller than _max_buffered_batches
             _batch_queue.push_back(row_batch);
 
-            // Notify reader to
+            // Notify reader to process
             _queue_reader_cond.notify_one();
         }
     }
