@@ -135,9 +135,14 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         List<NamedExpression> outputExpressionList = physicalAggregate.getOutputExpressionList();
 
         // 1. generate slot reference for each group expression
-        List<SlotReference> groupSlotList = groupByExpressionList.stream()
-                .map(e -> new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()))
-                .collect(Collectors.toList());
+        List<SlotReference> groupSlotList = Lists.newArrayList();
+        for (Expression e : groupByExpressionList) {
+            if (e instanceof SlotReference && outputExpressionList.contains(e)) {
+                groupSlotList.add((SlotReference) e);
+            } else {
+                groupSlotList.add(new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()))
+            }
+        }
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
         // 2. collect agg functions and generate agg function to slot reference map
