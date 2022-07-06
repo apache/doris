@@ -403,9 +403,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
-    // the follow code may cause double free in VExprContext,
-    // temporarily disable it to avoid it
-    // TODO: fix the bug
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -466,7 +463,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             break;
                         }
                         if (_vconjunct_ctx_ptr) {
-                            _stale_vexpr_ctxs.push_back(move(_vconjunct_ctx_ptr));
+                            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                         }
                         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
                         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
