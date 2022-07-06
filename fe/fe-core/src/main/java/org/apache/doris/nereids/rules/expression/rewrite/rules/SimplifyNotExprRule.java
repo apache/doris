@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 
 /**
  * Rewrite rule of NOT expression.
@@ -76,9 +78,9 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             NodeType type = cp.getType();
             switch (type) {
                 case AND:
-                    return new CompoundPredicate<>(NodeType.OR, left, right);
+                    return new Or<>(left, right);
                 case OR:
-                    return new CompoundPredicate<>(NodeType.AND, left, right);
+                    return new And<>(left, right);
                 default:
                     return expr;
             }

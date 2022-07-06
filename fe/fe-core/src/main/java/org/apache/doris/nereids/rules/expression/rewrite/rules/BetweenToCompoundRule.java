@@ -19,9 +19,8 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -40,6 +39,6 @@ public class BetweenToCompoundRule extends AbstractExpressionRewriteRule {
     public Expression visitBetween(Between expr, ExpressionRewriteContext context) {
         Expression left = new GreaterThanEqual<>(expr.getCompareExpr(), expr.getLowerBound());
         Expression right = new LessThanEqual<>(expr.getCompareExpr(), expr.getUpperBound());
-        return new CompoundPredicate<>(NodeType.AND, left, right);
+        return new And<>(left, right);
     }
 }
