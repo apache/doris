@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/result_sink.h"
+#include "vec/sink/vresult_sink.h"
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
@@ -23,7 +23,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/mysql_result_writer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 namespace vectorized {
