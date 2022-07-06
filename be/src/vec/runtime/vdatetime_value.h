@@ -200,9 +200,10 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     // load week_of_year table: from 1950-01-01 to 2029-12-30
-    // week_of_year_table
-#include "vec/runtime/week_of_year.data"
+    
+    // import week_table, week_of_year_table, year_week_table
 #include "vec/runtime/week.data"
+#include "vec/runtime/week_of_year.data"
 #include "vec/runtime/year_week.data"
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use diffrent creator to get data from value.
