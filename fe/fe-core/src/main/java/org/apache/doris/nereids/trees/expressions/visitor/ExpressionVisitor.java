@@ -34,14 +34,17 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -111,6 +114,18 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
         return visit(compoundPredicate, context);
+    }
+
+    public R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
+        return visit(stringRegexPredicate, context);
+    }
+
+    public R visitLike(Like like, C context) {
+        return visitStringRegexPredicate(like, context);
+    }
+
+    public R visitRegexp(Regexp regexp, C context) {
+        return visitStringRegexPredicate(regexp, context);
     }
 
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
