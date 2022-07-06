@@ -35,10 +35,13 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -215,6 +218,11 @@ public class PushDownPredicateTest implements Plans {
         Expression whereCondition2 = new EqualTo<>(rScore.getOutput().get(1), rCourse.getOutput().get(0));
         // student.age between 18 and 20
         Expression whereCondition3 = new Between<>(rStudent.getOutput().get(2), Literal.of(18), Literal.of(20));
+        // student.age >= 18 and student.age <= 20
+        Expression whereCondition3result = new And<>(
+                new GreaterThanEqual<>(rStudent.getOutput().get(2), Literal.of(18)),
+                new LessThanEqual<>(rStudent.getOutput().get(2), Literal.of(20)));
+
         // score.grade > 60
         Expression whereCondition4 = new GreaterThan<>(rScore.getOutput().get(2), Literal.of(60));
 
@@ -256,7 +264,7 @@ public class PushDownPredicateTest implements Plans {
 
         Assertions.assertEquals(((LogicalJoin) join2).getCondition().get(), whereCondition2);
         Assertions.assertEquals(((LogicalJoin) join3).getCondition().get(), whereCondition1);
-        Assertions.assertEquals(((LogicalFilter) op1).getPredicates(), whereCondition3);
+        Assertions.assertEquals(((LogicalFilter) op1).getPredicates().sql(), whereCondition3result.sql());
         Assertions.assertEquals(((LogicalFilter) op2).getPredicates(), whereCondition4);
     }
 }
