@@ -58,9 +58,8 @@ Status VOlapTableSink::open(RuntimeState* state) {
 
 size_t VOlapTableSink::get_pending_bytes() const {
     size_t mem_consumption = 0;
-    for (auto& indexChannel : _channels){
+    for (auto& indexChannel : _channels) {
         mem_consumption += indexChannel->get_pending_bytes();
-        
     }
     return mem_consumption;
 }
@@ -116,20 +115,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
-    
-    //if pending bytes is more than table_sink_pending_bytes_limitation, wait at most 1 min
-    size_t MAX_PENDING_BYTES = config::table_sink_pending_bytes_limitation;
-    constexpr int max_retry = 120;
-    int retry = 0;
-    while (get_pending_bytes() > MAX_PENDING_BYTES && retry++ < max_retry) {
-        std::this_thread::sleep_for(std::chrono::microseconds(500));
-    }
-    if (get_pending_bytes() > MAX_PENDING_BYTES) {
-        std::stringstream str;
-        str << "Load task " << _load_id
-            << ": pending bytes exceed limit (config::table_sink_pending_bytes_limitation):"
-            << MAX_PENDING_BYTES;
-        return Status::MemoryLimitExceeded(str.str());
+
+    size_t MAX_PENDING_BYTES = _load_mem_limit / 3;
+    while (get_pending_bytes() > MAX_PENDING_BYTES) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        if (state->is_cancelled()) break;
     }
 
     for (int i = 0; i < num_rows; ++i) {
@@ -140,7 +130,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         uint32_t tablet_index = 0;
         block_row = {&block, i};
         if (!_vpartition->find_partition(&block_row, &partition)) {
-            RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
+            RETURN_IF_ERROR(state->append_error_msg_to_file(
+                    []() -> std::string { return ""; },
                     [&]() -> std::string {
                         fmt::memory_buffer buf;
                         fmt::format_to(buf, "no partition for this tuple. tuple=[]");

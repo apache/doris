@@ -720,10 +720,6 @@ CONF_Int32(quick_compaction_max_rows, "1000");
 CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
-
-//memory limitation for batches in pending queue, default 500M
-CONF_Int64(table_sink_pending_bytes_limitation, "524288000");
-
 } // namespace config
 
 } // namespace doris
