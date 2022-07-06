@@ -166,7 +166,8 @@ public class EsScanNode extends ScanNode {
         properties.put(EsTable.ES_DSL, queryBuilder.toJson());
 
         // Be use it add es host_port and shardId to query.
-        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isDocValueScanEnable(), ConnectContext.get().getSessionVariable().batchSize,  msg.limit);
+        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isDocValueScanEnable(),
+                ConnectContext.get().getSessionVariable().batchSize, msg.limit);
         if (esUrls.getSearchUrl() != null) {
             properties.put(EsTable.SEARCH_URL, esUrls.getSearchUrl());
         } else {
