@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.operators.plans.JoinType;
@@ -110,7 +111,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visit(Plan plan, PlanTranslatorContext context) {
         PhysicalOperator operator = (PhysicalOperator) plan.getOperator();
-        return operator.accept(this, plan, context);
+        PlanFragment rootFragment = operator.accept(this, plan, context);
+        if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
+            rootFragment = createMergeFragment(rootFragment, context);
+            context.addPlanFragment(rootFragment);
+        }
     }
 
     /**
@@ -417,6 +422,23 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         exchangeNode.setFragment(parentFragment);
         node.setChild(childIdx, exchangeNode);
         childFragment.setDestination(exchangeNode);
+    }
+
+    /**
+     * Return unpartitioned fragment that merges the input fragment's output via
+     * an ExchangeNode.
+     * Requires that input fragment be partitioned.
+     */
+    private PlanFragment createMergeFragment(PlanFragment inputFragment, PlanTranslatorContext context) {
+        Preconditions.checkState(inputFragment.isPartitioned());
+
+        // exchange node clones the behavior of its input, aside from the conjuncts
+        ExchangeNode mergePlan =
+                new ExchangeNode(context.nextPlanNodeId(), inputFragment.getPlanRoot(), false);
+        mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
+        PlanFragment fragment = new PlanFragment(context.nextFragmentId(), mergePlan, DataPartition.UNPARTITIONED);
+        inputFragment.setDestination(mergePlan);
+        return fragment;
     }
 
     /**
