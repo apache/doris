@@ -128,6 +128,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
             nextBe = nextBe % backends.size();
             return selectedBackend;
         }
+
+        public int numBackends() {
+            return backends.size();
+        }
     }
 
     private final BackendPolicy backendPolicy = new BackendPolicy();
@@ -177,6 +181,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     hmsTable.getDlaType(), hmsTable.getDbName(), hmsTable.getName()));
         }
         backendPolicy.init();
+        numNodes = backendPolicy.numBackends();
         initContext();
     }
 
@@ -242,10 +247,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         scanRangeLocations = Lists.newArrayList();
         InputSplit[] inputSplits = scanProvider.getSplits(conjuncts);
         if (0 == inputSplits.length) {
-            numNodes = 1;
             return;
         }
-        numNodes = Catalog.getCurrentSystemInfo().getBackendIds(true).size();
 
         String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
