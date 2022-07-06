@@ -96,8 +96,8 @@ void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto& data_column =
-            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+    auto ptr = column.convert_to_full_column_if_const();
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
     auto& offsets = data_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
@@ -115,8 +115,8 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
 }
 
 std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) const {
-    auto& data_column =
-            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+    auto ptr = column.convert_to_full_column_if_const();
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
     auto& offsets = data_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
