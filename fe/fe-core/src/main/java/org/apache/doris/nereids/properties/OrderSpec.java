@@ -19,52 +19,47 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalDistribution;
-import org.apache.doris.planner.DataPartition;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
 
 import com.google.common.collect.Lists;
 
+import java.util.List;
+
 /**
- * Spec of data distribution.
+ * Spec of sort order.
  */
-public class DistributionSpec {
+public class OrderSpec {
+    private final List<OrderKey> orderKeys;
 
-    private DataPartition dataPartition;
-
-    // TODO: why exist?
-    public DistributionSpec() {
-    }
-
-    public DistributionSpec(DataPartition dataPartition) {
-        this.dataPartition = dataPartition;
+    public OrderSpec(List<OrderKey> orderKeys) {
+        this.orderKeys = orderKeys;
     }
 
     /**
-     * TODO: need read ORCA.
-     * Whether other `DistributionSpec` is satisfied the current `DistributionSpec`.
+     * Whether other `OrderSpec` is satisfied the current `OrderSpec`.
      *
-     * @param other another DistributionSpec.
+     * @param other another OrderSpec.
      */
-    public boolean meet(DistributionSpec other) {
-        return false;
-    }
-
-    public DataPartition getDataPartition() {
-        return dataPartition;
-    }
-
-    public void setDataPartition(DataPartition dataPartition) {
-        this.dataPartition = dataPartition;
+    public boolean meet(OrderSpec other) {
+        if (this.orderKeys.size() < other.getOrderKeys().size()) {
+            return false;
+        }
+        for (int i = 0; i < other.getOrderKeys().size(); ++i) {
+            if (!this.orderKeys.get(i).matches(other.getOrderKeys().get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public GroupExpression addEnforcer(Group child) {
-        return new GroupExpression(new PhysicalDistribution(new DistributionSpec(dataPartition)),
-                Lists.newArrayList(child));
+        return new GroupExpression(
+                new PhysicalHeapSort(orderKeys, -1, 0),
+                Lists.newArrayList(child)
+        );
     }
 
-    // TODO
-    @Override
-    public boolean equals(Object obj) {
-        return super.equals(obj);
+    public List<OrderKey> getOrderKeys() {
+        return orderKeys;
     }
 }

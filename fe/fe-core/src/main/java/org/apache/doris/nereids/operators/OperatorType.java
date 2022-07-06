@@ -23,9 +23,9 @@ package org.apache.doris.nereids.operators;
  * 1. ANY: match any operator
  * 2. MULTI: match multiple operators
  * 3. FIXED: the leaf node of pattern tree, which can be matched by a single operator
- *         but this operator cannot be used in rules
+ * but this operator cannot be used in rules
  * 4. MULTI_FIXED: the leaf node of pattern tree, which can be matched by multiple operators,
- *        but these operators cannot be used in rules
+ * but these operators cannot be used in rules
  */
 public enum OperatorType {
     UNKNOWN,
@@ -48,5 +48,6 @@ public enum OperatorType {
     PHYSICAL_AGGREGATION,
     PHYSICAL_SORT,
     PHYSICAL_HASH_JOIN,
-    PHYSICAL_EXCHANGE;
+    PHYSICAL_EXCHANGE,
+    PHYSICAL_DISTRIBUTION;
 }

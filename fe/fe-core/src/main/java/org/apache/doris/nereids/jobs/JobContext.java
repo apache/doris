@@ -26,7 +26,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 public class JobContext {
     private final PlannerContext plannerContext;
     private final PhysicalProperties requiredProperties;
-    private final double costUpperBound;
+    private double costUpperBound;
 
     public JobContext(PlannerContext plannerContext, PhysicalProperties requiredProperties, double costUpperBound) {
         this.plannerContext = plannerContext;
@@ -44,5 +44,9 @@ public class JobContext {
 
     public double getCostUpperBound() {
         return costUpperBound;
+    }
+
+    public void setCostUpperBound(double costUpperBound) {
+        this.costUpperBound = costUpperBound;
     }
 }
