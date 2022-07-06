@@ -103,19 +103,24 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         }
     }
 
-    public void translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
-        visit(physicalPlan, context);
+    public PlanFragment translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
+        PlanFragment rootFragment = visit(physicalPlan, context);
+        if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
+            rootFragment = createMergeFragment(rootFragment, context);
+            context.addPlanFragment(rootFragment);
+        }
+        List<Expr> outputExprs = Lists.newArrayList();
+        physicalPlan.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        rootFragment.setOutputExprs(outputExprs);
+        rootFragment.getPlanRoot().convertToVectoriezd();
+        return rootFragment;
     }
 
     @Override
     public PlanFragment visit(Plan plan, PlanTranslatorContext context) {
         PhysicalOperator operator = (PhysicalOperator) plan.getOperator();
-        PlanFragment rootFragment = operator.accept(this, plan, context);
-        if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
-            rootFragment = createMergeFragment(rootFragment, context);
-            context.addPlanFragment(rootFragment);
-        }
-        return rootFragment;
+        return operator.accept(this, plan, context);
     }
 
     /**
