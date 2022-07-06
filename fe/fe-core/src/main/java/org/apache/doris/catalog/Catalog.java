@@ -2470,6 +2470,7 @@ public class Catalog {
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
                 bdbha.addHelperSocket(host, editLogPort);
                 helperNodes.add(Pair.create(host, editLogPort));
+                bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
             }
             bdbha.removeConflictNodeIfExist(host, editLogPort);
             editLog.logAddFrontend(fe);
@@ -2499,6 +2500,8 @@ public class Catalog {
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
                 helperNodes.remove(Pair.create(host, port));
+                BDBHA ha = (BDBHA) haProtocol;
+                ha.removeUnReadyElectableNode(nodeName, getFollowerCount());
             }
             editLog.logRemoveFrontend(fe);
         } finally {
@@ -4930,5 +4933,15 @@ public class Catalog {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
         }
+    }
+
+    public int getFollowerCount() {
+        int count = 0;
+        for (Frontend fe : frontends.values()) {
+            if (fe.getRole() == FrontendNodeType.FOLLOWER) {
+                count++;
+            }
+        }
+        return count;
     }
 }

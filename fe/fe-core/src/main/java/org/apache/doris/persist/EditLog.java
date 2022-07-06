@@ -466,7 +466,7 @@ public class EditLog {
                     int version = Integer.parseInt(versionString);
                     if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                        + "please update FeConstants.meta_version and restart.",
+                                + "please update FeConstants.meta_version and restart.",
                                 MetaContext.get().getMetaVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
@@ -546,8 +546,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
-                    final BatchRemoveTransactionsOperation operation
-                            = (BatchRemoveTransactionsOperation) journal.getData();
+                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal
+                            .getData();
                     Catalog.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
@@ -647,8 +647,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_LOAD_JOB: {
-                    org.apache.doris.load.loadv2.LoadJob loadJob =
-                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
+                    org.apache.doris.load.loadv2.LoadJob loadJob = (org.apache.doris.load.loadv2.LoadJob) journal
+                            .getData();
                     catalog.getLoadManager().replayCreateLoadJob(loadJob);
                     break;
                 }
@@ -742,8 +742,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
-                    ReplacePartitionOperationLog replaceTempPartitionLog
-                            = (ReplacePartitionOperationLog) journal.getData();
+                    ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal
+                            .getData();
                     catalog.replayReplaceTempPartition(replaceTempPartitionLog);
                     break;
                 }
@@ -858,13 +858,19 @@ public class EditLog {
              * for a table that no longer exists.
              * 1. Thread 1: get TableA object
              * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
-             * 3. Thread 1: lock table, modify table and record edit log of the modified TableA
+             * 3. Thread 1: lock table, modify table and record edit log of the modified
+             * TableA
              * **The modified edit log is after the dropped edit log**
-             * Because the table has been dropped, the olapTable in here is null when the modified edit log is replayed.
-             * So in this case, we will ignore the edit log of the modified table after the table is dropped.
-             * This could make the meta inconsistent, for example, an edit log on a dropped table is ignored, but
-             * this table is restored later, so there may be an inconsistent situation between master and followers. We
-             * log a warning here to debug when happens. This could happen to other meta like DB.
+             * Because the table has been dropped, the olapTable in here is null when the
+             * modified edit log is replayed.
+             * So in this case, we will ignore the edit log of the modified table after the
+             * table is dropped.
+             * This could make the meta inconsistent, for example, an edit log on a dropped
+             * table is ignored, but
+             * this table is restored later, so there may be an inconsistent situation
+             * between master and followers. We
+             * log a warning here to debug when happens. This could happen to other meta
+             * like DB.
              */
             LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
         } catch (Exception e) {
@@ -911,7 +917,8 @@ public class EditLog {
         try {
             journal.write(op, writable);
         } catch (Throwable t) {
-            // Throwable contains all Exception and Error, such as IOException and OutOfMemoryError
+            // Throwable contains all Exception and Error, such as IOException and
+            // OutOfMemoryError
             LOG.error("Fatal Error : write stream Exception", t);
             System.exit(-1);
         }
@@ -1460,5 +1467,9 @@ public class EditLog {
 
     public void logDatasourceLog(short id, CatalogLog log) {
         logEdit(id, log);
+    }
+
+    public Journal getJournal() {
+        return this.journal;
     }
 }
