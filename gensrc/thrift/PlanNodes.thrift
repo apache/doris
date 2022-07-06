@@ -465,6 +465,8 @@ struct TAggregationNode {
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
   7: optional bool is_update_stage
+
+  8: required list<bool> aggregate_function_changed_flags
 }
 
 struct TRepeatNode {

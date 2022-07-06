@@ -275,7 +275,8 @@ public class AggregationNode extends PlanNode {
           new TAggregationNode(
                   aggregateFunctions,
                   aggInfo.getIntermediateTupleId().asInt(),
-                  aggInfo.getOutputTupleId().asInt(), needsFinalize);
+                  aggInfo.getOutputTupleId().asInt(), needsFinalize,
+                  aggInfo.getMaterializedAggregateExprChangedFlags());
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         msg.agg_node.setIsUpdateStage(!aggInfo.isMerge());
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
