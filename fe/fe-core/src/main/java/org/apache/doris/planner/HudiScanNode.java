@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.StorageBackend;
@@ -50,9 +49,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
-import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputFormat;
@@ -65,7 +62,6 @@ import org.mortbay.log.Log;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -77,8 +73,7 @@ public class HudiScanNode extends BrokerScanNode {
     private static final Logger LOG = LogManager.getLogger(HudiScanNode.class);
 
     private HudiTable hudiTable;
-    // partition column predicates of hive table
-    private List<ExprNodeDesc> hivePredicates = new ArrayList<>();
+
     private ExprNodeGenericFuncDesc hivePartitionPredicate;
     private List<ImportColumnDesc> parsedColumnExprList = new ArrayList<>();
     private String hdfsUri;
@@ -164,9 +159,6 @@ public class HudiScanNode extends BrokerScanNode {
      */
     @Override
     protected void getFileStatus() throws DdlException {
-        if (partitionKeys.size() > 0) {
-            extractHivePartitionPredicate();
-        }
         // set fileStatusesList as empty, we do not need fileStatusesList
         fileStatusesList = Lists.newArrayList();
         filesAdded = 0;
@@ -229,41 +221,11 @@ public class HudiScanNode extends BrokerScanNode {
         context.slotDescByName = slotDescByName;
     }
 
-
-    /**
-     * Extracts partition predicate from SelectStmt.whereClause that can be pushed down to Hive.
-     */
-    private void extractHivePartitionPredicate() throws DdlException {
-        ListIterator<Expr> it = conjuncts.listIterator();
-        while (it.hasNext()) {
-            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    it.next(), partitionKeys, hudiTable.getName());
-            if (hiveExpr != null) {
-                hivePredicates.add(hiveExpr);
-            }
-        }
-        int count = hivePredicates.size();
-        // combine all predicate by `and`
-        // compoundExprs must have at least 2 predicates
-        if (count >= 2) {
-            hivePartitionPredicate = HiveMetaStoreClientHelper.getCompoundExpr(hivePredicates, "and");
-        } else if (count == 1) {
-            // only one predicate
-            hivePartitionPredicate = (ExprNodeGenericFuncDesc) hivePredicates.get(0);
-        } else {
-            // have no predicate, make a dummy predicate "1=1" to get all partitions
-            HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
-                    new HiveMetaStoreClientHelper.ExprBuilder(hudiTable.getName());
-            hivePartitionPredicate = exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
-                    .val(TypeInfoFactory.intTypeInfo, 1)
-                    .pred("=", 2).build();
-        }
-    }
-
     private InputSplit[] getSplits() throws UserException, IOException {
         String splitsPath = basePath;
         if (partitionKeys.size() > 0) {
-            extractHivePartitionPredicate();
+            hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    conjuncts, partitionKeys, hudiTable.getName());
 
             String metaStoreUris = hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
             List<Partition> hivePartitions =
