@@ -660,11 +660,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             // Step1: check pred using short eval or vec eval
             if (_can_evaluated_by_vectorized(predicate)) {
                 vec_pred_col_id_set.insert(predicate->column_id());
-                if (_pre_eval_block_predicate == nullptr) {
-                    _pre_eval_block_predicate.reset(new AndBlockColumnPredicate());
-                }
-                _pre_eval_block_predicate->add_column_predicate(
-                        new SingleColumnBlockPredicate(predicate));
+                _pre_eval_block_predicate.push_back(predicate);
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
@@ -879,7 +875,14 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t original_size = selected_size;
     bool ret_flags[selected_size];
-    _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
+    DCHECK(_pre_eval_block_predicate.size() > 0);
+
+    auto& column = _get_column_for_vec_predicate(0); 
+    _pre_eval_block_predicate[0]->evaluate_vec(*column, selected_size, ret_flags);
+    for( int i=1; i<_pre_eval_block_predicate.size(); i++){
+        auto& column2 = _get_column_for_vec_predicate(i);
+        _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, selected_size, ret_flags);
+    }
 
     uint16_t new_size = 0;
 

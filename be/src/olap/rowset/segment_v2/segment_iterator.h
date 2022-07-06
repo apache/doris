@@ -121,6 +121,19 @@ private:
 
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
+    vectorized::MutableColumnPtr& _get_column_for_vec_predicate(int vec_pred_id) {
+        auto predicate = _pre_eval_block_predicate[vec_pred_id];
+        auto column_id = predicate->column_id();
+        auto& column = _current_return_columns[column_id];
+        // Dictionary column should do something to initial.
+        if (PredicateTypeTraits::is_range(predicate->type())) {
+            column->convert_dict_codes_if_necessary();
+        } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+            column->generate_hash_values_for_runtime_filter();
+        }
+        return column;
+    }
+
 private:
     class BitmapRangeIterator;
 
@@ -158,7 +171,7 @@ private:
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
     std::vector<bool> _is_pred_column; // columns hold by segmentIter
     vectorized::MutableColumns _current_return_columns;
-    std::unique_ptr<AndBlockColumnPredicate> _pre_eval_block_predicate;
+    std::vector<ColumnPredicate*> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
     // when lazy materialization is enable, segmentIter need to read data at least twice
     // first, read predicate columns by various index

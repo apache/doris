@@ -92,7 +92,10 @@ public:
     virtual void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
-
+    virtual void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
+                                  bool* flags) const {
+        DCHECK(false) << "should not reach here";
+    }
     uint32_t column_id() const { return _column_id; }
 
 protected:
