@@ -67,13 +67,11 @@ import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -146,28 +144,31 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
         // 2. collect agg functions and generate agg function to slot reference map
-        Map<AggregateFunction, SlotReference> aggFunctionSMap = Maps.newHashMap();
+        List<Slot> aggFunctionOutput = Lists.newArrayList();
         List<AggregateFunction> aggregateFunctionList = outputExpressionList.stream()
+                .filter(o -> o.contains(AggregateFunction.class::isInstance))
+                .peek(o -> aggFunctionOutput.add(o.toSlot()))
                 .map(o -> (List<AggregateFunction>) o.collect(AggregateFunction.class::isInstance))
                 .flatMap(List::stream)
-                .peek(a -> aggFunctionSMap.put(a, new SlotReference(a.sql(), a.getDataType(),
-                        a.nullable(), Collections.emptyList())))
                 .collect(Collectors.toList());
         ArrayList<FunctionCallExpr> execAggExpressions = aggregateFunctionList.stream()
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
+        // TODO: currently, we only support sum(a), if we want to support sum(a) + 1, we need to
+        //  split merge agg to project(agg) and generate tuple like what firt phase agg do.
+
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
         if (agg.getOperator().getAggPhase() == AggPhase.FIRST_MERGE) {
             slotList.addAll(groupSlotList);
-            slotList.addAll(aggFunctionSMap.values());
+            slotList.addAll(aggFunctionOutput);
             outputTupleDesc = generateTupleDesc(slotList, context, null);
         } else {
             outputTupleDesc = generateTupleDesc(agg.getOutput(), context, null);
         }
 
-        // TODO: 3. generate a project node
+
 
         // process partition list
         List<Expression> partitionExpressionList = physicalAggregate.getPartitionExprList();
