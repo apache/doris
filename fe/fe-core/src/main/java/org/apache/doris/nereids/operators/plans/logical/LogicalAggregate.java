@@ -59,7 +59,7 @@ public class LogicalAggregate extends LogicalUnaryOperator {
         this.groupByExpressionList = groupByExpressionList;
         this.outputExpressionList = outputExpressionList;
         this.disassembled = false;
-        this.aggPhase = AggPhase.FIRST;
+        this.aggPhase = AggPhase.FIRST_MERGE;
     }
 
     public LogicalAggregate(List<Expression> groupByExpressionList,

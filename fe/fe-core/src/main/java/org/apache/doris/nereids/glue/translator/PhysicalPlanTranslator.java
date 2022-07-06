@@ -135,8 +135,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlotList = Lists.newArrayList();
         for (Expression e : groupByExpressionList) {
-            if (e instanceof SlotReference && outputExpressionList.stream()
-                    .anyMatch(o -> o.getExprId().equals(((SlotReference) e).getExprId()))) {
+            if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.contains(e::equals))) {
                 groupSlotList.add((SlotReference) e);
             } else {
                 groupSlotList.add(new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()));
@@ -157,8 +156,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .collect(Collectors.toCollection(ArrayList::new));
 
         // TODO: currently, we only support sum(a), if we want to support sum(a) + 1, we need to
-        //  split merge agg to project(agg) and generate tuple like what firt phase agg do.
-
+        //  split merge agg to project(agg) and generate tuple like what first phase agg do.
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
         if (agg.getOperator().getAggPhase() == AggPhase.FIRST_MERGE) {
@@ -168,8 +166,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         } else {
             outputTupleDesc = generateTupleDesc(agg.getOutput(), context, null);
         }
-
-
 
         // process partition list
         List<Expression> partitionExpressionList = physicalAggregate.getPartitionExprList();
@@ -183,7 +179,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             case FIRST:
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST);
-                aggregationNode = new AggregationNode(context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
+                aggregationNode = new AggregationNode(context.nextPlanNodeId(),
+                        inputPlanFragment.getPlanRoot(), aggInfo);
                 aggregationNode.unsetNeedsFinalize();
                 aggregationNode.setUseStreamingPreagg(physicalAggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
@@ -197,7 +194,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 }
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST_MERGE);
-                aggregationNode = new AggregationNode(context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
+                aggregationNode = new AggregationNode(context.nextPlanNodeId(),
+                        inputPlanFragment.getPlanRoot(), aggInfo);
                 break;
             default:
                 throw new RuntimeException("Unsupported yet");

@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
  * Used to generate the merge agg node for distributed execution.
  * If we have a query: SELECT SUM(v) + 1 FROM t GROUP BY k + 1
  * the initial plan is:
- *   Aggregate(phase: [FIRST], outputExpr: SUM(v1 * v2) + 1, groupByExpr: k + 1)
+ *   Aggregate(phase: [FIRST_MERGE], outputExpr: SUM(v1 * v2) + 1, groupByExpr: k + 1)
  *   +-- childPlan
  * we should rewrite to:
  *   Aggregate(phase: [FIRST_MERGE], outputExpr: [SUM(a) + 1], groupByExpr: [b])
@@ -77,14 +77,17 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 });
             }
 
-            List<NamedExpression> updateGroupByAliasList = groupByExpressionList.stream()
+            List<Expression> updateGroupByExpressionList = groupByExpressionList;
+            List<NamedExpression> updateGroupByAliasList = updateGroupByExpressionList.stream()
                     .map(g -> new Alias<>(g, g.sql()))
                     .collect(Collectors.toList());
 
             List<NamedExpression> updateOutputExpressionList = Lists.newArrayList();
             updateOutputExpressionList.addAll(updateGroupByAliasList);
             updateOutputExpressionList.addAll(aggregateFunctionAliasMap.values());
-            List<Expression> updateGroupByExpressionList = groupByExpressionList;
+
+            List<Expression> mergeGroupByExpressionList = updateGroupByAliasList.stream()
+                    .map(NamedExpression::toSlot).collect(Collectors.toList());
 
             List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
             for (NamedExpression o : outputExpressionList) {
@@ -94,13 +97,18 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 } else {
                     for (int i = 0; i < updateGroupByAliasList.size(); i++) {
                         // TODO: we need to do sub tree match and replace. but we do not have semanticEquals now.
+                        //    e.g. a + 1 + 2 in output expression should be replaced by
+                        //    (slot reference to update phase out (a + 1)) + 2, if we do group by a + 1
+                        //   currently, we could only handle output expression same with group by expression
                         if (o instanceof SlotReference) {
-                            if (o.equals(groupByExpressionList.get(i))) {
-                                mergeOutputExpressionList.add(updateGroupByAliasList.get(i));
+                            // a in output expression will be SLotReference
+                            if (o.equals(updateGroupByExpressionList.get(i))) {
+                                mergeOutputExpressionList.add(updateGroupByAliasList.get(i).toSlot());
                                 break;
                             }
                         } else if (o instanceof Alias) {
-                            if (o.child(0).equals(groupByExpressionList.get(i))) {
+                            // a + 1 in output expression will be Alias
+                            if (o.child(0).equals(updateGroupByExpressionList.get(i))) {
                                 mergeOutputExpressionList.add(updateGroupByAliasList.get(i).toSlot());
                                 break;
                             }
@@ -108,8 +116,6 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     }
                 }
             }
-            List<Expression> mergeGroupByExpressionList = updateGroupByAliasList.stream()
-                    .map(NamedExpression::toSlot).collect(Collectors.toList());
 
             LogicalAggregate localAgg = new LogicalAggregate(
                     updateGroupByExpressionList,
