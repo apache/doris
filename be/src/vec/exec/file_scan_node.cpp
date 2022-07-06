@@ -97,13 +97,12 @@ Status FileScanNode::start_scanners() {
     {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
         _num_running_scanners = _scan_ranges.size();
-        std::cout << "_num_running_scanners: " << _num_running_scanners << std::endl;
     }
 
     _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
-        _scanner_threads.emplace_back(&FileScanNode::scanner_worker, this, i,
-                                      _scan_ranges.size(), std::ref(_scanners_status[i]));
+        _scanner_threads.emplace_back(&FileScanNode::scanner_worker, this, i, _scan_ranges.size(),
+                                      std::ref(_scanners_status[i]));
     }
     return Status::OK();
 }
@@ -282,7 +281,7 @@ void FileScanNode::scanner_worker(int start_idx, int length, std::promise<Status
     status = scanner_scan(scan_range, &counter);
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx
-                        << "] process failed. status=" << status.get_error_msg();
+                     << "] process failed. status=" << status.get_error_msg();
     }
 
     // Update stats
