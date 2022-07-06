@@ -136,7 +136,13 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 if (data->is_null_at(j)) {
                     buf_ret = _buffer.push_string("NULL", strlen("NULL"));
                 } else {
-                    buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                    if (WhichDataType(remove_nullable(nested_type_ptr)).is_string()) {
+                        buf_ret = _buffer.push_string("'", 1);
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                        buf_ret = _buffer.push_string("'", 1);
+                    } else {
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                    }
                 }
                 begin = false;
             }
