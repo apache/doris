@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
@@ -150,10 +151,16 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         ArrayList<FunctionCallExpr> execAggExpressions = aggregateFunctionList.stream()
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
+
         List<Slot> slotList = Lists.newArrayList();
-        slotList.addAll(groupSlotList);
-        slotList.addAll(aggFunctionSMap.values());
-        TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
+        TupleDescriptor outputTupleDesc;
+        if (agg.getOperator().getAggPhase() == AggPhase.FIRST_MERGE) {
+            slotList.addAll(groupSlotList);
+            slotList.addAll(aggFunctionSMap.values());
+            outputTupleDesc = generateTupleDesc(slotList, context, null);
+        } else {
+            outputTupleDesc = generateTupleDesc(agg.getOutput(), context, null);
+        }
 
         // TODO: 3. generate a project node
 
