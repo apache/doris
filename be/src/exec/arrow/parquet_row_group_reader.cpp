@@ -57,28 +57,22 @@
         return true;                                  \
     }
 
-#define _FILTER_GROUP_BY_IN(T, in_pred_values, min_bytes, max_bytes)            \
-    std::vector<T> in_values;                                                   \
-    for (auto val : in_pred_values) {                                           \
-        T value = reinterpret_cast<T*>(val)[0];                                 \
-        in_values.emplace_back(value);                                          \
-    }                                                                           \
-    if (in_values.empty()) {                                                    \
-        return false;                                                           \
-    }                                                                           \
-    if (in_values.size() >= 2) {                                                \
-        std::sort(in_values.begin(), in_values.end());                          \
-        T in_min = in_values.front();                                           \
-        T in_max = in_values.back();                                            \
-        const T conj_min = reinterpret_cast<const T*>(min_bytes)[0];            \
-        const T conj_max = reinterpret_cast<const T*>(max_bytes)[0];            \
-        if (in_max < conj_min || in_min > conj_max) {                           \
-            return true;                                                        \
-        }                                                                       \
-    } else {                                                                    \
-        T* value = &in_values[0];                                               \
-        _PLAIN_DECODE(T, value, min_bytes, max_bytes, conjunct_value, min, max) \
-        _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)                      \
+#define _FILTER_GROUP_BY_IN(T, in_pred_values, min_bytes, max_bytes) \
+    std::vector<T> in_values;                                        \
+    for (auto val : in_pred_values) {                                \
+        T value = reinterpret_cast<T*>(val)[0];                      \
+        in_values.emplace_back(value);                               \
+    }                                                                \
+    if (in_values.empty()) {                                         \
+        return false;                                                \
+    }                                                                \
+    std::sort(in_values.begin(), in_values.end());                   \
+    T in_min = in_values.front();                                    \
+    T in_max = in_values.back();                                     \
+    const T group_min = reinterpret_cast<const T*>(min_bytes)[0];    \
+    const T group_max = reinterpret_cast<const T*>(max_bytes)[0];    \
+    if (in_max < group_min || in_min > group_max) {                  \
+        return true;                                                 \
     }
 
 namespace doris {
@@ -207,7 +201,6 @@ bool RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;
     for (int i = 0; i < conjuncts.size(); i++) {
-        // todo: duan lu
         Expr* conjunct = conjuncts[i]->root();
         if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
             _eval_binary_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
@@ -269,7 +262,8 @@ void RowGroupReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes,
     switch (conjunct->op()) {
     case TExprOpcode::FILTER_IN:
         need_filter = _eval_in_val(conjunct_type, in_pred_values, min_bytes, max_bytes);
-        //            case TExprOpcode::FILTER_NOT_IN:
+        break;
+    //  case TExprOpcode::FILTER_NOT_IN:
     default:
         need_filter = false;
     }
@@ -307,18 +301,11 @@ bool RowGroupReader::_eval_in_val(PrimitiveType conjunct_type, std::vector<void*
         if (in_values.empty()) {
             return false;
         }
-        if (in_values.size() >= 2) {
-            std::sort(in_values.begin(), in_values.end());
-            const char* in_min = in_values.front();
-            const char* in_max = in_values.back();
-            if (strcmp(in_max, min_bytes) < 0 || strcmp(in_min, max_bytes) > 0) {
-                return true;
-            }
-        } else {
-            const char* value = in_values[0];
-            if (strcmp(value, min_bytes) < 0 || strcmp(value, max_bytes) > 0) {
-                return true;
-            }
+        std::sort(in_values.begin(), in_values.end());
+        const char* in_min = in_values.front();
+        const char* in_max = in_values.back();
+        if (strcmp(in_max, min_bytes) < 0 || strcmp(in_min, max_bytes) > 0) {
+            return true;
         }
         break;
     }
