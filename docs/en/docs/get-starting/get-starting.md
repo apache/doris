@@ -40,6 +40,9 @@ under the License.
 
 **Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process.**
 
+
+**This tutorial is a mixed distribution tutorial of single node, 1FE and 1BE, only one node is needed, which is convenient for quickly experiencing Doris.**
+
 1. Set the maximum number of open file handles in the system
 
    ```shell
@@ -82,7 +85,9 @@ under the License.
    # Configure FE-Config
    vi fe/conf/fe.conf
    # Uncomment priority_networks and modify parameters
-   priority_networks = 127.0.0.0/24
+   # For example, if the IP address of the current node is 10.10.2.21, you need to change it to 10.10.2.0/24 and fill in
+   # What needs to be filled in here is the IP subnet address, not the IP address
+   priority_networks = 10.10.2.0/24
    # save and exit
    ```
 
@@ -92,7 +97,9 @@ under the License.
    # Configure BE-Config
    vi be/conf/be.conf
    # Uncomment priority_networks and modify parameters
-   priority_networks = 127.0.0.0/24
+   # For example, if the IP address of the current node is 10.10.2.21, you need to change it to 10.10.2.0/24 and fill in
+   # What needs to be filled in here is the IP subnet address, not the IP address
+   priority_networks = 10.10.2.0/24
    # save and exit
    ```
 
@@ -137,10 +144,10 @@ under the License.
    Register BE to FE (using MySQL-Client, you need to install it yourself)
 
    ```shell
-   # login
-   mysql -h 127.0.0.1 -P 9030 -uroot
+   # login，Since it is a single node mixed distribution, FE_IP and BE_IP are the same IP address
+   mysql -h FE_IP -P 9030 -uroot
    # Register BE
-   ALTER SYSTEM ADD BACKEND "127.0.0.1:9050";
+   ALTER SYSTEM ADD BACKEND "BE_IP:9050";
    ```
 
 ## Apache Doris is easy to use
