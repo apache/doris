@@ -478,7 +478,7 @@ public class DistributedPlanner {
             return null;
         }
         ScanNode scanNode = planFragment.getPlanRoot()
-                .getScanNodeInOneFragmentByTupleId(slotRef.getDesc().getParent().getId());
+                .getScanNodeInOneFragmentBySlotRef(slotRef);
         if (scanNode == null) {
             cannotReason.add(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA);
             return null;

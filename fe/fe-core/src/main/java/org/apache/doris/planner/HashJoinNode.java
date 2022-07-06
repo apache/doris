@@ -1037,4 +1037,13 @@ public class HashJoinNode extends PlanNode {
         }
         return true;
     }
+
+    SlotRef getMappedInputSlotRef(SlotRef slotRef) {
+        Expr mappedExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
+        if (mappedExpr != null && mappedExpr instanceof SlotRef) {
+            return (SlotRef) mappedExpr;
+        } else {
+            return null;
+        }
+    }
 }
