@@ -33,7 +33,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/push_handler.h"
-#include "olap/rowset/column_data.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/doris_metrics.h"

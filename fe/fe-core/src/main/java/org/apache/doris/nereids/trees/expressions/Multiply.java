@@ -17,6 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * Multiply Expression.
  */
@@ -29,7 +35,18 @@ public class Multiply<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
 
     @Override
     public String sql() {
-        return left().sql() + ' ' + getArithOperator().toString()
+        return left().sql() + ' ' + getArithmeticOperator().toString()
                 + ' ' + right().sql();
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitMultiply(this, context);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new Multiply<>(children.get(0), children.get(1));
     }
 }

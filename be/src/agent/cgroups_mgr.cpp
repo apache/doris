@@ -170,7 +170,7 @@ Status CgroupsMgr::_config_disk_throttle(std::string user_name, std::string leve
     if (!is_file_exist(cgroups_path.c_str())) {
         if (!std::filesystem::create_directory(cgroups_path)) {
             LOG(ERROR) << "Create cgroups: " << cgroups_path << " failed";
-            return Status::InternalError("Create cgroups " + cgroups_path + " failed");
+            return Status::InternalError("Create cgroups {} failed", cgroups_path);
         }
     }
 
@@ -236,7 +236,7 @@ Status CgroupsMgr::modify_user_cgroups(const string& user_name,
     if (!is_file_exist(user_cgroups_path.c_str())) {
         if (!std::filesystem::create_directory(user_cgroups_path)) {
             LOG(ERROR) << "Create cgroups for user " << user_name << " failed";
-            return Status::InternalError("Create cgroups for user " + user_name + " failed");
+            return Status::InternalError("Create cgroups for user {} failed", user_name);
         }
     }
 
@@ -294,7 +294,7 @@ Status CgroupsMgr::init_cgroups() {
         if (fs_type.f_type != CGROUP_SUPER_MAGIC) {
             LOG(ERROR) << _root_cgroups_path << " is not a cgroups file system.";
             _is_cgroups_init_success = false;
-            return Status::InternalError(_root_cgroups_path + " is not a cgroups file system");
+            return Status::InternalError("{} is not a cgroups file system", _root_cgroups_path);
             ;
         }
 #endif
@@ -302,7 +302,7 @@ Status CgroupsMgr::init_cgroups() {
         if (access(_root_cgroups_path.c_str(), W_OK) != 0) {
             LOG(ERROR) << "Doris does not have write permission to " << _root_cgroups_path;
             _is_cgroups_init_success = false;
-            return Status::InternalError("Doris does not have write permission to " +
+            return Status::InternalError("Doris does not have write permission to {}",
                                          _root_cgroups_path);
         }
         // If root folder exists, then delete all subfolders under it
@@ -314,7 +314,7 @@ Status CgroupsMgr::init_cgroups() {
                 if (!delete_user_cgroups(item_begin->path().filename().string()).ok()) {
                     LOG(ERROR) << "Could not clean subfolder " << item_begin->path().string();
                     _is_cgroups_init_success = false;
-                    return Status::InternalError("Could not clean subfolder " +
+                    return Status::InternalError("Could not clean subfolder {}",
                                                  item_begin->path().string());
                 }
             }

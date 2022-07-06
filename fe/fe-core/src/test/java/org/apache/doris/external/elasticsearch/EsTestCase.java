@@ -41,13 +41,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+/**
+ * Test case for es.
+ **/
 public class EsTestCase {
 
     protected static FakeEditLog fakeEditLog;
     protected static FakeCatalog fakeCatalog;
     protected static Catalog masterCatalog;
-    protected static String mappingsStr = "";
 
+    /**
+     * Init
+     **/
     @BeforeClass
     public static void init() throws Exception {
         fakeEditLog = new FakeEditLog();
@@ -60,7 +65,7 @@ public class EsTestCase {
     }
 
     protected String loadJsonFromFile(String fileName) throws IOException, URISyntaxException {
-        File file = new File(MappingPhaseTest.class.getClassLoader().getResource(fileName).toURI());
+        File file = new File(EsUtil.class.getClassLoader().getResource(fileName).toURI());
         InputStream is = new FileInputStream(file);
         BufferedReader br = new BufferedReader(new InputStreamReader(is));
         StringBuilder jsonStr = new StringBuilder();
@@ -73,7 +78,7 @@ public class EsTestCase {
         return jsonStr.toString();
     }
 
-    public EsTable fakeEsTable(String table, String index, String type, List<Column> columns) throws DdlException {
+    protected EsTable fakeEsTable(String table, String index, String type, List<Column> columns) throws DdlException {
         Map<String, String> props = new HashMap<>();
         props.put(EsTable.HOSTS, "127.0.0.1:8200");
         props.put(EsTable.INDEX, index);

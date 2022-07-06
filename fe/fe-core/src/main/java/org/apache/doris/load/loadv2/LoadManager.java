@@ -22,14 +22,12 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
@@ -41,9 +39,6 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TMiniLoadBeginRequest;
-import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 
@@ -138,53 +133,6 @@ public class LoadManager implements Writable {
     }
 
     /**
-     * This method will be invoked by streaming mini load.
-     * It will begin the txn of mini load immediately without any scheduler .
-     *
-     */
-    public long createLoadJobFromMiniLoad(TMiniLoadBeginRequest request) throws UserException {
-        String cluster = SystemInfoService.DEFAULT_CLUSTER;
-        if (request.isSetCluster()) {
-            cluster = request.getCluster();
-        }
-        Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
-        Table table = database.getTableOrDdlException(request.tbl);
-        MiniLoadJob loadJob = null;
-        writeLock();
-        try {
-            loadJob = new MiniLoadJob(database.getId(), table.getId(), request);
-            // call unprotectedExecute before adding load job. so that if job is not started ok, no need to add.
-            // NOTICE(cmy): this order is only for Mini Load, because mini load's
-            // unprotectedExecute() only do beginTxn().
-            // for other kind of load job, execute the job after adding job.
-            // Mini load job must be executed before release write lock.
-            // Otherwise, the duplicated request maybe get the transaction id before transaction of mini load is begun.
-            loadJob.beginTxn();
-            loadJob.unprotectedExecute();
-            createLoadJob(loadJob);
-        } catch (DuplicatedRequestException e) {
-            // this is a duplicate request, just return previous txn id
-            LOG.info("duplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
-                    e.getTxnId());
-            return e.getTxnId();
-        } catch (UserException e) {
-            if (loadJob != null) {
-                loadJob.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), false,
-                        false /* no need to write edit log, because createLoadJob log is not wrote yet */);
-            }
-            throw e;
-        } finally {
-            writeUnlock();
-        }
-
-        // The persistence of mini load must be the final step of create mini load.
-        // After mini load was executed, the txn id has been set and state has been changed to loading.
-        // Those two need to be record in persistence.
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
-        return loadJob.getTransactionId();
-    }
-
-    /**
      * This method will be invoked by version1 of broker or hadoop load.
      * It is used to check the label of v1 and v2 at the same time.
      * Finally, the v1 of broker or hadoop load will belongs to load class.
@@ -204,31 +152,6 @@ public class LoadManager implements Writable {
         try {
             checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
             Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /**
-     * This method will be invoked by non-streaming of mini load.
-     * It is used to check the label of v1 and v2 at the same time.
-     * Finally, the non-streaming mini load will belongs to load class.
-     *
-     * @param request request
-     * @return if: mini load is a duplicated load, return false. else: return true.
-     * @deprecated not support mini load
-     */
-    @Deprecated
-    public boolean createLoadJobV1FromRequest(TMiniLoadRequest request) throws DdlException {
-        String cluster = SystemInfoService.DEFAULT_CLUSTER;
-        if (request.isSetCluster()) {
-            cluster = request.getCluster();
-        }
-        Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
-        writeLock();
-        try {
-            checkLabelUsed(database.getId(), request.getLabel());
-            return Catalog.getCurrentCatalog().getLoadInstance().addMiniLoadJob(request);
         } finally {
             writeUnlock();
         }

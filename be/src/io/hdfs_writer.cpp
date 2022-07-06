@@ -53,7 +53,7 @@ Status HDFSWriter::open() {
     int exists = hdfsExists(_hdfs_fs, _path.c_str());
     if (exists == 0) {
         // the path already exists
-        return Status::AlreadyExist(_path + " already exists.");
+        return Status::AlreadyExist("{} already exists.", _path);
     }
 
     std::filesystem::path hdfs_path(_path);
@@ -141,10 +141,8 @@ Status HDFSWriter::_connect() {
     }
     _hdfs_fs = hdfsBuilderConnect(_builder.get());
     if (_hdfs_fs == nullptr) {
-        std::stringstream ss;
-        ss << "connect to hdfs failed. namenode address:" << _namenode << ", error"
-           << hdfsGetLastError();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("connect to hdfs failed. namenode address:{}, error {}",
+                                     _namenode, hdfsGetLastError());
     }
     return Status::OK();
 }

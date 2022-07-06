@@ -17,21 +17,30 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
-import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.AnalyzeRulesJob;
+import org.apache.doris.nereids.jobs.OptimizeRulesJob;
+import org.apache.doris.nereids.jobs.PredicatePushDownRulesJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.PhysicalPlanTranslator;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -39,9 +48,13 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Planner to do query plan in Nereids.
@@ -51,6 +64,7 @@ public class NereidsPlanner extends Planner {
     private PlannerContext plannerContext;
     private final ConnectContext ctx;
     private List<ScanNode> scanNodeList = null;
+    private DescriptorTable descTable;
 
     public NereidsPlanner(ConnectContext ctx) {
         this.ctx = ctx;
@@ -62,18 +76,42 @@ public class NereidsPlanner extends Planner {
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
         }
+
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), new PhysicalProperties(), ctx);
+
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
-        PlanTranslatorContext planContext = new PlanTranslatorContext();
-        physicalPlanTranslator.translatePlan(physicalPlan, planContext);
-        fragments = new ArrayList<>(planContext.getPlanFragmentList());
-        PlanFragment root = fragments.get(fragments.size() - 1);
-        root.setOutputExprs(queryStmt.getResultExprs());
-        if (VectorizedUtil.isVectorized()) {
-            root.getPlanRoot().convertToVectoriezd();
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+
+        scanNodeList = planTranslatorContext.getScanNodeList();
+        descTable = planTranslatorContext.getDescTable();
+        fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
+        for (PlanFragment fragment : fragments) {
+            fragment.finalize(queryStmt);
         }
-        scanNodeList = planContext.getScanNodeList();
+        Collections.reverse(fragments);
+        PlanFragment root = fragments.get(0);
+
+        // compute output exprs
+        Map<Integer, Expr> outputCandidates = Maps.newHashMap();
+        List<Expr> outputExprs = Lists.newArrayList();
+        for (TupleId tupleId : root.getPlanRoot().getTupleIds()) {
+            TupleDescriptor tupleDescriptor = descTable.getTupleDesc(tupleId);
+            for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+                SlotRef slotRef = new SlotRef(slotDescriptor);
+                outputCandidates.put(slotDescriptor.getId().asInt(), slotRef);
+            }
+        }
+        physicalPlan.getOutput().stream().map(Slot::getExprId)
+                .map(Id::asInt).forEach(i -> outputExprs.add(outputCandidates.get(i)));
+        root.setOutputExprs(outputExprs);
+        root.getPlanRoot().convertToVectoriezd();
+
+        logicalPlanAdapter.setResultExprs(outputExprs);
+        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
+                .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
+        logicalPlanAdapter.setColLabels(columnLabelList);
     }
 
     /**
@@ -94,13 +132,24 @@ public class NereidsPlanner extends Planner {
         OptimizerContext optimizerContext = new OptimizerContext(memo);
         plannerContext = new PlannerContext(optimizerContext, connectContext, outputProperties);
 
-        plannerContext.getOptimizerContext().pushJob(
-                new RewriteBottomUpJob(getRoot(), optimizerContext.getRuleSet().getAnalysisRules(), plannerContext));
-
-        plannerContext.getOptimizerContext().pushJob(new OptimizeGroupJob(getRoot(), plannerContext));
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
-
         // Get plan directly. Just for SSB.
+        return doPlan();
+    }
+
+    /**
+     * The actual execution of the plan, including the generation and execution of the job.
+     * @return PhysicalPlan.
+     */
+    private PhysicalPlan doPlan() {
+        AnalyzeRulesJob analyzeRulesJob = new AnalyzeRulesJob(plannerContext);
+        analyzeRulesJob.execute();
+
+        PredicatePushDownRulesJob predicatePushDownRulesJob = new PredicatePushDownRulesJob(plannerContext);
+        predicatePushDownRulesJob.execute();
+
+        OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
+        optimizeRulesJob.execute();
+
         return getRoot().extractPlan();
     }
 
@@ -139,5 +188,10 @@ public class NereidsPlanner extends Planner {
     @Override
     public boolean isBlockQuery() {
         return true;
+    }
+
+    @Override
+    public DescriptorTable getDescTable() {
+        return descTable;
     }
 }

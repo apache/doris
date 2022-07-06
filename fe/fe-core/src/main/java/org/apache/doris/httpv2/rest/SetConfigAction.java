@@ -23,8 +23,8 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.clearspring.analytics.util.Lists;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.AllArgsConstructor;
@@ -43,10 +43,10 @@ import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-/*
- * used to set fe config
+/**
+ * used to set fe config.
  * eg:
- *  fe_host:http_port/api/_set_config?config_key1=config_value1&config_key2=config_value2&...
+ * fe_host:http_port/api/_set_config?config_key1=config_value1&config_key2=config_value2&...
  */
 @RestController
 public class SetConfigAction extends RestBaseController {

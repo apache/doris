@@ -109,7 +109,7 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
     FileUtils::remove(file_or_content);
 
     if (!rc) {
-        return Status::InternalError("Failed to execute command: " + cmd_output);
+        return Status::InternalError("Failed to execute command: {}", cmd_output);
     }
 
     (*output) << "Profile(Sample 30 seconds)" << std::endl;
@@ -147,7 +147,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
     bool rc = util.exec_cmd(cmd.str(), &cmd_output);
     if (!rc) {
         FileUtils::remove(tmp_file.str());
-        return Status::InternalError("Failed to execute perf command: " + cmd_output);
+        return Status::InternalError("Failed to execute perf command: {}", cmd_output);
     }
 
     // generate flamegraph
@@ -164,7 +164,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         if (!rc) {
             FileUtils::remove(tmp_file.str());
             FileUtils::remove(graph_file.str());
-            return Status::InternalError("Failed to execute perf script command: " + res_content);
+            return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = graph_file.str();
     } else {
@@ -174,7 +174,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         rc = util.exec_cmd(gen_cmd.str(), &res_content, false);
         if (!rc) {
             FileUtils::remove(tmp_file.str());
-            return Status::InternalError("Failed to execute perf script command: " + res_content);
+            return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = res_content;
     }

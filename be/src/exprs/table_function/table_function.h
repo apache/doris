@@ -43,25 +43,22 @@ public:
     virtual Status open() { return Status::OK(); }
 
     virtual Status process(TupleRow* tuple_row) {
-        return Status::NotSupported(fmt::format("table function {} not supported now.", _fn_name));
+        return Status::NotSupported("table function {} not supported now.", _fn_name);
     }
 
     // only used for vectorized.
     virtual Status process_init(vectorized::Block* block) {
-        return Status::NotSupported(
-                fmt::format("vectorized table function {} not supported now.", _fn_name));
+        return Status::NotSupported("vectorized table function {} not supported now.", _fn_name);
     }
 
     // only used for vectorized.
     virtual Status process_row(size_t row_idx) {
-        return Status::NotSupported(
-                fmt::format("vectorized table function {} not supported now.", _fn_name));
+        return Status::NotSupported("vectorized table function {} not supported now.", _fn_name);
     }
 
     // only used for vectorized.
     virtual Status process_close() {
-        return Status::NotSupported(
-                fmt::format("vectorized table function {} not supported now.", _fn_name));
+        return Status::NotSupported("vectorized table function {} not supported now.", _fn_name);
     }
 
     virtual Status reset() = 0;

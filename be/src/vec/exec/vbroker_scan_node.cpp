@@ -64,18 +64,14 @@ Status VBrokerScanNode::prepare(RuntimeState* state) {
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Failed to get tuple descriptor, _tuple_id={}", _tuple_id);
     }
 
     // Initialize slots map
     for (auto slot : _tuple_desc->slots()) {
         auto pair = _slots_map.emplace(slot->col_name(), slot);
         if (!pair.second) {
-            std::stringstream ss;
-            ss << "Failed to insert slot, col_name=" << slot->col_name();
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Failed to insert slot, col_name={}", slot->col_name());
         }
     }
 

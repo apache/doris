@@ -55,12 +55,10 @@ set(RUNTIME_FILES
     collection_value.cpp
     tuple.cpp
     tuple_row.cpp
-    vectorized_row_batch.cpp
     dpp_writer.cpp
     qsorter.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
-    etl_job_mgr.cpp
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc

@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.trees.expressions.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 /**
  * Base class of expression rewrite rule.
@@ -29,10 +29,5 @@ public abstract class AbstractExpressionRewriteRule extends DefaultExpressionRew
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         return expr.accept(this, ctx);
-    }
-
-    @Override
-    public Expression visit(Expression expr, ExpressionRewriteContext ctx) {
-        return expr;
     }
 }

@@ -69,9 +69,9 @@ public:
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
-            return Status::InternalError("Illegal column " +
-                                         block.get_by_position(arguments[0]).column->get_name() +
-                                         " of first argument of function " + name);
+            return Status::InternalError("Illegal column {} of first argument of function {}",
+                                         block.get_by_position(arguments[0]).column->get_name(),
+                                         name);
         }
         return Status::OK();
     }

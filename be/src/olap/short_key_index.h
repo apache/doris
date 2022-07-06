@@ -118,8 +118,7 @@ void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
 //      ...
 //      builder.add_item(keyN);
 //      builder.finalize(segment_size, num_rows, &slices);
-// NOTE: This is used for BetaRowset and is not compatible with AlphaRowset's
-//       short key index format.
+// NOTE: This is used for BetaRowset
 // TODO(zc):
 // 1. If this can leverage binary page to save key and offset data
 // 2. Extending this to save in a BTree like struct, which can index full key

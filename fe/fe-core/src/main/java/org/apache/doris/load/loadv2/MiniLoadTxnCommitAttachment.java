@@ -18,7 +18,6 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.thrift.TMiniLoadTxnCommitAttachment;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
@@ -34,15 +33,6 @@ public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
 
     public MiniLoadTxnCommitAttachment() {
         super(TransactionState.LoadJobSourceType.BACKEND_STREAMING);
-    }
-
-    public MiniLoadTxnCommitAttachment(TMiniLoadTxnCommitAttachment tMiniLoadTxnCommitAttachment) {
-        super(TransactionState.LoadJobSourceType.BACKEND_STREAMING);
-        this.loadedRows = tMiniLoadTxnCommitAttachment.getLoadedRows();
-        this.filteredRows = tMiniLoadTxnCommitAttachment.getFilteredRows();
-        if (tMiniLoadTxnCommitAttachment.isSetErrorLogUrl()) {
-            this.errorLogUrl = tMiniLoadTxnCommitAttachment.getErrorLogUrl();
-        }
     }
 
     public long getLoadedRows() {

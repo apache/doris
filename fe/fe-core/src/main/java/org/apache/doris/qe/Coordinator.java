@@ -237,7 +237,7 @@ public class Coordinator {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-        this.descTable = analyzer.getDescTbl().toThrift();
+        this.descTable = planner.getDescTable().toThrift();
         this.returnedAllResults = false;
         initQueryOptions(context);
 

@@ -58,9 +58,7 @@ Status get_hostname(std::string* hostname) {
     int ret = gethostname(name, HOST_NAME_MAX);
 
     if (ret != 0) {
-        std::stringstream ss;
-        ss << "Could not get hostname: errno: " << errno;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Could not get hostname: errno: {}", errno);
     }
 
     *hostname = std::string(name);
@@ -76,9 +74,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
     struct addrinfo* addr_info;
 
     if (getaddrinfo(name.c_str(), nullptr, &hints, &addr_info) != 0) {
-        std::stringstream ss;
-        ss << "Could not find IPv4 address for: " << name;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Could not find IPv4 address for: {}", name);
     }
 
     addrinfo* it = addr_info;
@@ -89,10 +85,8 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
                 inet_ntop(AF_INET, &((sockaddr_in*)it->ai_addr)->sin_addr, addr_buf, 64);
 
         if (result == nullptr) {
-            std::stringstream ss;
-            ss << "Could not convert IPv4 address for: " << name;
             freeaddrinfo(addr_info);
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Could not convert IPv4 address for: {}", name);
         }
 
         addresses->push_back(std::string(addr_buf));

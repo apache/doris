@@ -28,7 +28,6 @@ using namespace doris::segment_v2;
 
 namespace doris {
 
-class VectorizedRowBatch;
 class Schema;
 class RowBlockV2;
 
@@ -47,6 +46,14 @@ enum class PredicateType {
     BF = 11, // BloomFilter
 };
 
+struct PredicateTypeTraits {
+    static constexpr bool is_range(PredicateType type) {
+        return (type == PredicateType::LT || type == PredicateType::LE ||
+                type == PredicateType::GT || type == PredicateType::GE);
+    }
+    static constexpr bool is_bloom_filter(PredicateType type) { return type == PredicateType::BF; }
+};
+
 class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
@@ -55,9 +62,6 @@ public:
     virtual ~ColumnPredicate() = default;
 
     virtual PredicateType type() const = 0;
-
-    //evaluate predicate on VectorizedRowBatch
-    virtual void evaluate(VectorizedRowBatch* batch) const = 0;
 
     // evaluate predicate on ColumnBlock
     virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
@@ -73,18 +77,19 @@ public:
 
     // evaluate predicate on IColumn
     // a short circuit eval way
-    virtual uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
+    virtual uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                              uint16_t size) const {
         return size;
     };
-    virtual void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                               bool* flags) const {};
-    virtual void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                              bool* flags) const {};
 
     // used to evaluate pre read column in lazy matertialization
     // now only support integer/float
     // a vectorized eval way
-    virtual void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+    virtual void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
 

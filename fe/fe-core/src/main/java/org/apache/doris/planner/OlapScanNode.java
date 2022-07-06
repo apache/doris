@@ -358,6 +358,18 @@ public class OlapScanNode extends ScanNode {
     }
 
     /**
+     * Init OlapScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
+     */
+    public void init() throws UserException {
+        selectedPartitionNum = selectedPartitionIds.size();
+        try {
+            getScanRangeLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
+    }
+
+    /**
      * Remove the method after statistics collection is working properly
      */
     public void mockRowCountInStatistic() {

@@ -95,7 +95,7 @@ bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
     int digits = pos - ptr;
     bool is_interval_format = false;
 
-    // Compatible with MySQL. Shit!!!
+    // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
     if (pos == end || *pos == '.') {
         if (digits == 4 || digits == 8 || digits >= 14) {
@@ -837,6 +837,9 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
 }
 
 uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year) {
+    if (mode == 3 && value._year >= 1949 && value._year < 2030) {
+        return week_of_year_table[value._year - 1950][value._month][value._day];
+    }
     bool monday_first = mode & WEEK_MONDAY_FIRST;
     bool week_year = mode & WEEK_YEAR;
     bool first_weekday = mode & WEEK_FIRST_WEEKDAY;
@@ -1693,7 +1696,7 @@ bool DateV2Value::from_date_str(const char* date_str, int len) {
     int digits = pos - ptr;
     bool is_interval_format = false;
 
-    // Compatible with MySQL. Shit!!!
+    // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
     if (pos == end || *pos == '.') {
         if (digits == 4 || digits == 8 || digits >= 14) {

@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommutative;
 import org.apache.doris.nereids.rules.exploration.join.JoinLeftAssociative;
+import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
+import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
+import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalHeapSort;
+import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -35,24 +38,23 @@ import java.util.List;
  * Containers for set of different type rules.
  */
 public class RuleSet {
-    public static final List<Rule<Plan>> ANALYSIS_RULES = planRuleFactories()
-            .add(new BindRelation())
-            .build();
-
     public static final List<Rule<Plan>> EXPLORATION_RULES = planRuleFactories()
             .add(new JoinCommutative(false))
             .add(new JoinLeftAssociative())
             .build();
 
-    public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()
-            .add(new LogicalJoinToHashJoin())
-            .add(new LogicalProjectToPhysicalProject())
-            .add(new LogicalFilterToPhysicalFilter())
+    public static final List<Rule<Plan>> REWRITE_RULES = planRuleFactories()
+            .add(new AggregateDisassemble())
             .build();
 
-    public List<Rule<Plan>> getAnalysisRules() {
-        return ANALYSIS_RULES;
-    }
+    public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()
+            .add(new LogicalAggToPhysicalHashAgg())
+            .add(new LogicalFilterToPhysicalFilter())
+            .add(new LogicalJoinToHashJoin())
+            .add(new LogicalOlapScanToPhysicalOlapScan())
+            .add(new LogicalProjectToPhysicalProject())
+            .add(new LogicalSortToPhysicalHeapSort())
+            .build();
 
     public List<Rule<Plan>> getExplorationRules() {
         return EXPLORATION_RULES;
@@ -62,11 +64,14 @@ public class RuleSet {
         return IMPLEMENTATION_RULES;
     }
 
-    private static RuleFactories<Plan> planRuleFactories() {
-        return new RuleFactories();
+    public static RuleFactories<Plan> planRuleFactories() {
+        return new RuleFactories<>();
     }
 
-    private static class RuleFactories<TYPE extends TreeNode<TYPE>> {
+    /**
+     * generate rule factories.
+     */
+    public static class RuleFactories<TYPE extends TreeNode<TYPE>> {
         final Builder<Rule<TYPE>> rules = ImmutableList.builder();
 
         public RuleFactories<TYPE> add(RuleFactory<TYPE> ruleFactory) {

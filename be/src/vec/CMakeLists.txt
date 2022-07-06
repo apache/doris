@@ -41,7 +41,6 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_java_udaf.h
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
-  columns/collator.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
@@ -203,6 +202,7 @@ set(VEC_FILES
   sink/vmysql_table_sink.cpp
   sink/vresult_file_sink.cpp
   runtime/vdatetime_value.cpp
+  runtime/week_of_year.data
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp

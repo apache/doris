@@ -72,9 +72,7 @@ Status VEsHttpScanNode::prepare(RuntimeState* state) {
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Failed to get tuple descriptor, _tuple_id=i{}", _tuple_id);
     }
 
     // set up column name vector for ESScrollQueryBuilder
@@ -159,8 +157,7 @@ Status VEsHttpScanNode::open(RuntimeState* state) {
     auto checker = [&](int index) {
         return _conjunct_to_predicate[index] != -1 && list[_conjunct_to_predicate[index]];
     };
-    std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
-    _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
+    _peel_pushed_vconjunct(state, checker);
 
     RETURN_IF_ERROR(start_scanners());
 
