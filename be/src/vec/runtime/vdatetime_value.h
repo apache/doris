@@ -300,9 +300,7 @@ public:
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
-    operator int64_t() const {
-        return to_int64();
-    }
+    operator int64_t() const { return to_int64(); }
 
     // Given days since 0000-01-01, construct the datetime value.
     bool from_date_daynr(uint64_t);
@@ -318,9 +316,7 @@ public:
     // Return true if convert success. Otherwise return false.
     bool from_date_int64(int64_t value);
 
-    bool from_date(int64_t value) {
-        return from_date_int64(value);
-    };
+    bool from_date(int64_t value) { return from_date_int64(value); };
 
     // Construct time type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -360,37 +356,17 @@ public:
         return true;
     };
 
-    uint64_t daynr() const {
-        return calc_daynr(_year, _month, _day);
-    }
+    uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
-    int year() const {
-        return _year;
-    }
-    int month() const {
-        return _month;
-    }
-    int quarter() const {
-        return (_month - 1) / 3 + 1;
-    }
-    int week() const {
-        return week(mysql_week_mode(0));
-    } //00-53
-    int day() const {
-        return _day;
-    }
-    int hour() const {
-        return _hour;
-    }
-    int minute() const {
-        return _minute;
-    }
-    int second() const {
-        return _second;
-    }
-    int neg() const {
-        return _neg;
-    }
+    int year() const { return _year; }
+    int month() const { return _month; }
+    int quarter() const { return (_month - 1) / 3 + 1; }
+    int week() const { return week(mysql_week_mode(0)); } //00-53
+    int day() const { return _day; }
+    int hour() const { return _hour; }
+    int minute() const { return _minute; }
+    int second() const { return _second; }
+    int neg() const { return _neg; }
 
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0;
@@ -412,17 +388,11 @@ public:
         _type = TIME_TIME;
     }
 
-    void to_datetime() {
-        _type = TIME_DATETIME;
-    }
+    void to_datetime() { _type = TIME_DATETIME; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    uint8_t weekday() const {
-        return calc_weekday(daynr(), false);
-    }
-    auto day_of_week() const {
-        return (weekday() + 1) % 7 + 1;
-    }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
     // WEEK_MONDAY_FIRST (0)
@@ -482,18 +452,12 @@ public:
         return v1 == v2;
     }
 
-    bool operator!=(const VecDateTimeValue& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const VecDateTimeValue& other) const { return !(*this == other); }
 
     // Now, we don't support TIME_TIME type,
-    bool operator<=(const VecDateTimeValue& other) const {
-        return !(*this > other);
-    }
+    bool operator<=(const VecDateTimeValue& other) const { return !(*this > other); }
 
-    bool operator>=(const VecDateTimeValue& other) const {
-        return !(*this < other);
-    }
+    bool operator>=(const VecDateTimeValue& other) const { return !(*this < other); }
 
     bool operator<(const VecDateTimeValue& other) const {
         int64_t v1 = to_int64_datetime_packed();
@@ -509,9 +473,7 @@ public:
 
     bool operator==(const DateV2Value& other) const;
 
-    bool operator!=(const DateV2Value& other) const {
-        return !(*this == other);
-    };
+    bool operator!=(const DateV2Value& other) const { return !(*this == other); };
 
     bool operator<=(const DateV2Value& other) const;
 
@@ -565,13 +527,9 @@ public:
         return value;
     }
 
-    uint32_t hash(int seed) const {
-        return HashUtil::hash(this, sizeof(*this), seed);
-    }
+    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
-    int day_of_year() const {
-        return daynr() - calc_daynr(_year, 1, 1) + 1;
-    }
+    int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
     // TODO(zhaochun): local time ???
     static VecDateTimeValue local_time();
@@ -609,9 +567,7 @@ public:
 
     void set_type(int type);
 
-    int type() const {
-        return _type;
-    }
+    int type() const { return _type; }
 
     bool is_valid_date() const {
         return !check_range(_year, _month, _day, _hour, _minute, _second, _type) && _month > 0 &&
