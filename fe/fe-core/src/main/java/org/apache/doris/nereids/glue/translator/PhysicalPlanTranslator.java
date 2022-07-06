@@ -151,13 +151,16 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST);
                 aggregationNode = new AggregationNode(context.nextNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
                 aggregationNode.unsetNeedsFinalize();
-                aggregationNode.setUseStreamingPreagg(true);
+                aggregationNode.setUseStreamingPreagg(physicalAggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
                 if (!partitionExpressionList.isEmpty()) {
                     inputPlanFragment.setOutputPartition(DataPartition.hashPartitioned(execPartitionExpressions));
                 }
                 break;
             case FIRST_MERGE:
+                for (FunctionCallExpr execAggExpression : execAggExpressions) {
+                    execAggExpression.setMergeAggFn(true);
+                }
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST_MERGE);
                 aggregationNode = new AggregationNode(context.nextNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);

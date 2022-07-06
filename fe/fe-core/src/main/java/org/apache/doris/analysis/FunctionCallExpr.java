@@ -1265,4 +1265,8 @@ public class FunctionCallExpr extends Expr {
             type = fn.getReturnType();
         }
     }
+
+    public void setMergeAggFn(boolean mergeAggFn) {
+        isMergeAggFn = mergeAggFn;
+    }
 }
