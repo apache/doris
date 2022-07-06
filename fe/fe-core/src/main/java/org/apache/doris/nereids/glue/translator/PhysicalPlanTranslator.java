@@ -66,10 +66,13 @@ import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -116,28 +119,44 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     @Override
     public PlanFragment visitPhysicalAggregate(
             PhysicalUnaryPlan<PhysicalAggregate, Plan> agg, PlanTranslatorContext context) {
-
         PlanFragment inputPlanFragment = visit(agg.child(0), context);
         PhysicalAggregate physicalAggregate = agg.getOperator();
 
-        List<Slot> slotList = new ArrayList<>();
+        // TODO: stale planner generate aggregate tuple in a special way. tuple include 2 parts:
+        //    1. group by expressions: removing duplicate expressions add to tuple
+        //    2. agg functions: only removing duplicate agg functions in output expression should appear in tuple.
+        //       e.g. select sum(v1) + 1, sum(v1) + 2 from t1 should only generate one sum(v1) in tuple
+        //    We need:
+        //    1. add a project after agg, if output expressions include agg function as a expression tree leaf.
+        //    2. introduce canonicalized, semanticEquals and deterministic in Expression
+        //       for removing duplicate.
         List<Expression> groupByExpressionList = physicalAggregate.getGroupByExprList();
-        ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
-                // Since output of plan doesn't contain the slots of groupBy, which is actually needed by
-                // the BE execution, so we have to collect them and add to the slotList to generate corresponding
-                // TupleDesc.
-                .peek(x -> slotList.addAll(x.collect(SlotReference.class::isInstance)))
-                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
-        slotList.addAll(agg.getOutput());
-        TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
-
         List<NamedExpression> outputExpressionList = physicalAggregate.getOutputExpressionList();
-        ArrayList<FunctionCallExpr> execAggExpressions = outputExpressionList.stream()
-                .map(e -> e.<List<AggregateFunction>>collect(AggregateFunction.class::isInstance))
+
+        // 1. generate slot reference for each group expression
+        List<SlotReference> groupSlotList = groupByExpressionList.stream()
+                .map(e -> new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()))
+                .collect(Collectors.toList());
+        ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
+                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
+        // 2. collect agg functions and generate agg function to slot reference map
+        Map<AggregateFunction, SlotReference> aggFunctionSMap = Maps.newHashMap();
+        List<AggregateFunction> aggregateFunctionList = outputExpressionList.stream()
+                .map(o -> (List<AggregateFunction>) o.collect(AggregateFunction.class::isInstance))
                 .flatMap(List::stream)
+                .peek(a -> aggFunctionSMap.put(a, new SlotReference(a.sql(), a.getDataType(),
+                        a.nullable(), Collections.emptyList())))
+                .collect(Collectors.toList());
+        List<Slot> slotList = Lists.newArrayList();
+        slotList.addAll(groupSlotList);
+        slotList.addAll(aggFunctionSMap.values());
+        TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, context, null);
+        ArrayList<FunctionCallExpr> execAggExpressions = aggregateFunctionList.stream()
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
                 .collect(Collectors.toCollection(ArrayList::new));
+        // TODO: 3. generate a project node
 
+        // process partition list
         List<Expression> partitionExpressionList = physicalAggregate.getPartitionExprList();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
