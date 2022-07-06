@@ -57,7 +57,7 @@ Status LocalFileReader::read_at(size_t offset, Slice result, size_t* bytes_read)
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
-    *bytes_read = bytes_req;
+    *bytes_read = 0;
 
     while (bytes_req != 0) {
         auto res = ::pread(_fd, to, bytes_req, offset);
@@ -71,7 +71,9 @@ Status LocalFileReader::read_at(size_t offset, Slice result, size_t* bytes_read)
         }
         if (res > 0) {
             to += res;
+            offset += res;
             bytes_req -= res;
+            *bytes_read += res;
         }
     }
     DorisMetrics::instance()->local_bytes_read_total->increment(*bytes_read);
