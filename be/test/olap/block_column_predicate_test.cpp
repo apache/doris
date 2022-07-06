@@ -27,7 +27,6 @@
 #include "olap/wrapper_field.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
 #include "vec/columns/predicate_column.h"
 

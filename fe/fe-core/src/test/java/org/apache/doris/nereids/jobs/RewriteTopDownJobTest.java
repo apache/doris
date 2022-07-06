@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -72,12 +72,14 @@ public class RewriteTopDownJobTest implements Plans {
         Memo memo = new Memo();
         memo.initialize(root);
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
         List<Rule<Plan>> fakeRules = Lists.newArrayList(new FakeRule().build());
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules, plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules,
+                plannerContext.getCurrentJobContext());
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         Group rootGroup = memo.getRoot();
         Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());

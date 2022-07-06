@@ -146,6 +146,8 @@ public:
         return Status::OK();
     }
 
+    static uint32_t used_bits(uint64_t value);
+
     // Compute the optimal bit number according to the following rule:
     //     m = -n * ln(fpp) / (ln(2) ^ 2)
     // n: expected distinct record number

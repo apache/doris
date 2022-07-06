@@ -108,7 +108,10 @@ public class LogicalAggregate extends LogicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(groupByExpressionList).addAll(outputExpressionList).build();
+        return new ImmutableList.Builder<Expression>()
+                .addAll(groupByExpressionList)
+                .addAll(outputExpressionList)
+                .build();
     }
 
     public boolean isDisassembled() {

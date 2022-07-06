@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
@@ -106,8 +107,9 @@ public class NereidsPlanner extends Planner {
         Memo memo = new Memo();
         memo.initialize(plan);
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        plannerContext = new PlannerContext(optimizerContext, connectContext, outputProperties);
+        plannerContext = new PlannerContext(memo, connectContext);
+        JobContext jobContext = new JobContext(plannerContext, outputProperties, Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
 
         // Get plan directly. Just for SSB.
         return doPlan();
@@ -139,7 +141,7 @@ public class NereidsPlanner extends Planner {
     }
 
     public Group getRoot() {
-        return plannerContext.getOptimizerContext().getMemo().getRoot();
+        return plannerContext.getMemo().getRoot();
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)

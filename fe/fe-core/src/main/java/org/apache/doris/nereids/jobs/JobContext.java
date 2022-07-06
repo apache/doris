@@ -15,22 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 
 /**
- * Execute the disassemble rules.
+ * Context for one job in Nereids' cascades framework.
  */
-public class DisassembleRulesJob extends BatchRulesJob {
-    public DisassembleRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(
-                        new AggregateDisassemble())
-                )));
+public class JobContext {
+    private final PlannerContext plannerContext;
+    private final PhysicalProperties requiredProperties;
+    private final double costUpperBound;
+
+    public JobContext(PlannerContext plannerContext, PhysicalProperties requiredProperties, double costUpperBound) {
+        this.plannerContext = plannerContext;
+        this.requiredProperties = requiredProperties;
+        this.costUpperBound = costUpperBound;
+    }
+
+    public PlannerContext getPlannerContext() {
+        return plannerContext;
+    }
+
+    public PhysicalProperties getRequiredProperties() {
+        return requiredProperties;
+    }
+
+    public double getCostUpperBound() {
+        return costUpperBound;
     }
 }

@@ -21,8 +21,8 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -72,12 +73,12 @@ public class AggregateDisassembleTest implements Plans {
         memo.initialize(root);
         System.out.println(memo.copyOut().treeString());
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         System.out.println(memo.copyOut().treeString());
     }
@@ -95,12 +96,12 @@ public class AggregateDisassembleTest implements Plans {
         memo.initialize(root);
         System.out.println(memo.copyOut().treeString());
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         System.out.println(memo.copyOut().treeString());
     }
@@ -116,12 +117,12 @@ public class AggregateDisassembleTest implements Plans {
         memo.initialize(root);
         System.out.println(memo.copyOut().treeString());
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         System.out.println(memo.copyOut().treeString());
     }
@@ -138,12 +139,12 @@ public class AggregateDisassembleTest implements Plans {
         memo.initialize(root);
         System.out.println(memo.copyOut().treeString());
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         System.out.println(memo.copyOut().treeString());
     }

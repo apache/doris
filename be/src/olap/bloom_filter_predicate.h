@@ -23,15 +23,12 @@
 
 #include "exprs/bloomfilter_predicate.h"
 #include "olap/column_predicate.h"
-#include "runtime/vectorized_row_batch.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
 
 namespace doris {
-
-class VectorizedRowBatch;
 
 // only use in runtime filter and segment v2
 template <PrimitiveType T>
@@ -47,8 +44,6 @@ public:
     ~BloomFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BF; }
-
-    void evaluate(VectorizedRowBatch* batch) const override;
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
@@ -135,18 +130,6 @@ private:
     mutable uint64_t _passed_rows = 0;
     mutable bool _enable_pred = true;
 };
-
-// bloom filter column predicate do not support in segment v1
-template <PrimitiveType T>
-void BloomFilterColumnPredicate<T>::evaluate(VectorizedRowBatch* batch) const {
-    uint16_t n = batch->size();
-    uint16_t* sel = batch->selected();
-    if (!batch->selected_in_use()) {
-        for (uint16_t i = 0; i != n; ++i) {
-            sel[i] = i;
-        }
-    }
-}
 
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,

@@ -21,8 +21,8 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
@@ -121,12 +121,14 @@ public class PushDownPredicateTest implements Plans {
         memo.initialize(root);
         System.out.println(memo.copyOut().treeString());
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, null);
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
+
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new PushPredicateThroughJoin().build()), plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+                ImmutableList.of(new PushPredicateThroughJoin().build()), jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());
@@ -169,12 +171,14 @@ public class PushDownPredicateTest implements Plans {
         memo.initialize(root);
         System.out.println(memo.copyOut().treeString());
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, null);
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
+
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new PushPredicateThroughJoin().build()), plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+                ImmutableList.of(new PushPredicateThroughJoin().build()), jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());
@@ -229,12 +233,14 @@ public class PushDownPredicateTest implements Plans {
         memo.initialize(root);
         System.out.println(memo.copyOut().treeString());
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, null);
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
+
         List<Rule<Plan>> fakeRules = Lists.newArrayList(new PushPredicateThroughJoin().build());
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules, plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules, jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());

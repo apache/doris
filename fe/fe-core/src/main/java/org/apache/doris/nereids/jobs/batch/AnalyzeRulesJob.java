@@ -26,7 +26,7 @@ import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import com.google.common.collect.ImmutableList;
 
 /**
- * Execute the analysis job.
+ * Execute the analysis rules.
  */
 public class AnalyzeRulesJob extends BatchRulesJob {
 

@@ -103,6 +103,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         }
     }
 
+    /**
+     * Translate Nereids Physical Plan tree to Stale Planner PlanFragment tree.
+     *
+     * @param physicalPlan Nereids Physical Plan tree
+     * @param context context to help translate
+     * @return Stale Planner PlanFragment tree
+     */
     public PlanFragment translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
         PlanFragment rootFragment = visit(physicalPlan, context);
         if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
