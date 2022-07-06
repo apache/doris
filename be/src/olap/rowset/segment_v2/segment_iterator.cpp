@@ -877,9 +877,9 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     bool ret_flags[selected_size];
     DCHECK(_pre_eval_block_predicate.size() > 0);
 
-    auto& column = _get_column_for_vec_predicate(0); 
+    auto& column = _get_column_for_vec_predicate(0);
     _pre_eval_block_predicate[0]->evaluate_vec(*column, selected_size, ret_flags);
-    for( int i=1; i<_pre_eval_block_predicate.size(); i++){
+    for (int i = 1; i < _pre_eval_block_predicate.size(); i++) {
         auto& column2 = _get_column_for_vec_predicate(i);
         _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, selected_size, ret_flags);
     }
