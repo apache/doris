@@ -237,8 +237,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
         scanRangeLocations = Lists.newArrayList();
         InputSplit[] inputSplits = scanProvider.getSplits(conjuncts);
         if (0 == inputSplits.length) {
+            numNodes = 1;
             return;
         }
+        numNodes = Catalog.getCurrentSystemInfo().getBackendIds(true).size();
 
         String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
@@ -335,8 +337,28 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        return prefix + "DATABASE: " + hmsTable.getDbName() + "\n"
-                + prefix + "TABLE: " + hmsTable.getName() + "\n"
-                + prefix + "HIVE URL: " + scanProvider.getMetaStoreUrl() + "\n";
+        StringBuilder output = new StringBuilder();
+        output.append(prefix).append("TABLE: ")
+                .append(hmsTable.getDbName()).append(".").append(hmsTable.getName()).append("\n")
+                .append(prefix).append("HIVE URL: ").append(scanProvider.getMetaStoreUrl()).append("\n");
+
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
+        }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(prefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(false));
+        }
+
+        output.append(prefix);
+        if (cardinality > 0) {
+            output.append(String.format("cardinality=%s, ", cardinality));
+        }
+        if (avgRowSize > 0) {
+            output.append(String.format("avgRowSize=%s, ", avgRowSize));
+        }
+        output.append(String.format("numNodes=%s", numNodes)).append("\n");
+
+        return output.toString();
     }
 }
