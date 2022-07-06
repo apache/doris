@@ -163,7 +163,8 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             if (op == OperationType.OP_TIMESTAMP) {
                 /*
                  * Do not exit if the write operation is OP_TIMESTAMP.
-                 * If all the followers exit except master, master should continue provide query service.
+                 * If all the followers exit except master, master should continue provide query
+                 * service.
                  * To prevent master exit, we should exempt OP_TIMESTAMP write
                  */
                 nextJournalId.set(id);
@@ -307,7 +308,8 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             }
         }
 
-        // Open a new journal database or get last existing one as current journal database
+        // Open a new journal database or get last existing one as current journal
+        // database
         List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
@@ -319,10 +321,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 }
                 if (dbNames.size() == 0) {
                     /*
-                     *  This is the very first time to open. Usually, we will open a new database named "1".
-                     *  But when we start cluster with an image file copied from other cluster,
-                     *  here we should open database with name image max journal id + 1.
-                     *  (default Catalog.getServingCatalog().getReplayedJournalId() is 0)
+                     * This is the very first time to open. Usually, we will open a new database
+                     * named "1".
+                     * But when we start cluster with an image file copied from other cluster,
+                     * here we should open database with name image max journal id + 1.
+                     * (default Catalog.getServingCatalog().getReplayedJournalId() is 0)
                      */
                     String dbName = Long.toString(Catalog.getServingCatalog().getReplayedJournalId() + 1);
                     LOG.info("the very first time to open bdb, dbname is {}", dbName);
@@ -344,8 +347,10 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
     private void reSetupBdbEnvironment(InsufficientLogException insufficientLogEx) {
         LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
-        // Copy the missing log files from a member of the replication group who owns the files
-        // ATTN: here we use `getServingCatalog()`, because only serving catalog has helper nodes.
+        // Copy the missing log files from a member of the replication group who owns
+        // the files
+        // ATTN: here we use `getServingCatalog()`, because only serving catalog has
+        // helper nodes.
         Pair<String, Integer> helperNode = Catalog.getServingCatalog().getHelperNode();
         NetworkRestore restore = new NetworkRestore();
         NetworkRestoreConfig config = new NetworkRestoreConfig();
@@ -413,19 +418,23 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             return null;
         }
 
-        // Open a new journal database or get last existing one as current journal database
-        List<Long>  dbNames = null;
+        // Open a new journal database or get last existing one as current journal
+        // database
+        List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 dbNames = bdbEnvironment.getDatabaseNames();
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
                 /*
-                 * If this is not a checkpoint thread, which means this maybe the FE startup thread,
-                 * or a replay thread. We will reopen bdbEnvironment for these 2 cases to get valid log
+                 * If this is not a checkpoint thread, which means this maybe the FE startup
+                 * thread,
+                 * or a replay thread. We will reopen bdbEnvironment for these 2 cases to get
+                 * valid log
                  * from helper nodes.
                  *
-                 * The checkpoint thread will only run on Master FE. And Master FE should not encounter
+                 * The checkpoint thread will only run on Master FE. And Master FE should not
+                 * encounter
                  * these exception. So if it happens, throw exception out.
                  */
                 if (!Catalog.isCheckpointThread()) {
@@ -445,5 +454,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         }
 
         return dbNames;
+    }
+
+    public BDBEnvironment getBDBEnvironment() {
+        return this.bdbEnvironment;
     }
 }
