@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -171,6 +172,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        if (hmsTable.isView()) {
+            throw new AnalysisException(String.format("Querying external view '[%s].%s.%s' is not supported",
+                    hmsTable.getDlaType(), hmsTable.getDbName(), hmsTable.getName()));
+        }
         backendPolicy.init();
         initContext();
     }
