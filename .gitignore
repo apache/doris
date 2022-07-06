@@ -20,6 +20,7 @@ derby.log
 dependency-reduced-pom.xml
 yarn.lock
 ut_dir
+package-lock.json
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
@@ -78,7 +79,7 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 
-
+## tools
 tools/ssb-tools/ssb-data/
 tools/ssb-tools/ssb-dbgen/
 tools/tpch-tools/TPC-H_Tools_v*.zip
