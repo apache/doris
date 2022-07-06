@@ -149,7 +149,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             case FIRST:
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST);
-                aggregationNode = new AggregationNode(context.nextNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
+                aggregationNode = new AggregationNode(context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
                 aggregationNode.unsetNeedsFinalize();
                 aggregationNode.setUseStreamingPreagg(physicalAggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
@@ -163,7 +163,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 }
                 aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
                         outputTupleDesc, AggregateInfo.AggPhase.FIRST_MERGE);
-                aggregationNode = new AggregationNode(context.nextNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
+                aggregationNode = new AggregationNode(context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo);
                 break;
             default:
                 throw new RuntimeException("Unsupported yet");
@@ -185,7 +185,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, context, olapTable);
         tupleDescriptor.setTable(olapTable);
-        OlapScanNode olapScanNode = new OlapScanNode(context.nextNodeId(), tupleDescriptor, olapTable.getName());
+        OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, olapTable.getName());
         // TODO: Do we really need tableName here?
         TableName tableName = new TableName("", "");
         TableRef ref = new TableRef(tableName, null, null);
@@ -229,7 +229,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
         PlanNode childNode = childFragment.getPlanRoot();
         // TODO: notice topN
-        SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, true,
+        SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true,
                 physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
         exec(sortNode::init);
         childFragment.addPlanRoot(sortNode);
@@ -274,10 +274,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         if (joinType.equals(JoinType.CROSS_JOIN)
                 || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN)
                 && !physicalHashJoin.getCondition().isPresent()) {
-            CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextNodeId(), leftFragment.getPlanRoot(),
+            CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextPlanNodeId(), leftFragment.getPlanRoot(),
                     rightFragment.getPlanRoot(), null);
             crossJoinNode.setLimit(physicalHashJoin.getLimit());
-            ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), rightFragment.getPlanRoot(), false);
+            ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), rightFragment.getPlanRoot(), false);
             exchangeNode.setNumInstances(rightFragmentPlanRoot.getNumInstances());
             exchangeNode.setFragment(leftFragment);
             leftFragmentPlanRoot.setChild(1, exchangeNode);
@@ -294,7 +294,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
 
-            HashJoinNode hashJoinNode = new HashJoinNode(context.nextNodeId(), leftFragmentPlanRoot,
+            HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot,
                     rightFragmentPlanRoot,
                     JoinType.toJoinOperator(physicalHashJoin.getJoinType()), execEqConjunctList, Lists.newArrayList());
 
@@ -363,7 +363,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
     private PlanFragment createParentFragment(PlanFragment childFragment, DataPartition parentPartition,
             PlanTranslatorContext ctx) {
-        ExchangeNode exchangeNode = new ExchangeNode(ctx.nextNodeId(), childFragment.getPlanRoot(), false);
+        ExchangeNode exchangeNode = new ExchangeNode(ctx.nextPlanNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         PlanFragment parentFragment = new PlanFragment(ctx.nextFragmentId(), exchangeNode, parentPartition);
         childFragment.setDestination(exchangeNode);
@@ -374,7 +374,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     private void connectChildFragment(PlanNode node, int childIdx,
             PlanFragment parentFragment, PlanFragment childFragment,
             PlanTranslatorContext context) {
-        ExchangeNode exchangeNode = new ExchangeNode(context.nextNodeId(), childFragment.getPlanRoot(), false);
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         exchangeNode.setFragment(parentFragment);
         node.setChild(childIdx, exchangeNode);
