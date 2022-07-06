@@ -684,7 +684,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         }
         std::vector<TabletSharedPtr> tablets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
-        _tablet_manager->get_cooldwon_tablets(&tablets);
+        _tablet_manager->get_cooldown_tablets(&tablets);
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
         for (const auto& tablet : tablets) {
             Status st = _cooldown_thread_pool->submit_func([=]() {

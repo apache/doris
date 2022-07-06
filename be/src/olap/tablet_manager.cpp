@@ -1269,7 +1269,7 @@ struct SortCtx {
     int64_t file_size;
 };
 
-void TabletManager::get_cooldwon_tablets(std::vector<TabletSharedPtr>* tablets) {
+void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets) {
     std::vector<SortCtx> sort_ctx_vec;
     for (const auto& tablets_shard : _tablets_shards) {
         std::shared_lock rdlock(tablets_shard.lock);
