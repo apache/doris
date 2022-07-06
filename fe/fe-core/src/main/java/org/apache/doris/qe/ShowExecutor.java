@@ -821,7 +821,7 @@ public class ShowExecutor {
     // Show create table
     private void handleShowCreateTable() throws AnalysisException {
         ShowCreateTableStmt showStmt = (ShowCreateTableStmt) stmt;
-        DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(showStmt.getCtl())
+        DatabaseIf db = ctx.getCatalog().getDataSourceMgr().getCatalog(showStmt.getCtl())
                 .getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
