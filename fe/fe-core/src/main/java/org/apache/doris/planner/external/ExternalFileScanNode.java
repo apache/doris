@@ -135,6 +135,30 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
+    private static class FileSpiltStrategy {
+        private long totalSpiltSize;
+        private int spiltNum;
+
+        FileSpiltStrategy() {
+            this.totalSpiltSize = 0;
+            this.spiltNum = 0;
+        }
+
+        public void update(FileSplit split) {
+            totalSpiltSize += split.getLength();
+            spiltNum++;
+        }
+
+        public boolean hasNext() {
+            return totalSpiltSize > Config.file_scan_node_spilt_size || spiltNum > Config.file_scan_node_spilt_num;
+        }
+
+        public void next() {
+            totalSpiltSize = 0;
+            spiltNum = 0;
+        }
+    }
+
     private final BackendPolicy backendPolicy = new BackendPolicy();
 
     private final ParamCreateContext context = new ParamCreateContext();
@@ -256,8 +280,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String fsName = fullPath.replace(filePath, "");
 
         TScanRangeLocations curLocations = newLocations(context.params);
-        long fragmentSize = 0;
-        int fileNum = 0;
+
+        FileSpiltStrategy fileSpiltStrategy = new FileSpiltStrategy();
 
         for (InputSplit split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
@@ -272,14 +296,13 @@ public class ExternalFileScanNode extends ExternalScanNode {
             Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
                     + " with table split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
-            fragmentSize += fileSplit.getLength();
-            fileNum++;
 
-            if (fragmentSize > 256L * 1024 * 1024 *  1024 || fileNum > 128) {
+            fileSpiltStrategy.update(fileSplit);
+            // Add a new location when it's can be spilt
+            if (fileSpiltStrategy.hasNext()) {
                 scanRangeLocations.add(curLocations);
                 curLocations = newLocations(context.params);
-                fragmentSize = 0;
-                fileNum = 0;
+                fileSpiltStrategy.next();
             }
         }
         if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
@@ -354,7 +377,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        LOG.info("There is {} fragments on the be nodes.", scanRangeLocations.size());
+        LOG.info("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
         return scanRangeLocations;
     }
 

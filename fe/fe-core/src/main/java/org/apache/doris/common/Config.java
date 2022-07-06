@@ -1654,6 +1654,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_catalog = false; // 1 min
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static long file_scan_node_spilt_size = 256 * 1024 * 1024; // 256mb
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long file_scan_node_spilt_num = 128;
+
     /**
      * If set to TRUE, FE will:
      * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
