@@ -1035,10 +1035,10 @@ visible_functions = [
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['strleft', 'left'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['strright', 'right'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['ends_with'], 'BOOLEAN', ['STRING', 'STRING'],
         '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
