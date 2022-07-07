@@ -71,6 +71,11 @@ public class LogicalJoin extends LogicalBinaryOperator {
         return joinType;
     }
 
+    public JoinReorderContext getJoinReorderContext() {
+        return joinReorderContext;
+    }
+
+
     @Override
     public List<Slot> computeOutput(Plan leftInput, Plan rightInput) {
 
@@ -111,6 +116,11 @@ public class LogicalJoin extends LogicalBinaryOperator {
     }
 
     @Override
+    public List<Expression> getExpressions() {
+        return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
+    }
+
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("LogicalJoin (").append(joinType);
         condition.ifPresent(expression -> sb.append(", ").append(expression));
@@ -118,11 +128,19 @@ public class LogicalJoin extends LogicalBinaryOperator {
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        LogicalJoin that = (LogicalJoin) o;
+        return joinType == that.joinType && Objects.equals(condition, that.condition);
     }
 
-    public JoinReorderContext getJoinReorderContext() {
-        return joinReorderContext;
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), joinType, condition);
     }
 }

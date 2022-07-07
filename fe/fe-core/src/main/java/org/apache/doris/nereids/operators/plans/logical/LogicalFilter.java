@@ -48,12 +48,29 @@ public class LogicalFilter extends LogicalUnaryOperator {
     }
 
     @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of(predicates);
+    }
+
+    @Override
     public String toString() {
         return "LogicalFilter (" + predicates + ")";
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return ImmutableList.of(predicates);
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        LogicalFilter that = (LogicalFilter) o;
+        return predicates.equals(that.predicates);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), predicates);
     }
 }

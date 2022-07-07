@@ -63,6 +63,23 @@ public abstract class LogicalRelation extends LogicalLeafOperator {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        LogicalRelation that = (LogicalRelation) o;
+        return Objects.equals(table.getId(), that.table.getId()) && Objects.equals(qualifier, that.qualifier);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), table.getId(), qualifier);
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()

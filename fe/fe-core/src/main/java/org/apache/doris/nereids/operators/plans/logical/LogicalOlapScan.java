@@ -20,11 +20,12 @@ package org.apache.doris.nereids.operators.plans.logical;
 import org.apache.doris.catalog.Table;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Logical OlapScan operator.
  */
-public class LogicalOlapScan extends LogicalRelation  {
+public class LogicalOlapScan extends LogicalRelation {
 
     /**
      * Constructor for LogicalOlapScan.
@@ -34,5 +35,21 @@ public class LogicalOlapScan extends LogicalRelation  {
      */
     public LogicalOlapScan(Table table, List<String> qualifier) {
         super(table, qualifier);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode());
     }
 }

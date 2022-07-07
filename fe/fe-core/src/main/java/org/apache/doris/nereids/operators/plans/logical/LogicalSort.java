@@ -74,6 +74,24 @@ public class LogicalSort extends LogicalUnaryOperator {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        LogicalSort that = (LogicalSort) o;
+        return offset == that.offset && Objects.equals(orderKeys, that.orderKeys);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), orderKeys, offset);
+    }
+
+
+    @Override
     public List<Expression> getExpressions() {
         return orderKeys.stream()
                 .map(OrderKey::getExpr)
