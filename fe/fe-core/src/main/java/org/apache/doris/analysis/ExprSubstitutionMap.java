@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -156,7 +157,7 @@ public final class ExprSubstitutionMap {
      * f [A.id, B.id] g [A.id, C.id]
      * return: g-f [B,id, C,id]
      */
-    public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g) {
+    public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g, Analyzer analyzer) {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }
@@ -170,8 +171,14 @@ public final class ExprSubstitutionMap {
         for (int i = 0; i < g.size(); i++) {
             if (f.containsMappingFor(g.lhs_.get(i))) {
                 result.put(f.get(g.lhs_.get(i)), g.rhs_.get(i));
+                if (f.get(g.lhs_.get(i)) instanceof SlotRef && g.rhs_.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs_.get(i)).getSlotId(), ((SlotRef) Objects.requireNonNull(f.get(g.lhs_.get(i)))).getSlotId());
+                }
             } else {
                 result.put(g.lhs_.get(i), g.rhs_.get(i));
+                if (g.lhs_.get(i) instanceof SlotRef && g.rhs_.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs_.get(i)).getSlotId(), ((SlotRef) g.lhs_.get(i)).getSlotId());
+                }
             }
         }
         return result;

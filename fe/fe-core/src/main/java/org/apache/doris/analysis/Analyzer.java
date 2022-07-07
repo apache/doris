@@ -181,6 +181,12 @@ public class Analyzer {
 
     public String getTimezone() { return timezone; }
 
+    public void putEquivalentSlot(SlotId src_sid, SlotId target_sid) { globalState.equivalentSlots.put(src_sid, target_sid); }
+
+    public SlotId getEquivalentSlot(SlotId src_sid) { return globalState.equivalentSlots.get(src_sid); }
+
+    public boolean containEquivalentSlot(SlotId src_sid) { return globalState.equivalentSlots.containsKey(src_sid); }
+
     public void putAssignedRuntimeFilter(RuntimeFilter rf) { assignedRuntimeFilters.add(rf); }
 
     public List<RuntimeFilter> getAssignedRuntimeFilter() { return assignedRuntimeFilters; }
@@ -312,6 +318,8 @@ public class Analyzer {
         private final ExprRewriter mvExprRewriter;
 
         private final long autoBroadcastJoinThreshold;
+
+        private final Map<SlotId, SlotId> equivalentSlots = Maps.newHashMap();
 
         public GlobalState(Catalog catalog, ConnectContext context) {
             this.catalog = catalog;
@@ -2141,7 +2149,7 @@ public class Analyzer {
      * TODO(zxy) Use value-transfer graph to check
      */
     public boolean hasValueTransfer(SlotId a, SlotId b) {
-        return a.equals(b);
+        return getValueTransferTargets(a).contains(b);
     }
 
     /**
@@ -2153,6 +2161,11 @@ public class Analyzer {
     public List<SlotId> getValueTransferTargets(SlotId srcSid) {
         List<SlotId> result = new ArrayList<>();
         result.add(srcSid);
+        SlotId equalSlot = srcSid;
+        while(containEquivalentSlot(equalSlot)) {
+            result.add(getEquivalentSlot(equalSlot));
+            equalSlot = getEquivalentSlot(equalSlot);
+        }
         return result;
     }
 
