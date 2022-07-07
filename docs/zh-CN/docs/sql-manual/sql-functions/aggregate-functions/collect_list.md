@@ -30,7 +30,7 @@ under the License.
 
 `ARRAY<T> collect_list(expr)`
 
-返回一个包含 epxr 中所有元素(不包括NULL)的数组，数组中元素顺序是不确定的。
+返回一个包含 expr 中所有元素(不包括NULL)的数组，数组中元素顺序是不确定的。
 
 
 ### notice
