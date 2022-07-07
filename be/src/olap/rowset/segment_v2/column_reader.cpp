@@ -85,7 +85,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             return Status::OK();
         }
         default:
-            return Status::NotSupported("unsupported type for ColumnReader: " +
+            return Status::NotSupported("unsupported type for ColumnReader: {}",
                                         std::to_string(type));
         }
     }
@@ -104,8 +104,7 @@ ColumnReader::~ColumnReader() = default;
 Status ColumnReader::init() {
     _type_info = get_type_info(&_meta);
     if (_type_info == nullptr) {
-        return Status::NotSupported(
-                strings::Substitute("unsupported typeinfo, type=$0", _meta.type()));
+        return Status::NotSupported("unsupported typeinfo, type={}", _meta.type());
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
 
@@ -125,17 +124,15 @@ Status ColumnReader::init() {
             _bf_index_meta = &index_meta.bloom_filter_index();
             break;
         default:
-            return Status::Corruption(
-                    strings::Substitute("Bad file $0: invalid column index type $1",
-                                        _path_desc.filepath, index_meta.type()));
+            return Status::Corruption("Bad file {}: invalid column index type {}",
+                                      _path_desc.filepath, index_meta.type());
         }
     }
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
     if (_ordinal_index_meta == nullptr && !is_empty()) {
-        return Status::Corruption(
-                strings::Substitute("Bad file $0: missing ordinal index for column $1",
-                                    _path_desc.filepath, _meta.column_id()));
+        return Status::Corruption("Bad file {}: missing ordinal index for column {}",
+                                  _path_desc.filepath, _meta.column_id());
     }
     return Status::OK();
 }
@@ -341,7 +338,7 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->seek_at_or_before(ordinal);
     if (!iter->valid()) {
-        return Status::NotFound(strings::Substitute("Failed to seek to ordinal $0, ", ordinal));
+        return Status::NotFound("Failed to seek to ordinal {}, ", ordinal);
     }
     return Status::OK();
 }
@@ -374,7 +371,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             return Status::OK();
         }
         default:
-            return Status::NotSupported("unsupported type to create iterator: " +
+            return Status::NotSupported("unsupported type to create iterator: {}",
                                         std::to_string(type));
         }
     }
@@ -758,7 +755,9 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                     }
                 }
 
-                if (!is_null) _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                if (!is_null) {
+                    _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                }
 
                 already_read += this_read_count;
                 _page.offset_in_page += this_run;
@@ -769,8 +768,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            _page.data_decoder->read_by_rowids(&rowids[total_read_count], _page.first_ordinal,
-                                               &nrows_to_read, dst);
+            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
+                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }
@@ -993,15 +992,23 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
 
 Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                               bool* has_null) {
-    if (_is_default_value_null) {
-        *has_null = true;
-        dst->insert_many_defaults(*n);
-    } else {
-        *has_null = false;
-        insert_default_data(_type_info.get(), _type_size, _mem_value, dst, *n);
-    }
-
+    *has_null = _is_default_value_null;
+    _insert_many_default(dst, *n);
     return Status::OK();
+}
+
+Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                  vectorized::MutableColumnPtr& dst) {
+    _insert_many_default(dst, count);
+    return Status::OK();
+}
+
+void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnPtr& dst, size_t n) {
+    if (_is_default_value_null) {
+        dst->insert_many_defaults(n);
+    } else {
+        insert_default_data(_type_info.get(), _type_size, _mem_value, dst, n);
+    }
 }
 
 } // namespace segment_v2

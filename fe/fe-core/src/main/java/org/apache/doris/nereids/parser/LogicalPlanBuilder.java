@@ -39,6 +39,7 @@ import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
@@ -77,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -84,6 +86,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
@@ -98,6 +101,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -190,7 +194,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         .map(RuleContext::getText)
                         .collect(ImmutableList.toImmutableList());
             } else {
-                target = Lists.newArrayList();
+                target = Collections.emptyList();
             }
             return new UnboundStar(target);
         });
@@ -402,7 +406,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitParenthesizedExpression(DorisParser.ParenthesizedExpressionContext ctx) {
+    public Expression visitParenthesizedExpression(ParenthesizedExpressionContext ctx) {
         return getExpression(ctx.expression());
     }
 
@@ -635,18 +639,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     private Expression withPredicate(Expression valueExpression, PredicateContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
+            Expression outExpression;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
-                    boolean isNotBetween = ctx.NOT() != null ? true : false;
-                    Between between = new Between(
+                    outExpression = new Between(
                             valueExpression,
                             getExpression(ctx.lower),
                             getExpression(ctx.upper)
                     );
-                    return isNotBetween ? new Not(between) : between;
+                    break;
+                case DorisParser.LIKE:
+                    outExpression = new Like(
+                        valueExpression,
+                        getExpression(ctx.pattern)
+                    );
+                    break;
+                case DorisParser.REGEXP:
+                    outExpression = new Regexp(
+                        valueExpression,
+                        getExpression(ctx.pattern)
+                    );
+                    break;
                 default:
                     throw new IllegalStateException("Unsupported predicate type: " + ctx.kind.getText());
             }
+            return ctx.NOT() != null ? new Not(outExpression) : outExpression;
         });
     }
 

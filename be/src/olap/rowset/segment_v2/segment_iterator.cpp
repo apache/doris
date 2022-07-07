@@ -21,12 +21,11 @@
 #include <set>
 #include <utility>
 
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
 #include "olap/fs/fs_util.h"
-#include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
-#include "olap/row.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -34,9 +33,6 @@
 #include "olap/short_key_index.h"
 #include "util/doris_metrics.h"
 #include "util/simd/bits.h"
-#include "vec/columns/column_dictionary.h"
-
-using strings::Substitute;
 
 namespace doris {
 namespace segment_v2 {
@@ -883,7 +879,6 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t original_size = selected_size;
     bool ret_flags[selected_size];
-    memset(ret_flags, 1, selected_size);
     _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
 
     uint16_t new_size = 0;
@@ -933,11 +928,14 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         auto* col_ptr = short_cir_column.get();
-        // range comparison predicate needs to sort the dict and convert the encoding
-        if (predicate->type() == PredicateType::LT || predicate->type() == PredicateType::LE ||
-            predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
+
+        // Dictionary column should do something to initial.
+        if (PredicateTypeTraits::is_range(predicate->type())) {
             col_ptr->convert_dict_codes_if_necessary();
+        } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+            col_ptr->generate_hash_values_for_runtime_filter();
         }
+
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
     _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
@@ -950,10 +948,10 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     return selected_size;
 }
 
-void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
-                                              std::vector<rowid_t>& rowid_vector,
-                                              uint16_t* sel_rowid_idx, size_t select_size,
-                                              vectorized::MutableColumns* mutable_columns) {
+Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
+                                                std::vector<rowid_t>& rowid_vector,
+                                                uint16_t* sel_rowid_idx, size_t select_size,
+                                                vectorized::MutableColumns* mutable_columns) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
     for (size_t i = 0; i < select_size; ++i) {
@@ -961,8 +959,10 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
     }
     for (auto cid : read_column_ids) {
         auto& column = (*mutable_columns)[cid];
-        _column_iterators[cid]->read_by_rowids(rowids.data(), select_size, column);
+        RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size, column));
     }
+
+    return Status::OK();
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
@@ -1047,8 +1047,9 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         }
 
         // step3: read non_predicate column
-        _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx, selected_size,
-                                &_current_return_columns);
+        RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
+                                                sel_rowid_idx, selected_size,
+                                                &_current_return_columns));
 
         // step4: output columns
         // 4.1 output non-predicate column

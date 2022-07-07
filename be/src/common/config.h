@@ -295,12 +295,6 @@ CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 CONF_mInt32(max_base_compaction_threads, "4");
 CONF_mInt32(max_cumu_compaction_threads, "10");
 
-// This config can be set to limit thread number in convert rowset thread pool.
-CONF_mInt32(convert_rowset_thread_num, "0");
-
-// initial sleep interval in seconds of scan alpha rowset
-CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
-
 // This config can be set to limit thread number in  smallcompaction thread pool.
 CONF_mInt32(quick_compaction_max_threads, "10");
 
@@ -490,7 +484,7 @@ CONF_mInt64(memtable_max_buffer_size, "419430400");
 // impact the load performance when user upgrading Doris.
 // user should set these configs properly if necessary.
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
-CONF_Int32(load_process_max_memory_limit_percent, "80");         // 80%
+CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -713,9 +707,12 @@ CONF_mInt32(segment_cache_capacity, "1000000");
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
 
-// If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
-// the value set by the fallback version kafka_broker_version_fallback will be used,
-// and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+// reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
+// If the dependent kafka broker version older than 0.10.0.0,
+// the value of kafka_api_version_request should be false, and the
+// value set by the fallback version kafka_broker_version_fallback will be used,
+// and the valid values are: 0.9.0.x, 0.8.x.y.
+CONF_String(kafka_api_version_request, "true");
 CONF_String(kafka_broker_version_fallback, "0.10.0");
 
 // The number of pool siz of routine load consumer.

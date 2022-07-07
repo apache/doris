@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.OperatorType;
@@ -45,8 +45,9 @@ public class LogicalProjectToPhysicalProjectTest implements Plans {
 
         Rule<Plan> rule = new LogicalProjectToPhysicalProject().build();
 
-        PlannerContext plannerContext = new PlannerContext(new OptimizerContext(new Memo()), new ConnectContext(),
-                new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(new Memo(), new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
         List<Plan> transform = rule.transform(plan, plannerContext);
         Assert.assertEquals(1, transform.size());
 

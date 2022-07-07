@@ -21,7 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -305,7 +305,7 @@ public class SlotRef extends Expr {
         if ((col == null) != (other.col == null)) {
             return false;
         }
-        if (col != null && !col.toLowerCase().equals(other.col.toLowerCase())) {
+        if (col != null && !col.equalsIgnoreCase(other.col)) {
             return false;
         }
         return true;
@@ -373,7 +373,7 @@ public class SlotRef extends Expr {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);
             }
         } else {
-            Table table = (Table) desc.getParent().getTable();
+            TableIf table = desc.getParent().getTable();
             if (table == null) {
                 // Maybe this column comes from inline view.
                 return;
@@ -388,9 +388,9 @@ public class SlotRef extends Expr {
         }
     }
 
-    public Table getTable() {
+    public TableIf getTable() {
         Preconditions.checkState(desc != null);
-        return (Table) desc.getParent().getTable();
+        return desc.getParent().getTable();
     }
 
     public void setLabel(String label) {
@@ -440,5 +440,10 @@ public class SlotRef extends Expr {
     public boolean isNullable() {
         Preconditions.checkNotNull(desc);
         return desc.getIsNullable();
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
     }
 }

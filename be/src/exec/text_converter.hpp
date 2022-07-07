@@ -188,10 +188,17 @@ inline void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
 inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
                                         vectorized::MutableColumnPtr* column_ptr, const char* data,
                                         size_t len, bool copy_string, bool need_escape) {
-    vectorized::IColumn* col_ptr = column_ptr->get();
+    vectorized::IColumn* nullable_col_ptr = column_ptr->get();
+    return write_vec_column(slot_desc, nullable_col_ptr, data, len, copy_string, need_escape);
+}
+
+inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
+                                            vectorized::IColumn* nullable_col_ptr, const char* data,
+                                            size_t len, bool copy_string, bool need_escape) {
+    vectorized::IColumn* col_ptr = nullable_col_ptr;
     // \N means it's NULL
     if (true == slot_desc->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(nullable_col_ptr);
         if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
             nullable_column->insert_data(nullptr, 0);
             return true;
@@ -200,12 +207,7 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
             col_ptr = &nullable_column->get_nested_column();
         }
     }
-    return write_vec_column(slot_desc, col_ptr, data, len, copy_string, need_escape);
-}
 
-inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
-                                            vectorized::IColumn* col_ptr, const char* data,
-                                            size_t len, bool copy_string, bool need_escape) {
     StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
 
     // Parse the raw-text data. Translate the text string to internal format.

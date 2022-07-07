@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
@@ -42,9 +42,9 @@ public class ApplyRuleJob extends Job<Plan> {
      *
      * @param groupExpression apply rule on this {@link GroupExpression}
      * @param rule rule to be applied
-     * @param context context of optimization
+     * @param context context of current job
      */
-    public ApplyRuleJob(GroupExpression groupExpression, Rule<Plan> rule, PlannerContext context) {
+    public ApplyRuleJob(GroupExpression groupExpression, Rule<Plan> rule, JobContext context) {
         super(JobType.APPLY_RULE, context);
         this.groupExpression = groupExpression;
         this.rule = rule;
@@ -60,9 +60,9 @@ public class ApplyRuleJob extends Job<Plan> {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
-            List<Plan> newPlans = rule.transform(plan, context);
+            List<Plan> newPlans = rule.transform(plan, context.getPlannerContext());
             for (Plan newPlan : newPlans) {
-                GroupExpression newGroupExpression = context.getOptimizerContext().getMemo()
+                GroupExpression newGroupExpression = context.getPlannerContext().getMemo()
                         .copyIn(newPlan, groupExpression.getParent(), rule.isRewrite());
                 if (newPlan instanceof LogicalPlan) {
                     pushTask(new DeriveStatsJob(newGroupExpression, context));

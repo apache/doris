@@ -479,9 +479,11 @@ public class Catalog {
     }
 
     public DataSourceIf getCurrentDataSource() {
-        // TODO: this should be got from connect context.
-        // Will be fixed later.
-        return dataSourceMgr.getInternalDataSource();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return dataSourceMgr.getInternalDataSource();
+        }
+        return ctx.getCurrentDataSource();
     }
 
     public InternalDataSource getInternalDataSource() {
@@ -2468,6 +2470,7 @@ public class Catalog {
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
                 bdbha.addHelperSocket(host, editLogPort);
                 helperNodes.add(Pair.create(host, editLogPort));
+                bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
             }
             bdbha.removeConflictNodeIfExist(host, editLogPort);
             editLog.logAddFrontend(fe);
@@ -2497,6 +2500,8 @@ public class Catalog {
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
                 helperNodes.remove(Pair.create(host, port));
+                BDBHA ha = (BDBHA) haProtocol;
+                ha.removeUnReadyElectableNode(nodeName, getFollowerCount());
             }
             editLog.logRemoveFrontend(fe);
         } finally {
@@ -2868,6 +2873,13 @@ public class Catalog {
             if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
                 sb.append(olapTable.getCompressionType()).append("\"");
+            }
+
+            // sequence type
+            if (olapTable.hasSequenceCol()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                sb.append(olapTable.getSequenceType().toString()).append("\"");
             }
 
             sb.append("\n)");
@@ -4163,7 +4175,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
-        getInternalDataSource().getDbOrDdlException(qualifiedDb);
+        ctx.getCurrentDataSource().getDbOrDdlException(qualifiedDb);
         ctx.setDatabase(qualifiedDb);
     }
 
@@ -4921,5 +4933,15 @@ public class Catalog {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
         }
+    }
+
+    public int getFollowerCount() {
+        int count = 0;
+        for (Frontend fe : frontends.values()) {
+            if (fe.getRole() == FrontendNodeType.FOLLOWER) {
+                count++;
+            }
+        }
+        return count;
     }
 }

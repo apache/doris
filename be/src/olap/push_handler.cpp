@@ -162,7 +162,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                     request.partition_id, tablet_var.tablet, request.transaction_id);
             // has to check rollback status to ensure not delete a committed rowset
             if (rollback_status.ok()) {
-                // actually, olap_index may has been deleted in delete_transaction()
                 StorageEngine::instance()->add_unused_rowset(tablet_var.rowset_to_add);
             }
         }

@@ -206,15 +206,6 @@ Status VOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    // use _tablet_reader_params.return_columns, because reader use this to merge sort
-    Status res =
-            _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to init row cursor.res = " << res;
-        return Status::InternalError("failed to initialize storage read row cursor");
-    }
-    _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
-
     // If a agg node is this scan node direct parent
     // we will not call agg object finalize method in scan node,
     // to avoid the unnecessary SerDe and improve query performance
@@ -242,7 +233,6 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         _return_columns.push_back(index);
         if (slot->is_nullable() && !_tablet->tablet_schema().column(index).is_nullable())
             _tablet_columns_convert_to_null_set.emplace(index);
-        _query_slots.push_back(slot);
     }
 
     // expand the sequence column
@@ -274,7 +264,6 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
-    int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
@@ -299,8 +288,7 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
             _update_realtime_counter();
             RETURN_IF_ERROR(
                     VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
-        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
-                 block->allocated_bytes() < raw_bytes_threshold);
+        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
     }
     // NOTE:
     // There is no need to check raw_bytes_threshold since block->rows() == 0 is checked first.

@@ -174,7 +174,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
         if (i + 1 < _agg_functions_size) {
             size_t alignment_of_next_state = _agg_functions[i + 1]->function()->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
-                return Status::RuntimeError(fmt::format("Logical error: align_of_data is not 2^N"));
+                return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }
             /// Extend total_size to next alignment requirement
             /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.

@@ -192,10 +192,9 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
                                 reinterpret_cast<vectorized::ColumnNullable*>(columns[i].get());
                         nullable_column->insert_data(nullptr, 0);
                     } else {
-                        std::stringstream ss;
-                        ss << "nonnull column contains NULL. table=" << _table_name
-                           << ", column=" << slot_desc->col_name();
-                        return Status::InternalError(ss.str());
+                        return Status::InternalError(
+                                "nonnull column contains NULL. table={}, column={}", _table_name,
+                                slot_desc->col_name());
                     }
                 } else {
                     RETURN_IF_ERROR(

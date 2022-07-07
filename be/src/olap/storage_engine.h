@@ -255,8 +255,6 @@ private:
 
     void _compaction_tasks_producer_callback();
 
-    void _alpha_rowset_scan_thread_callback();
-
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
@@ -386,9 +384,6 @@ private:
     std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
-
-    scoped_refptr<Thread> _alpha_rowset_scan_thread;
-    std::unique_ptr<ThreadPool> _convert_rowset_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 

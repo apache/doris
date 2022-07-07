@@ -157,7 +157,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 FrontendHbResponse hbResponse = (FrontendHbResponse) response;
                 Frontend fe = Catalog.getCurrentCatalog().getFeByName(hbResponse.getName());
                 if (fe != null) {
-                    return fe.handleHbResponse(hbResponse);
+                    return fe.handleHbResponse(hbResponse, isReplay);
                 }
                 break;
             }

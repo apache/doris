@@ -61,20 +61,19 @@ S3Writer::~S3Writer() {
 Status S3Writer::open() {
     CHECK_S3_CLIENT(_client);
     if (!_uri.parse()) {
-        return Status::InvalidArgument("s3 uri is invalid: " + _path);
+        return Status::InvalidArgument("s3 uri is invalid: {}", _path);
     }
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(_uri.get_bucket()).WithKey(_uri.get_key());
     Aws::S3::Model::HeadObjectOutcome response = _client->HeadObject(request);
     if (response.IsSuccess()) {
-        return Status::AlreadyExist(_path + " already exists.");
+        return Status::AlreadyExist("{} already exists.", _path);
     } else if (response.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return Status::OK();
     } else {
-        std::stringstream out;
-        out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
-        return Status::InternalError(out.str());
+        return Status::InternalError("Error: [{}:{}] at {}", response.GetError().GetExceptionName(),
+                                     response.GetError().GetMessage(),
+                                     BackendOptions::get_localhost());
     }
 }
 
@@ -86,16 +85,16 @@ Status S3Writer::write(const uint8_t* buf, size_t buf_len, size_t* written_len) 
     if (!_temp_file) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::BufferAllocFailed(
-                        fmt::format("The internal temporary file is not writable for {}. at {}",
-                                    strerror(errno), BackendOptions::get_localhost())),
+                        "The internal temporary file is not writable for {}. at {}",
+                        strerror(errno), BackendOptions::get_localhost()),
                 "write temp file error");
     }
     _temp_file->write(reinterpret_cast<const char*>(buf), buf_len);
     if (!_temp_file->good()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::BufferAllocFailed(
-                        fmt::format("Could not append to the internal temporary file for {}. at {}",
-                                    strerror(errno), BackendOptions::get_localhost())),
+                        "Could not append to the internal temporary file for {}. at {}",
+                        strerror(errno), BackendOptions::get_localhost()),
                 "write temp file error");
     }
     *written_len = buf_len;
@@ -114,8 +113,8 @@ Status S3Writer::_sync() {
     if (!_temp_file) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::BufferAllocFailed(
-                        fmt::format("The internal temporary file is not writable for {}. at {}",
-                                    strerror(errno), BackendOptions::get_localhost())),
+                        "The internal temporary file is not writable for {}. at {}",
+                        strerror(errno), BackendOptions::get_localhost()),
                 "write temp file error");
     }
     CHECK_S3_CLIENT(_client);
@@ -131,10 +130,9 @@ Status S3Writer::_sync() {
     if (response.IsSuccess()) {
         return Status::OK();
     } else {
-        std::stringstream out;
-        out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
-        return Status::InternalError(out.str());
+        return Status::InternalError("Error: [{}:{}] at {}", response.GetError().GetExceptionName(),
+                                     response.GetError().GetMessage(),
+                                     BackendOptions::get_localhost());
     }
 }
 } // end namespace doris

@@ -38,6 +38,9 @@ import java.util.Map;
 @Getter
 @Data
 public class CatalogLog implements Writable {
+    @SerializedName(value = "catalogId")
+    private long catalogId;
+
     @SerializedName(value = "catalogName")
     private String catalogName;
 

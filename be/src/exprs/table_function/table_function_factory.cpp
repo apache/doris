@@ -101,8 +101,8 @@ Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, bool is_vect
         return Status::OK();
     }
 
-    return Status::NotSupported(std::string(is_vectorized ? "vectorized " : "") +
-                                "table function " + fn_name_raw + " not support");
+    return Status::NotSupported("{}table function {} not support",
+                                std::string(is_vectorized ? "vectorized " : ""), fn_name_raw);
 }
 
 } // namespace doris

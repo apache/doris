@@ -141,8 +141,8 @@ public:
                     return false;
                 });
         if (!valid) {
-            return Status::RuntimeError(
-                    fmt::format("{}'s argument does not match the expected data type", get_name()));
+            return Status::RuntimeError("{}'s argument does not match the expected data type",
+                                        get_name());
         }
         return Status::OK();
     }

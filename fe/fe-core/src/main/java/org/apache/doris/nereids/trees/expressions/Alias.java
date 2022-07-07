@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
@@ -50,6 +51,11 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
+    public Slot toSlot() throws UnboundException {
+        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
+    }
+
+    @Override
     public String getName() throws UnboundException {
         return name;
     }
@@ -62,11 +68,6 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     @Override
     public List<String> getQualifier() {
         return qualifier;
-    }
-
-    @Override
-    public Slot toSlot() throws UnboundException {
-        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
     }
 
     @Override
@@ -90,8 +91,19 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
+    public Alias<CHILD_TYPE> clone() {
+        CHILD_TYPE childType = (CHILD_TYPE) children.get(0).clone();
+        return new Alias<>(childType, name);
+    }
+
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitAlias(this, context);
+    }
+
+    @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Alias<>(children.get(0), name);
     }
+
 }

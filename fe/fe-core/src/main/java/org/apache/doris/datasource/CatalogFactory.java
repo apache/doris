@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.StatementBase;
 
 import java.util.Map;
@@ -34,23 +33,20 @@ public class CatalogFactory {
     /**
      * Convert the sql statement into catalog log.
      */
-    public static CatalogLog constructorCatalogLog(StatementBase stmt) {
+    public static CatalogLog constructorCatalogLog(long catalogId, StatementBase stmt) {
         CatalogLog log = new CatalogLog();
         if (stmt instanceof CreateCatalogStmt) {
+            log.setCatalogId(catalogId);
             log.setCatalogName(((CreateCatalogStmt) stmt).getCatalogName());
             log.setProps(((CreateCatalogStmt) stmt).getProperties());
         } else if (stmt instanceof DropCatalogStmt) {
-            log.setCatalogName(((DropCatalogStmt) stmt).getCatalogName());
+            log.setCatalogId(catalogId);
         } else if (stmt instanceof AlterCatalogPropertyStmt) {
-            log.setCatalogName(((AlterCatalogPropertyStmt) stmt).getCatalogName());
+            log.setCatalogId(catalogId);
             log.setNewProps(((AlterCatalogPropertyStmt) stmt).getNewProperties());
         } else if (stmt instanceof AlterCatalogNameStmt) {
-            log.setCatalogName(((AlterCatalogNameStmt) stmt).getCatalogName());
+            log.setCatalogId(catalogId);
             log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
-        } else if (stmt instanceof ShowCatalogStmt) {
-            if (((ShowCatalogStmt) stmt).getCatalogName() != null) {
-                log.setCatalogName(((ShowCatalogStmt) stmt).getCatalogName());
-            }
         } else {
             throw new RuntimeException("Unknown stmt for datasource manager " + stmt.getClass().getSimpleName());
         }
@@ -61,18 +57,18 @@ public class CatalogFactory {
      * create the datasource instance from data source log.
      */
     public static DataSourceIf constructorFromLog(CatalogLog log) {
-        return constructorDataSource(log.getCatalogName(), log.getProps());
+        return constructorDataSource(log.getCatalogId(), log.getCatalogName(), log.getProps());
     }
 
-    private static DataSourceIf constructorDataSource(String name, Map<String, String> props) {
+    private static DataSourceIf constructorDataSource(long catalogId, String name, Map<String, String> props) {
         String type = props.get("type");
         DataSourceIf dataSource;
         switch (type) {
             case "hms":
-                dataSource = new HMSExternalDataSource(name, props);
+                dataSource = new HMSExternalDataSource(catalogId, name, props);
                 break;
             case "es":
-                dataSource = new EsExternalDataSource(name, props);
+                dataSource = new EsExternalDataSource(catalogId, name, props);
                 break;
             default:
                 throw new RuntimeException("Unknown datasource type for " + type);

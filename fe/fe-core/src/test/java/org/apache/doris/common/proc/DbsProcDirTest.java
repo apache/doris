@@ -62,7 +62,7 @@ public class DbsProcDirTest {
     public void testRegister() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(catalog, ds);
         Assert.assertFalse(dir.register("db1", new BaseProcDir()));
     }
 
@@ -103,7 +103,7 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcNodeInterface node;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(catalog, ds);
         try {
             node = dir.lookup(String.valueOf(db1.getId()));
             Assert.assertNotNull(node);
@@ -112,7 +112,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(catalog, ds);
         try {
             node = dir.lookup(String.valueOf(db2.getId()));
             Assert.assertNotNull(node);
@@ -121,7 +121,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(catalog, ds);
         node = dir.lookup("10002");
         Assert.assertNull(node);
     }
@@ -130,7 +130,7 @@ public class DbsProcDirTest {
     public void testLookupInvalid() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(catalog, ds);
         try {
             dir.lookup(null);
         } catch (AnalysisException e) {
@@ -187,7 +187,7 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcResult result;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(catalog, ds);
         result = dir.fetchResult();
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
@@ -218,14 +218,14 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcResult result;
 
-        dir = new DbsProcDir(null);
+        dir = new DbsProcDir(null, ds);
         try {
             result = dir.fetchResult();
         } catch (NullPointerException e) {
             e.printStackTrace();
         }
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(catalog, ds);
         result = dir.fetchResult();
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
                     "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota"),

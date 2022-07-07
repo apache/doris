@@ -507,7 +507,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
     // we try to extract tablet_id from path
     size_t pos = src_path.find_last_of("/");
     if (pos == std::string::npos || pos == src_path.length() - 1) {
-        return Status::InternalError("failed to get tablet id from path: " + src_path);
+        return Status::InternalError("failed to get tablet id from path: {}", src_path);
     }
 
     std::string schema_hash_str = src_path.substr(pos + 1);
@@ -518,7 +518,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
     // skip schema hash part
     size_t pos2 = src_path.find_last_of("/", pos - 1);
     if (pos2 == std::string::npos) {
-        return Status::InternalError("failed to get tablet id from path: " + src_path);
+        return Status::InternalError("failed to get tablet id from path: {}", src_path);
     }
 
     std::string tablet_str = src_path.substr(pos2 + 1, pos - pos2);
@@ -581,7 +581,7 @@ Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t 
         *new_file_name = file_name;
         return Status::OK();
     } else {
-        return Status::InternalError("invalid tablet file name: " + file_name);
+        return Status::InternalError("invalid tablet file name: {}", file_name);
     }
 }
 
@@ -591,7 +591,7 @@ Status SnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote
     // bos://xxx/../__tbl_10004/__part_10003/__idx_10004/__10005
     size_t pos = remote_path.find_last_of("_");
     if (pos == std::string::npos) {
-        return Status::InternalError("invalid remove file path: " + remote_path);
+        return Status::InternalError("invalid remove file path: {}", remote_path);
     }
 
     std::string tablet_id_str = remote_path.substr(pos + 1);
