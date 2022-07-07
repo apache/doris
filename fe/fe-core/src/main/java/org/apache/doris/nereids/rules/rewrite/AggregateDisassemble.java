@@ -42,11 +42,11 @@ import java.util.stream.Collectors;
  * Used to generate the merge agg node for distributed execution.
  * If we have a query: SELECT SUM(v) + 1 FROM t GROUP BY k + 1
  * the initial plan is:
- *   Aggregate(phase: [FIRST_MERGE], outputExpr: SUM(v1 * v2) + 1, groupByExpr: k + 1)
+ *   Aggregate(phase: [GLOBAL], outputExpr: [SUM(v1 * v2) + 1], groupByExpr: [k + 1])
  *   +-- childPlan
  * we should rewrite to:
- *   Aggregate(phase: [FIRST_MERGE], outputExpr: [SUM(a) + 1], groupByExpr: [b])
- *   +-- Aggregate(phase: [FIRST], outputExpr: [SUM(v1 * v2) as a, (k + 1) as b], groupByExpr: [k + 1])
+ *   Aggregate(phase: [GLOBAL], outputExpr: [SUM(a) + 1], groupByExpr: [b])
+ *   +-- Aggregate(phase: [LOCAL], outputExpr: [SUM(v1 * v2) as a, (k + 1) as b], groupByExpr: [k + 1])
  *       +-- childPlan
  *
  * TODO:
