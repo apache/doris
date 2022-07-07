@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.rules.Rule;
@@ -28,7 +27,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -49,66 +50,66 @@ import java.util.stream.Collectors;
  *       +-- childPlan
  *
  * TODO:
- *     1. if instance count is 1, shouldn't disassemble the agg operator
- *     2. we need another rule to removing duplicated expressions in group by expression list
+ *     1. use different class represent different phase aggregate
+ *     2. if instance count is 1, shouldn't disassemble the agg operator
+ *     3. we need another rule to removing duplicated expressions in group by expression list
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
 
     @Override
     public Rule<Plan> build() {
         return logicalAggregate().when(p -> {
-            LogicalAggregate logicalAggregation = p.getOperator();
-            return !logicalAggregation.isDisassembled();
+            LogicalAggregate logicalAggregate = p.getOperator();
+            return !logicalAggregate.isDisassembled();
         }).thenApply(ctx -> {
-            Plan plan = ctx.root;
-            Operator operator = plan.getOperator();
-            LogicalAggregate agg = (LogicalAggregate) operator;
-            List<NamedExpression> outputExpressionList = agg.getOutputExpressionList();
-            List<Expression> groupByExpressionList = agg.getGroupByExpressionList();
+            LogicalUnaryPlan<LogicalAggregate, GroupPlan> plan = ctx.root;
+            LogicalAggregate aggregate = plan.getOperator();
+            List<NamedExpression> originOutputExprs = aggregate.getOutputExpressionList();
+            List<Expression> originGroupByExprs = aggregate.getGroupByExpressionList();
 
-            Map<AggregateFunction, NamedExpression> aggregateFunctionAliasMap = Maps.newHashMap();
-            for (NamedExpression outputExpression : outputExpressionList) {
-                outputExpression.foreach(e -> {
+            Map<AggregateFunction, NamedExpression> originAggregateFunctionWithAlias = Maps.newHashMap();
+            for (NamedExpression originOutputExpr : originOutputExprs) {
+                originOutputExpr.foreach(e -> {
                     if (e instanceof AggregateFunction) {
                         AggregateFunction a = (AggregateFunction) e;
-                        aggregateFunctionAliasMap.put(a, new Alias<>(a, a.sql()));
+                        originAggregateFunctionWithAlias.put(a, new Alias<>(a, a.sql()));
                     }
                 });
             }
 
-            List<Expression> updateGroupByExpressionList = groupByExpressionList;
-            List<NamedExpression> updateGroupByAliasList = updateGroupByExpressionList.stream()
+            List<Expression> localGroupByExprs = originGroupByExprs;
+            List<NamedExpression> localGroupByWrappedAlias = localGroupByExprs.stream()
                     .map(g -> new Alias<>(g, g.sql()))
                     .collect(Collectors.toList());
 
-            List<NamedExpression> updateOutputExpressionList = Lists.newArrayList();
-            updateOutputExpressionList.addAll(updateGroupByAliasList);
-            updateOutputExpressionList.addAll(aggregateFunctionAliasMap.values());
+            List<NamedExpression> localOutputExprs = Lists.newArrayList();
+            localOutputExprs.addAll(localGroupByWrappedAlias);
+            localOutputExprs.addAll(originAggregateFunctionWithAlias.values());
 
-            List<Expression> mergeGroupByExpressionList = updateGroupByAliasList.stream()
+            List<Expression> mergeGroupByExpressionList = localGroupByWrappedAlias.stream()
                     .map(NamedExpression::toSlot).collect(Collectors.toList());
 
-            List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
-            for (NamedExpression o : outputExpressionList) {
+            List<NamedExpression> globalOutputExprs = Lists.newArrayList();
+            for (NamedExpression o : originOutputExprs) {
                 if (o.anyMatch(AggregateFunction.class::isInstance)) {
-                    mergeOutputExpressionList.add((NamedExpression) new AggregateFunctionParamsRewriter()
-                            .visit(o, aggregateFunctionAliasMap));
+                    globalOutputExprs.add((NamedExpression) new AggregateFunctionParamsRewriter()
+                            .visit(o, originAggregateFunctionWithAlias));
                 } else {
-                    for (int i = 0; i < updateGroupByAliasList.size(); i++) {
+                    for (int i = 0; i < localGroupByWrappedAlias.size(); i++) {
                         // TODO: we need to do sub tree match and replace. but we do not have semanticEquals now.
                         //    e.g. a + 1 + 2 in output expression should be replaced by
                         //    (slot reference to update phase out (a + 1)) + 2, if we do group by a + 1
                         //   currently, we could only handle output expression same with group by expression
                         if (o instanceof SlotReference) {
                             // a in output expression will be SLotReference
-                            if (o.equals(updateGroupByExpressionList.get(i))) {
-                                mergeOutputExpressionList.add(updateGroupByAliasList.get(i).toSlot());
+                            if (o.equals(localGroupByExprs.get(i))) {
+                                globalOutputExprs.add(localGroupByWrappedAlias.get(i).toSlot());
                                 break;
                             }
                         } else if (o instanceof Alias) {
                             // a + 1 in output expression will be Alias
-                            if (o.child(0).equals(updateGroupByExpressionList.get(i))) {
-                                mergeOutputExpressionList.add(updateGroupByAliasList.get(i).toSlot());
+                            if (o.child(0).equals(localGroupByExprs.get(i))) {
+                                globalOutputExprs.add(localGroupByWrappedAlias.get(i).toSlot());
                                 break;
                             }
                         }
@@ -116,26 +117,27 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 }
             }
 
-            LogicalAggregate localAgg = new LogicalAggregate(
-                    updateGroupByExpressionList,
-                    updateOutputExpressionList,
+            LogicalAggregate localAggregate = new LogicalAggregate(
+                    localGroupByExprs,
+                    localOutputExprs,
                     true,
-                    AggPhase.FIRST
+                    AggPhase.LOCAL
             );
 
-            Plan childPlan = plan(localAgg, plan.child(0));
+            Plan childPlan = plan(localAggregate, plan.child(0));
 
-            LogicalAggregate mergeAgg = new LogicalAggregate(
+            LogicalAggregate globalAggregate = new LogicalAggregate(
                     mergeGroupByExpressionList,
-                    mergeOutputExpressionList,
+                    globalOutputExprs,
                     true,
-                    AggPhase.FIRST_MERGE
+                    AggPhase.GLOBAL
             );
-            return plan(mergeAgg, childPlan);
+            return plan(globalAggregate, childPlan);
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
-    private static class AggregateFunctionParamsRewriter
+    @SuppressWarnings("InnerClassMayBeStatic")
+    private class AggregateFunctionParamsRewriter
             extends DefaultExpressionRewriter<Map<AggregateFunction, NamedExpression>> {
         @Override
         public Expression visitAggregateFunction(AggregateFunction boundFunction,

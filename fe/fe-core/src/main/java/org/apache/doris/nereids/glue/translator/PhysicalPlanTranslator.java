@@ -131,12 +131,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
 
     /**
      * Translate Agg.
+     * todo: support DISTINCT
      */
     @Override
     public PlanFragment visitPhysicalAggregate(
-            PhysicalUnaryPlan<PhysicalAggregate, Plan> agg, PlanTranslatorContext context) {
-        PlanFragment inputPlanFragment = visit(agg.child(0), context);
-        PhysicalAggregate physicalAggregate = agg.getOperator();
+            PhysicalUnaryPlan<PhysicalAggregate, Plan> aggregate, PlanTranslatorContext context) {
+        PlanFragment inputPlanFragment = visit(aggregate.child(0), context);
+        PhysicalAggregate physicalAggregate = aggregate.getOperator();
 
         // TODO: stale planner generate aggregate tuple in a special way. tuple include 2 parts:
         //    1. group by expressions: removing duplicate expressions add to tuple
@@ -177,12 +178,12 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         //  split merge agg to project(agg) and generate tuple like what first phase agg do.
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
-        if (agg.getOperator().getAggPhase() == AggPhase.FIRST_MERGE) {
+        if (physicalAggregate.getAggPhase() == AggPhase.GLOBAL) {
             slotList.addAll(groupSlotList);
             slotList.addAll(aggFunctionOutput);
             outputTupleDesc = generateTupleDesc(slotList, null, context);
         } else {
-            outputTupleDesc = generateTupleDesc(agg.getOutput(), null, context);
+            outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
         }
 
         // process partition list
@@ -194,30 +195,24 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             mergePartition = DataPartition.hashPartitioned(execGroupingExpressions);
         }
 
-        // todo: support DISTINCT
-        AggregationNode aggregationNode;
-        AggregateInfo aggInfo;
+        if (physicalAggregate.getAggPhase() == AggPhase.GLOBAL) {
+            for (FunctionCallExpr execAggExpression : execAggExpressions) {
+                execAggExpression.setMergeAggFn(true);
+            }
+        }
+        AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
+                outputTupleDesc, physicalAggregate.getAggPhase().toExec());
+        AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
+                inputPlanFragment.getPlanRoot(), aggInfo);
+        inputPlanFragment.setPlanRoot(aggregationNode);
         switch (physicalAggregate.getAggPhase()) {
-            case FIRST:
-                aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
-                        outputTupleDesc, AggregateInfo.AggPhase.FIRST);
-                aggregationNode = new AggregationNode(context.nextPlanNodeId(),
-                        inputPlanFragment.getPlanRoot(), aggInfo);
+            case LOCAL:
                 aggregationNode.unsetNeedsFinalize();
                 aggregationNode.setUseStreamingPreagg(physicalAggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
-                inputPlanFragment.setPlanRoot(aggregationNode);
                 return createParentFragment(inputPlanFragment, mergePartition, context);
-            case FIRST_MERGE:
-                for (FunctionCallExpr execAggExpression : execAggExpressions) {
-                    execAggExpression.setMergeAggFn(true);
-                }
-                aggInfo = AggregateInfo.create(execGroupingExpressions, execAggExpressions, outputTupleDesc,
-                        outputTupleDesc, AggregateInfo.AggPhase.FIRST_MERGE);
-                aggregationNode = new AggregationNode(context.nextPlanNodeId(),
-                        inputPlanFragment.getPlanRoot(), aggInfo);
-                inputPlanFragment.setPlanRoot(aggregationNode);
-                inputPlanFragment.setOutputPartition(mergePartition);
+            case GLOBAL:
+                inputPlanFragment.updateDataPartition(mergePartition);
                 return inputPlanFragment;
             default:
                 throw new RuntimeException("Unsupported yet");
