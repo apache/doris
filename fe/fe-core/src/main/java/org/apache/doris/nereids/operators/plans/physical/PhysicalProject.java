@@ -51,6 +51,23 @@ public class PhysicalProject extends PhysicalUnaryOperator {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalProject that = (PhysicalProject) o;
+        return projects.equals(that.projects);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(projects);
+    }
+
+    @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
         return visitor.visitPhysicalProject(((PhysicalUnaryPlan<PhysicalProject, Plan>) plan), context);
     }

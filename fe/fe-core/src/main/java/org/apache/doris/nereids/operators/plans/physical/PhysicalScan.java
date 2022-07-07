@@ -43,4 +43,21 @@ public abstract class PhysicalScan extends PhysicalLeafOperator {
     public List<String> getQualifier() {
         return qualifier;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalScan that = (PhysicalScan) o;
+        return Objects.equals(qualifier, that.qualifier);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), qualifier);
+    }
 }

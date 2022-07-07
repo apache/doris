@@ -132,7 +132,7 @@ public class LogicalJoin extends LogicalBinaryOperator {
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
         LogicalJoin that = (LogicalJoin) o;

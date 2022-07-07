@@ -26,8 +26,10 @@ import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Physical aggregation plan operator.
@@ -92,5 +94,35 @@ public class PhysicalAggregation extends PhysicalUnaryOperator {
         // TODO: partitionExprList maybe null.
         return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(outputExpressionList)
                 .addAll(partitionExprList).build();
+    }
+
+    @Override
+    public String toString() {
+        return "PhysicalAggregation (" + "outputExpressionList: ["
+                + StringUtils.join(outputExpressionList, ", ")
+                + "], groupByExprList: [" + StringUtils.join(groupByExprList, ", ") + "])";
+    }
+
+    /**
+     * Determine the equality with another operator
+     */
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalAggregation that = (PhysicalAggregation) o;
+        return Objects.equals(groupByExprList, that.groupByExprList)
+                && Objects.equals(outputExpressionList, that.outputExpressionList)
+                && Objects.equals(partitionExprList, that.partitionExprList)
+                && usingStream == that.usingStream
+                && aggPhase == that.aggPhase;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(groupByExprList, outputExpressionList, partitionExprList, aggPhase, usingStream);
     }
 }

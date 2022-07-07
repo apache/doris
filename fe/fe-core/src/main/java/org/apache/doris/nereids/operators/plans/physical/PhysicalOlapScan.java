@@ -30,6 +30,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Physical olap scan plan operator.
@@ -79,6 +80,22 @@ public class PhysicalOlapScan extends PhysicalScan {
         return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
                 + " (selected index id: " + selectedTabletId + ", selected partition ids: " + selectedPartitionId
                 + ", selected tablet ids: " + selectedTabletId + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode());
     }
 
     @Override

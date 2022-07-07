@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -68,5 +69,22 @@ public class PhysicalHeapSort extends PhysicalUnaryOperator {
     public List<Expression> getExpressions() {
         return ImmutableList.<Expression>builder()
                 .addAll(orderKeys.stream().map(o -> o.getExpr()).collect(Collectors.toList())).build();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalHeapSort that = (PhysicalHeapSort) o;
+        return offset == that.offset && Objects.equals(orderKeys, that.orderKeys);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), orderKeys, offset);
     }
 }

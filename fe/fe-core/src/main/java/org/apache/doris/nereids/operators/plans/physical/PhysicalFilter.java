@@ -58,4 +58,21 @@ public class PhysicalFilter extends PhysicalUnaryOperator {
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
         return visitor.visitPhysicalFilter((PhysicalUnaryPlan<PhysicalFilter, Plan>) plan, context);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalFilter that = (PhysicalFilter) o;
+        return predicates.equals(that.predicates);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), predicates);
+    }
 }
