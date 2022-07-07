@@ -56,18 +56,7 @@ public:
         _data_dir->update_capacity();
     }
 
-    static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
-    }
-
-protected:
-    OlapReaderStatistics _stats;
-
-    void SetUp() override {
+    static void SetUpTestSuite() {
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
@@ -93,11 +82,16 @@ protected:
         EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
     }
 
-    void TearDown() override {
-        if (FileUtils::check_exist(config::storage_root_path)) {
-            EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
+    static void TearDownTestSuite() {
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
         }
     }
+
+protected:
+    OlapReaderStatistics _stats;
 
     // (k1 int, k2 varchar(20), k3 int) duplicated key (k1, k2)
     void create_tablet_schema(TabletSchema* tablet_schema) {
