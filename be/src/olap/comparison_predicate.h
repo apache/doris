@@ -161,8 +161,8 @@ public:
     }
 
     template <bool is_and>
-    __attribute__((flatten)) void evaluate_vec_internal(const vectorized::IColumn& column,
-                                                        uint16_t size, bool* flags) const {
+    __attribute__((flatten)) void _evaluate_vec_internal(const vectorized::IColumn& column,
+                                                         uint16_t size, bool* flags) const {
         if (column.is_nullable()) {
             auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -228,12 +228,12 @@ public:
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
                       bool* flags) const override {
-        evaluate_vec_internal<false>(column, size, flags);
+        _evaluate_vec_internal<false>(column, size, flags);
     }
 
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override {
-        evaluate_vec_internal<true>(column, size, flags);
+        _evaluate_vec_internal<true>(column, size, flags);
     }
 
 private:
