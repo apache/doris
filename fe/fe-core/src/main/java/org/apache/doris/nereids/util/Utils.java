@@ -28,10 +28,7 @@ public class Utils {
      * @return quoted string
      */
     public static String quoteIfNeeded(String part) {
-        if (part.matches("[a-zA-Z0-9_]+") && !part.matches("\\d+")) {
-            return part;
-        } else {
-            return part.replace("`", "``");
-        }
+        return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
+                ? part : part.replace("`", "``");
     }
 }
