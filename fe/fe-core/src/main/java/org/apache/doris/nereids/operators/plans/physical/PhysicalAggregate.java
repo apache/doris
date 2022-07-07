@@ -93,4 +93,10 @@ public class PhysicalAggregate extends PhysicalUnaryOperator {
         return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(outputExpressionList)
                 .addAll(partitionExprList).build();
     }
+
+    @Override
+    public String toString() {
+        return "PhysicalAggregate([key=" + groupByExprList
+                + "], [output=" + outputExpressionList + "])";
+    }
 }
