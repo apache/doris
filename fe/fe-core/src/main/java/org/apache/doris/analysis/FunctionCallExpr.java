@@ -901,6 +901,16 @@ public class FunctionCallExpr extends Expr {
             childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("now")
+                || fnName.getFunction().equalsIgnoreCase("curtime")
+                || fnName.getFunction().equalsIgnoreCase("current_time")
+                || fnName.getFunction().equalsIgnoreCase("current_timestamp")
+                || fnName.getFunction().equalsIgnoreCase("localtime")
+                || fnName.getFunction().equalsIgnoreCase("localtimestamp")
+                || fnName.getFunction().equalsIgnoreCase("utc_timestamp")) {
+            // compatibility mysql now(1)-now(6)
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
