@@ -172,9 +172,11 @@ public:
                                     .data();
 
                     // simd automatically
+                    // we have to use (bool)cond_raw_data[row_idx] to force the output is 0 or 1
+                    // because in some cases, we might use none-zero values 1 or 2 to indicate the value is null.
                     for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                         then_idx_ptr[row_idx] |=
-                                (!then_idx_ptr[row_idx]) * cond_raw_data[row_idx] * i;
+                                (!then_idx_ptr[row_idx]) * (bool)cond_raw_data[row_idx] * i;
                     }
                 }
             }

@@ -268,16 +268,15 @@ public class AggregationNode extends PlanNode {
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
-        for (FunctionCallExpr e: aggInfo.getMaterializedAggregateExprs()) {
+        for (FunctionCallExpr e : aggInfo.getMaterializedAggregateExprs()) {
             aggregateFunctions.add(e.treeToThrift());
         }
         msg.agg_node =
-          new TAggregationNode(
-                  aggregateFunctions,
-                  aggInfo.getIntermediateTupleId().asInt(),
-                  aggInfo.getOutputTupleId().asInt(), needsFinalize);
+                new TAggregationNode(aggregateFunctions, aggInfo.getIntermediateTupleId().asInt(),
+                        aggInfo.getOutputTupleId().asInt(), needsFinalize);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         msg.agg_node.setIsUpdateStage(!aggInfo.isMerge());
+        msg.agg_node.setAggregateFunctionChangedFlags(aggInfo.getMaterializedAggregateExprChangedFlags());
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));

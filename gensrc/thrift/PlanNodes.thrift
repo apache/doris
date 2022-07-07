@@ -465,6 +465,10 @@ struct TAggregationNode {
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
   7: optional bool is_update_stage
+
+  // to support vec outer join, in some case the agg function has different nullable property in serialize and merge phase
+  // we need pass this info to be to make the agg function serialize and deserialize correctly
+  8: optional list<bool> aggregate_function_changed_flags
 }
 
 struct TRepeatNode {

@@ -333,6 +333,18 @@ public final class AggregateInfo extends AggregateInfoBase {
         return result;
     }
 
+    public ArrayList<Boolean> getMaterializedAggregateExprChangedFlags() {
+        ArrayList<Boolean> result = Lists.newArrayList();
+        for (Integer i : materializedSlots_) {
+            if (mergeAggInfo_ != null) {
+                result.add(aggregateExprs_.get(i).isNullable() != mergeAggInfo_.aggregateExprs_.get(i).isNullable());
+            } else {
+                result.add(false);
+            }
+        }
+        return result;
+    }
+
     public AggregateInfo getMergeAggInfo() {
         return mergeAggInfo_;
     }

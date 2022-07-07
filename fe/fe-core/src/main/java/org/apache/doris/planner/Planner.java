@@ -172,12 +172,13 @@ public class Planner {
             singleNodePlan.convertToVectoriezd();
         }
 
-        if (analyzer.getContext() != null
-                && analyzer.getContext().getSessionVariable().isEnableProjection()
-                && statement instanceof SelectStmt) {
-            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
-            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-        }
+        // disable ProjectPlanner for now because there is some bug to be fixed
+        // if (analyzer.getContext() != null
+        //         && analyzer.getContext().getSessionVariable().isEnableProjection()
+        //         && statement instanceof SelectStmt) {
+        //     ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+        //     projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
+        // }
 
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;

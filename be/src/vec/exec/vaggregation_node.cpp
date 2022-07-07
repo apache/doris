@@ -77,6 +77,7 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
+          _aggregate_evaluators_changed_flags(tnode.agg_node.aggregate_function_changed_flags),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(NULL),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -225,19 +226,26 @@ Status AggregationNode::prepare(RuntimeState* state) {
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
-        auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
+        auto nullable_output = _needs_finalize ? _output_tuple_desc->slots()[i]->is_nullable() : _intermediate_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
             DCHECK(nullable_output);
-            _make_nullable_keys.emplace_back(i);
+            _make_nullable_output_column_pos.emplace_back(i);
         }
     }
+    int probe_expr_count = _probe_expr_ctxs.size();
     for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
                                                           _mem_pool.get(), intermediate_slot_desc,
                                                           output_slot_desc, mem_tracker()));
+        auto nullable_output = _needs_finalize ? output_slot_desc->is_nullable() : intermediate_slot_desc->is_nullable();
+        auto nullable_agg_output = _aggregate_evaluators[i]->data_type()->is_nullable();
+        if ( nullable_output != nullable_agg_output) {
+            DCHECK(nullable_output);
+            _make_nullable_output_column_pos.emplace_back(i + probe_expr_count);
+        }
     }
 
     // set profile timer to evaluators
@@ -389,11 +397,11 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         }
         // pre stream agg need use _num_row_return to decide whether to do pre stream agg
         _num_rows_returned += block->rows();
-        _make_nullable_output_key(block);
+        _make_nullable_output_column(block);
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     } else {
         RETURN_IF_ERROR(_executor.get_result(state, block, eos));
-        _make_nullable_output_key(block);
+        _make_nullable_output_column(block);
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
         reached_limit(block, eos);
@@ -497,6 +505,9 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
     }
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+        if (_aggregate_evaluators_changed_flags[i]) {
+            write_binary(true, value_buffer_writers[i]);
+        }
         _aggregate_evaluators[i]->function()->serialize(
                 _agg_data.without_key + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
         value_buffer_writers[i].commit();
@@ -576,13 +587,16 @@ void AggregationNode::_close_without_key() {
     release_tracker();
 }
 
-void AggregationNode::_make_nullable_output_key(Block* block) {
+void AggregationNode::_make_nullable_output_column(Block* block) {
     if (block->rows() != 0) {
-        for (auto cid : _make_nullable_keys) {
-            block->get_by_position(cid).column =
-                    make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type =
-                    make_nullable(block->get_by_position(cid).type);
+        for (auto cid : _make_nullable_output_column_pos) {
+            if (!block->get_by_position(cid).column->is_nullable()) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+            }
+            if (!block->get_by_position(cid).type->is_nullable()) {
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
         }
     }
 }
@@ -695,7 +709,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
                         // will serialize value data to string column
                         std::vector<VectorBufferWriter> value_buffer_writers;
-                        bool mem_reuse = out_block->mem_reuse();
+                        bool mem_reuse = out_block->mem_reuse() && _make_nullable_output_column_pos.empty();
                         auto serialize_string_type = std::make_shared<DataTypeString>();
                         MutableColumns value_columns;
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -713,6 +727,9 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
                         for (size_t j = 0; j < rows; ++j) {
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                if (_aggregate_evaluators_changed_flags[i]) {
+                                    write_binary(true, value_buffer_writers[i]);
+                                }
                                 _aggregate_evaluators[i]->function()->serialize(
                                         _streaming_pre_places[j] + _offsets_of_aggregate_states[i],
                                         value_buffer_writers[i]);
@@ -850,14 +867,14 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
 
 Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Block* block,
                                                         bool* eos) {
-    bool mem_reuse = block->mem_reuse();
+    bool mem_reuse = block->mem_reuse() && _make_nullable_output_column_pos.empty();
     auto column_withschema = VectorizedUtils::create_columns_with_type_and_name(row_desc());
     int key_size = _probe_expr_ctxs.size();
 
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (!mem_reuse) {
-            key_columns.emplace_back(column_withschema[i].type->create_column());
+            key_columns.emplace_back(_probe_expr_ctxs[i]->root()->data_type()->create_column());
         } else {
             key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
         }
@@ -865,7 +882,8 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
     MutableColumns value_columns;
     for (int i = key_size; i < column_withschema.size(); ++i) {
         if (!mem_reuse) {
-            value_columns.emplace_back(column_withschema[i].type->create_column());
+            value_columns.emplace_back(
+                    _aggregate_evaluators[i - key_size]->data_type()->create_column());
         } else {
             value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
         }
@@ -932,7 +950,7 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
     MutableColumns value_columns(agg_size);
     DataTypes value_data_types(agg_size);
 
-    bool mem_reuse = block->mem_reuse();
+    bool mem_reuse = block->mem_reuse() && _make_nullable_output_column_pos.empty();
 
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
@@ -969,6 +987,9 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
 
                     // serialize values
                     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                        if (_aggregate_evaluators_changed_flags[i]) {
+                            write_binary(true, value_buffer_writers[i]);
+                        }
                         _aggregate_evaluators[i]->function()->serialize(
                                 mapped + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
                         value_buffer_writers[i].commit();
@@ -984,6 +1005,9 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
                             key_columns[0]->insert_data(nullptr, 0);
                             auto mapped = agg_method.data.get_null_key_data();
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                if (_aggregate_evaluators_changed_flags[i]) {
+                                    write_binary(true, value_buffer_writers[i]);
+                                }
                                 _aggregate_evaluators[i]->function()->serialize(
                                         mapped + _offsets_of_aggregate_states[i],
                                         value_buffer_writers[i]);
