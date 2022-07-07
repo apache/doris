@@ -90,12 +90,6 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
         return child().toString() + " AS `" + name + "`#" + exprId;
     }
 
-    @Override
-    public Alias<CHILD_TYPE> clone() {
-        CHILD_TYPE childType = (CHILD_TYPE) children.get(0).clone();
-        return new Alias<>(childType, name);
-    }
-
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAlias(this, context);
     }

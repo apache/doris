@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 
 /** BoundFunction. */
 public abstract class BoundFunction extends Expression {
-    private String name;
+    private final String name;
 
     public BoundFunction(String name, Expression... arguments) {
         super(NodeType.BOUND_FUNCTION, arguments);

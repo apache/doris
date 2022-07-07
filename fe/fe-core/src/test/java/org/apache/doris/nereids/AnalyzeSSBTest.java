@@ -161,10 +161,7 @@ public class AnalyzeSSBTest extends TestWithFeService {
     }
 
     private boolean checkBound(LogicalPlan root) {
-        if (!checkPlanBound(root))  {
-            return false;
-        }
-        return true;
+        return checkPlanBound(root);
     }
 
     /**

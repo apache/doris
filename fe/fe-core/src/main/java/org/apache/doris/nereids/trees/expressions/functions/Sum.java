@@ -64,9 +64,4 @@ public class Sum extends AggregateFunction implements UnaryExpression<Expression
     public DataType getIntermediateType() {
         return getDataType();
     }
-
-    @Override
-    public BoundFunction clone() {
-        return new Sum(child().clone());
-    }
 }
