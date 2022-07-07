@@ -82,6 +82,7 @@ public:
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
+    Status init_parquet_type();
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
     void close() override;
     std::shared_ptr<Statistics>& statistics() { return _statistics; }
@@ -91,7 +92,6 @@ private:
                    int32_t len);
     Status set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc);
     Status read_record_batch(bool* eof);
-    const std::shared_ptr<arrow::RecordBatch>& get_batch();
     Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t* buf,
                             int32_t* wbtyes);
 

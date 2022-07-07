@@ -118,6 +118,7 @@ Status ParquetScanner::open_next_reader() {
                 return Status::InternalError("file: {}, error:{}", range.path,
                                              status.get_error_msg());
             } else {
+                RETURN_IF_ERROR(_cur_file_reader->init_parquet_type());
                 return status;
             }
         }
