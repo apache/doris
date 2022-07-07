@@ -841,4 +841,17 @@ public class HashJoinNode extends JoinNodeBase {
     public void setOtherJoinConjuncts(List<Expr> otherJoinConjuncts) {
         this.otherJoinConjuncts = otherJoinConjuncts;
     }
+
+    SlotRef getMappedInputSlotRef(SlotRef slotRef) {
+        if (vSrcToOutputSMap != null) {
+            Expr mappedExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
+            if (mappedExpr != null && mappedExpr instanceof SlotRef) {
+                return (SlotRef) mappedExpr;
+            } else {
+                return null;
+            }
+        } else {
+            return slotRef;
+        }
+    }
 }
