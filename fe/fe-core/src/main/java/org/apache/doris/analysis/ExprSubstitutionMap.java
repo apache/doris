@@ -183,10 +183,10 @@ public final class ExprSubstitutionMap {
 
     /**
      * Returns the replace of two substitution maps.
-     * f [A.id, B.id] [A.name, B.name] g [A.id, C.id] [A.age, C.age]
-     * return: [A.id, C,id] [A.name, B.name] [A.age, C.age]
+     * f [A.id, B.id] [A.age, B.age] [A.name, B.name] g [A.id, C.id] [B.age, C.age] [A.address, C.address]
+     * return: [A.id, C,id] [A.age, C.age] [A.name, B.name] [A.address, C.address]
      */
-    public static ExprSubstitutionMap combineAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g) {
+    public static ExprSubstitutionMap composeAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g) {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }
@@ -198,6 +198,13 @@ public final class ExprSubstitutionMap {
         }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
         result = ExprSubstitutionMap.combine(result, g);
+        for (int i = 0; i < g.size(); i++) {
+            // case a->b, b->c => a->c
+            if (f.mappingForRhsExpr(g.getLhs().get(i)) != null) {
+                result.getLhs().set(i, f.mappingForRhsExpr(g.getLhs().get(i)));
+            }
+        }
+        // add remaining f
         for (int i = 0; i < f.size(); i++) {
             if (!result.containsMappingFor(f.lhs.get(i))) {
                 result.put(f.lhs.get(i), f.rhs.get(i));
