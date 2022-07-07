@@ -171,7 +171,9 @@ public final class ExprSubstitutionMap {
         for (int i = 0; i < g.size(); i++) {
             if (f.containsMappingFor(g.lhs_.get(i))) {
                 result.put(f.get(g.lhs_.get(i)), g.rhs_.get(i));
-                analyzer.putEquivalentSlot(((SlotRef) Objects.requireNonNull(f.get(g.lhs_.get(i)))).getSlotId(), ((SlotRef) g.lhs_.get(i)).getSlotId());
+                if (f.get(g.lhs_.get(i)) instanceof SlotRef && g.lhs_.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) Objects.requireNonNull(f.get(g.lhs_.get(i)))).getSlotId(), ((SlotRef) g.lhs_.get(i)).getSlotId());
+                }
             } else {
                 result.put(g.lhs_.get(i), g.rhs_.get(i));
             }
