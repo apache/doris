@@ -50,9 +50,9 @@ public class BatchRulesJob {
         }
         Collections.reverse(rules);
         return new RewriteBottomUpJob(
-                plannerContext.getOptimizerContext().getMemo().getRoot(),
+                plannerContext.getMemo().getRoot(),
                 rules,
-                plannerContext);
+                plannerContext.getCurrentJobContext());
     }
 
     protected Job<Plan> topDownBatch(List<RuleFactory<Plan>> ruleFactories) {
@@ -62,21 +62,21 @@ public class BatchRulesJob {
         }
         Collections.reverse(rules);
         return new RewriteTopDownJob(
-                plannerContext.getOptimizerContext().getMemo().getRoot(),
+                plannerContext.getMemo().getRoot(),
                 rules,
-                plannerContext);
+                plannerContext.getCurrentJobContext());
     }
 
     protected Job<Plan> optimize() {
         return new OptimizeGroupJob(
-                plannerContext.getOptimizerContext().getMemo().getRoot(),
-                plannerContext);
+                plannerContext.getMemo().getRoot(),
+                plannerContext.getCurrentJobContext());
     }
 
     public void execute() {
         for (Job job : rulesJob) {
-            plannerContext.getOptimizerContext().pushJob(job);
-            plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+            plannerContext.pushJob(job);
+            plannerContext.getJobScheduler().executeJobPool(plannerContext);
         }
     }
 }

@@ -178,6 +178,7 @@ booleanExpression
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
+    | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
     ;
 
 valueExpression

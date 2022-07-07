@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
@@ -26,6 +26,7 @@ import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -212,12 +213,12 @@ public class ColumnPruningTest extends TestWithFeService {
     }
 
     private Plan process(Memo memo) {
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, connectContext, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), new ColumnPruning().buildRules(),
-                plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+                jobContext);
+        jobContext.getPlannerContext().pushJob(rewriteTopDownJob);
+        jobContext.getPlannerContext().getJobScheduler().executeJobPool(plannerContext);
         return memo.copyOut();
     }
 

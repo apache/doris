@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/mysql_result_writer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/large_int_value.h"
@@ -136,7 +136,13 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 if (data->is_null_at(j)) {
                     buf_ret = _buffer.push_string("NULL", strlen("NULL"));
                 } else {
-                    buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                    if (WhichDataType(remove_nullable(nested_type_ptr)).is_string()) {
+                        buf_ret = _buffer.push_string("'", 1);
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                        buf_ret = _buffer.push_string("'", 1);
+                    } else {
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                    }
                 }
                 begin = false;
             }

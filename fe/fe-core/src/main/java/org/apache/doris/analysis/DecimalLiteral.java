@@ -246,6 +246,12 @@ public class DecimalLiteral extends LiteralExpr {
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);
         } else if (targetType.isIntegerType()) {
+            // If the integer part of BigDecimal is too big to fit into long,
+            // longValue() will only return the low-order 64-bit value.
+            if (value.compareTo(BigDecimal.valueOf(Long.MAX_VALUE)) > 0
+                    || value.compareTo(BigDecimal.valueOf(Long.MIN_VALUE)) < 0) {
+                throw new AnalysisException("Integer part of " + value + " exceeds storage range of Long Type.");
+            }
             return new IntLiteral(value.longValue(), targetType);
         } else if (targetType.isStringType()) {
             return new StringLiteral(value.toString());

@@ -17,7 +17,7 @@
 
 #pragma once
 #include "exec/data_sink.h"
-#include "vec/sink/result_writer.h"
+#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class ObjectPool;
