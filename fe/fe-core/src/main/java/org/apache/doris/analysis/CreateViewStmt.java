@@ -23,9 +23,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,14 +58,22 @@ public class CreateViewStmt extends BaseViewStmt {
         viewDefStmt.setNeedToSql(true);
 
         // check privilege
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.CREATE)) {
+        if (!Catalog.getCurrentCatalog().getAuth()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
-        // Do not rewrite nondeterministic functions to constant in create view's def stmt
+        boolean originEnableVec = true;
         if (ConnectContext.get() != null) {
+            // Do not rewrite nondeterministic functions to constant in create view's def stmt
             ConnectContext.get().setNotEvalNondeterministicFunction(true);
+            // Because in current v1.1, the vec engine do not support some of outer join sql.
+            // So it we set enable_vectorized_engine = true, it may throw VecNotImplementExcetion.
+            // But it is not necessary because here we only neet to pass the analysis phase,
+            // So here we temporarily set enable_vectorized_engine = false to avoid this expcetion.
+            SessionVariable sv = ConnectContext.get().getSessionVariable();
+            originEnableVec = sv.enableVectorizedEngine;
+            sv.setEnableVectorizedEngine(false);
         }
         try {
             if (cols != null) {
@@ -82,6 +90,8 @@ public class CreateViewStmt extends BaseViewStmt {
             // will not do constant fold for nondeterministic functions.
             if (ConnectContext.get() != null) {
                 ConnectContext.get().setNotEvalNondeterministicFunction(false);
+                SessionVariable sv = ConnectContext.get().getSessionVariable();
+                sv.setEnableVectorizedEngine(originEnableVec);
             }
         }
     }
