@@ -255,6 +255,7 @@ struct ProcessHashTableProbe {
                     DCHECK(mcol[i]->is_nullable() && !column->is_nullable());
                     column = make_nullable(column);
                 }
+                column->replicate(&_items_counts[0], size, *mcol[i]);
             } else {
                 mcol[i]->resize(size);
             }
