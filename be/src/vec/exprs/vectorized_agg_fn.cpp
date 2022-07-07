@@ -27,6 +27,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/aggregate_functions/aggregate_function_rpc.h"
 namespace doris::vectorized {
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
@@ -91,7 +92,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
 #else
         return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
 #endif
-    } else {
+    } else if(_fn.binary_type == TFunctionBinaryType::RPC){
+        _function = AggregateRpcUdaf::create(_fn, argument_types, params, _data_type);
+    }else {
         _function = AggregateFunctionSimpleFactory::instance().get(
                 _fn.name.function_name, _argument_types, {}, _data_type->is_nullable());
     }

@@ -32,6 +32,7 @@ message PFunctionCallRequest {
     optional string function_name = 1;
     repeated PValues args = 2;
     optional PRequestContext context = 3;
+    repeated PValues last_result = 4;
 }
 
 message PFunctionCallResponse {

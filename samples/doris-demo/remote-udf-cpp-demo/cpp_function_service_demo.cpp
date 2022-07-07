@@ -33,6 +33,30 @@ public:
         brpc::ClosureGuard closure_guard(done);
         std::string fun_name = request->function_name();
         auto* result = response->add_result();
+        if(fun_name=="rpc_merge"){
+            result->mutable_type()->set_id(PGenericType::INT32);
+            int sum=0;
+            for (size_t i = 0; i < request->args_size(); ++i) {
+                sum += request->args(i).int32_value(0);
+            }
+            result->add_int32_value(sum);
+        }
+        if(fun_name=="rpc_finalize"){
+             result->mutable_type()->set_id(PGenericType::INT32);
+             result->add_int32_value(request->last_result(0).int32_value(0));
+        }
+        if(fun_name=="rpc_update"){
+            result->mutable_type()->set_id(PGenericType::INT32);
+            int sum=0;
+            for (size_t i = 0; i < request->args(0).int32_value_size(); ++i) {
+                sum += request->args(0).int32_value(i);
+            }
+            if(request->last_result_size()>0){
+                sum += request->last_result(0).int32_value(0);
+            }
+
+            result->add_int32_value(sum);
+        }
         if (fun_name == "int32_add") {
             result->mutable_type()->set_id(PGenericType::INT32);
             for (size_t i = 0; i < request->args(0).int32_value_size(); ++i) {
@@ -77,7 +101,7 @@ public:
             }
         }
         response->mutable_status()->set_status_code(0);
-        std::cout << response->DebugString();
+        //std::cout << response->DebugString();
     }
 
     void check_fn(google::protobuf::RpcController* controller, const PCheckFunctionRequest* request,
