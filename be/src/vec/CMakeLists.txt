@@ -104,6 +104,7 @@ set(VEC_FILES
   exec/vassert_num_rows_node.cpp
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
+  exec/vavro_scanner.cpp
   exec/vbroker_scan_node.cpp
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp

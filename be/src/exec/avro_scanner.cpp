@@ -43,9 +43,7 @@ AvroScanner::AvroScanner(RuntimeState* state, RuntimeProfile* profile,
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
           _cur_avro_reader(nullptr),
-          _next_range(0),
-          _cur_reader_eof(false),
-          _scanner_eof(false) {}
+          _cur_reader_eof(false) {}
 
 AvroScanner::~AvroScanner() {
     close();
@@ -174,9 +172,7 @@ Status AvroScanner::open_next_reader() {
 ////// class AvroReader
 AvroReader::AvroReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
                        FileReader* file_reader, LineReader* line_reader)
-        : _next_line(0),
-          _total_lines(0),
-          _state(state),
+        : _state(state),
           _counter(counter),
           _profile(profile),
           _file_reader(file_reader),
@@ -222,8 +218,7 @@ void AvroReader::_close() {
     _closed = true;
 }
 
-Status AvroReader::_get_avro_doc(size_t* size, bool* eof, MemPool* tuple_pool, Tuple* tuple,
-                                 const std::vector<SlotDescriptor*>& slot_descs) {
+Status AvroReader::_get_avro_doc(size_t* size, bool* eof) {
     SCOPED_TIMER(_file_read_timer);
 
     if (_avro_str_ptr != nullptr) {
@@ -481,7 +476,7 @@ Status AvroReader::deserialize_row(Tuple* tuple, const std::vector<SlotDescripto
                                    MemPool* tuple_pool, bool* is_empty_row, bool* eof) {
     size_t size = 0;
     // get data, init _decoder
-    Status st = _get_avro_doc(&size, eof, tuple_pool, tuple, slot_descs);
+    Status st = _get_avro_doc(&size, eof);
     if (st.is_data_quality_error()) {
         return Status::DataQualityError("avro data quality bad.");
     }

@@ -68,12 +68,12 @@ public:
     // Close this scanner
     void close() override;
 
-private:
+protected:
     Status open_file_reader();
     Status open_avro_reader();
     Status open_next_reader();
 
-private:
+protected:
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 
@@ -86,9 +86,8 @@ private:
 
     FileReader* _cur_file_reader;
     AvroReader* _cur_avro_reader;
-    int _next_range;
     bool _cur_reader_eof;
-    bool _scanner_eof;
+    // bool _scanner_eof;
     std::string _avro_schema_name;
 
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
@@ -105,14 +104,13 @@ public:
     Status read_avro_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                          MemPool* tuple_pool, bool* is_empty_row, bool* eof);
 
-private:
+protected:
     void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                     const uint8_t* value, int32_t len);
 
     void _close();
 
-    Status _get_avro_doc(size_t* size, bool* eof, MemPool* tuple_pool, Tuple* tuple,
-                         const std::vector<SlotDescriptor*>& slot_descs);
+    Status _get_avro_doc(size_t* size, bool* eof);
 
     Status _get_field_mapping(const std::vector<SlotDescriptor*>& slot_descs);
     Status deserialize_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
@@ -125,9 +123,7 @@ private:
     DeserializeFn createDeserializeFn(avro::NodePtr root_node, SlotDescriptor* slot_desc);
     SkipFn createSkipFn(avro::NodePtr root_node);
 
-private:
-    int _next_line;
-    int _total_lines;
+protected:
     RuntimeState* _state;
     ScannerCounter* _counter;
     RuntimeProfile* _profile;

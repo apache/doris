@@ -26,6 +26,7 @@
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/types.h"
+#include "vec/exec/vavro_scanner.h"
 #include "vec/exec/vbroker_scanner.h"
 #include "vec/exec/vjson_scanner.h"
 #include "vec/exec/vorc_scanner.h"
@@ -331,6 +332,11 @@ std::unique_ptr<BaseScanner> VBrokerScanNode::create_scanner(const TBrokerScanRa
                     _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
                     scan_range.broker_addresses, _pre_filter_texprs, counter);
         }
+        break;
+    case TFileFormatType::FORMAT_AVRO:
+        scan = new vectorized::VAvroScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                            scan_range.ranges, scan_range.broker_addresses,
+                                            _pre_filter_texprs, counter);
         break;
     default:
         scan = new vectorized::VBrokerScanner(_runtime_state, runtime_profile(), scan_range.params,
