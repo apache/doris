@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -91,7 +90,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
 
             List<NamedExpression> mergeOutputExpressionList = Lists.newArrayList();
             for (NamedExpression o : outputExpressionList) {
-                if (o.contains(AggregateFunction.class::isInstance)) {
+                if (o.anyMatch(AggregateFunction.class::isInstance)) {
                     mergeOutputExpressionList.add((NamedExpression) new AggregateFunctionParamsRewriter()
                             .visit(o, aggregateFunctionAliasMap));
                 } else {
@@ -139,13 +138,9 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
     private static class AggregateFunctionParamsRewriter
             extends DefaultExpressionRewriter<Map<AggregateFunction, NamedExpression>> {
         @Override
-        public Expression visitBoundFunction(BoundFunction boundFunction,
+        public Expression visitAggregateFunction(AggregateFunction boundFunction,
                 Map<AggregateFunction, NamedExpression> context) {
-            if (boundFunction instanceof AggregateFunction) {
-                return boundFunction.withChildren(Lists.newArrayList(context.get(boundFunction).toSlot()));
-            } else {
-                return boundFunction;
-            }
+            return boundFunction.withChildren(Lists.newArrayList(context.get(boundFunction).toSlot()));
         }
     }
 }

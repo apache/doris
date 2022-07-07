@@ -160,21 +160,17 @@ public class AnalyzeSSBTest extends TestWithFeService {
         plannerContext.getJobScheduler().executeJobPool(plannerContext);
     }
 
-    private boolean checkBound(LogicalPlan root) {
-        return checkPlanBound(root);
-    }
-
     /**
      * PlanNode and its expressions are all bound.
      */
-    private boolean checkPlanBound(LogicalPlan plan) {
+    private boolean checkBound(LogicalPlan plan) {
         if (plan instanceof Unbound) {
             return false;
         }
 
         List<Plan> children = plan.children();
         for (Plan child : children) {
-            if (!checkPlanBound((LogicalPlan) child)) {
+            if (!checkBound((LogicalPlan) child)) {
                 return false;
             }
         }

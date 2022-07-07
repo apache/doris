@@ -113,8 +113,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     public PlanFragment translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
         PlanFragment rootFragment = visit(physicalPlan, context);
         if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
-            rootFragment = createMergeFragment(rootFragment, context);
-            context.addPlanFragment(rootFragment);
+            rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
         List<Expr> outputExprs = Lists.newArrayList();
         physicalPlan.getOutput().stream().map(Slot::getExprId)
@@ -144,7 +143,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         //    2. agg functions: only removing duplicate agg functions in output expression should appear in tuple.
         //       e.g. select sum(v1) + 1, sum(v1) + 2 from t1 should only generate one sum(v1) in tuple
         //    We need:
-        //    1. add a project after agg, if output expressions include agg function as a expression tree leaf.
+        //    1. add a project after agg, if agg function is not the top output expression.
         //    2. introduce canonicalized, semanticEquals and deterministic in Expression
         //       for removing duplicate.
         List<Expression> groupByExpressionList = physicalAggregate.getGroupByExprList();
@@ -153,7 +152,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlotList = Lists.newArrayList();
         for (Expression e : groupByExpressionList) {
-            if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.contains(e::equals))) {
+            if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.anyMatch(e::equals))) {
                 groupSlotList.add((SlotReference) e);
             } else {
                 groupSlotList.add(new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()));
@@ -164,9 +163,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // 2. collect agg functions and generate agg function to slot reference map
         List<Slot> aggFunctionOutput = Lists.newArrayList();
         List<AggregateFunction> aggregateFunctionList = outputExpressionList.stream()
-                .filter(o -> o.contains(AggregateFunction.class::isInstance))
+                .filter(o -> o.anyMatch(AggregateFunction.class::isInstance))
                 .peek(o -> aggFunctionOutput.add(o.toSlot()))
-                .map(o -> (List<AggregateFunction>) o.collect(AggregateFunction.class::isInstance))
+                .map(o -> o.<List<AggregateFunction>>collect(AggregateFunction.class::isInstance))
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
         ArrayList<FunctionCallExpr> execAggExpressions = aggregateFunctionList.stream()
@@ -208,8 +207,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 aggregationNode.setUseStreamingPreagg(physicalAggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
                 inputPlanFragment.setPlanRoot(aggregationNode);
-                PlanFragment mergeFragment = createParentFragment(inputPlanFragment, mergePartition, context);
-                return mergeFragment;
+                return createParentFragment(inputPlanFragment, mergePartition, context);
             case FIRST_MERGE:
                 for (FunctionCallExpr execAggExpression : execAggExpressions) {
                     execAggExpression.setMergeAggFn(true);
@@ -291,13 +289,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             return childFragment;
         }
         PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
-        ExchangeNode exchNode = (ExchangeNode) mergeFragment.getPlanRoot();
-        exchNode.unsetLimit();
+        ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
+        exchangeNode.unsetLimit();
         if (physicalHeapSort.hasLimit()) {
-            exchNode.setLimit(limit);
+            exchangeNode.setLimit(limit);
         }
         long offset = physicalHeapSort.getOffset();
-        exchNode.setMergeInfo(sortNode.getSortInfo(), offset);
+        exchangeNode.setMergeInfo(sortNode.getSortInfo(), offset);
 
         // Child nodes should not process the offset. If there is a limit,
         // the child nodes need only return (offset + limit) rows.
@@ -441,7 +439,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
      * an ExchangeNode.
      * Requires that input fragment be partitioned.
      */
-    private PlanFragment createMergeFragment(PlanFragment inputFragment, PlanTranslatorContext context) {
+    private PlanFragment exchangeToMergeFragment(PlanFragment inputFragment, PlanTranslatorContext context) {
         Preconditions.checkState(inputFragment.isPartitioned());
 
         // exchange node clones the behavior of its input, aside from the conjuncts
@@ -450,6 +448,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         PlanFragment fragment = new PlanFragment(context.nextFragmentId(), mergePlan, DataPartition.UNPARTITIONED);
         inputFragment.setDestination(mergePlan);
+        context.addPlanFragment(fragment);
         return fragment;
     }
 

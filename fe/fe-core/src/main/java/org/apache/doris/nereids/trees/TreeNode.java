@@ -90,23 +90,4 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         });
         return (T) result.build();
     }
-
-    /**
-     * Test whether this tree satisfied predicate.
-     *
-     * @param predicate test condition
-     * @return true if satisfied
-     */
-    default boolean contains(Predicate<TreeNode<NODE_TYPE>> predicate) {
-        if (predicate.test(this)) {
-            return true;
-        }
-        for (NODE_TYPE child : children()) {
-            if (predicate.test(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
 }

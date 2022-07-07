@@ -74,7 +74,7 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
         StringBuilder sb = new StringBuilder();
         sb.append("PhysicalHashJoin ([").append(joinType).append("]");
         if (condition.isPresent()) {
-            sb.append(", [").append(condition).append("]");
+            sb.append(", [").append(condition.get()).append("]");
         }
         sb.append(")");
         return sb.toString();
