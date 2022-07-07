@@ -229,7 +229,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // TODO: notice topN
         SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, true,
                 physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
-        exec(sortNode::init);
         childFragment.addPlanRoot(sortNode);
         if (!childFragment.isPartitioned()) {
             return childFragment;
