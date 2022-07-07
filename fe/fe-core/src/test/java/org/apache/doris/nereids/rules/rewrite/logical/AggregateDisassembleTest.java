@@ -57,7 +57,7 @@ public class AggregateDisassembleTest implements Plans {
     @BeforeAll
     public final void beforeAll() {
         Table student = new Table(0L, "student", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, true, "0", ""),
+                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, true, "0", ""),
                         new Column("name", Type.STRING, true, AggregateType.NONE, true, "", ""),
                         new Column("age", Type.INT, true, AggregateType.NONE, true, "", "")));
         rStudent = plan(new LogicalOlapScan(student, ImmutableList.of("student")));
