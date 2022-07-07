@@ -441,7 +441,7 @@ public class HashJoinNode extends PlanNode {
             }
         }
         // 4. change the outputSmap
-        outputSmap = ExprSubstitutionMap.combineAndReplace(outputSmap, srcTblRefToOutputTupleSmap);
+        outputSmap = ExprSubstitutionMap.composeAndReplace(outputSmap, srcTblRefToOutputTupleSmap);
     }
 
     private void replaceOutputSmapForOuterJoin() {
@@ -989,6 +989,9 @@ public class HashJoinNode extends PlanNode {
 
     @Override
     public ArrayList<TupleId> getOutputTblRefIds() {
+        if (vOutputTupleDesc != null) {
+            return Lists.newArrayList(vOutputTupleDesc.getId());
+        }
         switch (joinOp) {
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:

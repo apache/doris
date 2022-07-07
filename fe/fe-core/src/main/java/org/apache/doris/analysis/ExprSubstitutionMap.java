@@ -171,9 +171,14 @@ public final class ExprSubstitutionMap {
         for (int i = 0; i < g.size(); i++) {
             if (f.containsMappingFor(g.lhs_.get(i))) {
                 result.put(f.get(g.lhs_.get(i)), g.rhs_.get(i));
-                analyzer.putEquivalentSlot(((SlotRef) Objects.requireNonNull(f.get(g.lhs_.get(i)))).getSlotId(), ((SlotRef) g.lhs_.get(i)).getSlotId());
+                if (f.get(g.lhs_.get(i)) instanceof SlotRef && g.rhs_.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs_.get(i)).getSlotId(), ((SlotRef) Objects.requireNonNull(f.get(g.lhs_.get(i)))).getSlotId());
+                }
             } else {
                 result.put(g.lhs_.get(i), g.rhs_.get(i));
+                if (g.lhs_.get(i) instanceof SlotRef && g.rhs_.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs_.get(i)).getSlotId(), ((SlotRef) g.lhs_.get(i)).getSlotId());
+                }
             }
         }
         return result;
@@ -184,7 +189,7 @@ public final class ExprSubstitutionMap {
      * f [A.id, B.id] [A.name, B.name] g [A.id, C.id] [A.age, C.age]
      * return: [A.id, C,id] [A.name, B.name] [A.age, C.age]
      */
-    public static ExprSubstitutionMap combineAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g) {
+    public static ExprSubstitutionMap composeAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g) {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }
@@ -196,6 +201,13 @@ public final class ExprSubstitutionMap {
         }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
         result = ExprSubstitutionMap.combine(result, g);
+        for (int i = 0; i < g.size(); i++) {
+            // case a->b, b->c => a->c
+            if (f.mappingForRhsExpr(g.getLhs().get(i)) != null) {
+                result.getLhs().set(i, f.mappingForRhsExpr(g.getLhs().get(i)));
+            }
+        }
+        // add remaining f
         for (int i = 0; i < f.size(); i++) {
             if (!result.containsMappingFor(f.lhs_.get(i))) {
                 result.put(f.lhs_.get(i), f.rhs_.get(i));
