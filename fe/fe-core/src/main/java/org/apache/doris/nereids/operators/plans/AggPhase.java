@@ -38,7 +38,7 @@ public enum AggPhase {
         this.execAggPhase = execAggPhase;
     }
 
-    public boolean isMerge() {
+    public boolean isGlobal() {
         return this == GLOBAL || this == DISTINCT_GLOBAL;
     }
 
