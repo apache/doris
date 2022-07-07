@@ -195,7 +195,7 @@ public final class QueryBuilders {
                 gen.flush();
                 gen.close();
             } catch (IOException e) {
-                LOG.warn("QueryBuilder toJson error");
+                LOG.warn("QueryBuilder toJson error", e);
                 return null;
             }
             return writer.toString();
@@ -217,7 +217,6 @@ public final class QueryBuilders {
         void toJson(JsonGenerator out) throws IOException {
             JsonNode jsonNode = mapper.readTree(value);
             out.writeStartObject();
-            out.writeObject(jsonNode);
             Iterator<Entry<String, JsonNode>> values = jsonNode.fields();
             while (values.hasNext()) {
                 Entry<String, JsonNode> value = values.next();
