@@ -67,10 +67,12 @@ public class FunctionParams implements Writable {
 
     public TAggregateExpr createTAggregateExpr(boolean isMergeAggFn) {
         List<TTypeDesc> paramTypes = new ArrayList<TTypeDesc>();
-        for (Expr expr : exprs) {
-            TTypeDesc desc = expr.getType().toThrift();
-            desc.setIsNullable(expr.isNullable());
-            paramTypes.add(desc);
+        if (exprs != null) {
+            for (Expr expr : exprs) {
+                TTypeDesc desc = expr.getType().toThrift();
+                desc.setIsNullable(expr.isNullable());
+                paramTypes.add(desc);
+            }
         }
         return new TAggregateExpr(isMergeAggFn, paramTypes);
     }

@@ -436,12 +436,10 @@ public class FunctionCallExpr extends Expr {
         // except in test cases that do it explicitly.
         if (isAggregate() || isAnalyticFnCall) {
             msg.node_type = TExprNodeType.AGG_EXPR;
-            if (!isAnalyticFnCall) {
-                if (aggFnParams == null) {
-                    aggFnParams = fnParams;
-                }
-                msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
+            if (aggFnParams == null) {
+                aggFnParams = fnParams;
             }
+            msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
