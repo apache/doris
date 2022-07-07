@@ -138,6 +138,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
         auto nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         _nullmap = nullable_column->get_null_map_data().data();
+        _nullmap += row_pos;
     }
 }
 
