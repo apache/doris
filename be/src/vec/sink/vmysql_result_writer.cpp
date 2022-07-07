@@ -166,26 +166,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     continue;
                 }
             }
-            std::string decimal_str;
-            if (config::enable_execution_decimalv3) {
-                if (which.is_decimal32()) {
-                    decimal_str =
-                            assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type_ptr.get())
-                                    ->to_string(*column, i);
-                } else if (which.is_decimal64()) {
-                    decimal_str =
-                            assert_cast<const DataTypeDecimal<Decimal64>*>(nested_type_ptr.get())
-                                    ->to_string(*column, i);
-                } else if (which.is_decimal128()) {
-                    decimal_str =
-                            assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type_ptr.get())
-                                    ->to_string(*column, i);
-                }
-            } else {
-                DecimalV2Value decimal_val(
-                        assert_cast<const ColumnDecimal<Decimal128>&>(*column).get_element(i));
-                decimal_str = decimal_val.to_string();
-            }
+            std::string decimal_str = nested_type_ptr->to_string(*column, i);
             buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
@@ -252,11 +233,6 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt32));
                 char* pos = date_val.to_string(buf);
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
-            }
-            if constexpr (type == TYPE_DECIMALV2) {
-                DecimalV2Value decimal_val(data[i]);
-                auto decimal_str = decimal_val.to_string();
-                buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             }
 
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
