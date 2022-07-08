@@ -45,6 +45,7 @@ class Config {
 
     public String suitePath
     public String dataPath
+    public String realDataPath
     public String pluginPath
 
     public String testGroups
@@ -78,7 +79,7 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword,
-           String suitePath, String dataPath, String testGroups, String excludeGroups,
+           String suitePath, String dataPath, String realDataPath, String testGroups, String excludeGroups,
            String testSuites, String excludeSuites, String testDirectories, String excludeDirectories,
            String pluginPath) {
         this.defaultDb = defaultDb
@@ -90,6 +91,7 @@ class Config {
         this.feHttpPassword = feHttpPassword
         this.suitePath = suitePath
         this.dataPath = dataPath
+        this.realDataPath = realDataPath
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -116,6 +118,7 @@ class Config {
 
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
+        config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
@@ -192,6 +195,7 @@ class Config {
             configToString(obj.feHttpPassword),
             configToString(obj.suitePath),
             configToString(obj.dataPath),
+            configToString(obj.realDataPath),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -256,8 +260,13 @@ class Config {
         }
 
         if (config.dataPath == null) {
-            config.dataPath = "regression-test/suites"
+            config.dataPath = "regression-test/data"
             log.info("Set dataPath to '${config.dataPath}' because not specify.".toString())
+        }
+
+        if (config.realDataPath == null) {
+            config.realDataPath = "regression-test/realData"
+            log.info("Set realDataPath to '${config.realDataPath}' because not specify.".toString())
         }
 
         if (config.pluginPath == null) {
