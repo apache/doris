@@ -58,6 +58,8 @@ public class TableProperty implements Writable {
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
 
+    private String storagePolicy = "";
+
     /*
      * the default storage format of this table.
      * DEFAULT: depends on BE's config 'default_rowset_type'
@@ -137,6 +139,15 @@ public class TableProperty implements Writable {
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
         return this;
+    }
+
+    public TableProperty buildStoragePolicy() {
+        storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
+        return this;
+    }
+
+    public String getStoragePolicy() {
+        return storagePolicy;
     }
 
     public TableProperty buildDataSortInfo() {

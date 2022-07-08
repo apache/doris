@@ -23,11 +23,14 @@ import org.apache.doris.thrift.TTaskType;
 public class DropReplicaTask extends AgentTask {
     private int schemaHash; // set -1L as unknown
     private long replicaId;
+    private boolean isDropTableOrPartition;
 
-    public DropReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash) {
+    public DropReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash,
+                           boolean isDropTableOrPartition) {
         super(null, backendId, TTaskType.DROP, -1L, -1L, -1L, -1L, tabletId);
         this.schemaHash = schemaHash;
         this.replicaId = replicaId;
+        this.isDropTableOrPartition = isDropTableOrPartition;
     }
 
     public TDropTabletReq toThrift() {
@@ -36,6 +39,7 @@ public class DropReplicaTask extends AgentTask {
             request.setSchemaHash(schemaHash);
         }
         request.setReplicaId(replicaId);
+        request.setIsDropTableOrPartition(isDropTableOrPartition);
         return request;
     }
 
