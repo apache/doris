@@ -298,6 +298,19 @@ public:
         return score;
     }
 
+    void get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) const {
+        for (const KeyBoundsPB& key_range : _rowset_meta_pb.segments_key_bounds()) {
+            segments_key_bounds->push_back(key_range);
+        }
+    }
+
+    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
+        for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
+            KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
+            *new_key_bounds = key_bounds;
+        }
+    }
+
     const AlphaRowsetExtraMetaPB& alpha_rowset_extra_meta_pb() const {
         return _rowset_meta_pb.alpha_rowset_extra_meta_pb();
     }
