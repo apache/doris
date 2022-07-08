@@ -403,7 +403,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, slot);
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
         }
         for (OrderKey orderKey : orderKeyList) {
             context.createSlotDesc(tupleDescriptor, orderKey.getExpr());

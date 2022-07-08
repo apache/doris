@@ -122,11 +122,11 @@ public class PlanTranslatorContext {
      * Create slotDesc with Expression.
      */
     public void createSlotDesc(TupleDescriptor tupleDesc, Expression expression) {
-        //if (!expressionToExecExpr.containsKey(expression)) {
-        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
-        slotDescriptor.setType(expression.getDataType().toCatalogDataType());
-        this.addSlotRefMapping(expression, new SlotRef(slotDescriptor));
-        //}
+        if (!expressionToExecExpr.containsKey(expression)) {
+            SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
+            slotDescriptor.setType(expression.getDataType().toCatalogDataType());
+            this.addSlotRefMapping(expression, new SlotRef(slotDescriptor));
+        }
     }
 
     public TupleDescriptor getTupleDesc(TupleId tupleId) {
