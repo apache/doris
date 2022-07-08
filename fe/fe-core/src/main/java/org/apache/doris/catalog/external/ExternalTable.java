@@ -70,6 +70,10 @@ public class ExternalTable implements TableIf {
         this.type = type;
     }
 
+    public boolean isView() {
+        return false;
+    }
+
     @Override
     public void readLock() {
         this.rwLock.readLock().lock();

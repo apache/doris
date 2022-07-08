@@ -104,7 +104,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     int32_t filtered_num_row_groups = 0;
     int64_t filtered_num_rows = 0;
     int64_t filtered_total_byte_size = 0;
-    bool need_filter = false;
+    bool update_statistics = false;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
         for (SlotId slot_id = 0; slot_id < tuple_desc->slots().size(); slot_id++) {
@@ -130,17 +130,19 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
             const std::string& min = statistic->EncodeMin();
             const std::string& max = statistic->EncodeMax();
 
-            need_filter = _determine_filter_row_group(slot_iter->second, min, max);
-            if (need_filter) {
+            bool group_need_filter = _determine_filter_row_group(slot_iter->second, min, max);
+            if (group_need_filter) {
+                update_statistics = true;
                 filtered_num_row_groups++;
                 filtered_num_rows += row_group_meta->num_rows();
-                filtered_total_byte_size += row_group_meta->total_compressed_size();
+                filtered_total_byte_size += row_group_meta->total_byte_size();
                 VLOG_DEBUG << "Filter row group id: " << row_group_id;
                 _filter_group.emplace(row_group_id);
+                break;
             }
         }
     }
-    if (need_filter) {
+    if (update_statistics) {
         _parent->statistics()->filtered_row_groups = filtered_num_row_groups;
         _parent->statistics()->filtered_rows = filtered_num_rows;
         _parent->statistics()->filtered_total_bytes = filtered_total_byte_size;

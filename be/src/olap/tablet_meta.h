@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
@@ -24,6 +25,7 @@
 
 #include "common/logging.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "io/fs/file_system.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -85,7 +87,8 @@ public:
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType,
                TStorageMedium::type t_storage_medium, const std::string& remote_storage_name,
-               TCompressionType::type compression_type);
+               TCompressionType::type compression_type,
+               const std::string& storage_policy = std::string());
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -103,6 +106,8 @@ public:
     Status serialize(std::string* meta_binary);
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
+    // Init `RowsetMeta._fs` if rowset is local.
+    void init_rs_metas_fs(const io::FileSystemPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
@@ -123,8 +128,12 @@ public:
     void set_cumulative_layer_point(int64_t new_point);
 
     size_t num_rows() const;
-    // disk space occupied by tablet
+    // Disk space occupied by tablet, contain local and remote.
     size_t tablet_footprint() const;
+    // Local disk space occupied by tablet.
+    size_t tablet_local_size() const;
+    // Remote disk space occupied by tablet.
+    size_t tablet_remote_size() const;
     size_t version_count() const;
     Version max_version() const;
 
@@ -178,6 +187,18 @@ public:
 
     StorageMediumPB storage_medium() const { return _storage_medium; }
 
+    const io::ResourceId& cooldown_resource() const {
+        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        return _cooldown_resource;
+    }
+
+    void set_cooldown_resource(io::ResourceId resource) {
+        std::unique_lock<std::shared_mutex> wlock(_meta_lock);
+        VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown resource from "
+                    << _cooldown_resource << " to " << resource;
+        _cooldown_resource = std::move(resource);
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
@@ -214,7 +235,11 @@ private:
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
     std::string _remote_storage_name;
     StorageMediumPB _storage_medium = StorageMediumPB::HDD;
-    std::shared_mutex _meta_lock;
+
+    // FIXME(cyx): Currently `cooldown_resource` is equivalent to `storage_policy`.
+    io::ResourceId _cooldown_resource;
+
+    mutable std::shared_mutex _meta_lock;
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
@@ -279,6 +304,26 @@ inline size_t TabletMeta::tablet_footprint() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         total_size += rs->data_disk_size();
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_local_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (rs->is_local()) {
+            total_size += rs->data_disk_size();
+        }
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_remote_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (!rs->is_local()) {
+            total_size += rs->data_disk_size();
+        }
     }
     return total_size;
 }

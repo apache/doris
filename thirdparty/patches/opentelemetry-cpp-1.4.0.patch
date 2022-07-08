@@ -1,19 +1,15 @@
 diff --git a/api/include/opentelemetry/common/threadlocal.h b/api/include/opentelemetry/common/threadlocal.h
 new file mode 100644
-index 0000000..799ec6c
+index 0000000..23a39e1
 --- /dev/null
 +++ b/api/include/opentelemetry/common/threadlocal.h
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,123 @@
 +// Copyright The OpenTelemetry Authors
 +// SPDX-License-Identifier: Apache-2.0
 +
 +#pragma once
 +
-+#include <pthread.h>
-+
-+#include <memory>
-+#include <mutex>
-+#include <ostream>
++#include "opentelemetry/version.h"
 +
 +//
 +// GCC can be told that a certain branch is not likely to be taken (for
@@ -21,20 +17,8 @@ index 0000000..799ec6c
 +// Giving it this information can help it optimize for the common case in
 +// the absence of better information (ie. -fprofile-arcs).
 +//
-+#ifndef PREDICT_FALSE
-+#if defined(__GNUC__)
-+#define PREDICT_FALSE(x) (__builtin_expect(x, 0))
-+#else
-+#define PREDICT_FALSE(x) x
-+#endif
-+#endif
-+#ifndef PREDICT_TRUE
-+#if defined(__GNUC__)
-+#define PREDICT_TRUE(x) (__builtin_expect(!!(x), 1))
-+#else
-+#define PREDICT_TRUE(x) x
-+#endif
-+#endif
++#define LIKELY(expr) __builtin_expect(!!(expr), 1)
++#define UNLIKELY(expr) __builtin_expect(!!(expr), 0)
 +
 +// Block-scoped static thread local implementation.
 +//
@@ -55,14 +39,16 @@ index 0000000..799ec6c
 +// BLOCK_STATIC_THREAD_LOCAL_TELEMTRY(SomeClass, instance, arg1, arg2, arg3);
 +// instance->DoSomething();
 +//
-+#define BLOCK_STATIC_THREAD_LOCAL_TELEMTRY(T, t, ...)                                    \
-+static __thread T* t;                                                           \
-+do {                                                                            \
-+  if (PREDICT_FALSE(t == NULL)) {                                               \
-+    t = new T(__VA_ARGS__);                                                     \
-+    internal_threadlocal::ThreadLocal::AddDestructor(internal_threadlocal::ThreadLocal::Destroy<T>, t); \
-+  }                                                                             \
-+} while (false)
++#define BLOCK_STATIC_THREAD_LOCAL_TELEMTRY(T, t, ...)                           \
++  static __thread T *t;                                                         \
++  do                                                                            \
++  {                                                                             \
++    if (UNLIKELY(t == nullptr))                                                 \
++    {                                                                           \
++      t = new T(__VA_ARGS__);                                                   \
++      internal_threadlocal::AddDestructor(internal_threadlocal::Destroy<T>, t); \
++    }                                                                           \
++  } while (false)
 +
 +// Class-scoped static thread local implementation.
 +//
@@ -108,111 +94,42 @@ index 0000000..799ec6c
 +// dtor must be destructed _after_ t, so it gets defined first.
 +// Uses a mangled variable name for dtor since it must also be a member of the
 +// class.
-+#define DECLARE_STATIC_THREAD_LOCAL_TELEMETRY(T, t)                                                     \
-+static __thread T* t
++#define DECLARE_STATIC_THREAD_LOCAL_TELEMETRY(T, t) static __thread T *t
 +
 +// You must also define the instance in the .cc file.
-+#define DEFINE_STATIC_THREAD_LOCAL_TELEMETRY(T, Class, t)                                               \
-+__thread T* Class::t
++#define DEFINE_STATIC_THREAD_LOCAL_TELEMETRY(T, Class, t) __thread T *Class::t
 +
 +// Must be invoked at least once by each thread that will access t.
-+#define INIT_STATIC_THREAD_LOCAL_TELEMETRY(T, t, ...)                                       \
-+do {                                                                              \
-+  if (PREDICT_FALSE(t == NULL)) {                                                 \
-+    t = new T(__VA_ARGS__);                                                       \
-+    internal_threadlocal::ThreadLocal::AddDestructor(internal_threadlocal::ThreadLocal::Destroy<T>, t);     \
-+  }                                                                               \
-+} while (false)
++#define INIT_STATIC_THREAD_LOCAL_TELEMETRY(T, t, ...)                           \
++  do                                                                            \
++  {                                                                             \
++    if (UNLIKELY(t == nullptr))                                                 \
++    {                                                                           \
++      t = new T(__VA_ARGS__);                                                   \
++      internal_threadlocal::AddDestructor(internal_threadlocal::Destroy<T>, t); \
++    }                                                                           \
++  } while (false)
 +
 +// Internal implementation below.
 +OPENTELEMETRY_BEGIN_NAMESPACE
 +namespace internal_threadlocal
 +{
 +
-+// One key used by the entire process to attach destructors on thread exit.
-+static pthread_key_t destructors_key;
++// Add a destructor to the list.
++void AddDestructor(void (*destructor)(void *), void *arg);
 +
-+static std::once_flag once_init;
-+
-+namespace
-+{
-+// List of destructors for all thread locals instantiated on a given thread.
-+struct PerThreadDestructorList
-+{
-+  void (*destructor)(void *);
-+  void *arg;
-+  PerThreadDestructorList *next;
-+};
-+
-+}  // anonymous namespace
-+
-+class ThreadLocal {
-+public:
 +// Destroy the passed object of type T.
-+  template <class T>
-+  static void Destroy(void *t)
-+  {
-+    // With tcmalloc, this should be pretty cheap (same thread as new).
-+    delete reinterpret_cast<T *>(t);
-+  }
-+
-+  // Call all the destructors associated with all THREAD_LOCAL instances in this
-+// thread.
-+  static void InvokeDestructors(void *t)
-+  {
-+    PerThreadDestructorList *d = reinterpret_cast<PerThreadDestructorList *>(t);
-+    while (d != nullptr)
-+    {
-+      d->destructor(d->arg);
-+      PerThreadDestructorList *next = d->next;
-+      delete d;
-+      d = next;
-+    }
-+  }
-+
-+// This key must be initialized only once.
-+  static void CreateKey()
-+  {
-+    int ret = pthread_key_create(&destructors_key, &InvokeDestructors);
-+    // Linux supports up to 1024 keys, we will use only one for all thread locals.
-+/*    if (ret != 0)
-+    {
-+      std::stringstream ss;
-+      ss << "[thread local] pthread_key_create() failed, cannot add destructor to thread: "
-+         << "error " << ret;
-+      OTEL_INTERNAL_LOG_ERROR(ss.str());
-+    }*/
-+  }
-+
-+// Adds a destructor to the list.
-+  static void AddDestructor(void (*destructor)(void *), void *arg)
-+  {
-+    std::call_once(once_init, &CreateKey);
-+
-+    // Returns NULL if nothing is set yet.
-+    std::unique_ptr<PerThreadDestructorList> p(new PerThreadDestructorList());
-+    p->destructor = destructor;
-+    p->arg        = arg;
-+    p->next       = reinterpret_cast<PerThreadDestructorList *>(pthread_getspecific(destructors_key));
-+    int ret       = pthread_setspecific(destructors_key, p.release());
-+    // The only time this check should fail is if we are out of memory, or if
-+    // somehow key creation failed, which should be caught by the above CHECK.
-+/*    if (ret != 0)
-+    {
-+      std::stringstream ss;
-+      ss << "[thread local] pthread_setspecific() failed, cannot update destructor list: "
-+         << "error " << ret;
-+      OTEL_INTERNAL_LOG_ERROR(ss.str());
-+    }*/
-+  }
-+
-+};
-+
-+}  // namespace threadlocal
++template <class T>
++static void Destroy(void *t)
++{
++  // With tcmalloc, this should be pretty cheap (same thread as new).
++  delete reinterpret_cast<T *>(t);
++}
++}  // namespace internal_threadlocal
 +OPENTELEMETRY_END_NAMESPACE
 \ No newline at end of file
 diff --git a/api/include/opentelemetry/context/runtime_context.h b/api/include/opentelemetry/context/runtime_context.h
-index 5cb793b..24ba44b 100644
+index 167a928..608b6da 100644
 --- a/api/include/opentelemetry/context/runtime_context.h
 +++ b/api/include/opentelemetry/context/runtime_context.h
 @@ -4,6 +4,7 @@
@@ -223,7 +140,7 @@ index 5cb793b..24ba44b 100644
  
  OPENTELEMETRY_BEGIN_NAMESPACE
  namespace context
-@@ -178,7 +179,7 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -188,7 +189,7 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    ThreadLocalContextStorage() noexcept = default;
  
    // Return the current context.
@@ -232,7 +149,7 @@ index 5cb793b..24ba44b 100644
  
    // Resets the context to the value previous to the passed in token. This will
    // also detach all child contexts of the passed in token.
-@@ -186,23 +187,23 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -196,23 +197,23 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    bool Detach(Token &token) noexcept override
    {
      // In most cases, the context to be detached is on the top of the stack.
@@ -262,7 +179,7 @@ index 5cb793b..24ba44b 100644
  
      return true;
    }
-@@ -211,14 +212,14 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -221,14 +222,14 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    // that can be used to reset to the previous Context.
    nostd::unique_ptr<Token> Attach(const Context &context) noexcept override
    {
@@ -279,7 +196,7 @@ index 5cb793b..24ba44b 100644
      friend class ThreadLocalContextStorage;
  
      Stack() noexcept : size_(0), capacity_(0), base_(nullptr){};
-@@ -305,9 +306,10 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -315,9 +316,10 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
      Context *base_;
    };
  
@@ -293,7 +210,7 @@ index 5cb793b..24ba44b 100644
    }
  };
 diff --git a/sdk/CMakeLists.txt b/sdk/CMakeLists.txt
-index 9aa4588..e2c5a4a 100644
+index 1a824fe..91d4b5c 100644
 --- a/sdk/CMakeLists.txt
 +++ b/sdk/CMakeLists.txt
 @@ -1,4 +1,4 @@
@@ -302,6 +219,16 @@ index 9aa4588..e2c5a4a 100644
  target_include_directories(
    opentelemetry_sdk
    INTERFACE "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>"
+diff --git a/sdk/src/common/CMakeLists.txt b/sdk/src/common/CMakeLists.txt
+index debffef..b4fc875 100644
+--- a/sdk/src/common/CMakeLists.txt
++++ b/sdk/src/common/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-set(COMMON_SRCS random.cc core.cc)
++set(COMMON_SRCS random.cc core.cc threadlocal.cc)
+ if(WIN32)
+   list(APPEND COMMON_SRCS platform/fork_windows.cc)
+ else()
 diff --git a/sdk/src/common/random.cc b/sdk/src/common/random.cc
 index 77b88cf..dc71f9c 100644
 --- a/sdk/src/common/random.cc
@@ -372,3 +299,92 @@ index ecd6dab..1aaa220 100644
  };
  }  // namespace common
  }  // namespace sdk
+diff --git a/sdk/src/common/threadlocal.cc b/sdk/src/common/threadlocal.cc
+new file mode 100644
+index 0000000..1f8b6b1
+--- /dev/null
++++ b/sdk/src/common/threadlocal.cc
+@@ -0,0 +1,82 @@
++// Copyright The OpenTelemetry Authors
++// SPDX-License-Identifier: Apache-2.0
++
++#include <opentelemetry/common/threadlocal.h>
++
++#include <pthread.h>
++#include <memory>
++#include <mutex>
++#include <ostream>
++#include <sstream>
++
++OPENTELEMETRY_BEGIN_NAMESPACE
++namespace internal_threadlocal
++{
++
++// One key used by the entire process to attach destructors on thread exit.
++static pthread_key_t destructors_key;
++
++static std::once_flag once_init;
++
++namespace
++{
++// List of destructors for all thread locals instantiated on a given thread.
++struct PerThreadDestructorList
++{
++  void (*destructor)(void *);
++  void *arg;
++  PerThreadDestructorList *next;
++};
++
++}  // anonymous namespace
++
++// Call all the destructors associated with all THREAD_LOCAL instances in this thread.
++static void InvokeDestructors(void *t)
++{
++  auto *d = reinterpret_cast<PerThreadDestructorList *>(t);
++  while (d != nullptr)
++  {
++    d->destructor(d->arg);
++    PerThreadDestructorList *next = d->next;
++    delete d;
++    d = next;
++  }
++}
++
++// This key must be initialized only once.
++static void CreateKey()
++{
++  int ret = pthread_key_create(&destructors_key, &InvokeDestructors);
++  // Linux supports up to 1024 keys, we will use only one for all thread locals.
++  if (ret != 0)
++  {
++    std::stringstream ss;
++    ss << "[thread local] pthread_key_create() failed, cannot add destructor to thread: "
++       << "error " << ret;
++    fprintf(stderr, "%s\n", ss.str().c_str());
++  }
++}
++
++// Adds a destructor to the list.
++void AddDestructor(void (*destructor)(void *), void *arg)
++{
++  std::call_once(once_init, &CreateKey);
++
++  // Returns NULL if nothing is set yet.
++  std::unique_ptr<PerThreadDestructorList> p(new PerThreadDestructorList());
++  p->destructor = destructor;
++  p->arg        = arg;
++  p->next       = reinterpret_cast<PerThreadDestructorList *>(pthread_getspecific(destructors_key));
++  int ret       = pthread_setspecific(destructors_key, p.release());
++  // The only time this check should fail is if we are out of memory, or if
++  // somehow key creation failed, which should be caught by the above CHECK.
++  if (ret != 0)
++  {
++    std::stringstream ss;
++    ss << "[thread local] pthread_setspecific() failed, cannot update destructor list: "
++       << "error " << ret;
++    fprintf(stderr, "%s\n", ss.str().c_str());
++  }
++}
++}  // namespace internal_threadlocal
++OPENTELEMETRY_END_NAMESPACE
+\ No newline at end of file

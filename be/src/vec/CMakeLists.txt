@@ -22,6 +22,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(VEC_FILES
   aggregate_functions/aggregate_function_window_funnel.cpp
   aggregate_functions/aggregate_function_avg.cpp
+  aggregate_functions/aggregate_function_collect.cpp
   aggregate_functions/aggregate_function_count.cpp
   aggregate_functions/aggregate_function_distinct.cpp
   aggregate_functions/aggregate_function_sum.cpp
@@ -203,6 +204,8 @@ set(VEC_FILES
   sink/vresult_file_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/week_of_year.data
+  runtime/week.data
+  runtime/year_week.data
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp

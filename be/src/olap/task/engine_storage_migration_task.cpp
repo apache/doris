@@ -200,7 +200,7 @@ Status EngineStorageMigrationTask::_migrate() {
     // try hold migration lock first
     Status res = Status::OK();
     uint64_t shard = 0;
-    string full_path;
+    std::string full_path;
     {
         std::unique_lock<std::shared_mutex> migration_wlock(_tablet->get_migration_lock(),
                                                             std::try_to_lock);
@@ -229,11 +229,8 @@ Status EngineStorageMigrationTask::_migrate() {
             LOG(WARNING) << "fail to get shard from store: " << _dest_store->path();
             return res;
         }
-        FilePathDescStream root_path_desc_s;
-        root_path_desc_s << _dest_store->path_desc() << DATA_PREFIX << "/" << shard;
-        FilePathDesc full_path_desc = SnapshotManager::instance()->get_schema_hash_full_path(
-                _tablet, root_path_desc_s.path_desc());
-        full_path = full_path_desc.filepath;
+        auto shard_path = fmt::format("{}/{}/{}", _dest_store->path(), DATA_PREFIX, shard);
+        full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);
         // if dir already exist then return err, it should not happen.
         // should not remove the dir directly, for safety reason.
         if (FileUtils::check_exist(full_path)) {

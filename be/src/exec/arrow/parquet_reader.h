@@ -64,7 +64,7 @@ public:
     // batch_size is not use here
     ParquetReaderWrap(RuntimeProfile* profile, FileReader* file_reader, int64_t batch_size,
                       int32_t num_of_columns_from_file);
-    ~ParquetReaderWrap() override = default;
+    ~ParquetReaderWrap() override;
 
     // Read
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
@@ -76,7 +76,6 @@ public:
                        const std::string& timezone) override;
     Status init_parquet_type();
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
-    void close() override;
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
@@ -113,6 +112,7 @@ private:
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     std::unique_ptr<doris::RowGroupReader> _row_group_reader;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
+    std::thread _thread;
 };
 
 } // namespace doris

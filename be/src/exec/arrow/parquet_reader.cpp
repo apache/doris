@@ -46,6 +46,14 @@ ParquetReaderWrap::ParquetReaderWrap(RuntimeProfile* profile, FileReader* file_r
     _statistics = std::make_shared<Statistics>();
 }
 
+ParquetReaderWrap::~ParquetReaderWrap() {
+    _closed = true;
+    _queue_writer_cond.notify_one();
+    if (_thread.joinable()) {
+        _thread.join();
+    }
+}
+
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
                                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                       const std::vector<ExprContext*>& conjunct_ctxs,
@@ -100,8 +108,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
                     new RowGroupReader(_profile, conjunct_ctxs, _file_metadata, this));
             _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
         }
-        std::thread thread(&ParquetReaderWrap::prefetch_batch, this);
-        thread.detach();
+        _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
         return Status::OK();
     } catch (parquet::ParquetException& e) {
         std::stringstream str_error;
@@ -109,12 +116,6 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }
-}
-
-void ParquetReaderWrap::close() {
-    _closed = true;
-    _queue_writer_cond.notify_one();
-    ArrowReaderWrap::close();
 }
 
 Status ParquetReaderWrap::size(int64_t* size) {
@@ -555,8 +556,9 @@ void ParquetReaderWrap::prefetch_batch() {
         _queue_reader_cond.notify_one();
     };
     int current_group = 0;
+    int total_groups = _total_groups;
     while (true) {
-        if (_closed || current_group >= _total_groups) {
+        if (_closed || current_group >= total_groups) {
             _batch_eof = true;
             _queue_reader_cond.notify_one();
             return;

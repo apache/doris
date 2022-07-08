@@ -23,7 +23,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -56,6 +55,10 @@ public class ShowCreateTableStmt extends ShowStmt {
         this.isView = isView;
     }
 
+    public String getCtl() {
+        return tbl.getCtl();
+    }
+
     public String getDb() {
         return tbl.getDb();
     }
@@ -78,8 +81,6 @@ public class ShowCreateTableStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
                                                                 PrivPredicate.SHOW)) {

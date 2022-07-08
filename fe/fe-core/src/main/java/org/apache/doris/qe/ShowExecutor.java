@@ -103,6 +103,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -115,10 +116,12 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -186,6 +189,7 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -817,12 +821,19 @@ public class ShowExecutor {
     // Show create table
     private void handleShowCreateTable() throws AnalysisException {
         ShowCreateTableStmt showStmt = (ShowCreateTableStmt) stmt;
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
+        DatabaseIf db = ctx.getCatalog().getDataSourceMgr().getCatalog(showStmt.getCtl())
+                .getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
 
         table.readLock();
         try {
+            if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
+                rows.add(Arrays.asList(table.getName(),
+                        HiveMetaStoreClientHelper.showCreateTable(((HMSExternalTable) table).getRemoteTable())));
+                resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+                return;
+            }
             List<String> createTableStmt = Lists.newArrayList();
             Catalog.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */);
             if (createTableStmt.isEmpty()) {
@@ -841,6 +852,8 @@ public class ShowExecutor {
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
             }
+        } catch (MetaNotFoundException e) {
+            throw new AnalysisException(e.getMessage());
         } finally {
             table.readUnlock();
         }
