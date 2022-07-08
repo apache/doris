@@ -697,7 +697,7 @@ public class TableRef implements ParseNode, Writable {
 
     public TableName getAliasAsName() {
         if (hasExplicitAlias()) {
-            return new TableName(null, getUniqueAlias());
+            return new TableName(null, null, getUniqueAlias());
         }
         return name;
     }

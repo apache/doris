@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -33,6 +34,7 @@ import org.junit.Test;
 import java.util.List;
 
 public class DeleteStmtTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     Analyzer analyzer;
 
@@ -52,7 +54,7 @@ public class DeleteStmtTest {
     public void getMethodTest() {
         BinaryPredicate wherePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                                                              new StringLiteral("abc"));
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), wherePredicate);
 
         Assert.assertEquals("testDb", deleteStmt.getDbName());
@@ -61,7 +63,7 @@ public class DeleteStmtTest {
         Assert.assertEquals("DELETE FROM `testDb`.`testTbl` PARTITION (partition) WHERE `k1` = 'abc'",
                             deleteStmt.toSql());
 
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, wherePredicate);
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"), null, wherePredicate);
         Assert.assertEquals("DELETE FROM `testDb`.`testTbl` WHERE `k1` = 'abc'",
                 deleteStmt.toSql());
     }
@@ -72,7 +74,7 @@ public class DeleteStmtTest {
         LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
                                                         new SlotRef(null, "k1"),
                                                         new StringLiteral("abc"));
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), likePredicate);
         try {
             deleteStmt.analyze(analyzer);
@@ -87,7 +89,7 @@ public class DeleteStmtTest {
                 new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.OR, binaryPredicate,
                                       binaryPredicate);
 
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
 
         try {
@@ -101,7 +103,7 @@ public class DeleteStmtTest {
                                                   binaryPredicate,
                                                   likePredicate);
 
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
@@ -116,7 +118,7 @@ public class DeleteStmtTest {
                                                   binaryPredicate,
                                                   binaryPredicate);
 
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
@@ -131,7 +133,7 @@ public class DeleteStmtTest {
                                                   binaryPredicate,
                                                   binaryPredicate);
 
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
@@ -145,7 +147,7 @@ public class DeleteStmtTest {
                                                   binaryPredicate,
                                                   binaryPredicate);
 
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, compoundPredicate);
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"), null, compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
@@ -170,7 +172,7 @@ public class DeleteStmtTest {
                                                   binaryPredicate,
                                                   compoundPredicate2);
 
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
@@ -179,7 +181,7 @@ public class DeleteStmtTest {
         }
 
         // multi partition
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition1", "partiton2")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
@@ -189,7 +191,7 @@ public class DeleteStmtTest {
         }
 
         // no partition
-        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, compoundPredicate);
+        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"), null, compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
             Assert.assertEquals(Lists.newArrayList(), deleteStmt.getPartitionNames());

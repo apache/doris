@@ -25,6 +25,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
@@ -40,13 +41,14 @@ import java.util.Map;
 import java.util.Set;
 
 public class ExtractCommonFactorsRuleTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     // Input: k1 in (k2, 1)
     // Result: false
     @Test
     public void testSingleColumnPredicateInColumn() {
-        SlotRef child0 = new SlotRef(new TableName("db1", "tb1"), "k1");
-        SlotRef inColumn = new SlotRef(new TableName("db1", "tb1"), "k2");
+        SlotRef child0 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
+        SlotRef inColumn = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k2");
         IntLiteral intLiteral = new IntLiteral(1);
         List<Expr> inExprList = Lists.newArrayList();
         inExprList.add(inColumn);
@@ -63,8 +65,8 @@ public class ExtractCommonFactorsRuleTest {
     @Test
     public void testMergeTwoClauseRange() {
         // Clause1
-        SlotRef k1SlotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
-        SlotRef k2SlotRef = new SlotRef(new TableName("db1", "tb1"), "k2");
+        SlotRef k1SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
+        SlotRef k2SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k2");
         Range k1Range1 = Range.range(new IntLiteral(1), BoundType.OPEN, new IntLiteral(3), BoundType.OPEN);
         Range k2Range = Range.greaterThan(new IntLiteral(3));
         RangeSet<LiteralExpr> k1RangeSet1 = TreeRangeSet.create();
@@ -97,8 +99,8 @@ public class ExtractCommonFactorsRuleTest {
     @Test
     public void testMergeTwoClauseIn() {
         // Clause1
-        SlotRef k1SlotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
-        SlotRef k2SlotRef = new SlotRef(new TableName("db1", "tb1"), "k2");
+        SlotRef k1SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
+        SlotRef k2SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k2");
         IntLiteral intLiteral1 = new IntLiteral(1);
         IntLiteral intLiteral2 = new IntLiteral(2);
         List<Expr> k1Values1 = Lists.newArrayList();
@@ -140,7 +142,7 @@ public class ExtractCommonFactorsRuleTest {
         RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
         rangeSet.add(range1);
         rangeSet.add(range2);
-        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
 
         ExtractCommonFactorsRule extractCommonFactorsRule = new ExtractCommonFactorsRule();
         Expr result = Deencapsulation.invoke(extractCommonFactorsRule,

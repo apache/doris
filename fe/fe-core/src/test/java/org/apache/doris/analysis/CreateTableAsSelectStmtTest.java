@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
@@ -109,7 +110,7 @@ public class CreateTableAsSelectStmtTest {
     }
 
     private static ShowResultSet showCreateTable(String tableName) throws Exception {
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName("test", tableName));
+        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName(InternalDataSource.INTERNAL_DS_NAME, "test", tableName));
         Analyzer dummyRootAnalyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
         stmt.analyze(dummyRootAnalyzer);
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);

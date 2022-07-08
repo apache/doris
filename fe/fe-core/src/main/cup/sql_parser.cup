@@ -4156,11 +4156,11 @@ star_expr ::=
     // on IDENT [DOT]
     ident:tbl DOT STAR
     {:
-        RESULT = SelectListItem.createStarItem(new TableName(null, tbl));
+        RESULT = SelectListItem.createStarItem(new TableName(null, null, tbl));
     :}
     | ident:db DOT ident:tbl DOT STAR
     {:
-        RESULT = SelectListItem.createStarItem(new TableName(db, tbl));
+        RESULT = SelectListItem.createStarItem(new TableName(null, db, tbl));
     :}
     | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
     {:
@@ -4180,9 +4180,9 @@ opt_table_name ::=
 
 table_name ::=
     ident:tbl
-    {: RESULT = new TableName(null, tbl); :}
+    {: RESULT = new TableName(null, null, tbl); :}
     | ident:db DOT ident:tbl
-    {: RESULT = new TableName(db, tbl); :}
+    {: RESULT = new TableName(null, db, tbl); :}
     | ident:ctl DOT ident:db DOT ident:tbl
     {: RESULT = new TableName(ctl, db, tbl); :}
     ;
@@ -5311,9 +5311,9 @@ column_ref ::=
   {: RESULT = new SlotRef(null, col); :}
   // table_name:tblName DOT IDENT:col causes reduce/reduce conflicts
   | ident:tbl DOT ident:col
-  {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
+  {: RESULT = new SlotRef(new TableName(null, null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
-  {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
+  {: RESULT = new SlotRef(new TableName(null, db, tbl), col); :}
   | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
   ;

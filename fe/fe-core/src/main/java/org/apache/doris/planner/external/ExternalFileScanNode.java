@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -127,6 +128,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
             nextBe = nextBe % backends.size();
             return selectedBackend;
         }
+
+        public int numBackends() {
+            return backends.size();
+        }
     }
 
     private final BackendPolicy backendPolicy = new BackendPolicy();
@@ -171,7 +176,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        if (hmsTable.isView()) {
+            throw new AnalysisException(String.format("Querying external view '[%s].%s.%s' is not supported",
+                    hmsTable.getDlaType(), hmsTable.getDbName(), hmsTable.getName()));
+        }
         backendPolicy.init();
+        numNodes = backendPolicy.numBackends();
         initContext();
     }
 
@@ -335,8 +345,28 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        return prefix + "DATABASE: " + hmsTable.getDbName() + "\n"
-                + prefix + "TABLE: " + hmsTable.getName() + "\n"
-                + prefix + "HIVE URL: " + scanProvider.getMetaStoreUrl() + "\n";
+        StringBuilder output = new StringBuilder();
+        output.append(prefix).append("TABLE: ")
+                .append(hmsTable.getDbName()).append(".").append(hmsTable.getName()).append("\n")
+                .append(prefix).append("HIVE URL: ").append(scanProvider.getMetaStoreUrl()).append("\n");
+
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
+        }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(prefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(false));
+        }
+
+        output.append(prefix);
+        if (cardinality > 0) {
+            output.append(String.format("cardinality=%s, ", cardinality));
+        }
+        if (avgRowSize > 0) {
+            output.append(String.format("avgRowSize=%s, ", avgRowSize));
+        }
+        output.append(String.format("numNodes=%s", numNodes)).append("\n");
+
+        return output.toString();
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -36,6 +37,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class ExprTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Test
     public void testGetTableNameToColumnNames(@Mocked Analyzer analyzer,
@@ -45,8 +47,8 @@ public class ExprTest {
                                               @Injectable TupleDescriptor tupleDescriptor2,
                                               @Injectable Table tableA,
                                               @Injectable Table tableB) throws AnalysisException {
-        TableName tableAName = new TableName("test", "tableA");
-        TableName tableBName = new TableName("test", "tableB");
+        TableName tableAName = new TableName(internalCtl, "test", "tableA");
+        TableName tableBName = new TableName(internalCtl, "test", "tableB");
         SlotRef tableAColumn1 = new SlotRef(tableAName, "c1");
         SlotRef tableBColumn1 = new SlotRef(tableBName, "c1");
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, tableAColumn1, tableBColumn1);
@@ -198,7 +200,7 @@ public class ExprTest {
 
     @Test
     public void testSrcSlotRef(@Injectable SlotDescriptor slotDescriptor) {
-        TableName tableName = new TableName("db1", "table1");
+        TableName tableName = new TableName(internalCtl, "db1", "table1");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         slotRef.setDesc(slotDescriptor);
         Deencapsulation.setField(slotRef, "isAnalyzed", true);

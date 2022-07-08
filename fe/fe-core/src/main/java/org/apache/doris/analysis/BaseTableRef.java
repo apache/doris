@@ -40,7 +40,7 @@ public class BaseTableRef extends TableRef {
         if (hasExplicitAlias()) {
             return;
         }
-        aliases = new String[] {name.toString(), tableName.getNoClusterString(), tableName.getTbl()};
+        aliases = tableName.tableAliases();
     }
 
     protected BaseTableRef(BaseTableRef other) {

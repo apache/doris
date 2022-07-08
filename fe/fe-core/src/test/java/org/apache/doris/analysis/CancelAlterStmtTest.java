@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
@@ -74,14 +75,14 @@ public class CancelAlterStmtTest {
         fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(catalog);
         // cancel alter column
-        CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN, new TableName(null, "testTbl"));
+        CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN, new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("CANCEL ALTER COLUMN FROM `testDb`.`testTbl`", stmt.toString());
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals(AlterType.COLUMN, stmt.getAlterType());
         Assert.assertEquals("testTbl", stmt.getTableName());
 
-        stmt = new CancelAlterTableStmt(AlterType.ROLLUP, new TableName(null, "testTbl"));
+        stmt = new CancelAlterTableStmt(AlterType.ROLLUP, new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("CANCEL ALTER ROLLUP FROM `testDb`.`testTbl`", stmt.toString());
         Assert.assertEquals("testDb", stmt.getDbName());

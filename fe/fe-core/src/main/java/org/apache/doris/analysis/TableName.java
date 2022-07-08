@@ -63,13 +63,6 @@ public class TableName implements Writable {
         this.tbl = tbl;
     }
 
-    /**
-     * Initialize catalog in analyze.
-     */
-    public TableName(String db, String tbl) {
-        this(null, db, tbl);
-    }
-
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(ctl)) {
             ctl = analyzer.getDefaultCatalog();
@@ -129,8 +122,26 @@ public class TableName implements Writable {
         return Stream.of(ctl, db, tbl).noneMatch(Strings::isNullOrEmpty);
     }
 
+    /**
+     * Analyzer.registerTableRef task alias of index 1 as the legal implicit alias.
+     */
+    public String[] tableAliases() {
+        if (ctl == null || ctl.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+            return new String[] {toString(), getNoClusterString(), tbl};
+        } else {
+            return new String[] {
+                    toString(), // with cluster name
+                    getNoClusterString(), // without cluster name, legal implicit alias
+                    String.format("%s.%s", db, tbl),
+                    String.format("%s.%s", ClusterNamespace.getNameFromFullName(db), tbl),
+                    tbl
+            };
+        }
+    }
+
     public String getNoClusterString() {
-        return Stream.of(ctl, ClusterNamespace.getNameFromFullName(db), tbl)
+        return Stream.of(InternalDataSource.INTERNAL_DS_NAME.equals(ctl) ? null : ctl,
+                        ClusterNamespace.getNameFromFullName(db), tbl)
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining("."));
     }

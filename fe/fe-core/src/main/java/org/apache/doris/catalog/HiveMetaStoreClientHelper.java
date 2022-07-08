@@ -47,6 +47,7 @@ import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
@@ -69,6 +70,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -800,5 +802,61 @@ public class HiveMetaStoreClientHelper {
         // TODO: Handle unsupported types.
         LOG.warn("Hive type {} may not supported yet, will use STRING instead.", hiveType);
         return Type.STRING;
+    }
+
+    public static String showCreateTable(org.apache.hadoop.hive.metastore.api.Table remoteTable) {
+        StringBuilder output = new StringBuilder();
+        if (remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText()) {
+            output.append(String.format("CREATE VIEW `%s` AS ", remoteTable.getTableName()));
+            if (remoteTable.getViewExpandedText() != null) {
+                output.append(remoteTable.getViewExpandedText());
+            } else {
+                output.append(remoteTable.getViewOriginalText());
+            }
+        } else {
+            output.append(String.format("CREATE TABLE `%s`(\n", remoteTable.getTableName()));
+            Iterator<FieldSchema> fields = remoteTable.getSd().getCols().iterator();
+            while (fields.hasNext()) {
+                FieldSchema field = fields.next();
+                output.append(String.format("  `%s` %s", field.getName(), field.getType()));
+                if (field.getComment() != null) {
+                    output.append(String.format(" COMMENT '%s'", field.getComment()));
+                }
+                if (fields.hasNext()) {
+                    output.append(",\n");
+                }
+            }
+            output.append(")\n");
+            StorageDescriptor descriptor = remoteTable.getSd();
+            if (descriptor.getSerdeInfo().isSetSerializationLib()) {
+                output.append("ROW FORMAT SERDE\n")
+                        .append(String.format("  '%s'\n", descriptor.getSerdeInfo().getSerializationLib()));
+            }
+            if (descriptor.isSetInputFormat()) {
+                output.append("STORED AS INPUTFORMAT\n")
+                        .append(String.format("  '%s'\n", descriptor.getInputFormat()));
+            }
+            if (descriptor.isSetOutputFormat()) {
+                output.append("OUTPUTFORMAT\n")
+                        .append(String.format("  '%s'\n", descriptor.getOutputFormat()));
+            }
+            if (descriptor.isSetLocation()) {
+                output.append("LOCATION\n")
+                        .append(String.format("  '%s'\n", descriptor.getLocation()));
+            }
+            if (remoteTable.isSetParameters()) {
+                output.append("TBLPROPERTIES (\n");
+                Iterator<Map.Entry<String, String>> params = remoteTable.getParameters().entrySet().iterator();
+                while (params.hasNext()) {
+                    Map.Entry<String, String> param = params.next();
+                    output.append(String.format("  '%s'='%s'", param.getKey(), param.getValue()));
+                    if (params.hasNext()) {
+                        output.append(",\n");
+                    }
+                }
+                output.append(")");
+            }
+        }
+        return output.toString();
     }
 }

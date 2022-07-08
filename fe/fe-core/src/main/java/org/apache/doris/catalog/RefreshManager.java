@@ -82,7 +82,8 @@ public class RefreshManager {
         // Current database may have other types of table, which is not allowed to drop.
         for (Table table : db.getTables()) {
             if (table instanceof IcebergTable) {
-                DropTableStmt dropTableStmt = new DropTableStmt(true, new TableName(dbName, table.getName()), true);
+                DropTableStmt dropTableStmt =
+                        new DropTableStmt(true, new TableName(null, dbName, table.getName()), true);
                 catalog.dropTable(dropTableStmt);
             }
         }

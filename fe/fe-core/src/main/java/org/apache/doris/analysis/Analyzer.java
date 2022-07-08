@@ -680,7 +680,7 @@ public class Analyzer {
         // which may not be the same as the user's reference to the table name, causing the table name not to be found
         // in registerColumnRef(). So here the tblName is constructed using tableName.getTbl()
         // instead of table.getName().
-        TableName tblName = new TableName(tableName.getDb(), tableName.getTbl());
+        TableName tblName = new TableName(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
         if (table instanceof View) {
             return new InlineViewRef((View) table, tableRef);
         } else {

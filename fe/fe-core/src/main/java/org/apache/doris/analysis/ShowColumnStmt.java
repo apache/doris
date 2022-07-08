@@ -22,6 +22,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -29,7 +30,8 @@ import com.google.common.collect.Lists;
 
 // SHOW COLUMNS
 public class ShowColumnStmt extends ShowStmt {
-    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "COLUMNS");
+    private static final TableName TABLE_NAME =
+            new TableName(InternalDataSource.INTERNAL_DS_NAME, InfoSchemaDb.DATABASE_NAME, "COLUMNS");
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))

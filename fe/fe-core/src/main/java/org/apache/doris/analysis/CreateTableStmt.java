@@ -242,7 +242,7 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     public void setTableName(String newTableName) {
-        tableName = new TableName(tableName.getDb(), newTableName);
+        tableName = new TableName(tableName.getCtl(), tableName.getDb(), newTableName);
     }
 
     public String getComment() {

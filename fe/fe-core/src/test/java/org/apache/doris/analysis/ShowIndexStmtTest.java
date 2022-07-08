@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -29,6 +30,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class ShowIndexStmtTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     private static Analyzer analyzer;
 
@@ -46,23 +48,23 @@ public class ShowIndexStmtTest {
 
     @Test
     public void testNormal() throws UserException {
-        ShowIndexStmt stmt = new ShowIndexStmt("testDb", new TableName("", "testTbl"));
+        ShowIndexStmt stmt = new ShowIndexStmt("testDb", new TableName(internalCtl, "", "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW INDEX FROM `testCluster:testDb`.`testTbl`", stmt.toSql());
-        stmt = new ShowIndexStmt("", new TableName("", "testTbl"));
+        stmt = new ShowIndexStmt("", new TableName(internalCtl, "", "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW INDEX FROM `testCluster:testDb`.`testTbl`", stmt.toSql());
-        stmt = new ShowIndexStmt(null, new TableName("testDb", "testTbl"));
+        stmt = new ShowIndexStmt(null, new TableName(internalCtl, "testDb", "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW INDEX FROM `testCluster:testDb`.`testTbl`", stmt.toSql());
-        stmt = new ShowIndexStmt("testDb", new TableName("testDb2", "testTbl"));
+        stmt = new ShowIndexStmt("testDb", new TableName(internalCtl, "testDb2", "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW INDEX FROM `testCluster:testDb`.`testTbl`", stmt.toSql());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoTbl() throws UserException {
-        ShowIndexStmt stmt = new ShowIndexStmt("testDb", new TableName("", ""));
+        ShowIndexStmt stmt = new ShowIndexStmt("testDb", new TableName(internalCtl, "", ""));
         stmt.analyze(analyzer);
     }
 }

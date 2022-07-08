@@ -149,7 +149,7 @@ public class ShowDataStmtTest {
         SlotRef slotRefTwo = new SlotRef(null, "Size");
         OrderByElement orderByElementTwo = new OrderByElement(slotRefTwo, false, false);
 
-        stmt = new ShowDataStmt(new TableName("testDb", "test_tbl"), Arrays.asList(orderByElementOne, orderByElementTwo));
+        stmt = new ShowDataStmt(new TableName(InternalDataSource.INTERNAL_DS_NAME, "testDb", "test_tbl"), Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC", stmt.toString());
         Assert.assertEquals(5, stmt.getMetaData().getColumnCount());

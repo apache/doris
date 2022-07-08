@@ -35,6 +35,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
@@ -72,7 +73,7 @@ public class RuntimeFilterGeneratorTest {
 
         TupleDescriptor lhsTupleDescriptor = new TupleDescriptor(new TupleId(0));
         lhsScanNode = new OlapScanNode(new PlanNodeId(0), lhsTupleDescriptor, "LEFT SCAN");
-        TableName lhsTableName = new TableName("default_cluster:test_db", "test_lhs_tbl");
+        TableName lhsTableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "default_cluster:test_db", "test_lhs_tbl");
         SlotRef lhsExpr = new SlotRef(lhsTableName, "test_lhs_col");
         SlotDescriptor lhsSlotDescriptor = new SlotDescriptor(new SlotId(0), lhsTupleDescriptor);
         Column k1 = new Column("test_lhs_col", PrimitiveType.BIGINT);
@@ -86,7 +87,7 @@ public class RuntimeFilterGeneratorTest {
 
         TupleDescriptor rhsTupleDescriptor = new TupleDescriptor(new TupleId(1));
         rhsScanNode = new OlapScanNode(new PlanNodeId(1), rhsTupleDescriptor, "RIGHT SCAN");
-        TableName rhsTableName = new TableName("default_cluster:test_db", "test_rhs_tbl");
+        TableName rhsTableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "default_cluster:test_db", "test_rhs_tbl");
         SlotRef rhsExpr = new SlotRef(rhsTableName, "test_rhs_col");
         SlotDescriptor rhsSlotDescriptor = new SlotDescriptor(new SlotId(1), rhsTupleDescriptor);
         Column k2 = new Column("test_rhs_col", PrimitiveType.INT);

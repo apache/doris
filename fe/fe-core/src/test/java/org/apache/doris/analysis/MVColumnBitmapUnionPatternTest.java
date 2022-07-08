@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -32,10 +33,11 @@ import org.junit.Test;
 import java.util.List;
 
 public class MVColumnBitmapUnionPatternTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Test
     public void testCorrectExpr1(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
         List<Expr> child0Params = Lists.newArrayList();
@@ -51,7 +53,7 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testCorrectExpr2(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
         new Expectations() {
@@ -73,7 +75,7 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testUpperCaseOfFunction(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
         List<Expr> child0Params = Lists.newArrayList();
@@ -89,7 +91,7 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testIncorrectArithmeticExpr1(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, slotRef1, slotRef2);
@@ -103,7 +105,7 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testIncorrectArithmeticExpr2(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, slotRef1, slotRef2);
@@ -120,7 +122,7 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testIncorrectDecimalSlotRef(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef1, "type", Type.DECIMALV2);
         List<Expr> child0Params = Lists.newArrayList();
@@ -137,7 +139,7 @@ public class MVColumnBitmapUnionPatternTest {
     @Test
     public void testAggTableBitmapColumn(@Injectable SlotDescriptor desc,
             @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef1);

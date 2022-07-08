@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
@@ -36,6 +37,7 @@ import org.junit.Test;
  * Comparison Predicate unit test.
  */
 public class ComparisonPredicateTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Mocked
     Analyzer analyzer;
@@ -116,7 +118,7 @@ public class ComparisonPredicateTest {
 
     @Test
     public void testConvertToRange() {
-        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr literalExpr = new IntLiteral(1);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.LE, slotRef, literalExpr);
         Range<LiteralExpr> range = binaryPredicate.convertToRange();
@@ -127,7 +129,7 @@ public class ComparisonPredicateTest {
 
     @Test
     public void testConvertToRangeForDateV2() {
-        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr dateExpr = new DateLiteral(2022, 5, 19, Type.DATE);
         LiteralExpr dateV2Expr = new DateLiteral(2022, 5, 19, Type.DATEV2);
         BinaryPredicate binaryPredicate1 = new BinaryPredicate(BinaryPredicate.Operator.LE, slotRef, dateExpr);
@@ -146,7 +148,7 @@ public class ComparisonPredicateTest {
 
     @Test
     public void testConvertToRangeForDateTimeV2() {
-        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
         LiteralExpr dateTimeExpr = new DateLiteral(2022, 5, 19, 0, 0, 0, Type.DATETIME);
         LiteralExpr dateTimeV2Expr1 = new DateLiteral(2022, 5, 19, 0, 0, 0, Type.DEFAULT_DATETIMEV2);
         LiteralExpr dateTimeV2Expr2 = new DateLiteral(2022, 5, 19, 0, 0, 0, ScalarType.createDatetimeV2Type(6));
