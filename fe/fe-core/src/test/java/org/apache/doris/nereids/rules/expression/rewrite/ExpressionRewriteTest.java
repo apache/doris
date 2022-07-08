@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressionRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -47,7 +47,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNormalizeExpressionRewrite() {
-        executor = new ExpressionRuleExecutor(NormalizeExpressionRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(NormalizeBinaryPredicatesRule.INSTANCE);
 
         assertRewrite("2 > x", "x < 2");
         assertRewrite("2 >= x", "x <= 2");
