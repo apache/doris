@@ -19,6 +19,9 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
 #include "olap/key_coder.h"
@@ -36,15 +39,15 @@ const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 
 class BloomFilterIndexReaderWriterTest : public testing::Test {
 public:
-    virtual void SetUp() {
-        if (FileUtils::is_dir(dname)) {
-            std::set<std::string> files;
-            EXPECT_TRUE(FileUtils::list_dirs_files(dname, nullptr, &files, Env::Default()).ok());
-            for (const auto& file : files) {
-                Status s = Env::Default()->delete_file(dname + "/" + file);
-                EXPECT_TRUE(s.ok()) << s.to_string();
-            }
-            EXPECT_TRUE(Env::Default()->delete_dir(dname).ok());
+    void SetUp() override {
+        if (FileUtils::check_exist(dname)) {
+            EXPECT_TRUE(FileUtils::remove_all(dname).ok());
+        }
+        EXPECT_TRUE(FileUtils::create_dir(dname).ok());
+    }
+    void TearDown() override {
+        if (FileUtils::check_exist(dname)) {
+            EXPECT_TRUE(FileUtils::remove_all(dname).ok());
         }
     }
 };
@@ -55,13 +58,11 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
                                    ColumnIndexMetaPB* index_meta) {
     const auto* type_info = get_scalar_type_info<type>();
     using CppType = typename CppTypeTraits<type>::CppType;
-    FileUtils::create_dir(dname);
     std::string fname = dname + "/" + file_name;
+    auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(fname);
-        std::string storage_name;
-        Status st = fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock);
+        std::unique_ptr<io::FileWriter> file_writer;
+        Status st = fs->create_file(fname, &file_writer);
         EXPECT_TRUE(st.ok()) << st.to_string();
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
@@ -79,9 +80,9 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
             EXPECT_TRUE(st.ok());
             i += 1024;
         }
-        st = bloom_filter_index_writer->finish(wblock.get(), index_meta);
+        st = bloom_filter_index_writer->finish(file_writer.get(), index_meta);
         EXPECT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
-        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
         EXPECT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
         EXPECT_EQ(bf_options.strategy, index_meta->bloom_filter_index().hash_strategy());
     }
@@ -92,8 +93,8 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
                                   BloomFilterIndexReader** reader,
                                   std::unique_ptr<BloomFilterIndexIterator>* iter) {
     std::string fname = dname + "/" + file_name;
-
-    *reader = new BloomFilterIndexReader(fname, &meta.bloom_filter_index());
+    auto fs = io::global_local_filesystem();
+    *reader = new BloomFilterIndexReader(fs, fname, &meta.bloom_filter_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());
 
@@ -106,7 +107,7 @@ void test_bloom_filter_index_reader_writer_template(
         const std::string file_name, typename TypeTraits<Type>::CppType* val, size_t num,
         size_t null_num, typename TypeTraits<Type>::CppType* not_exist_value,
         bool is_slice_type = false) {
-    typedef typename TypeTraits<Type>::CppType CppType;
+    using CppType = typename TypeTraits<Type>::CppType;
     ColumnIndexMetaPB meta;
     write_bloom_filter_index_file<Type>(file_name, val, num, null_num, &meta);
     {

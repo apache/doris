@@ -788,6 +788,7 @@ public class HashJoinNode extends PlanNode {
             }
             output.append("\n");
         }
+
         if (hashOutputSlotIds != null) {
             output.append(detailPrefix).append("hash output slot ids: ");
             for (SlotId slotId : hashOutputSlotIds) {
@@ -795,6 +796,7 @@ public class HashJoinNode extends PlanNode {
             }
             output.append("\n");
         }
+        appendCommonExplainString(detailPrefix, output);
         return output.toString();
     }
 

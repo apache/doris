@@ -23,6 +23,7 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_writer.h"
 #include "olap/fs/fs_util.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
@@ -33,8 +34,6 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 
 namespace doris {
 
@@ -50,27 +49,18 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
-        Status st;
-        if (_context.path_desc.is_remote()) {
-            std::shared_ptr<StorageBackend> storage_backend =
-                    StorageBackendMgr::instance()->get_storage_backend(
-                            _context.path_desc.storage_name);
-            if (storage_backend == nullptr) {
-                LOG(WARNING) << "storage_backend is invalid: " << _context.path_desc.debug_string();
-                return;
-            }
-            WARN_IF_ERROR(storage_backend->rmdir(_context.path_desc.remote_path),
-                          strings::Substitute("Failed to delete remote file=$0",
-                                              _context.path_desc.remote_path));
+        auto fs = _rowset_meta->fs();
+        if (!fs) {
+            return;
         }
         for (int i = 0; i < _num_segment; ++i) {
-            auto path_desc =
-                    BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id, i);
+            auto seg_path =
+                    BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(Env::Default()->delete_file(path_desc.filepath),
-                          strings::Substitute("Failed to delete file=$0", path_desc.filepath));
+            WARN_IF_ERROR(fs->delete_file(seg_path),
+                          strings::Substitute("Failed to delete file=$0", seg_path));
         }
     }
 }
@@ -78,6 +68,9 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta.reset(new RowsetMeta);
+    if (_context.data_dir) {
+        _rowset_meta->set_fs(_context.data_dir->fs());
+    }
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
@@ -91,9 +84,10 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _rowset_meta->set_load_id(_context.load_id);
     } else {
         _rowset_meta->set_version(_context.version);
+        _rowset_meta->set_oldest_write_timestamp(_context.oldest_write_timestamp);
+        _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
-
     return Status::OK();
 }
 
@@ -161,7 +155,7 @@ template Status BetaRowsetWriter::_add_row(const ContiguousRow& row);
 
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    RETURN_NOT_OK(rowset->link_files_to(_context.path_desc, _context.rowset_id));
+    RETURN_NOT_OK(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
@@ -177,42 +171,6 @@ Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr row
                                                              const SchemaMapping& schema_mapping) {
     // TODO use schema_mapping to transfer zonemap
     return add_rowset(rowset);
-}
-
-Status BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
-    Status res = Status::OK();
-    assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    if (!rowset->rowset_path_desc().is_remote() && !_context.path_desc.is_remote()) {
-        res = rowset->copy_files_to(_context.path_desc.filepath, _context.rowset_id);
-        if (!res.ok()) {
-            LOG(WARNING) << "copy_files failed. src: " << rowset->rowset_path_desc().filepath
-                         << ", dest: " << _context.path_desc.filepath;
-            return res;
-        }
-    } else if (!rowset->rowset_path_desc().is_remote() && _context.path_desc.is_remote()) {
-        res = rowset->upload_files_to(_context.path_desc, _context.rowset_id);
-        if (!res.ok()) {
-            LOG(WARNING) << "upload_files failed. src: "
-                         << rowset->rowset_path_desc().debug_string()
-                         << ", dest: " << _context.path_desc.debug_string();
-            return res;
-        }
-    } else {
-        LOG(WARNING) << "add_rowset_for_migration failed. storage_medium is invalid. src: "
-                     << rowset->rowset_path_desc().debug_string()
-                     << ", dest: " << _context.path_desc.debug_string();
-        return Status::OLAPInternalError(OLAP_ERR_ROWSET_ADD_MIGRATION_V2);
-    }
-
-    _num_rows_written += rowset->num_rows();
-    _total_data_size += rowset->rowset_meta()->data_disk_size();
-    _total_index_size += rowset->rowset_meta()->index_disk_size();
-    _num_segment += rowset->num_segments();
-    // TODO update zonemap
-    if (rowset->rowset_meta()->has_delete_predicate()) {
-        _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
-    }
-    return Status::OK();
 }
 
 Status BetaRowsetWriter::flush() {
@@ -268,8 +226,8 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
 
 RowsetSharedPtr BetaRowsetWriter::build() {
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
-    for (auto& wblock : _wblocks) {
-        wblock->close();
+    for (auto& file_writer : _file_writers) {
+        file_writer->close();
     }
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
@@ -291,8 +249,16 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         _rowset_meta->set_rowset_state(VISIBLE);
     }
 
+    if (_rowset_meta->oldest_write_timestamp() == -1) {
+        _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
+    }
+
+    if (_rowset_meta->newest_write_timestamp() == -1) {
+        _rowset_meta->set_newest_write_timestamp(UnixSeconds());
+    }
+
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.path_desc,
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
                                                _rowset_meta, &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
@@ -304,29 +270,28 @@ RowsetSharedPtr BetaRowsetWriter::build() {
 
 Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    auto path_desc =
-            BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id, _num_segment++);
-    // TODO(lingbin): should use a more general way to get BlockManager object
-    // and tablets with the same type should share one BlockManager object;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_context.path_desc);
-    std::unique_ptr<fs::WritableBlock> wblock;
-    fs::CreateBlockOptions opts(path_desc);
-    DCHECK(block_mgr != nullptr);
-    Status st = block_mgr->create_block(opts, &wblock);
+    auto path = BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id,
+                                               _num_segment++);
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+    }
+    std::unique_ptr<io::FileWriter> file_writer;
+    Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath
+        LOG(WARNING) << "failed to create writable file. path=" << path
                      << ", err: " << st.get_error_msg();
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
 
-    DCHECK(wblock != nullptr);
+    DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
-    writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment, _context.tablet_schema,
-                                                _context.data_dir, _context.max_rows_per_segment,
-                                                writer_options));
+    writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
+                                                _context.tablet_schema, _context.data_dir,
+                                                _context.max_rows_per_segment, writer_options));
     {
         std::lock_guard<SpinLock> l(_lock);
-        _wblocks.push_back(std::move(wblock));
+        _file_writers.push_back(std::move(file_writer));
     }
 
     auto s = (*writer)->init(config::push_write_mbytes_per_sec);

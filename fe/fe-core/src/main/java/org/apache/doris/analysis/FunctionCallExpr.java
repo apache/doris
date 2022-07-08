@@ -1267,7 +1267,10 @@ public class FunctionCallExpr extends Expr {
         }
     }
 
-    public void setMergeAggFn(boolean mergeAggFn) {
-        isMergeAggFn = mergeAggFn;
+    /**
+     * NOTICE: This function only used for Nereids, should not call it if u don't know what it is mean.
+     */
+    public void setMergeForNereids(boolean isMergeAggFn) {
+        this.isMergeAggFn = isMergeAggFn;
     }
 }

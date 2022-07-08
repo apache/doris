@@ -195,6 +195,8 @@ set(OLAP_TEST_FILES
     olap/primary_key_index_test.cpp
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
+    olap/tablet_cooldown_test.cpp
+    olap/tablet_clone_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -315,6 +317,7 @@ set(UTIL_TEST_FILES
     util/interval_tree_test.cpp
 )
 set(VEC_TEST_FILES
+    vec/aggregate_functions/agg_collect_test.cpp
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp

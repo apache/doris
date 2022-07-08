@@ -147,7 +147,7 @@ Status EngineBatchLoadTask::_init() {
 // Get replica root path
 Status EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* download_path) {
     Status status = Status::OK();
-    *download_path = root_path + DPP_PREFIX;
+    *download_path = root_path + "/" + DPP_PREFIX;
 
     // Check path exist
     std::filesystem::path full_path(*download_path);

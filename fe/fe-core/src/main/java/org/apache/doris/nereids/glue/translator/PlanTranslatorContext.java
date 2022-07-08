@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -111,6 +112,14 @@ public class PlanTranslatorContext {
         slotDescriptor.setIsMaterialized(true);
         this.addExprIdPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
         return slotDescriptor;
+    }
+
+    /**
+     * Create slotDesc with Expression.
+     */
+    public void createSlotDesc(TupleDescriptor tupleDesc, Expression expression) {
+        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
+        slotDescriptor.setType(expression.getDataType().toCatalogDataType());
     }
 
     public TupleDescriptor getTupleDesc(TupleId tupleId) {

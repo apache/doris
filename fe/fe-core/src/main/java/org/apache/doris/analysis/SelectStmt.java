@@ -820,7 +820,18 @@ public class SelectStmt extends QueryStmt {
                     List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(tid);
                     for (Expr candidateEqJoinPredicate : candidateEqJoinPredicates) {
                         List<TupleId> candidateTupleList = Lists.newArrayList();
-                        Expr.getIds(Lists.newArrayList(candidateEqJoinPredicate), candidateTupleList, null);
+                        List<Expr> candidateEqJoinPredicateList = Lists.newArrayList(candidateEqJoinPredicate);
+                        // If a large table or view has joinClause is ranked first,
+                        // and the joinClause is not judged here,
+                        // the column in joinClause may not be found during reanalyzing.
+                        // for example:
+                        // select * from t1 inner join t2 on t1.a = t2.b inner join t3 on t3.c = t2.b;
+                        // If t3 is a large table, it will be placed first after the reorderTable,
+                        // and the problem that t2.b does not exist will occur in reanalyzing
+                        if (candidateTableRef.getOnClause() != null) {
+                            candidateEqJoinPredicateList.add(candidateTableRef.getOnClause());
+                        }
+                        Expr.getIds(candidateEqJoinPredicateList, candidateTupleList, null);
                         int count = candidateTupleList.size();
                         for (TupleId tupleId : candidateTupleList) {
                             if (validTupleId.contains(tupleId) || tid.equals(tupleId)) {
