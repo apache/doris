@@ -22,6 +22,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "io/fs/file_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -37,11 +38,15 @@ class ReadableBlock;
 class WritableBlock;
 } // namespace fs
 
+namespace io {
+class FileWriter;
+} // namespace io
+
 namespace segment_v2 {
 
 struct PageReadOptions {
     // block to read page
-    fs::ReadableBlock* rblock = nullptr;
+    doris::io::FileReader* file_reader = nullptr;
     // location of the page
     PagePointer page_pointer;
     // decompressor for page body (null means page body is not compressed)
@@ -63,7 +68,7 @@ struct PageReadOptions {
     const EncodingInfo* encoding_info = nullptr;
 
     void sanity_check() const {
-        CHECK_NOTNULL(rblock);
+        CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
     }
 };
@@ -87,21 +92,21 @@ public:
     // Encode page from `body' and `footer' and write to `file'.
     // `body' could be either uncompressed or compressed.
     // On success, the file pointer to the written page is stored in `result'.
-    static Status write_page(fs::WritableBlock* wblock, const std::vector<Slice>& body,
+    static Status write_page(io::FileWriter* writer, const std::vector<Slice>& body,
                              const PageFooterPB& footer, PagePointer* result);
 
     // Convenient function to compress page body and write page in one go.
     static Status compress_and_write_page(const BlockCompressionCodec* codec,
-                                          double min_space_saving, fs::WritableBlock* wblock,
+                                          double min_space_saving, io::FileWriter* writer,
                                           const std::vector<Slice>& body,
                                           const PageFooterPB& footer, PagePointer* result) {
         DCHECK_EQ(footer.uncompressed_size(), Slice::compute_total_size(body));
         OwnedSlice compressed_body;
         RETURN_IF_ERROR(compress_page_body(codec, min_space_saving, body, &compressed_body));
         if (compressed_body.slice().empty()) { // uncompressed
-            return write_page(wblock, body, footer, result);
+            return write_page(writer, body, footer, result);
         }
-        return write_page(wblock, {compressed_body.slice()}, footer, result);
+        return write_page(writer, {compressed_body.slice()}, footer, result);
     }
 
     // Read and parse a page according to `opts'.

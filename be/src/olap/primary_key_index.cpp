@@ -30,7 +30,7 @@ Status PrimaryKeyIndexBuilder::init() {
     options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
     // TODO(liaoxin) test to confirm whether it needs to be compressed
     options.compression = segment_v2::NO_COMPRESSION; // currently not compressed
-    _index_builder.reset(new segment_v2::IndexedColumnWriter(options, type_info, _wblock));
+    _index_builder.reset(new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
     return _index_builder->init();
 }
 
@@ -53,10 +53,10 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::IndexedColumnMetaPB* meta) {
     return _index_builder->finish(meta);
 }
 
-Status PrimaryKeyIndexReader::parse(const FilePathDesc& path_desc,
+Status PrimaryKeyIndexReader::parse(io::FileSystem* fs, const std::string& path,
                                     const segment_v2::IndexedColumnMetaPB& meta) {
     // parse primary key index
-    _index_reader.reset(new segment_v2::IndexedColumnReader(path_desc, meta));
+    _index_reader.reset(new segment_v2::IndexedColumnReader(fs, path, meta));
     RETURN_IF_ERROR(_index_reader->load(_use_page_cache, _kept_in_memory));
 
     _parsed = true;

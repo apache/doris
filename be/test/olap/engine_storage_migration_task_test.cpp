@@ -82,7 +82,7 @@ static void tear_down() {
     }
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
 }
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,

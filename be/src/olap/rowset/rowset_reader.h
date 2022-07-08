@@ -61,6 +61,9 @@ public:
     virtual int64_t filtered_rows() = 0;
 
     virtual RowsetTypePB type() const = 0;
+
+    virtual int64_t oldest_write_timestamp() = 0;
+    virtual int64_t newest_write_timestamp() = 0;
 };
 
 } // namespace doris

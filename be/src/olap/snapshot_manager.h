@@ -50,8 +50,8 @@ public:
     Status make_snapshot(const TSnapshotRequest& request, std::string* snapshot_path,
                          bool* allow_incremental_clone);
 
-    FilePathDesc get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
-                                           const FilePathDesc& location_desc) const;
+    std::string static get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
+                                                 const std::string& prefix);
 
     // @brief 释放snapshot
     // @param snapshot_path [in] 要被释放的snapshot的路径，只包含到ID
@@ -59,8 +59,8 @@ public:
 
     static SnapshotManager* instance();
 
-    Status convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
-                              int64_t replica_id, const int32_t& schema_hash);
+    Status convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id, int64_t replica_id,
+                              const int32_t& schema_hash);
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {
@@ -74,7 +74,7 @@ private:
     std::string _get_header_full_path(const TabletSharedPtr& ref_tablet,
                                       const std::string& schema_hash_path) const;
 
-    Status _link_index_and_data_files(const FilePathDesc& header_path_desc,
+    Status _link_index_and_data_files(const std::string& header_path,
                                       const TabletSharedPtr& ref_tablet,
                                       const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
@@ -84,7 +84,7 @@ private:
 
     Status _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet, std::string* snapshot_id_path);
 
-    Status _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const FilePathDesc& new_path_desc,
+    Status _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const std::string& new_tablet_path,
                              TabletSchema& tablet_schema, const RowsetId& next_id,
                              RowsetMetaPB* new_rs_meta_pb);
 

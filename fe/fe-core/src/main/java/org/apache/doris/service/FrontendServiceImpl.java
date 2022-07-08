@@ -69,6 +69,7 @@ import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetStoragePolicyResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -989,4 +990,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    @Override
+    public TGetStoragePolicyResult refreshStoragePolicy() throws TException {
+        throw new TException("not implement");
+    }
 }

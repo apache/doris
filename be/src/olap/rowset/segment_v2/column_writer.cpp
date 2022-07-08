@@ -22,7 +22,6 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
-#include "olap/fs/block_manager.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
@@ -77,12 +76,12 @@ private:
 };
 
 Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn* column,
-                            fs::WritableBlock* _wblock, std::unique_ptr<ColumnWriter>* writer) {
+                            io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer) {
     std::unique_ptr<Field> field(FieldFactory::create(*column));
     DCHECK(field.get() != nullptr);
     if (is_scalar_type(column->type())) {
         std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
-                new ScalarColumnWriter(opts, std::move(field), _wblock));
+                new ScalarColumnWriter(opts, std::move(field), file_writer));
         *writer = std::move(writer_local);
         return Status::OK();
     } else {
@@ -107,7 +106,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             }
             std::unique_ptr<ColumnWriter> item_writer;
             RETURN_IF_ERROR(
-                    ColumnWriter::create(item_options, &item_column, _wblock, &item_writer));
+                    ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
 
             // create length writer
             FieldType length_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
@@ -134,7 +133,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
             auto* length_writer =
-                    new ScalarColumnWriter(length_options, std::move(bigint_field), _wblock);
+                    new ScalarColumnWriter(length_options, std::move(bigint_field), file_writer);
 
             // if nullable, create null writer
             ScalarColumnWriter* null_writer = nullptr;
@@ -161,7 +160,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_column.set_name("nullable");
                 null_column.set_index_length(-1); // no short key index
                 std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
-                null_writer = new ScalarColumnWriter(null_options, std::move(null_field), _wblock);
+                null_writer =
+                        new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
             }
 
             std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
@@ -237,10 +237,10 @@ Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num
 ///////////////////////////////////////////////////////////////////////////////////
 
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
-                                       std::unique_ptr<Field> field, fs::WritableBlock* wblock)
+                                       std::unique_ptr<Field> field, io::FileWriter* file_writer)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
           _opts(opts),
-          _wblock(wblock),
+          _file_writer(file_writer),
           _data_size(0) {
     // these opts.meta fields should be set by client
     DCHECK(opts.meta->has_column_id());
@@ -250,7 +250,7 @@ ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
     DCHECK(opts.meta->has_encoding());
     DCHECK(opts.meta->has_compression());
     DCHECK(opts.meta->has_is_nullable());
-    DCHECK(wblock != nullptr);
+    DCHECK(file_writer != nullptr);
 }
 
 ScalarColumnWriter::~ScalarColumnWriter() {
@@ -419,35 +419,35 @@ Status ScalarColumnWriter::write_data() {
         footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
 
         PagePointer dict_pp;
-        RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec.get(),
-                                                        _opts.compression_min_space_saving, _wblock,
-                                                        {dict_body.slice()}, footer, &dict_pp));
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(
+                _compress_codec.get(), _opts.compression_min_space_saving, _file_writer,
+                {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
     return Status::OK();
 }
 
 Status ScalarColumnWriter::write_ordinal_index() {
-    return _ordinal_index_builder->finish(_wblock, _opts.meta->add_indexes());
+    return _ordinal_index_builder->finish(_file_writer, _opts.meta->add_indexes());
 }
 
 Status ScalarColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
-        return _zone_map_index_builder->finish(_wblock, _opts.meta->add_indexes());
+        return _zone_map_index_builder->finish(_file_writer, _opts.meta->add_indexes());
     }
     return Status::OK();
 }
 
 Status ScalarColumnWriter::write_bitmap_index() {
     if (_opts.need_bitmap_index) {
-        return _bitmap_index_builder->finish(_wblock, _opts.meta->add_indexes());
+        return _bitmap_index_builder->finish(_file_writer, _opts.meta->add_indexes());
     }
     return Status::OK();
 }
 
 Status ScalarColumnWriter::write_bloom_filter_index() {
     if (_opts.need_bloom_filter) {
-        return _bloom_filter_index_builder->finish(_wblock, _opts.meta->add_indexes());
+        return _bloom_filter_index_builder->finish(_file_writer, _opts.meta->add_indexes());
     }
     return Status::OK();
 }
@@ -459,7 +459,7 @@ Status ScalarColumnWriter::_write_data_page(Page* page) {
     for (auto& data : page->data) {
         compressed_body.push_back(data.slice());
     }
-    RETURN_IF_ERROR(PageIO::write_page(_wblock, compressed_body, page->footer, &pp));
+    RETURN_IF_ERROR(PageIO::write_page(_file_writer, compressed_body, page->footer, &pp));
     _ordinal_index_builder->append_entry(page->footer.data_page_footer().first_ordinal(), pp);
     return Status::OK();
 }

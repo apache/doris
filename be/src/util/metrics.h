@@ -57,7 +57,8 @@ enum class MetricUnit {
     ROWSETS,
     CONNECTIONS,
     PACKETS,
-    NOUNIT
+    NOUNIT,
+    FILESYSTEM
 };
 
 std::ostream& operator<<(std::ostream& os, MetricType type);

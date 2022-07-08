@@ -94,16 +94,14 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
-        if (store->is_remote()) {
-            continue;
-        }
         std::string abs_path;
         RETURN_WITH_WARN_IF_ERROR(Env::Default()->canonicalize(store->path(), &abs_path),
                                   Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST),
                                   "canonical path " + store->path() + "failed");
 
         if (snapshot_path.compare(0, abs_path.size(), abs_path) == 0 &&
-            snapshot_path.compare(abs_path.size(), SNAPSHOT_PREFIX.size(), SNAPSHOT_PREFIX) == 0) {
+            snapshot_path.compare(abs_path.size() + 1, SNAPSHOT_PREFIX.size(), SNAPSHOT_PREFIX) ==
+                    0) {
             Env::Default()->delete_dir(snapshot_path);
             LOG(INFO) << "success to release snapshot path. [path='" << snapshot_path << "']";
 
@@ -118,20 +116,19 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 // TODO support beta rowset
 // For now, alpha and beta rowset meta have same fields, so we can just use
 // AlphaRowsetMeta here.
-Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
+Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
                                            int64_t replica_id, const int32_t& schema_hash) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
-    if (!FileUtils::check_exist(clone_dir_desc.filepath)) {
+    if (!FileUtils::check_exist(clone_dir)) {
         res = Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST);
-        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir="
-                     << clone_dir_desc.debug_string();
+        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir;
         return res;
     }
 
     // load original tablet meta
-    string cloned_meta_file = clone_dir_desc.filepath + "/" + std::to_string(tablet_id) + ".hdr";
+    auto cloned_meta_file = fmt::format("{}/{}.hdr", clone_dir, tablet_id);
     TabletMeta cloned_tablet_meta;
     if ((res = cloned_tablet_meta.create_from_file(cloned_meta_file)) != Status::OK()) {
         LOG(WARNING) << "fail to load original tablet meta after clone. "
@@ -159,9 +156,17 @@ Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, i
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
-        RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-        RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir_desc, tablet_schema, rowset_id,
-                                        rowset_meta));
+
+        if (!visible_rowset.has_resource_id()) {
+            // src be local rowset
+            RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
+            RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema, rowset_id,
+                                            rowset_meta));
+        } else {
+            // remote rowset
+            *rowset_meta = visible_rowset;
+        }
+        // FIXME(cyx): Redundant?
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
@@ -175,16 +180,24 @@ Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, i
             continue;
         }
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_stale_rs_metas();
-        RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-        RETURN_NOT_OK(_rename_rowset_id(stale_rowset, clone_dir_desc, tablet_schema, rowset_id,
-                                        rowset_meta));
+
+        if (!stale_rowset.has_resource_id()) {
+            // src be local rowset
+            RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
+            RETURN_NOT_OK(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id,
+                                            rowset_meta));
+        } else {
+            // remote rowset
+            *rowset_meta = stale_rowset;
+        }
+        // FIXME(cyx): Redundant?
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
     }
 
     res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
     if (!res.ok()) {
-        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir_desc.filepath;
+        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
         return res;
     }
 
@@ -192,7 +205,7 @@ Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, i
 }
 
 Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
-                                          const FilePathDesc& new_path_desc,
+                                          const std::string& new_tablet_path,
                                           TabletSchema& tablet_schema, const RowsetId& rowset_id,
                                           RowsetMetaPB* new_rs_meta_pb) {
     Status res = Status::OK();
@@ -205,7 +218,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
     alpha_rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset;
-    RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, new_path_desc, alpha_rowset_meta,
+    RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, new_tablet_path, alpha_rowset_meta,
                                                &org_rowset));
     // do not use cache to load index
     // because the index file may conflict
@@ -218,10 +231,12 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.partition_id = org_rowset_meta->partition_id();
     context.tablet_schema_hash = org_rowset_meta->tablet_schema_hash();
     context.rowset_type = org_rowset_meta->rowset_type();
-    context.path_desc = new_path_desc;
+    context.tablet_path = new_tablet_path;
     context.tablet_schema = &tablet_schema;
     context.rowset_state = org_rowset_meta->rowset_state();
     context.version = org_rowset_meta->version();
+    context.oldest_write_timestamp = org_rowset_meta->oldest_write_timestamp();
+    context.newest_write_timestamp = org_rowset_meta->newest_write_timestamp();
     // keep segments_overlap same as origin rowset
     context.segments_overlap = alpha_rowset_meta->segments_overlap();
 
@@ -248,7 +263,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
 // get snapshot path: curtime.seq.timeout
 // eg: 20190819221234.3.86400
 Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
-                                               string* out_path) {
+                                               std::string* out_path) {
     Status res = Status::OK();
     if (out_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
@@ -263,38 +278,31 @@ Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, in
         return res;
     }
 
-    std::stringstream snapshot_id_path_stream;
     std::unique_lock<std::mutex> auto_lock(
             _snapshot_mutex); // will automatically unlock when function return.
-    snapshot_id_path_stream << tablet->data_dir()->path() << SNAPSHOT_PREFIX << "/" << time_str
-                            << "." << _snapshot_base_id++ << "." << timeout_s;
-    *out_path = snapshot_id_path_stream.str();
+    *out_path = fmt::format("{}/{}/{}.{}.{}", tablet->data_dir()->path(), SNAPSHOT_PREFIX, time_str,
+                            _snapshot_base_id++, timeout_s);
     return res;
 }
 
-// location: /path/to/data/DATA_PREFIX/shard_id
+// prefix: /path/to/data/DATA_PREFIX/shard_id
 // return: /path/to/data/DATA_PREFIX/shard_id/tablet_id/schema_hash
-FilePathDesc SnapshotManager::get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
-                                                        const FilePathDesc& location_desc) const {
-    FilePathDescStream schema_full_path_desc_s;
-    schema_full_path_desc_s << location_desc << "/" << ref_tablet->tablet_id() << "/"
-                            << ref_tablet->schema_hash();
-    return schema_full_path_desc_s.path_desc();
+std::string SnapshotManager::get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
+                                                       const std::string& prefix) {
+    return fmt::format("{}/{}/{}", prefix, ref_tablet->tablet_id(), ref_tablet->schema_hash());
 }
 
 std::string SnapshotManager::_get_header_full_path(const TabletSharedPtr& ref_tablet,
                                                    const std::string& schema_hash_path) const {
-    std::stringstream header_name_stream;
-    header_name_stream << schema_hash_path << "/" << ref_tablet->tablet_id() << ".hdr";
-    return header_name_stream.str();
+    return fmt::format("{}/{}.hdr", schema_hash_path, ref_tablet->tablet_id());
 }
 
 Status SnapshotManager::_link_index_and_data_files(
-        const FilePathDesc& schema_hash_path_desc, const TabletSharedPtr& ref_tablet,
+        const std::string& schema_hash_path, const TabletSharedPtr& ref_tablet,
         const std::vector<RowsetSharedPtr>& consistent_rowsets) {
     Status res = Status::OK();
     for (auto& rs : consistent_rowsets) {
-        RETURN_NOT_OK(rs->link_files_to(schema_hash_path_desc, rs->rowset_id()));
+        RETURN_NOT_OK(rs->link_files_to(schema_hash_path, rs->rowset_id()));
     }
     return res;
 }
@@ -315,7 +323,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
     // snapshot_id_path:
     //      /data/shard_id/tablet_id/snapshot/time_str/id.timeout/
-    string snapshot_id_path;
+    std::string snapshot_id_path;
     int64_t timeout_s = config::snapshot_expire_time_sec;
     if (request.__isset.timeout) {
         timeout_s = request.timeout;
@@ -329,18 +337,18 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
     // schema_full_path_desc.filepath:
     //      /snapshot_id_path/tablet_id/schema_hash/
-    FilePathDesc schema_full_path_desc = get_schema_hash_full_path(ref_tablet, snapshot_id_path);
+    auto schema_full_path = get_schema_hash_full_path(ref_tablet, snapshot_id_path);
     // header_path:
     //      /schema_full_path/tablet_id.hdr
-    string header_path = _get_header_full_path(ref_tablet, schema_full_path_desc.filepath);
-    if (FileUtils::check_exist(schema_full_path_desc.filepath)) {
+    auto header_path = _get_header_full_path(ref_tablet, schema_full_path);
+    if (FileUtils::check_exist(schema_full_path)) {
         VLOG_TRACE << "remove the old schema_full_path.";
-        FileUtils::remove_all(schema_full_path_desc.filepath);
+        FileUtils::remove_all(schema_full_path);
     }
 
-    RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path_desc.filepath),
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path),
                               Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
-                              "create path " + schema_full_path_desc.filepath + " failed");
+                              "create path " + schema_full_path + " failed");
 
     string snapshot_id;
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(snapshot_id_path, &snapshot_id),
@@ -426,9 +434,12 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
         std::vector<RowsetMetaSharedPtr> rs_metas;
         for (auto& rs : consistent_rowsets) {
-            res = rs->link_files_to(schema_full_path_desc, rs->rowset_id());
-            if (!res.ok()) {
-                break;
+            if (rs->is_local()) {
+                // local rowset
+                res = rs->link_files_to(schema_full_path, rs->rowset_id());
+                if (!res.ok()) {
+                    break;
+                }
             }
             rs_metas.push_back(rs->rowset_meta());
             VLOG_NOTICE << "add rowset meta to clone list. "

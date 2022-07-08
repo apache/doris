@@ -50,7 +50,7 @@ static void set_up() {
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
-    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
     FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
@@ -70,7 +70,7 @@ static void tear_down() {
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
-    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
     if (k_engine != nullptr) {
         k_engine->stop();
         delete k_engine;
@@ -263,14 +263,14 @@ protected:
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_NE(tablet.get(), nullptr);
-        _tablet_path = tablet->tablet_path_desc().filepath;
+        _tablet_path = tablet->tablet_path();
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
         res = k_engine->create_tablet(_create_dup_tablet);
         EXPECT_EQ(Status::OK(), res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(_create_dup_tablet.tablet_id);
         EXPECT_TRUE(dup_tablet.get() != NULL);
-        _dup_tablet_path = tablet->tablet_path_desc().filepath;
+        _dup_tablet_path = tablet->tablet_path();
     }
 
     void TearDown() {
@@ -438,7 +438,7 @@ protected:
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet.get() != nullptr);
-        _tablet_path = tablet->tablet_path_desc().filepath;
+        _tablet_path = tablet->tablet_path();
     }
 
     void TearDown() {
@@ -812,7 +812,7 @@ protected:
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet != nullptr);
-        _tablet_path = tablet->tablet_path_desc().filepath;
+        _tablet_path = tablet->tablet_path();
 
         _data_row_cursor.init(tablet->tablet_schema());
         _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());

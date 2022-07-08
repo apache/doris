@@ -25,6 +25,9 @@
 #include "common/logging.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "google/protobuf/util/message_differencer.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_system_map.h"
+#include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/olap_common.h"
@@ -36,7 +39,7 @@ using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
 
 class RowsetMeta {
 public:
-    virtual ~RowsetMeta() {}
+    virtual ~RowsetMeta() = default;
 
     virtual bool init(const std::string& pb_rowset_meta) {
         bool ret = _deserialize_from_pb(pb_rowset_meta);
@@ -70,6 +73,29 @@ public:
         bool ret = json2pb::ProtoMessageToJson(_rowset_meta_pb, json_rowset_meta, json_options);
         return ret;
     }
+
+    // This method may return nullptr.
+    io::FileSystem* fs() {
+        if (!_fs) {
+            if (is_local()) {
+                return io::global_local_filesystem();
+            } else {
+                _fs = io::FileSystemMap::instance()->get(resource_id());
+                LOG_IF(WARNING, !_fs) << "Cannot get file system: " << resource_id();
+            }
+        }
+        return _fs.get();
+    }
+
+    void set_fs(io::FileSystemPtr fs) { _fs = std::move(fs); }
+
+    const io::ResourceId& resource_id() const { return _rowset_meta_pb.resource_id(); }
+
+    void set_resource_id(io::ResourceId resource_id) {
+        _rowset_meta_pb.set_resource_id(std::move(resource_id));
+    }
+
+    bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
     RowsetId rowset_id() const { return _rowset_id; }
 
@@ -276,6 +302,18 @@ public:
         return _rowset_meta_pb.alpha_rowset_extra_meta_pb();
     }
 
+    void set_oldest_write_timestamp(int64_t timestamp) {
+        _rowset_meta_pb.set_oldest_write_timestamp(timestamp);
+    }
+
+    void set_newest_write_timestamp(int64_t timestamp) {
+        _rowset_meta_pb.set_newest_write_timestamp(timestamp);
+    }
+
+    int64_t oldest_write_timestamp() const { return _rowset_meta_pb.oldest_write_timestamp(); }
+
+    int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
+
 private:
     friend class AlphaRowsetMeta;
     bool _deserialize_from_pb(const std::string& value) {
@@ -334,6 +372,7 @@ private:
 private:
     RowsetMetaPB _rowset_meta_pb;
     RowsetId _rowset_id;
+    io::FileSystemPtr _fs;
     bool _is_removed_from_rowset_meta = false;
 };
 

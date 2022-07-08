@@ -706,4 +706,6 @@ service FrontendService {
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
+
+    AgentService.TGetStoragePolicyResult refreshStoragePolicy()
 }

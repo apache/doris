@@ -25,6 +25,7 @@
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "io/fs/file_system.h"
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
@@ -59,7 +60,7 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(const FilePathDesc& path_desc, uint32_t segment_id,
+    static Status open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
                        const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output);
 
     ~Segment();
@@ -104,7 +105,8 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema);
+    Segment(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
+            const TabletSchema* tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -115,7 +117,9 @@ private:
 
 private:
     friend class SegmentIterator;
-    FilePathDesc _path_desc;
+    io::FileSystem* _fs;
+    std::string _path;
+
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
 

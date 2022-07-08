@@ -370,8 +370,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 // MUST hold tablet's header lock, push lock, cumulative lock and base compaction lock
 Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr tablet,
                             bool overwrite) {
-    std::string tablet_path = tablet->tablet_path_desc().filepath;
-    std::string store_path = tablet->data_dir()->path_desc().filepath;
+    auto tablet_path = tablet->tablet_path();
+    auto store_path = tablet->data_dir()->path();
     LOG(INFO) << "begin to move snapshot files. from: " << snapshot_path << ", to: " << tablet_path
               << ", store: " << store_path << ", job: " << _job_id << ", task id: " << _task_id;
 
@@ -404,16 +404,14 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         return Status::InternalError(ss.str());
     }
 
-    std::filesystem::path tablet_dir(tablet_path);
-    std::filesystem::path snapshot_dir(snapshot_path);
-    if (!std::filesystem::exists(tablet_dir)) {
+    if (!std::filesystem::exists(tablet_path)) {
         std::stringstream ss;
         ss << "tablet path does not exist: " << tablet_path;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
 
-    if (!std::filesystem::exists(snapshot_dir)) {
+    if (!std::filesystem::exists(snapshot_path)) {
         std::stringstream ss;
         ss << "snapshot path does not exist: " << snapshot_path;
         LOG(WARNING) << ss.str();
@@ -440,10 +438,10 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
             // This remove seems soft enough, because we already get
             // tablet id and schema hash from this path, which
             // means this path is a valid path.
-            std::filesystem::remove_all(tablet_dir);
-            VLOG_CRITICAL << "remove dir: " << tablet_dir;
-            std::filesystem::create_directory(tablet_dir);
-            VLOG_CRITICAL << "re-create dir: " << tablet_dir;
+            std::filesystem::remove_all(tablet_path);
+            VLOG_CRITICAL << "remove dir: " << tablet_path;
+            std::filesystem::create_directory(tablet_path);
+            VLOG_CRITICAL << "re-create dir: " << tablet_path;
         } catch (const std::filesystem::filesystem_error& e) {
             std::stringstream ss;
             ss << "failed to move tablet path: " << tablet_path << ". err: " << e.what();
@@ -455,8 +453,8 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         // files in snapshot dir will be moved in snapshot clean process
         std::vector<std::string> linked_files;
         for (auto& file : snapshot_files) {
-            std::string full_src_path = snapshot_path + "/" + file;
-            std::string full_dest_path = tablet_path + "/" + file;
+            auto full_src_path = fmt::format("{}/{}", snapshot_path, file);
+            auto full_dest_path = fmt::format("{}/{}", tablet_path, file);
             if (link(full_src_path.c_str(), full_dest_path.c_str()) != 0) {
                 LOG(WARNING) << "failed to link file from " << full_src_path << " to "
                              << full_dest_path << ", err: " << std::strerror(errno);

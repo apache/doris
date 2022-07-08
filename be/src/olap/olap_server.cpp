@@ -96,7 +96,6 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_compaction_tasks_producer_callback(); },
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
-
     int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
     if (max_checkpoint_thread_num < 0) {
         max_checkpoint_thread_num = data_dirs.size();
@@ -120,9 +119,6 @@ Status StorageEngine::start_bg_threads() {
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
-            if (data_dir->is_remote()) {
-                continue;
-            }
             scoped_refptr<Thread> path_scan_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
@@ -139,6 +135,18 @@ Status StorageEngine::start_bg_threads() {
         }
         LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
     }
+
+    ThreadPoolBuilder("CooldownTaskThreadPool")
+            .set_min_threads(config::cooldown_thread_num)
+            .set_max_threads(config::cooldown_thread_num)
+            .build(&_cooldown_thread_pool);
+    LOG(INFO) << "cooldown thread pool started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "cooldown_tasks_producer_thread",
+            [this]() { this->_cooldown_tasks_producer_callback(); },
+            &_cooldown_tasks_producer_thread));
+    LOG(INFO) << "cooldown tasks producer thread started";
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
@@ -514,9 +522,6 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policy);
-            if (data_dir->is_remote()) {
-                continue;
-            }
             if (tablet != nullptr) {
                 if (need_pick_tablet) {
                     tablets_compaction.emplace_back(tablet);
@@ -669,6 +674,68 @@ Status StorageEngine::submit_quick_compaction_task(TabletSharedPtr tablet) {
     _quick_compaction_thread_pool->submit_func(
             std::bind<void>(&StorageEngine::_handle_quick_compaction, this, tablet));
     return Status::OK();
+}
+
+void StorageEngine::_cooldown_tasks_producer_callback() {
+    int64_t interval = config::generate_cooldown_task_interval_sec;
+    do {
+        if (_cooldown_thread_pool->get_queue_size() > 0) {
+            continue;
+        }
+        std::vector<TabletSharedPtr> tablets;
+        // TODO(luwei) : a more efficient way to get cooldown tablets
+        _tablet_manager->get_cooldown_tablets(&tablets);
+        LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
+        for (const auto& tablet : tablets) {
+            Status st = _cooldown_thread_pool->submit_func([=]() {
+                {
+                    // Cooldown tasks on the same tablet cannot be executed concurrently
+                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+                    auto it = _running_cooldown_tablets.find(tablet->tablet_id());
+                    if (it != _running_cooldown_tablets.end()) {
+                        return;
+                    }
+
+                    // the number of concurrent cooldown tasks in each directory
+                    // cannot exceed the configured value
+                    auto dir_it = _running_cooldown_tasks_cnt.find(tablet->data_dir());
+                    if (dir_it != _running_cooldown_tasks_cnt.end() &&
+                        dir_it->second >= config::concurrency_per_dir) {
+                        return;
+                    }
+
+                    _running_cooldown_tablets.insert(tablet->tablet_id());
+                    dir_it = _running_cooldown_tasks_cnt.find(tablet->data_dir());
+                    if (dir_it != _running_cooldown_tasks_cnt.end()) {
+                        _running_cooldown_tasks_cnt[tablet->data_dir()]++;
+                    } else {
+                        _running_cooldown_tasks_cnt[tablet->data_dir()] = 1;
+                    }
+                }
+
+                Status st = tablet->cooldown();
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to cooldown, tablet: " << tablet->tablet_id()
+                                 << " err: " << st.to_string();
+                } else {
+                    LOG(INFO) << "succeed to cooldown, tablet: " << tablet->tablet_id()
+                              << " cooldown progress ("
+                              << tablets.size() - _cooldown_thread_pool->get_queue_size() << "/"
+                              << tablets.size() << ")";
+                }
+
+                {
+                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+                    _running_cooldown_tasks_cnt[tablet->data_dir()]--;
+                    _running_cooldown_tablets.erase(tablet->tablet_id());
+                }
+            });
+
+            if (!st.ok()) {
+                LOG(INFO) << "failed to submit cooldown task, err msg: " << st.get_error_msg();
+            }
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 } // namespace doris

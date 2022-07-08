@@ -465,7 +465,7 @@ void CumulativeCompactionPolicy::pick_candidate_rowsets(
         int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets) {
     for (auto& it : rs_version_map) {
         // find all rowset version greater than cumulative_point and skip the create time in skip_window_sec
-        if (it.first.first >= cumulative_point) {
+        if (it.first.first >= cumulative_point && it.second->is_local()) {
             candidate_rowsets->push_back(it.second);
         }
     }

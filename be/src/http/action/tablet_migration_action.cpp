@@ -205,8 +205,8 @@ Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t 
         return Status::AlreadyExist("Tablet already exist in destination disk");
     }
 
-    // check disk capacity
-    int64_t tablet_size = tablet->tablet_footprint();
+    // check local disk capacity
+    int64_t tablet_size = tablet->tablet_local_size();
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
         LOG(WARNING) << "reach the capacity limit of path: " << (*dest_store)->path()
                      << ", tablet size: " << tablet_size;

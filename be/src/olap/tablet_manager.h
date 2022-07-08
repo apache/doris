@@ -137,6 +137,7 @@ public:
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
+    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 

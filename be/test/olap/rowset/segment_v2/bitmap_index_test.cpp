@@ -17,12 +17,14 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -38,6 +40,7 @@ using roaring::Roaring;
 class BitmapIndexTest : public testing::Test {
 public:
     const std::string kTestDir = "./ut_dir/bitmap_index_test";
+
     void SetUp() override {
         if (FileUtils::check_exist(kTestDir)) {
             EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
@@ -52,29 +55,27 @@ public:
 };
 
 template <FieldType type>
-void write_index_file(std::string& filename, const void* values, size_t value_count,
-                      size_t null_count, ColumnIndexMetaPB* meta) {
+void write_index_file(const std::string& filename, io::FileSystem* fs, const void* values,
+                      size_t value_count, size_t null_count, ColumnIndexMetaPB* meta) {
     const auto* type_info = get_scalar_type_info<type>();
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(filename);
-        std::string storage_name;
-        EXPECT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
+        std::unique_ptr<io::FileWriter> file_writer;
+        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
         BitmapIndexWriter::create(type_info, &writer);
         writer->add_values(values, value_count);
         writer->add_nulls(null_count);
-        EXPECT_TRUE(writer->finish(wblock.get(), meta).ok());
+        EXPECT_TRUE(writer->finish(file_writer.get(), meta).ok());
         EXPECT_EQ(BITMAP_INDEX, meta->type());
-        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
     }
 }
 
 template <FieldType type>
-void get_bitmap_reader_iter(std::string& file_name, const ColumnIndexMetaPB& meta,
+void get_bitmap_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
                             BitmapIndexReader** reader, BitmapIndexIterator** iter) {
-    *reader = new BitmapIndexReader(file_name, &meta.bitmap_index());
+    *reader = new BitmapIndexReader(io::global_local_filesystem(), file_name, &meta.bitmap_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());
 
@@ -91,7 +92,8 @@ TEST_F(BitmapIndexTest, test_invert) {
 
     std::string file_name = kTestDir + "/invert";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0, &meta);
+    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
+                                          num_uint8_rows, 0, &meta);
     {
         std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
@@ -146,7 +148,8 @@ TEST_F(BitmapIndexTest, test_invert_2) {
 
     std::string file_name = kTestDir + "/invert2";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0, &meta);
+    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
+                                          num_uint8_rows, 0, &meta);
 
     {
         BitmapIndexReader* reader = nullptr;
@@ -182,7 +185,8 @@ TEST_F(BitmapIndexTest, test_multi_pages) {
 
     std::string file_name = kTestDir + "/mul";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 0, &meta);
+    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(), val,
+                                             num_uint8_rows, 0, &meta);
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
@@ -213,7 +217,8 @@ TEST_F(BitmapIndexTest, test_null) {
 
     std::string file_name = kTestDir + "/null";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 30, &meta);
+    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(), val,
+                                             num_uint8_rows, 30, &meta);
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;

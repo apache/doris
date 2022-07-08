@@ -21,9 +21,8 @@
 #include <string>
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "gutil/strings/substitute.h"
-#include "olap/fs/block_manager.h"
+#include "io/fs/file_writer.h"
 #include "olap/page_cache.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
@@ -65,7 +64,7 @@ Status PageIO::compress_page_body(const BlockCompressionCodec* codec, double min
     return Status::OK();
 }
 
-Status PageIO::write_page(fs::WritableBlock* wblock, const std::vector<Slice>& body,
+Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body,
                           const PageFooterPB& footer, PagePointer* result) {
     // sanity check of page footer
     CHECK(footer.has_type()) << "type must be set";
@@ -101,11 +100,11 @@ Status PageIO::write_page(fs::WritableBlock* wblock, const std::vector<Slice>& b
     encode_fixed32_le(checksum_buf, checksum);
     page.emplace_back(checksum_buf, sizeof(uint32_t));
 
-    uint64_t offset = wblock->bytes_appended();
-    RETURN_IF_ERROR(wblock->appendv(&page[0], page.size()));
+    uint64_t offset = writer->bytes_appended();
+    RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));
 
     result->offset = offset;
-    result->size = wblock->bytes_appended() - offset;
+    result->size = writer->bytes_appended() - offset;
     return Status::OK();
 }
 
@@ -116,7 +115,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
-    StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath,
+    StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
                                          opts.page_pointer.offset);
     if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
         cache->lookup(cache_key, &cache_handle, opts.type)) {
@@ -145,7 +144,10 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     Slice page_slice(page.get(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
-        RETURN_IF_ERROR(opts.rblock->read(opts.page_pointer.offset, page_slice));
+        size_t bytes_read = 0;
+        RETURN_IF_ERROR(
+                opts.file_reader->read_at(opts.page_pointer.offset, page_slice, &bytes_read));
+        DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
     }
 

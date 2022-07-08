@@ -47,9 +47,12 @@ bool FileCache<FileType>::lookup(const std::string& file_name,
 
 template <class FileType>
 void FileCache<FileType>::insert(const std::string& file_name, FileType* file,
-                                 OpenedFileHandle<FileType>* file_handle) {
+                                 OpenedFileHandle<FileType>* file_handle,
+                                 void (*deleter)(const CacheKey&, void*)) {
     DCHECK(_cache != nullptr);
-    auto deleter = [](const CacheKey& key, void* value) { delete (FileType*)value; };
+    if (!deleter) {
+        deleter = [](const CacheKey& key, void* value) { delete (FileType*)value; };
+    }
     CacheKey key(file_name);
     auto lru_handle = _cache->insert(key, file, 1, deleter);
     *file_handle = OpenedFileHandle<FileType>(_cache.get(), lru_handle);
@@ -57,5 +60,6 @@ void FileCache<FileType>::insert(const std::string& file_name, FileType* file,
 
 // Explicit specialization for callers outside this compilation unit.
 template class FileCache<RandomAccessFile>;
+template class FileCache<int>;
 
 } // namespace doris

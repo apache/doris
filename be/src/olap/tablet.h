@@ -79,7 +79,13 @@ public:
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
 
-    size_t tablet_footprint(); // disk space occupied by tablet
+    // Disk space occupied by tablet, contain local and remote.
+    size_t tablet_footprint();
+    // Local disk space occupied by tablet.
+    size_t tablet_local_size();
+    // Remote disk space occupied by tablet.
+    size_t tablet_remote_size();
+
     size_t num_rows();
     int version_count() const;
     Version max_version() const;
@@ -269,7 +275,8 @@ public:
     }
 
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap,
+                                const SegmentsOverlapPB& overlap, int64_t oldest_write_timestamp,
+                                int64_t newest_write_timestamp,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
@@ -277,6 +284,17 @@ public:
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
+    // Cooldown to remote fs.
+    Status cooldown();
+
+    RowsetSharedPtr pick_cooldown_rowset();
+
+    bool need_cooldown();
+
+    bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
+
+    // Physically remove remote rowsets.
+    void remove_all_remote_rowsets();
 
 private:
     Status _init_once_action();
@@ -411,6 +429,16 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
 inline size_t Tablet::tablet_footprint() {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->tablet_footprint();
+}
+
+inline size_t Tablet::tablet_local_size() {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->tablet_local_size();
+}
+
+inline size_t Tablet::tablet_remote_size() {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->tablet_remote_size();
 }
 
 // TODO(lingbin): Why other methods which need to get information from _tablet_meta

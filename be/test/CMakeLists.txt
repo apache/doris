@@ -195,6 +195,8 @@ set(OLAP_TEST_FILES
     olap/primary_key_index_test.cpp
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
+    olap/tablet_cooldown_test.cpp
+    olap/tablet_clone_test.cpp
 )
 
 set(RUNTIME_TEST_FILES

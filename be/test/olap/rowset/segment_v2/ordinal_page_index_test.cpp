@@ -25,6 +25,9 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/fs/fs_util.h"
 #include "olap/page_cache.h"
 #include "util/file_utils.h"
@@ -51,6 +54,7 @@ public:
 
 TEST_F(OrdinalPageIndexTest, normal) {
     std::string filename = kTestDir + "/normal.idx";
+    auto fs = io::global_local_filesystem();
 
     OrdinalIndexWriter builder;
     // generate ordinal index for 16K data pages,
@@ -61,21 +65,18 @@ TEST_F(OrdinalPageIndexTest, normal) {
     }
     ColumnIndexMetaPB index_meta;
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(filename);
-        std::string storage_name;
-        EXPECT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
+        std::unique_ptr<io::FileWriter> file_writer;
+        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
-        EXPECT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
+        EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
         EXPECT_EQ(ORDINAL_INDEX, index_meta.type());
         EXPECT_FALSE(index_meta.ordinal_index().root_page().is_root_data_page());
-        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
         LOG(INFO) << "index page size="
                   << index_meta.ordinal_index().root_page().root_page().size();
     }
 
-    FilePathDesc path_desc(filename);
-    OrdinalIndexReader index(path_desc, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
+    OrdinalIndexReader index(fs, filename, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
     EXPECT_TRUE(index.load(true, false).ok());
     EXPECT_EQ(16 * 1024, index.num_data_pages());
     EXPECT_EQ(1, index.get_first_ordinal(0));
@@ -129,8 +130,8 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
         EXPECT_EQ(data_page_pointer, root_page_pointer);
     }
 
-    FilePathDesc path_desc;
-    OrdinalIndexReader index(path_desc, &index_meta.ordinal_index(), num_values);
+    auto fs = io::global_local_filesystem();
+    OrdinalIndexReader index(fs, "", &index_meta.ordinal_index(), num_values);
     EXPECT_TRUE(index.load(true, false).ok());
     EXPECT_EQ(1, index.num_data_pages());
     EXPECT_EQ(0, index.get_first_ordinal(0));

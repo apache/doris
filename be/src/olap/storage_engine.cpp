@@ -184,6 +184,9 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 }
 
 Status StorageEngine::_open() {
+    // NOTE: must init before _init_store_map.
+    _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
+
     // init store_map
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_store_map(), "_init_store_map failed");
 
@@ -196,8 +199,6 @@ Status StorageEngine::_open() {
 
     _index_stream_lru_cache =
             new_lru_cache("SegmentIndexCache", config::index_stream_cache_capacity);
-
-    _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
 
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
@@ -376,7 +377,8 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
         std::lock_guard<std::mutex> l(_store_lock);
         auto data_dir = _store_map.find(path.first);
         DCHECK(data_dir != _store_map.end());
-        data_dir->second->update_user_data_size(path.second.data_used_capacity);
+        data_dir->second->update_local_data_size(path.second.local_used_capacity);
+        data_dir->second->update_remote_data_size(path.second.remote_used_capacity);
     }
 
     // add path info to data_dir_infos
@@ -391,7 +393,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
     return res;
 }
 
-int64_t StorageEngine::get_file_or_directory_size(std::filesystem::path file_path) {
+int64_t StorageEngine::get_file_or_directory_size(const std::string& file_path) {
     if (!std::filesystem::exists(file_path)) {
         return 0;
     }
@@ -484,9 +486,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         for (auto& it : _store_map) {
             if (it.second->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium ||
-                    (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE &&
-                     FilePathDesc::is_remote(storage_medium))) {
+                    it.second->storage_medium() == storage_medium) {
                     stores.push_back(it.second);
                 }
             }
@@ -681,7 +681,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
-        LOG(INFO) << "Start to sweep path " << info.path_desc.filepath;
+        LOG(INFO) << "Start to sweep path " << info.path;
         if (!info.is_used) {
             continue;
         }
@@ -690,21 +690,18 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         Status curr_res = Status::OK();
-        FilePathDesc snapshot_path_desc(info.path_desc.filepath + SNAPSHOT_PREFIX);
-        curr_res = _do_sweep(snapshot_path_desc, local_now, snapshot_expire);
+        auto snapshot_path = fmt::format("{}/{}", info.path, SNAPSHOT_PREFIX);
+        curr_res = _do_sweep(snapshot_path, local_now, snapshot_expire);
         if (!curr_res.ok()) {
-            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path_desc.filepath
+            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
 
-        FilePathDescStream trash_path_desc_s;
-        trash_path_desc_s << info.path_desc << TRASH_PREFIX;
-        FilePathDesc trash_path_desc = trash_path_desc_s.path_desc();
-        curr_res =
-                _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
+        auto trash_path = fmt::format("{}/{}", info.path, TRASH_PREFIX);
+        curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (!curr_res.ok()) {
-            LOG(WARNING) << "failed to sweep trash. path=" << trash_path_desc.filepath
+            LOG(WARNING) << "failed to sweep trash. path=" << trash_path
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
@@ -781,9 +778,6 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        if (data_dir->is_remote()) {
-            continue;
-        }
         RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
         for (auto& rowset_meta : invalid_rowset_metas) {
             RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(),
@@ -814,10 +808,10 @@ void StorageEngine::_clean_unused_txns() {
     }
 }
 
-Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_now,
+Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& local_now,
                                 const int32_t expire) {
     Status res = Status::OK();
-    if (!FileUtils::check_exist(scan_root_desc.filepath)) {
+    if (!FileUtils::check_exist(scan_root)) {
         // dir not existed. no need to sweep trash.
         return res;
     }
@@ -825,7 +819,7 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
-        std::copy(directory_iterator(path(scan_root_desc.filepath)), directory_iterator(),
+        std::copy(directory_iterator(scan_root), directory_iterator(),
                   std::back_inserter(sorted_pathes));
         std::sort(sorted_pathes.begin(), sorted_pathes.end());
         for (const auto& sorted_path : sorted_pathes) {
@@ -850,48 +844,10 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                std::string storage_name_path = path_name + "/" + STORAGE_NAME;
-                if (scan_root_desc.is_remote() && FileUtils::check_exist(storage_name_path)) {
-                    FilePathDesc remote_path_desc = scan_root_desc;
-                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path,
-                                                       &(remote_path_desc.storage_name))
-                                 .ok()) {
-                        LOG(WARNING) << "read storage_name failed: " << storage_name_path;
-                        continue;
-                    }
-                    boost::algorithm::trim(remote_path_desc.storage_name);
-                    std::shared_ptr<StorageBackend> storage_backend =
-                            StorageBackendMgr::instance()->get_storage_backend(
-                                    remote_path_desc.storage_name);
-                    // if storage_backend is nullptr, the remote storage is invalid.
-                    // Only the local path need to be removed.
-                    if (storage_backend != nullptr) {
-                        std::string remote_root_path;
-                        if (!StorageBackendMgr::instance()->get_root_path(
-                                    remote_path_desc.storage_name, &remote_root_path)) {
-                            LOG(WARNING) << "read storage root_path failed: "
-                                         << remote_path_desc.storage_name;
-                            continue;
-                        }
-                        remote_path_desc.remote_path = remote_root_path + TRASH_PREFIX;
-                        std::filesystem::path local_path(path_name);
-                        std::stringstream remote_file_stream;
-                        remote_file_stream << remote_path_desc.remote_path << "/"
-                                           << local_path.filename().string();
-                        Status ret = storage_backend->rmdir(remote_file_stream.str());
-                        if (!ret.ok()) {
-                            LOG(WARNING)
-                                    << "fail to remove file or directory. path="
-                                    << remote_file_stream.str() << ", error=" << ret.to_string();
-                            res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
-                            continue;
-                        }
-                    }
-                }
                 Status ret = FileUtils::remove_all(path_name);
                 if (!ret.ok()) {
-                    LOG(WARNING) << "fail to remove file or directory. path_desc: "
-                                 << scan_root_desc.debug_string() << ", error=" << ret.to_string();
+                    LOG(WARNING) << "fail to remove file or directory. path_desc: " << scan_root
+                                 << ", error=" << ret.to_string();
                     res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
                     continue;
                 }
@@ -901,8 +857,7 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
             }
         }
     } catch (...) {
-        LOG(WARNING) << "Exception occur when scan directory. path_desc="
-                     << scan_root_desc.debug_string();
+        LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root;
         res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
@@ -931,12 +886,16 @@ void StorageEngine::start_delete_unused_rowset() {
         if (it->second.use_count() != 1) {
             ++it;
         } else if (it->second->need_delete_file()) {
-            VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
-                        << ", version:" << it->second->version().first << "-"
-                        << it->second->version().second;
-            Status status = it->second->remove();
-            VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
-                        << " finished. status:" << status;
+            // FIXME(cyx): Currently remote unused rowsets are generated by compaction gc,
+            // we cannot remove them directly as other BE may need them.
+            if (it->second->is_local()) {
+                VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
+                            << ", version:" << it->second->version().first << "-"
+                            << it->second->version().second;
+                Status status = it->second->remove();
+                VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
+                            << " finished. status:" << status;
+            }
             it = _unused_rowsets.erase(it);
         }
     }
@@ -1000,7 +959,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
     }
 
     std::stringstream root_path_stream;
-    root_path_stream << stores[0]->path() << DATA_PREFIX << "/" << shard;
+    root_path_stream << stores[0]->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
     *store = stores[0];
 

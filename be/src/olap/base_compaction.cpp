@@ -106,14 +106,11 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     }
 
     // 2. the ratio between base rowset and all input cumulative rowsets reaches the threshold
-    int64_t base_size = 0;
+    // `_input_rowsets` has been sorted by end version, so we consider `_input_rowsets[0]` is the base rowset.
+    int64_t base_size = _input_rowsets.front()->data_disk_size();
     int64_t cumulative_total_size = 0;
-    for (auto& rowset : _input_rowsets) {
-        if (rowset->start_version() != 0) {
-            cumulative_total_size += rowset->data_disk_size();
-        } else {
-            base_size = rowset->data_disk_size();
-        }
+    for (auto it = _input_rowsets.begin() + 1; it != _input_rowsets.end(); ++it) {
+        cumulative_total_size += (*it)->data_disk_size();
     }
 
     double base_cumulative_delta_ratio = config::base_cumulative_delta_ratio;

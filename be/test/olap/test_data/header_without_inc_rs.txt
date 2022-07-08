@@ -145,5 +145,6 @@
     "tablet_type": "TABLET_TYPE_DISK",
     "storage_medium": "HDD",
     "remote_storage_name": "",
-    "replica_id": 0
+    "replica_id": 0,
+    "storage_policy": ""
 }

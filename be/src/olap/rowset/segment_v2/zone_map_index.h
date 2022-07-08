@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "io/fs/file_system.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "runtime/mem_pool.h"
@@ -31,9 +32,9 @@
 
 namespace doris {
 
-namespace fs {
-class WritableBlock;
-}
+namespace io {
+class FileWriter;
+} // namespace io
 
 namespace segment_v2 {
 
@@ -54,7 +55,7 @@ struct ZoneMap {
 
     bool pass_all = false;
 
-    void to_proto(ZoneMapPB* dst, Field* field) {
+    void to_proto(ZoneMapPB* dst, Field* field) const {
         if (pass_all) {
             dst->set_min("");
             dst->set_max("");
@@ -83,11 +84,11 @@ public:
     // mark the end of one data page so that we can finalize the corresponding zone map
     Status flush();
 
-    Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta);
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta);
 
     void moidfy_index_before_flush(ZoneMap& zone_map);
 
-    uint64_t size() { return _estimated_size; }
+    uint64_t size() const { return _estimated_size; }
 
     void reset_page_zone_map();
     void reset_segment_zone_map();
@@ -117,8 +118,9 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(const FilePathDesc& path_desc, const ZoneMapIndexPB* index_meta)
-            : _path_desc(path_desc), _index_meta(index_meta) {}
+    explicit ZoneMapIndexReader(io::FileSystem* fs, const std::string& path,
+                                const ZoneMapIndexPB* index_meta)
+            : _fs(fs), _path(path), _index_meta(index_meta) {}
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -128,7 +130,8 @@ public:
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
-    FilePathDesc _path_desc;
+    io::FileSystem* _fs;
+    std::string _path;
     const ZoneMapIndexPB* _index_meta;
 
     std::vector<ZoneMapPB> _page_zone_maps;

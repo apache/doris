@@ -31,7 +31,7 @@ class RowsetFactory {
 public:
     // return OLAP_SUCCESS and set inited rowset in `*rowset`.
     // return others if failed to create or init rowset.
-    static Status create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
+    static Status create_rowset(const TabletSchema* schema, const std::string& tablet_path,
                                 RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
 
     // create and init rowset writer.

@@ -42,9 +42,9 @@ class TabletColumn;
 class ShortKeyIndexBuilder;
 class KeyCoder;
 
-namespace fs {
-class WritableBlock;
-}
+namespace io {
+class FileWriter;
+} // namespace io
 
 namespace segment_v2 {
 
@@ -59,7 +59,7 @@ struct SegmentWriterOptions {
 
 class SegmentWriter {
 public:
-    explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
+    explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            const TabletSchema* tablet_schema, DataDir* data_dir,
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
@@ -75,7 +75,7 @@ public:
 
     uint64_t estimate_segment_size();
 
-    uint32_t num_rows_written() { return _row_count; }
+    uint32_t num_rows_written() const { return _row_count; }
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
@@ -104,7 +104,7 @@ private:
     SegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter
-    fs::WritableBlock* _wblock;
+    io::FileWriter* _file_writer;
 
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;

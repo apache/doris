@@ -100,6 +100,9 @@ protected:
 
     Version _output_version;
 
+    int64_t _oldest_write_timestamp;
+    int64_t _newest_write_timestamp;
+
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };
 

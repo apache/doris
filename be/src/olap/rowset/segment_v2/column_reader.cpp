@@ -39,11 +39,11 @@ namespace segment_v2 {
 using strings::Substitute;
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                            uint64_t num_rows, const FilePathDesc& path_desc,
+                            uint64_t num_rows, io::FileSystem* fs, const std::string& path,
                             std::unique_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
         std::unique_ptr<ColumnReader> reader_local(
-                new ColumnReader(opts, meta, num_rows, path_desc));
+                new ColumnReader(opts, meta, num_rows, fs, path));
         RETURN_IF_ERROR(reader_local->init());
         *reader = std::move(reader_local);
         return Status::OK();
@@ -55,25 +55,25 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 
             std::unique_ptr<ColumnReader> item_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
-                                                 meta.children_columns(0).num_rows(), path_desc,
+                                                 meta.children_columns(0).num_rows(), fs, path,
                                                  &item_reader));
 
             std::unique_ptr<ColumnReader> offset_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1),
-                                                 meta.children_columns(1).num_rows(), path_desc,
+                                                 meta.children_columns(1).num_rows(), fs, path,
                                                  &offset_reader));
 
             std::unique_ptr<ColumnReader> null_reader;
             if (meta.is_nullable()) {
                 RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(2),
-                                                     meta.children_columns(2).num_rows(), path_desc,
+                                                     meta.children_columns(2).num_rows(), fs, path,
                                                      &null_reader));
             }
 
             // The num rows of the array reader equals to the num rows of the length reader.
             num_rows = meta.children_columns(1).num_rows();
             std::unique_ptr<ColumnReader> array_reader(
-                    new ColumnReader(opts, meta, num_rows, path_desc));
+                    new ColumnReader(opts, meta, num_rows, fs, path));
             //  array reader do not need to init
             array_reader->_sub_readers.resize(meta.children_columns_size());
             array_reader->_sub_readers[0] = std::move(item_reader);
@@ -92,11 +92,12 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 }
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                           uint64_t num_rows, FilePathDesc path_desc)
+                           uint64_t num_rows, io::FileSystem* fs, const std::string& path)
         : _meta(meta),
           _opts(opts),
           _num_rows(num_rows),
-          _path_desc(path_desc),
+          _fs(fs),
+          _path(path),
           _dict_encoding_type(UNKNOWN_DICT_ENCODING) {}
 
 ColumnReader::~ColumnReader() = default;
@@ -124,15 +125,15 @@ Status ColumnReader::init() {
             _bf_index_meta = &index_meta.bloom_filter_index();
             break;
         default:
-            return Status::Corruption("Bad file {}: invalid column index type {}",
-                                      _path_desc.filepath, index_meta.type());
+            return Status::Corruption("Bad file {}: invalid column index type {}", _path,
+                                      index_meta.type());
         }
     }
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
     if (_ordinal_index_meta == nullptr && !is_empty()) {
-        return Status::Corruption("Bad file {}: missing ordinal index for column {}",
-                                  _path_desc.filepath, _meta.column_id());
+        return Status::Corruption("Bad file {}: missing ordinal index for column {}", _path,
+                                  _meta.column_id());
     }
     return Status::OK();
 }
@@ -148,7 +149,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
     PageReadOptions opts;
-    opts.rblock = iter_opts.rblock;
+    opts.file_reader = iter_opts.file_reader;
     opts.page_pointer = pp;
     opts.codec = codec;
     opts.stats = iter_opts.stats;
@@ -297,13 +298,13 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
     DCHECK(_ordinal_index_meta != nullptr);
-    _ordinal_index.reset(new OrdinalIndexReader(_path_desc, _ordinal_index_meta, _num_rows));
+    _ordinal_index.reset(new OrdinalIndexReader(_fs, _path, _ordinal_index_meta, _num_rows));
     return _ordinal_index->load(use_page_cache, kept_in_memory);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory) {
     if (_zone_map_index_meta != nullptr) {
-        _zone_map_index.reset(new ZoneMapIndexReader(_path_desc, _zone_map_index_meta));
+        _zone_map_index.reset(new ZoneMapIndexReader(_fs, _path, _zone_map_index_meta));
         return _zone_map_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
@@ -311,7 +312,7 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
 
 Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory) {
     if (_bitmap_index_meta != nullptr) {
-        _bitmap_index.reset(new BitmapIndexReader(_path_desc, _bitmap_index_meta));
+        _bitmap_index.reset(new BitmapIndexReader(_fs, _path, _bitmap_index_meta));
         return _bitmap_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
@@ -319,7 +320,7 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
 
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory) {
     if (_bf_index_meta != nullptr) {
-        _bloom_filter_index.reset(new BloomFilterIndexReader(_path_desc, _bf_index_meta));
+        _bloom_filter_index.reset(new BloomFilterIndexReader(_fs, _path, _bf_index_meta));
         return _bloom_filter_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();

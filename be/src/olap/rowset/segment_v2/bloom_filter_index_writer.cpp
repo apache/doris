@@ -20,8 +20,6 @@
 #include <map>
 #include <roaring/roaring.hh>
 
-#include "env/env.h"
-#include "olap/fs/block_manager.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
@@ -119,7 +117,7 @@ public:
         return Status::OK();
     }
 
-    Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta) override {
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override {
         if (_values.size() > 0) {
             RETURN_IF_ERROR(flush());
         }
@@ -134,7 +132,7 @@ public:
         options.write_ordinal_index = true;
         options.write_value_index = false;
         options.encoding = PLAIN_ENCODING;
-        IndexedColumnWriter bf_writer(options, bf_type_info, wblock);
+        IndexedColumnWriter bf_writer(options, bf_type_info, file_writer);
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());

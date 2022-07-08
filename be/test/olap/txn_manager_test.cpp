@@ -133,11 +133,9 @@ public:
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta->rowset_id(), rowset_id);
-        FilePathDesc rowset_meta_path_desc;
-        rowset_meta_path_desc.filepath = rowset_meta_path;
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_desc,
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
                                                              rowset_meta, &_alpha_rowset));
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_desc,
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
                                                              rowset_meta, &_alpha_rowset_same_id));
 
         // init rowset meta 2
@@ -153,9 +151,7 @@ public:
         RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        FilePathDesc rowset_meta_path_desc_2;
-        rowset_meta_path_desc_2.filepath = rowset_meta_path_2;
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_desc_2,
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_2,
                                                              rowset_meta2, &_alpha_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }

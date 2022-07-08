@@ -74,7 +74,7 @@ static void tear_down() {
         k_engine = nullptr;
     }
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
 }
 
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,

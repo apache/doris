@@ -19,7 +19,8 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/fs/block_manager.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/fs/fs_util.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet_schema_helper.h"
@@ -51,12 +52,11 @@ private:
 
 TEST_F(PrimaryKeyIndexTest, builder) {
     std::string filename = kTestDir + "/builder";
-    std::unique_ptr<fs::WritableBlock> wblock;
-    fs::CreateBlockOptions opts(filename);
-    std::string storage_name;
-    EXPECT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
+    std::unique_ptr<io::FileWriter> file_writer;
+    auto fs = io::global_local_filesystem();
+    EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
-    PrimaryKeyIndexBuilder builder(wblock.get());
+    PrimaryKeyIndexBuilder builder(file_writer.get());
     builder.init();
     size_t num_rows = 0;
     std::vector<std::string> keys;
@@ -69,12 +69,11 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_EQ("9998", builder.max_key().to_string());
     segment_v2::IndexedColumnMetaPB index_meta;
     EXPECT_TRUE(builder.finalize(&index_meta));
-    EXPECT_TRUE(wblock->close().ok());
+    EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
-    FilePathDesc path_desc(filename);
     PrimaryKeyIndexReader index_reader;
-    EXPECT_TRUE(index_reader.parse(path_desc, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse(fs, filename, index_meta).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;

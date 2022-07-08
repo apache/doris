@@ -19,8 +19,8 @@
 
 #include "common/logging.h" // LOG
 #include "env/env.h"        // Env
+#include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
-#include "olap/fs/block_manager.h"
 #include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
@@ -37,7 +37,7 @@ namespace segment_v2 {
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
-SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
+SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              const TabletSchema* tablet_schema, DataDir* data_dir,
                              uint32_t max_row_per_segment, const SegmentWriterOptions& opts)
         : _segment_id(segment_id),
@@ -45,11 +45,11 @@ SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
           _data_dir(data_dir),
           _max_row_per_segment(max_row_per_segment),
           _opts(opts),
-          _wblock(wblock),
+          _file_writer(file_writer),
           _mem_tracker(MemTracker::create_virtual_tracker(
                   -1, "SegmentWriter:Segment-" + std::to_string(segment_id))),
           _olap_data_convertor(tablet_schema) {
-    CHECK_NOTNULL(_wblock);
+    CHECK_NOTNULL(file_writer);
     size_t num_short_key_column = _tablet_schema->num_short_key_columns();
     for (size_t cid = 0; cid < num_short_key_column; ++cid) {
         const auto& column = _tablet_schema->column(cid);
@@ -104,7 +104,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         }
 
         std::unique_ptr<ColumnWriter> writer;
-        RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _wblock, &writer));
+        RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }
@@ -245,16 +245,16 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
         RETURN_IF_ERROR(column_writer->finish());
     }
     RETURN_IF_ERROR(_write_data());
-    uint64_t index_offset = _wblock->bytes_appended();
+    uint64_t index_offset = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
     RETURN_IF_ERROR(_write_short_key_index());
-    *index_size = _wblock->bytes_appended() - index_offset;
+    *index_size = _file_writer->bytes_appended() - index_offset;
     RETURN_IF_ERROR(_write_footer());
-    RETURN_IF_ERROR(_wblock->finalize());
-    *segment_file_size = _wblock->bytes_appended();
+    RETURN_IF_ERROR(_file_writer->finalize());
+    *segment_file_size = _file_writer->bytes_appended();
     return Status::OK();
 }
 
@@ -301,7 +301,7 @@ Status SegmentWriter::_write_short_key_index() {
     RETURN_IF_ERROR(_index_builder->finalize(_row_count, &body, &footer));
     PagePointer pp;
     // short key index page is not compressed right now
-    RETURN_IF_ERROR(PageIO::write_page(_wblock, body, footer, &pp));
+    RETURN_IF_ERROR(PageIO::write_page(_file_writer, body, footer, &pp));
     pp.to_proto(_footer.mutable_short_key_index_page());
     return Status::OK();
 }
@@ -330,7 +330,7 @@ Status SegmentWriter::_write_footer() {
 }
 
 Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
-    RETURN_IF_ERROR(_wblock->appendv(&slices[0], slices.size()));
+    RETURN_IF_ERROR(_file_writer->appendv(&slices[0], slices.size()));
     return Status::OK();
 }
 

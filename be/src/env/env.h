@@ -29,6 +29,10 @@ struct WritableFileOptions;
 struct RandomAccessFileOptions;
 struct RandomRWFileOptions;
 
+namespace io {
+class FileSystem;
+}
+
 class Env {
 public:
     // Governs if/how the file is created.
@@ -190,6 +194,8 @@ struct FilePathDesc {
     std::string filepath;
     std::string remote_path;
     std::string storage_name;
+    io::FileSystem* file_system;
+
     std::string debug_string() const {
         std::stringstream ss;
         ss << "storage_medium: " << to_string(storage_medium) << ", local_path: " << filepath;
