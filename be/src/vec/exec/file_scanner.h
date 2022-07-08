@@ -89,9 +89,9 @@ protected:
     int _num_of_columns_from_file;
 
     // File formats based push down predicate
-    const std::vector<ExprContext*>& _conjunct_ctxs;
+    std::vector<ExprContext*> _conjunct_ctxs;
     // slot_ids for parquet predicate push down are in tuple desc
-    const TupleId& _tupleId;
+    TupleId _tupleId;
 
 private:
     Status _init_expr_ctxes();

@@ -147,8 +147,8 @@ protected:
     int _num_of_columns_from_file;
 
     // slot_ids for parquet predicate push down are in tuple desc
-    const TupleId& _tupleId;
-    const std::vector<ExprContext*>& _conjunct_ctxs;
+    TupleId _tupleId;
+    std::vector<ExprContext*> _conjunct_ctxs;
 
 private:
     Status _filter_src_block();
