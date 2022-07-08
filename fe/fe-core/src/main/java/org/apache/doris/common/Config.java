@@ -548,6 +548,10 @@ public class Config extends ConfigBase {
     public static int broker_load_default_timeout_second = 14400; // 4 hour
 
     /**
+     * Broker rpc timeout
+     */
+    @ConfField public static int broker_timeout_ms = 10000; // 10s
+    /**
      * Default non-streaming mini load timeout
      */
     @Deprecated
