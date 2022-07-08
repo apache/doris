@@ -30,12 +30,17 @@ Status PrimaryKeyIndexBuilder::init() {
     options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
     // TODO(liaoxin) test to confirm whether it needs to be compressed
     options.compression = segment_v2::NO_COMPRESSION; // currently not compressed
-    _index_builder.reset(new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
-    return _index_builder->init();
+    _primary_key_index_builder.reset(
+            new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
+    RETURN_IF_ERROR(_primary_key_index_builder->init());
+
+    return segment_v2::BloomFilterIndexWriter::create(segment_v2::BloomFilterOptions(), type_info,
+                                                      &_bloom_filter_index_builder);
 }
 
 Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
-    _index_builder->add(&key);
+    RETURN_IF_ERROR(_primary_key_index_builder->add(&key));
+    _bloom_filter_index_builder->add_values(&key, 1);
     // the key is already sorted, so the first key is min_key, and
     // the last key is max_key.
     if (UNLIKELY(_num_rows == 0)) {
@@ -48,16 +53,29 @@ Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     return Status::OK();
 }
 
-Status PrimaryKeyIndexBuilder::finalize(segment_v2::IndexedColumnMetaPB* meta) {
+Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta) {
     // finish primary key index
-    return _index_builder->finish(meta);
+    RETURN_IF_ERROR(_primary_key_index_builder->finish(meta->mutable_primary_key_index()));
+
+    // finish bloom filter index
+    RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
+    return _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index());
 }
 
 Status PrimaryKeyIndexReader::parse(io::FileSystem* fs, const std::string& path,
-                                    const segment_v2::IndexedColumnMetaPB& meta) {
+                                    const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
-    _index_reader.reset(new segment_v2::IndexedColumnReader(fs, path, meta));
+    _index_reader.reset(new segment_v2::IndexedColumnReader(fs, path, meta.primary_key_index()));
     RETURN_IF_ERROR(_index_reader->load(_use_page_cache, _kept_in_memory));
+
+    // parse bloom filter
+    segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
+    segment_v2::BloomFilterIndexReader bf_index_reader(fs, path,
+                                                       &column_index_meta.bloom_filter_index());
+    RETURN_IF_ERROR(bf_index_reader.load(_use_page_cache, _kept_in_memory));
+    std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
+    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
+    RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
 
     _parsed = true;
     return Status::OK();

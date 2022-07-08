@@ -162,6 +162,13 @@ message ColumnMetaPB {
 
 }
 
+message PrimaryKeyIndexMetaPB {
+    // primary key index
+    optional IndexedColumnMetaPB primary_key_index = 1;
+    // bloom filter index
+    optional ColumnIndexMetaPB bloom_filter_index = 2;
+}
+
 message SegmentFooterPB {
     optional uint32 version = 1 [default = 1]; // file version
     repeated ColumnMetaPB columns = 2; // tablet schema
@@ -175,6 +182,9 @@ message SegmentFooterPB {
 
     // Short key index's page
     optional PagePointerPB short_key_index_page = 9;
+
+    // Primary key index meta
+    optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
 }
 
 message BTreeMetaPB {
