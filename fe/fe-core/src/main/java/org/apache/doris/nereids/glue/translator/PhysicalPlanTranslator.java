@@ -215,6 +215,14 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
      *    b. sortTupleSlotExprs use oldSlotRef.
      * 2. Create sortNode
      * 3. Create mergeFragment
+     * TODO: When the slotRef of sort is currently generated,
+     *       it will be based on the expression in select and orderBy expression in to ensure the uniqueness of slotRef.
+     *       But eg:
+     *       select a+1 from table order by a+1;
+     *       the expressions of the two are inconsistent.
+     *       The former will perform an additional Alisa.
+     *       Currently we cannot test whether this will have any effect.
+     *       After a+1 can be parsed , reprocessing.
      */
     @Override
     public PlanFragment visitPhysicalSort(PhysicalUnaryPlan<PhysicalHeapSort, Plan> sort,
