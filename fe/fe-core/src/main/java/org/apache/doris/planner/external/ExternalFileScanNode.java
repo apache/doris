@@ -350,7 +350,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         // set hdfs params for hdfs file type.
         if (scanProvider.getTableFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(scanProvider.getTableProperties());
-            tHdfsParams.addToHdfsConf(new THdfsConf("dfs.client.read.shortcircuit", "false"));
             rangeDesc.setHdfsParams(tHdfsParams);
         }
         return rangeDesc;
