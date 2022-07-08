@@ -76,7 +76,7 @@ under the License.
 
 1. 支持无认证的 Kafka 访问，以及通过 SSL 方式认证的 Kafka 集群。
 2. 支持的消息格式为 csv， json 文本格式。csv 每一个 message 为一行，且行尾**不包含**换行符。
-3. 默认支持 Kafka 0.10.0.0(含) 以上版本。如果要使用 Kafka 0.10.0.0 以下版本 (0.9.0, 0.8.2, 0.8.1, 0.8.0)，需要修改 be 的配置，将 kafka_broker_version_fallback 的值设置为要兼容的旧版本，或者在创建routine load的时候直接设置 property.broker.version.fallback的值为要兼容的旧版本，使用旧版本的代价是routine load 的部分新特性可能无法使用，如根据时间设置 kafka 分区的 offset。
+3. 默认支持 Kafka 0.10.0.0(含) 以上版本。如果要使用 Kafka 0.10.0.0 以下版本 (0.9.0.x, 0.8.x.y)，需要修改 be 的配置，将 kafka_broker_version_fallback 的值设置为要兼容的旧版本并将 kafka_api_version_request 的值设置为 false，或者在创建routine load的时候直接设置 property.broker.version.fallback 的值为要兼容的旧版本 并将 property.api.version.request 的值设置为 false，使用旧版本的代价是routine load 的部分新特性可能无法使用，如根据时间设置 kafka 分区的 offset。
 
 ### 创建任务
 

@@ -65,8 +65,6 @@ public:
 
     bool need_to_close() { return _need_to_close; }
 
-    int id() const { return _id; }
-    void set_id(int id) { _id = id; }
     bool is_open() const { return _is_open; }
     void set_opened() { _is_open = true; }
 
@@ -88,8 +86,6 @@ public:
     }
 
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
-
-    const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
 
     const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
@@ -113,7 +109,6 @@ private:
     // to record which runtime filters have been used
     std::vector<bool> _runtime_filter_marks;
 
-    int _id;
     bool _is_open;
     bool _aggregation;
     bool _need_agg_finalize = true;
@@ -128,10 +123,6 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
-
-    RowCursor _read_row_cursor;
-
-    std::vector<SlotDescriptor*> _query_slots;
 
     // time costed and row returned statistics
     int64_t _num_rows_read = 0;

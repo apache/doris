@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/snapshot_manager.h"
-#include "runtime/etl_job_mgr.h"
 
 using std::string;
 using std::vector;
@@ -40,7 +39,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
         : _exec_env(exec_env), _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
     for (auto& path : exec_env->store_paths()) {
         try {
-            string dpp_download_path_str = path.path + DPP_PREFIX;
+            string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
             std::filesystem::path dpp_download_path(dpp_download_path_str);
             if (std::filesystem::exists(dpp_download_path)) {
                 std::filesystem::remove_all(dpp_download_path);
@@ -90,7 +89,8 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
-    CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE_V2, _storage_medium_migrate_v2_workers);
+    CREATE_AND_START_THREAD(REFRESH_STORAGE_POLICY, _storage_refresh_policy_workers);
+    CREATE_AND_START_POOL(UPDATE_STORAGE_POLICY, _storage_update_policy_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
@@ -122,14 +122,14 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
         TTaskType::type task_type = task.task_type;
         int64_t signature = task.signature;
 
-#define HANDLE_TYPE(t_task_type, work_pool, req_member)                         \
-    case t_task_type:                                                           \
-        if (task.__isset.req_member) {                                          \
-            work_pool->submit_task(task);                                       \
-        } else {                                                                \
-            ret_st = Status::InvalidArgument(strings::Substitute(               \
-                    "task(signature=$0) has wrong request member", signature)); \
-        }                                                                       \
+#define HANDLE_TYPE(t_task_type, work_pool, req_member)                                          \
+    case t_task_type:                                                                            \
+        if (task.__isset.req_member) {                                                           \
+            work_pool->submit_task(task);                                                        \
+        } else {                                                                                 \
+            ret_st = Status::InvalidArgument("task(signature={}) has wrong request member = {}", \
+                                             signature, #req_member);                            \
+        }                                                                                        \
         break;
 
         // TODO(lingbin): It still too long, divided these task types into several categories
@@ -153,14 +153,14 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             HANDLE_TYPE(TTaskType::UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers,
                         update_tablet_meta_info_req);
             HANDLE_TYPE(TTaskType::COMPACTION, _submit_table_compaction_workers, compaction_req);
-            HANDLE_TYPE(TTaskType::STORAGE_MEDIUM_MIGRATE_V2, _storage_medium_migrate_v2_workers,
-                        storage_migration_req_v2);
+            HANDLE_TYPE(TTaskType::NOTIFY_UPDATE_STORAGE_POLICY, _storage_update_policy_workers,
+                        update_policy);
 
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:
             if (!task.__isset.push_req) {
-                ret_st = Status::InvalidArgument(strings::Substitute(
-                        "task(signature=$0) has wrong request member", signature));
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = push_req", signature);
                 break;
             }
             if (task.push_req.push_type == TPushType::LOAD ||
@@ -169,22 +169,23 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             } else if (task.push_req.push_type == TPushType::DELETE) {
                 _delete_workers->submit_task(task);
             } else {
-                ret_st = Status::InvalidArgument(strings::Substitute(
-                        "task(signature=$0, type=$1, push_type=$2) has wrong push_type", signature,
-                        task_type, task.push_req.push_type));
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}, type={}, push_type={}) has wrong push_type", signature,
+                        task_type, task.push_req.push_type);
             }
             break;
         case TTaskType::ALTER:
             if (task.__isset.alter_tablet_req || task.__isset.alter_tablet_req_v2) {
                 _alter_tablet_workers->submit_task(task);
             } else {
-                ret_st = Status::InvalidArgument(strings::Substitute(
-                        "task(signature=$0) has wrong request member", signature));
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = alter_tablet_req",
+                        signature);
             }
             break;
         default:
-            ret_st = Status::InvalidArgument(strings::Substitute(
-                    "task(signature=$0, type=$1) has wrong task type", signature, task_type));
+            ret_st = Status::InvalidArgument("task(signature={}, type={}) has wrong task type",
+                                             signature, task_type);
             break;
         }
 #undef HANDLE_TYPE
@@ -244,47 +245,6 @@ void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::stri
 void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,
                                         const TAgentPublishRequest& request) {
     Status status = Status::NotSupported("deprecated method(publish_cluster_state) was invoked");
-    status.to_thrift(&t_agent_result.status);
-}
-
-void AgentServer::submit_etl_task(TAgentResult& t_agent_result,
-                                  const TMiniLoadEtlTaskRequest& request) {
-    Status status = _exec_env->etl_job_mgr()->start_job(request);
-    auto fragment_instance_id = request.params.params.fragment_instance_id;
-    if (status.ok()) {
-        VLOG_RPC << "success to submit etl task. id=" << fragment_instance_id;
-    } else {
-        VLOG_RPC << "fail to submit etl task. id=" << fragment_instance_id
-                 << ", err_msg=" << status.get_error_msg();
-    }
-    status.to_thrift(&t_agent_result.status);
-}
-
-void AgentServer::get_etl_status(TMiniLoadEtlStatusResult& t_agent_result,
-                                 const TMiniLoadEtlStatusRequest& request) {
-    Status status = _exec_env->etl_job_mgr()->get_job_state(request.mini_load_id, &t_agent_result);
-    if (!status.ok()) {
-        LOG(WARNING) << "fail to get job state. [id=" << request.mini_load_id << "]";
-    }
-
-    VLOG_RPC << "success to get job state. [id=" << request.mini_load_id
-             << ", status=" << t_agent_result.status.status_code
-             << ", etl_state=" << t_agent_result.etl_state << ", files=";
-    for (auto& item : t_agent_result.file_map) {
-        VLOG_RPC << item.first << ":" << item.second << ";";
-    }
-    VLOG_RPC << "]";
-}
-
-void AgentServer::delete_etl_files(TAgentResult& t_agent_result,
-                                   const TDeleteEtlFilesRequest& request) {
-    Status status = _exec_env->etl_job_mgr()->erase_job(request);
-    if (!status.ok()) {
-        LOG(WARNING) << "fail to delete etl files. because " << status.get_error_msg()
-                     << " with request " << request;
-    }
-
-    VLOG_RPC << "success to delete etl files. request=" << request;
     status.to_thrift(&t_agent_result.status);
 }
 

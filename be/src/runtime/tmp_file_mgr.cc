@@ -138,9 +138,7 @@ Status TmpFileMgr::get_file(const DeviceId& device_id, const TUniqueId& query_id
     DCHECK_GE(device_id, 0);
     DCHECK_LT(device_id, _tmp_dirs.size());
     if (is_blacklisted(device_id)) {
-        std::stringstream error_msg;
-        error_msg << "path is blacklist. path: " << _tmp_dirs[device_id].path();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("path is blacklist. path: {}", _tmp_dirs[device_id].path());
     }
 
     // Generate the full file path.
@@ -224,9 +222,7 @@ Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
     Status status;
     if (_mgr->is_blacklisted(_device_id)) {
         _blacklisted = true;
-        std::stringstream error_msg;
-        error_msg << "path is blacklist. path: " << _path;
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("path is blacklist. path: {}", _path);
     }
     if (_current_size == 0) {
         // First call to AllocateSpace. Create the file.

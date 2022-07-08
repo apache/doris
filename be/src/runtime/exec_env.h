@@ -60,6 +60,7 @@ class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
+class StoragePolicyMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -71,6 +72,8 @@ template <class T>
 class ClientCache;
 
 class HeartbeatFlags;
+
+static bool exec_env_existed = false;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -87,6 +90,7 @@ public:
     /// we return the most recently created instance.
     static ExecEnv* GetInstance() {
         static ExecEnv s_exec_env;
+        exec_env_existed = true;
         return &s_exec_env;
     }
 
@@ -128,7 +132,6 @@ public:
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
-    EtlJobMgr* etl_job_mgr() { return _etl_job_mgr; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
     DiskIoMgr* disk_io_mgr() { return _disk_io_mgr; }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
@@ -145,6 +148,7 @@ public:
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
+    StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -207,7 +211,6 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
-    EtlJobMgr* _etl_job_mgr = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
     DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
@@ -228,6 +231,7 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
+    StoragePolicyMgr* _storage_policy_mgr = nullptr;
 };
 
 template <>

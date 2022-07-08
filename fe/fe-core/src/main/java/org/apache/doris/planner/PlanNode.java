@@ -630,6 +630,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return withoutTupleIsNullOutputSmap == null ? outputSmap : withoutTupleIsNullOutputSmap;
     }
 
+    public void init() throws UserException {}
+
     public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
         createDefaultSmap(analyzer);
@@ -983,5 +985,18 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         sb.append("\nFragment: ").append(getFragmentId().asInt()).append("]");
         sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
         return sb.toString();
+    }
+
+    /**
+     * Used to append some common explains to output
+     */
+    protected void appendCommonExplainString(String detailPrefix, StringBuilder output) {
+        if (outputSlotIds != null) {
+            output.append(detailPrefix).append("output slot ids: ");
+            for (SlotId slotId : outputSlotIds) {
+                output.append(slotId).append(" ");
+            }
+            output.append("\n");
+        }
     }
 }

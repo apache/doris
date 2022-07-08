@@ -132,32 +132,24 @@ set(HTTP_TEST_FILES
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
-    olap/schema_change_test.cpp
     olap/timestamped_version_tracker_test.cpp
     olap/tablet_schema_helper.cpp
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
     olap/row_block_test.cpp
     olap/row_block_v2_test.cpp
-    olap/bit_field_test.cpp
     olap/byte_buffer_test.cpp
-    olap/run_length_byte_test.cpp
-    olap/run_length_integer_test.cpp
-    olap/stream_index_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
     olap/bloom_filter_column_predicate_test.cpp
-    olap/bloom_filter_index_test.cpp
     olap/comparison_predicate_test.cpp
     olap/in_list_predicate_test.cpp
     olap/null_predicate_test.cpp
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
-    olap/column_reader_test.cpp
     olap/cumulative_compaction_policy_test.cpp
     olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
-    olap/serialize_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
     olap/column_vector_test.cpp
@@ -183,12 +175,13 @@ set(OLAP_TEST_FILES
     olap/tablet_meta_manager_test.cpp
     olap/tablet_mgr_test.cpp
     olap/tablet_test.cpp
-    olap/rowset/rowset_meta_manager_test.cpp
+    # TODO yiguolei: it is using alpha rowset to test, should use beta rowset
+    #olap/rowset/rowset_meta_manager_test.cpp
     olap/rowset/rowset_meta_test.cpp
-    olap/rowset/alpha_rowset_test.cpp
     olap/rowset/beta_rowset_test.cpp
     olap/rowset/unique_rowset_id_generator_test.cpp
-    olap/txn_manager_test.cpp
+    # TODO yiguolei: it is using alpha rowset to test, should use beta rowset
+    #olap/txn_manager_test.cpp
     olap/generic_iterators_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
@@ -199,8 +192,11 @@ set(OLAP_TEST_FILES
     olap/options_test.cpp
     olap/fs/file_block_manager_test.cpp
     olap/common_test.cpp
+    olap/primary_key_index_test.cpp
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
+    olap/tablet_cooldown_test.cpp
+    olap/tablet_clone_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -215,7 +211,6 @@ set(RUNTIME_TEST_FILES
     # runtime/dpp_sink_internal_test.cpp
     # runtime/dpp_sink_test.cpp
     # runtime/data_spliter_test.cpp
-    # runtime/etl_job_mgr_test.cpp
     # runtime/tmp_file_mgr_test.cpp
     # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
@@ -247,7 +242,7 @@ set(RUNTIME_TEST_FILES
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
     runtime/collection_value_test.cpp
-    runtime/array_test.cpp
+    #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES
     testutil/test_util.cpp
@@ -319,8 +314,10 @@ set(UTIL_TEST_FILES
     util/array_parser_test.cpp
     util/quantile_state_test.cpp
     util/hdfs_storage_backend_test.cpp
+    util/interval_tree_test.cpp
 )
 set(VEC_TEST_FILES
+    vec/aggregate_functions/agg_collect_test.cpp
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
@@ -341,6 +338,7 @@ set(VEC_TEST_FILES
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp
     vec/function/function_array_size_test.cpp
+    vec/function/function_arrays_overlap_test.cpp
     vec/function/function_bitmap_test.cpp
     vec/function/function_comparison_test.cpp
     vec/function/function_hash_test.cpp

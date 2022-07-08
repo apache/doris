@@ -45,7 +45,7 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
     _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
     PageBuilderOptions dict_builder_options;
     dict_builder_options.data_page_size = _options.dict_page_size;
-    _dict_builder.reset(new BinaryPlainPageBuilder(dict_builder_options));
+    _dict_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
     reset();
 }
 
@@ -86,8 +86,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 if (src->size > 0) {
                     char* item_mem = (char*)_pool.allocate(src->size);
                     if (item_mem == nullptr) {
-                        return Status::MemoryAllocFailed(
-                                strings::Substitute("memory allocate failed, size:$0", src->size));
+                        return Status::MemoryAllocFailed("memory allocate failed, size:{}",
+                                                         src->size);
                     }
                     dict_item.relocate(item_mem);
                 }
@@ -135,7 +135,7 @@ void BinaryDictPageBuilder::reset() {
     _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        _data_page_builder.reset(new BinaryPlainPageBuilder(_options));
+        _data_page_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(_options));
         _encoding_type = PLAIN_ENCODING;
     } else {
         _data_page_builder->reset();
@@ -191,8 +191,8 @@ BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOption
 Status BinaryDictPageDecoder::init() {
     CHECK(!_parsed);
     if (_data.size < BINARY_DICT_PAGE_HEADER_SIZE) {
-        return Status::Corruption(strings::Substitute("invalid data size:$0, header size:$1",
-                                                      _data.size, BINARY_DICT_PAGE_HEADER_SIZE));
+        return Status::Corruption("invalid data size:{}, header size:{}", _data.size,
+                                  BINARY_DICT_PAGE_HEADER_SIZE);
     }
     size_t type = decode_fixed32_le((const uint8_t*)&_data.data[0]);
     _encoding_type = static_cast<EncodingTypePB>(type);
@@ -206,10 +206,10 @@ Status BinaryDictPageDecoder::init() {
                 _bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
+        _data_page_decoder.reset(new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
-        return Status::Corruption(strings::Substitute("invalid encoding type:$0", _encoding_type));
+        return Status::Corruption("invalid encoding type:{}", _encoding_type);
     }
 
     RETURN_IF_ERROR(_data_page_decoder->init());
@@ -228,7 +228,7 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
 }
 
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
-    _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
+    _dict_decoder = (BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>*)dict_decoder;
     _dict_word_info = dict_word_info;
 };
 
@@ -258,6 +258,38 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 
     _bit_shuffle_ptr->_cur_index += max_fetch;
 
+    return Status::OK();
+}
+
+Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal,
+                                             size_t* n, vectorized::MutableColumnPtr& dst) {
+    if (_encoding_type == PLAIN_ENCODING) {
+        return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);
+    }
+    DCHECK(_parsed);
+    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
+
+    if (PREDICT_FALSE(*n == 0)) {
+        *n = 0;
+        return Status::OK();
+    }
+
+    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
+    auto total = *n;
+    size_t read_count = 0;
+    int32_t data[total];
+    for (size_t i = 0; i < total; ++i) {
+        ordinal_t ord = rowids[i] - page_first_ordinal;
+        if (PREDICT_FALSE(ord >= _bit_shuffle_ptr->_num_elements)) {
+            break;
+        }
+
+        data[read_count++] = data_array[ord];
+    }
+
+    if (LIKELY(read_count > 0))
+        dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_decoder->_num_elems);
+    *n = read_count;
     return Status::OK();
 }
 
@@ -301,8 +333,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     out = reinterpret_cast<Slice*>(dst->data());
     char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
     if (destination == nullptr) {
-        return Status::MemoryAllocFailed(
-                strings::Substitute("memory allocate failed, size:$0", mem_size));
+        return Status::MemoryAllocFailed("memory allocate failed, size:{}", mem_size);
     }
     for (int i = 0; i < len; ++i) {
         out->relocate(destination);

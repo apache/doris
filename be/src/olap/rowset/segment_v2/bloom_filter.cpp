@@ -21,7 +21,6 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
-#include "olap/serialize.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -31,10 +30,18 @@ Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<Blo
     if (algorithm == BLOCK_BLOOM_FILTER) {
         bf->reset(new BlockSplitBloomFilter());
     } else {
-        return Status::InternalError(
-                strings::Substitute("invalid bloom filter algorithm:$0", algorithm));
+        return Status::InternalError("invalid bloom filter algorithm:{}", algorithm);
     }
     return Status::OK();
+}
+
+uint32_t BloomFilter::used_bits(uint64_t value) {
+    // counting leading zero, builtin function, this will generate BSR(Bit Scan Reverse)
+    // instruction for X86
+    if (value == 0) {
+        return 0;
+    }
+    return 64 - __builtin_clzll(value);
 }
 
 uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
@@ -47,7 +54,7 @@ uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
 
     // Get closest power of 2 if bits is not power of 2.
     if ((num_bits & (num_bits - 1)) != 0) {
-        num_bits = 1 << ser::used_bits(num_bits);
+        num_bits = 1 << used_bits(num_bits);
     }
     if (num_bits < MINIMUM_BYTES << 3) {
         num_bits = MINIMUM_BYTES << 3;

@@ -2830,11 +2830,11 @@ show_param ::=
     /* Show data statement: used to show data size of specified range */
      | KW_DATA order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(null, null, orderByClause);
+        RESULT = new ShowDataStmt(null, orderByClause);
     :}
     | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl(), orderByClause);
+        RESULT = new ShowDataStmt(dbTblName, orderByClause);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
@@ -4156,11 +4156,11 @@ star_expr ::=
     // on IDENT [DOT]
     ident:tbl DOT STAR
     {:
-        RESULT = SelectListItem.createStarItem(new TableName(null, tbl));
+        RESULT = SelectListItem.createStarItem(new TableName(null, null, tbl));
     :}
     | ident:db DOT ident:tbl DOT STAR
     {:
-        RESULT = SelectListItem.createStarItem(new TableName(db, tbl));
+        RESULT = SelectListItem.createStarItem(new TableName(null, db, tbl));
     :}
     | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
     {:
@@ -4180,9 +4180,9 @@ opt_table_name ::=
 
 table_name ::=
     ident:tbl
-    {: RESULT = new TableName(null, tbl); :}
+    {: RESULT = new TableName(null, null, tbl); :}
     | ident:db DOT ident:tbl
-    {: RESULT = new TableName(db, tbl); :}
+    {: RESULT = new TableName(null, db, tbl); :}
     | ident:ctl DOT ident:db DOT ident:tbl
     {: RESULT = new TableName(ctl, db, tbl); :}
     ;
@@ -5311,9 +5311,9 @@ column_ref ::=
   {: RESULT = new SlotRef(null, col); :}
   // table_name:tblName DOT IDENT:col causes reduce/reduce conflicts
   | ident:tbl DOT ident:col
-  {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
+  {: RESULT = new SlotRef(new TableName(null, null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
-  {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
+  {: RESULT = new SlotRef(new TableName(null, db, tbl), col); :}
   | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
   ;

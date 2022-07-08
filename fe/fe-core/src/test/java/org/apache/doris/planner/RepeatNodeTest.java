@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -55,7 +56,7 @@ public class RepeatNodeTest {
         String[] cols = {"k1", "k2", "k3"};
         List<SlotRef> slots = new ArrayList<>();
         for (String col : cols) {
-            SlotRef expr = new SlotRef(new TableName("testdb", "t"), col);
+            SlotRef expr = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, "testdb", "t"), col);
             slots.add(expr);
         }
         try {
@@ -63,7 +64,7 @@ public class RepeatNodeTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName("testdb", "t")));
+            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName(InternalDataSource.INTERNAL_DS_NAME, "testdb", "t")));
             tupleByAlias.put("testdb.t", td);
             f.set(analyzer, tupleByAlias);
         } catch (NoSuchFieldException | IllegalAccessException e) {

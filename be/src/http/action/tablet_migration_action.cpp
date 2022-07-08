@@ -66,10 +66,10 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                         std::map<MigrationTask, std::string>::iterator it_task =
                                 _migration_tasks.find(current_task);
                         if (it_task != _migration_tasks.end()) {
-                            status = Status::AlreadyExist(strings::Substitute(
+                            status = Status::AlreadyExist(
                                     "There is a migration task for this tablet already exists. "
-                                    "dest_disk is $0 .",
-                                    (it_task->first)._dest_disk));
+                                    "dest_disk is {} .",
+                                    (it_task->first)._dest_disk);
                             break;
                         }
                         _migration_tasks[current_task] = "submitted";
@@ -174,7 +174,7 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
     } catch (const std::exception& e) {
         LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
                      << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError(strings::Substitute("Convert failed, $0", e.what()));
+        return Status::InternalError("Convert failed, {}", e.what());
     }
     dest_disk = req->param("disk");
     goal = req->param("goal");
@@ -205,8 +205,8 @@ Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t 
         return Status::AlreadyExist("Tablet already exist in destination disk");
     }
 
-    // check disk capacity
-    int64_t tablet_size = tablet->tablet_footprint();
+    // check local disk capacity
+    int64_t tablet_size = tablet->tablet_local_size();
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
         LOG(WARNING) << "reach the capacity limit of path: " << (*dest_store)->path()
                      << ", tablet size: " << tablet_size;

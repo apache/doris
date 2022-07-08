@@ -251,7 +251,7 @@ public class BackupHandlerTest {
 
         // process backup
         List<TableRef> tblRefs = Lists.newArrayList();
-        tblRefs.add(new TableRef(new TableName(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
+        tblRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
         AbstractBackupTableRefClause tableRefClause = new AbstractBackupTableRefClause(false, tblRefs);
         BackupStmt backupStmt = new BackupStmt(new LabelName(CatalogMocker.TEST_DB_NAME, "label1"), "repo",
                 tableRefClause, null);
@@ -297,7 +297,7 @@ public class BackupHandlerTest {
 
         // process restore
         List<TableRef> tblRefs2 = Lists.newArrayList();
-        tblRefs2.add(new TableRef(new TableName(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
+        tblRefs2.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
         Map<String, String> properties = Maps.newHashMap();
         properties.put("backup_timestamp", "2018-08-08-08-08-08");
         AbstractBackupTableRefClause abstractBackupTableRefClause = new AbstractBackupTableRefClause(false, tblRefs2);

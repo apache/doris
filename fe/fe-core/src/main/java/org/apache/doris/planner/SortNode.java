@@ -230,24 +230,16 @@ public class SortNode extends PlanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
-        TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(info.getOrderingExprs()),
-                info.getIsAscOrder(),
-                info.getNullsFirst());
+
+        TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        if (resolvedTupleExprs != null) {
+            sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
-
-        // TODO(lingbin): remove blew codes, because it is duplicate with TSortInfo
-        msg.sort_node.setOrderingExprs(Expr.treesToThrift(info.getOrderingExprs()));
-        msg.sort_node.setIsAscOrder(info.getIsAscOrder());
-        msg.sort_node.setNullsFirst(info.getNullsFirst());
-        if (info.getSortTupleSlotExprs() != null) {
-            msg.sort_node.setSortTupleSlotExprs(Expr.treesToThrift(info.getSortTupleSlotExprs()));
-        }
     }
 
     @Override

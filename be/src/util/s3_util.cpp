@@ -85,6 +85,7 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
                 std::atoi(properties.find(S3_CONN_TIMEOUT_MS)->second.c_str());
     }
 
+    aws_config.verifySSL = false;
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
     bool use_virtual_addressing = true;
     if (properties.find(USE_PATH_STYLE) != properties.end()) {

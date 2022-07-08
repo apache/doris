@@ -132,6 +132,19 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DATETIME', 'ARRAY_DATETIME'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DATE', 'ARRAY_DATE'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DECIMALV2', 'ARRAY_DECIMALV2'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+
     [['array_contains'], 'BOOLEAN', ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
@@ -1022,10 +1035,10 @@ visible_functions = [
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['strleft', 'left'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['strright', 'right'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['ends_with'], 'BOOLEAN', ['STRING', 'STRING'],
         '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],

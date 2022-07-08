@@ -22,6 +22,11 @@ curdir=`cd "$curdir"; pwd`
 export DORIS_HOME=`cd "$curdir/.."; pwd`
 export PID_DIR=`cd "$curdir"; pwd`
 
+signum=9
+if [ $1 = "--grace" ]; then
+    signum=15
+fi
+
 while read line; do
     envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
     envline=`eval "echo $envline"`
@@ -41,7 +46,7 @@ if [ -f $pidfile ]; then
     fi
 
     if kill -0 $pid; then
-        if kill -9 $pid > /dev/null 2>&1; then
+        if kill -${signum} $pid > /dev/null 2>&1; then
             echo "stop $pidcomm, and remove pid file. "
             rm $pidfile
             exit 0

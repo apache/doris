@@ -52,7 +52,12 @@ public:
     Status change_row_block(const RowBlock* ref_block, int32_t data_version,
                             RowBlock* mutable_block, uint64_t* filtered_rows) const;
 
+    Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
+
 private:
+    Status _check_cast_valid(vectorized::ColumnPtr ref_column,
+                             vectorized::ColumnPtr new_column) const;
+
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
 
@@ -180,6 +185,17 @@ private:
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };
 
+class VSchemaChangeDirectly : public SchemaChange {
+public:
+    VSchemaChangeDirectly(const RowBlockChanger& row_block_changer) : _changer(row_block_changer) {}
+
+private:
+    Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
+                          TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+
+    const RowBlockChanger& _changer;
+};
+
 // @breif schema change with sorting
 class SchemaChangeWithSorting : public SchemaChange {
 public:
@@ -192,7 +208,8 @@ private:
                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
     bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
-                           const Version& temp_delta_versions, TabletSharedPtr new_tablet,
+                           const Version& temp_delta_versions, int64_t oldest_write_timestamp,
+                           int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
                            SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
 
     bool _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
@@ -204,6 +221,30 @@ private:
     RowBlockAllocator* _row_block_allocator;
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeWithSorting);
+};
+
+class VSchemaChangeWithSorting : public SchemaChange {
+public:
+    VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer, size_t memory_limitation);
+    ~VSchemaChangeWithSorting() override = default;
+
+private:
+    Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
+                          TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+
+    Status _internal_sorting(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
+                             const Version& temp_delta_versions, int64_t oldest_write_timestamp,
+                             int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
+                             RowsetTypePB new_rowset_type, SegmentsOverlapPB segments_overlap,
+                             RowsetSharedPtr* rowset);
+
+    Status _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
+                             TabletSharedPtr new_tablet);
+
+    const RowBlockChanger& _changer;
+    size_t _memory_limitation;
+    Version _temp_delta_versions;
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class SchemaChangeHandler {
@@ -218,12 +259,23 @@ public:
     static std::unique_ptr<SchemaChange> get_sc_procedure(const RowBlockChanger& rb_changer,
                                                           bool sc_sorting, bool sc_directly) {
         if (sc_sorting) {
-            return std::make_unique<SchemaChangeWithSorting>(
-                    rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+            if (config::enable_vectorized_alter_table) {
+                return std::make_unique<VSchemaChangeWithSorting>(
+                        rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+            } else {
+                return std::make_unique<SchemaChangeWithSorting>(
+                        rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+            }
         }
+
         if (sc_directly) {
-            return std::make_unique<SchemaChangeDirectly>(rb_changer);
+            if (config::enable_vectorized_alter_table) {
+                return std::make_unique<VSchemaChangeDirectly>(rb_changer);
+            } else {
+                return std::make_unique<SchemaChangeDirectly>(rb_changer);
+            }
         }
+
         return std::make_unique<LinkedSchemaChange>(rb_changer);
     }
 

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -69,8 +70,8 @@ public class CreateTableStmtTest {
         // analyzer
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         // table name
-        tblName = new TableName("db1", "table1");
-        tblNameNoDb = new TableName("", "table1");
+        tblName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "db1", "table1");
+        tblNameNoDb = new TableName(InternalDataSource.INTERNAL_DS_NAME, "", "table1");
         // col
         cols = Lists.newArrayList();
         cols.add(new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));

@@ -32,8 +32,6 @@
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 
-class Collator;
-
 namespace doris::vectorized {
 
 /** Column for String values.
@@ -153,17 +151,32 @@ public:
         const size_t new_size = old_size + length + 1;
 
         chars.resize(new_size);
-        if (length) memcpy(chars.data() + old_size, pos, length);
+        if (length) {
+            memcpy(chars.data() + old_size, pos, length);
+        }
         chars[old_size + length] = 0;
         offsets.push_back(new_size);
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
+        size_t new_size = 0;
+        for (size_t i = 0; i < num; i++) {
+            new_size += len_array[i] + 1;
+        }
+
+        const size_t old_size = chars.size();
+        chars.resize(old_size + new_size);
+
+        Char* data = chars.data();
+        size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
             uint32_t len = len_array[i];
             uint32_t start_offset = start_offset_array[i];
-            insert_data(data_array + start_offset, len);
+            if (len) memcpy(data + offset, data_array + start_offset, len);
+            data[offset + len] = 0;
+            offset += len + 1;
+            offsets.push_back(offset);
         }
     };
 
@@ -244,16 +257,8 @@ public:
                                              rhs.size_at(m) - 1);
     }
 
-    /// Variant of compare_at for string comparison with respect of collation.
-    int compare_at_with_collation(size_t n, size_t m, const IColumn& rhs_,
-                                  const Collator& collator) const;
-
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override;
-
-    /// Sorting with respect of collation.
-    void get_permutation_with_collation(const Collator& collator, bool reverse, size_t limit,
-                                        Permutation& res) const;
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 

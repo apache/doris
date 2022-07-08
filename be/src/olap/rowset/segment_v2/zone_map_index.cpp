@@ -18,7 +18,6 @@
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
 #include "olap/column_block.h"
-#include "olap/fs/block_manager.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -97,7 +96,7 @@ Status ZoneMapIndexWriter::flush() {
     return Status::OK();
 }
 
-Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta) {
+Status ZoneMapIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) {
     index_meta->set_type(ZONE_MAP_INDEX);
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
@@ -112,7 +111,7 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
     options.encoding = EncodingInfo::get_default_encoding(type_info, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, type_info, wblock);
+    IndexedColumnWriter writer(options, type_info, file_writer);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {
@@ -123,7 +122,7 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_path_desc, _index_meta->page_zone_maps());
+    IndexedColumnReader reader(_fs, _path, _index_meta->page_zone_maps());
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 

@@ -165,9 +165,9 @@ private:
         for (int i = 0; i < size; ++i) {
             auto* raw_str = reinterpret_cast<const unsigned char*>(&chars[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1] - 1;
-            // return null if start > src.length
+            // return empty string if start > src.length
             if (start[i] > str_size) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map);
+                StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
             // return "" if len < 0 or str == 0 or start == 0
@@ -625,7 +625,7 @@ public:
             }
         }
 
-        return Status::RuntimeError(fmt::format("not support {}", get_name()));
+        return Status::RuntimeError("not support {}", get_name());
     }
 
     void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
@@ -964,9 +964,9 @@ public:
                 offsets_list[i] = &col_str->get_offsets();
                 chars_list[i] = &col_str->get_chars();
             } else {
-                return Status::RuntimeError(fmt::format(
-                        "Illegal column {} of argument of function {}",
-                        block.get_by_position(arguments[0]).column->get_name(), get_name()));
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[0]).column->get_name(),
+                                            get_name());
             }
         }
 
@@ -1071,10 +1071,10 @@ public:
             if (!success) {
                 // url is malformed, or url_part is invalid.
                 if (url_part == UrlParser::INVALID) {
-                    return Status::RuntimeError(fmt::format(
+                    return Status::RuntimeError(
                             "Invalid URL part: {}\n{}", std::string(part.data, part.size),
                             "(Valid URL parts are 'PROTOCOL', 'HOST', 'PATH', 'REF', 'AUTHORITY', "
-                            "'FILE', 'USERINFO', 'PORT' and 'QUERY')"));
+                            "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
                 } else {
                     StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     continue;

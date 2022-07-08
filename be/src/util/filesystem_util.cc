@@ -43,26 +43,22 @@ Status FileSystemUtil::create_directory(const string& directory) {
     // Need to check for no_such_file_or_directory error case - Boost's exists() sometimes
     // returns an error when it should simply return false.
     if (errcode && errcode != std::errc::no_such_file_or_directory) {
-        std::stringstream error_msg;
-        error_msg << "Encountered error checking existence of directory: " << directory << ": "
-                  << errcode.message();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("Encountered error checking existence of directory {}:{}",
+                                     directory, errcode.message());
     }
     if (exists) {
         // Attempt to remove the directory and its contents so that we can create a fresh
         // empty directory that we will have permissions for.
         std::filesystem::remove_all(directory, errcode);
         if (errcode) {
-            std::stringstream error_msg;
-            error_msg << "Encountered error removing directory " << directory << errcode.message();
-            return Status::InternalError(error_msg.str());
+            return Status::InternalError("Encountered error removing directory {}:{}", directory,
+                                         errcode.message());
         }
     }
     std::filesystem::create_directories(directory, errcode);
     if (errcode) {
-        std::stringstream error_msg;
-        error_msg << "Encountered error creating directory " << directory << errcode.message();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("Encountered error creating directory {}:{}", directory,
+                                     errcode.message());
     }
     return Status::OK();
 }
@@ -72,10 +68,8 @@ Status FileSystemUtil::remove_paths(const vector<string>& directories) {
         error_code errcode;
         std::filesystem::remove_all(directories[i], errcode);
         if (errcode) {
-            std::stringstream error_msg;
-            error_msg << "Encountered error removing directory " << directories[i] << ": "
-                      << errcode.message();
-            return Status::InternalError(error_msg.str());
+            return Status::InternalError("Encountered error removing directory {}:{}",
+                                         directories[i], errcode.message());
         }
     }
 
@@ -119,27 +113,21 @@ Status FileSystemUtil::verify_is_directory(const string& directory_path) {
     error_code errcode;
     bool exists = std::filesystem::exists(directory_path, errcode);
     if (errcode) {
-        std::stringstream error_msg;
-        error_msg << "Encountered exception while verifying existence of directory path "
-                  << directory_path << ": " << errcode.message();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError(
+                "Encountered exception while verifying existence of directory path {}: {}",
+                directory_path, errcode.message());
     }
     if (!exists) {
-        std::stringstream error_msg;
-        error_msg << "Directory path " << directory_path << " does not exist ";
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("Directory path {} does not exist.", directory_path);
     }
     bool is_dir = std::filesystem::is_directory(directory_path, errcode);
     if (errcode) {
-        std::stringstream error_msg;
-        error_msg << "Encountered exception while verifying existence of directory path "
-                  << directory_path << ": " << errcode.message();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError(
+                "Encountered exception while verifying existence of directory path {}: {}",
+                directory_path, errcode.message());
     }
     if (!is_dir) {
-        std::stringstream error_msg;
-        error_msg << "Path " << directory_path << " is not a directory";
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("Path {} is not a directory", directory_path);
     }
     return Status::OK();
 }
@@ -149,10 +137,9 @@ Status FileSystemUtil::get_space_available(const string& directory_path,
     error_code errcode;
     std::filesystem::space_info info = std::filesystem::space(directory_path, errcode);
     if (errcode) {
-        std::stringstream error_msg;
-        error_msg << "Encountered exception while checking available space for path "
-                  << directory_path << ": " << errcode.message();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError(
+                "Encountered exception while checking available space for path {}: {}",
+                directory_path, errcode.message());
     }
     *available_bytes = info.available;
     return Status::OK();

@@ -55,6 +55,10 @@ public class ShowCreateTableStmt extends ShowStmt {
         this.isView = isView;
     }
 
+    public String getCtl() {
+        return tbl.getCtl();
+    }
+
     public String getDb() {
         return tbl.getDb();
     }

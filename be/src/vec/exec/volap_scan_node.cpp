@@ -51,7 +51,8 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _buffered_bytes(0),
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters),
-          _max_materialized_blocks(config::doris_scanner_queue_size) {
+          _max_materialized_blocks(config::doris_scanner_queue_size),
+          _output_slot_ids(tnode.output_slot_ids) {
     _materialized_blocks.reserve(_max_materialized_blocks);
     _free_blocks.reserve(_max_materialized_blocks);
 }
@@ -228,6 +229,7 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->init_profile(_runtime_profile.get());
     }
+    init_output_slots();
     return Status::OK();
 }
 
@@ -433,6 +435,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                         auto last_expr =
                                 _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
                         for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
+                            if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
+                                continue;
+                            }
                             TExprNode texpr_node;
                             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
                             texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
@@ -441,6 +446,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             new_node->add_child(last_expr);
                             new_node->add_child(vexprs[j]);
                             last_expr = new_node;
+                            _rf_vexpr_set.insert(vexprs[j]);
                         }
                         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
                         auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc(),
@@ -457,6 +463,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
                             vexprs.clear();
                             break;
+                        }
+                        if (_vconjunct_ctx_ptr) {
+                            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                         }
                         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
                         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
@@ -490,9 +499,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
-                     get_free_block) ||
-                    num_rows_in_block < _runtime_state->batch_size())) {
+    while (!eos && raw_bytes_read < raw_bytes_threshold &&
+           ((raw_rows_read < raw_rows_threshold && get_free_block) ||
+            num_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -511,7 +520,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             break;
         }
 
-        raw_bytes_read += block->allocated_bytes();
+        raw_bytes_read += block->bytes();
         num_rows_in_block += block->rows();
         // 4. if status not ok, change status_.
         if (UNLIKELY(block->rows() == 0)) {
@@ -1041,8 +1050,7 @@ void VOlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
 
     // filter idle conjunct in vexpr_contexts
     auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
-    std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
-    _runtime_profile->add_info_string("NonPushdownPredicate", vconjunct_information);
+    _peel_pushed_vconjunct(state, checker);
 }
 
 // Construct the ColumnValueRange for one specified column
@@ -1511,8 +1519,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
-
     // change done status
     {
         std::unique_lock<std::mutex> l(_blocks_lock);
@@ -1552,12 +1558,15 @@ Status VOlapScanNode::close(RuntimeState* state) {
         runtime_filter->consumer_close();
     }
 
+    for (auto& ctx : _stale_vexpr_ctxs) {
+        (*ctx)->close(state);
+    }
+
     VLOG_CRITICAL << "VOlapScanNode::close()";
     return ScanNode::close(state);
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
@@ -1641,6 +1650,14 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             // ReThink whether the SpinLock Better
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(materialized_block);
+        }
+
+        auto columns = block->get_columns();
+        auto slots = _tuple_desc->slots();
+        for (int i = 0; i < slots.size(); i++) {
+            if (!_output_slot_flags[i]) {
+                std::move(columns[i])->assume_mutable()->clear();
+            }
         }
         return Status::OK();
     }
@@ -1824,6 +1841,14 @@ Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& sca
     }
 
     return Status::OK();
+}
+
+void VOlapScanNode::init_output_slots() {
+    for (const auto& slot_desc : _tuple_desc->slots()) {
+        _output_slot_flags.emplace_back(_output_slot_ids.empty() ||
+                                        std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
+                                                  slot_desc->id()) != _output_slot_ids.end());
+    }
 }
 
 } // namespace doris::vectorized

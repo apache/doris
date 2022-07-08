@@ -97,9 +97,7 @@ Status ExportTaskMgr::erase_task(const TUniqueId& id) {
     std::lock_guard<std::mutex> l(_lock);
     auto it = _running_tasks.find(id);
     if (it != _running_tasks.end()) {
-        std::stringstream ss;
-        ss << "Task(" << id << ") is running, can not be deleted.";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Task({}) is running, can not be deleted.", id);
     }
     _success_tasks.erase(id);
     _failed_tasks.erase(id);
@@ -127,9 +125,7 @@ Status ExportTaskMgr::finish_task(const TUniqueId& id, const Status& status,
     std::lock_guard<std::mutex> l(_lock);
     auto it = _running_tasks.find(id);
     if (it == _running_tasks.end()) {
-        std::stringstream ss;
-        ss << "Unknown task id(" << id << ").";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown task id({}).", id);
     }
     _running_tasks.erase(it);
 

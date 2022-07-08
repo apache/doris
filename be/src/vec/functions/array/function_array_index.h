@@ -267,10 +267,10 @@ private:
             block.replace_by_position(result, std::move(return_column));
             return Status::OK();
         }
-        return Status::RuntimeError(
-                fmt::format("execute failed or unsupported types for function {}({}, {})",
-                            get_name(), block.get_by_position(arguments[0]).type->get_name(),
-                            block.get_by_position(arguments[1]).type->get_name()));
+        return Status::RuntimeError("execute failed or unsupported types for function {}({}, {})",
+                                    get_name(),
+                                    block.get_by_position(arguments[0]).type->get_name(),
+                                    block.get_by_position(arguments[1]).type->get_name());
     }
 };
 

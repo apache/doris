@@ -345,6 +345,8 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
         writer_context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        writer_context.oldest_write_timestamp = rs_reader->oldest_write_timestamp();
+        writer_context.newest_write_timestamp = rs_reader->newest_write_timestamp();
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         Status status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);

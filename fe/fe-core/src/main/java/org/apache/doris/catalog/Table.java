@@ -433,6 +433,10 @@ public class Table extends MetaObject implements Writable, TableIf {
         this.comment = Strings.nullToEmpty(comment);
     }
 
+    public void setId(long id) {
+        this.id = id;
+    }
+
     public CreateTableStmt toCreateTableStmt(String dbName) {
         throw new NotImplementedException();
     }

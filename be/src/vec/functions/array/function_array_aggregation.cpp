@@ -163,7 +163,7 @@ struct ArrayAggregateImpl {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {
-            return Status::RuntimeError("Unexpected column for aggregation: " + data->get_name());
+            return Status::RuntimeError("Unexpected column for aggregation: {}", data->get_name());
         }
     }
 

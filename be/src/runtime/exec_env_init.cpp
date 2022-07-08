@@ -24,6 +24,7 @@
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy_mgr.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/bufferpool/reservation_tracker.h"
@@ -31,7 +32,6 @@
 #include "runtime/client_cache.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/disk_io_mgr.h"
-#include "runtime/etl_job_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fold_constant_executor.h"
@@ -128,7 +128,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
     _master_info = new TMasterInfo();
-    _etl_job_mgr = new EtlJobMgr(this);
     _load_path_mgr = new LoadPathMgr(this);
     _disk_io_mgr = new DiskIoMgr();
     _tmp_file_mgr = new TmpFileMgr(this);
@@ -141,13 +140,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
+    _storage_policy_mgr = new StoragePolicyMgr();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
-    _etl_job_mgr->init();
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "load path mgr init failed." << status.get_error_msg();
@@ -185,14 +184,12 @@ Status ExecEnv::_init_mem_tracker() {
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
     MemTracker::get_process_tracker()->set_limit(global_memory_limit_bytes);
-    _query_pool_mem_tracker = MemTracker::create_tracker(global_memory_limit_bytes, "QueryPool",
-                                                         MemTracker::get_process_tracker(),
-                                                         MemTrackerLevel::OVERVIEW);
+    _query_pool_mem_tracker = MemTracker::create_tracker(
+            -1, "QueryPool", MemTracker::get_process_tracker(), MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(query_mem_consumption,
                          [this]() { return _query_pool_mem_tracker->consumption(); });
-    _load_pool_mem_tracker = MemTracker::create_tracker(global_memory_limit_bytes, "LoadPool",
-                                                        MemTracker::get_process_tracker(),
-                                                        MemTrackerLevel::OVERVIEW);
+    _load_pool_mem_tracker = MemTracker::create_tracker(
+            -1, "LoadPool", MemTracker::get_process_tracker(), MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(load_mem_consumption,
                          [this]() { return _load_pool_mem_tracker->consumption(); });
     LOG(INFO) << "Using global memory limit: "
@@ -335,7 +332,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_tmp_file_mgr);
     SAFE_DELETE(_disk_io_mgr);
     SAFE_DELETE(_load_path_mgr);
-    SAFE_DELETE(_etl_job_mgr);
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_cgroups_mgr);
