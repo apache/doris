@@ -4940,7 +4940,8 @@ public class Catalog {
             DatabaseIf db = getInternalDataSource().getDbNullable(dbName);
             Optional<Table> table = db.getTable(tableId);
             if (table.isPresent()) {
-                return new TableName(db.getFullName(), table.get().getName());
+                return new TableName(InternalDataSource.INTERNAL_DS_NAME,
+                                    db.getFullName(), table.get().getName());
             }
         }
         return null;

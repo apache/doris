@@ -614,8 +614,8 @@ int32_t TabletSchema::field_index(const std::string& field_name) const {
     return (found == _field_name_to_index.end()) ? -1 : found->second;
 }
 
-int32_t TabletSchema::field_index(int32_t col_unique_od) const {
-    const auto& found = _field_id_to_index.find(col_unique_od);
+int32_t TabletSchema::field_index(int32_t col_unique_id) const {
+    const auto& found = _field_id_to_index.find(col_unique_id);
     return (found == _field_id_to_index.end()) ? -1 : found->second;
 }
 

@@ -145,12 +145,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-    std::vector<RowsetMetaSharedPtr> rowset_metas;
-    rowset_metas.resize(_input_rowsets.size());
-    std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
-                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
-    auto rowset_meta = Tablet::rowset_meta_with_max_schema_version(rowset_metas);
-    const TabletSchema* cur_tablet_schema = rowset_meta->tablet_schema();
+    const TabletSchema* cur_tablet_schema = &_tablet->tablet_schema();
 
     RETURN_NOT_OK(construct_output_rowset_writer(cur_tablet_schema));
     RETURN_NOT_OK(construct_input_rowset_readers());

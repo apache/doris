@@ -197,7 +197,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     if (_is_cancelled) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
-    
+
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
