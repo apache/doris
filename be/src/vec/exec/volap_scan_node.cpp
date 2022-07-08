@@ -403,10 +403,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
-    /*
-    // the follow code may cause double free in VExprContext,
-    // temporarily disable it to avoid it
-    // TODO: fix the bug
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -437,6 +433,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                         auto last_expr =
                                 _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
                         for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
+                            if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
+                                continue;
+                            }
                             TExprNode texpr_node;
                             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
                             texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
@@ -445,6 +444,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             new_node->add_child(last_expr);
                             new_node->add_child(vexprs[j]);
                             last_expr = new_node;
+                            _rf_vexpr_set.insert(vexprs[j]);
                         }
                         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
                         auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc(),
@@ -462,6 +462,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             vexprs.clear();
                             break;
                         }
+                        if (_vconjunct_ctx_ptr) {
+                            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
+                        }
                         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
                         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
                         _runtime_filter_ready_flag[i] = true;
@@ -476,7 +479,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                       "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
     }
-    */
 
     std::vector<Block*> blocks;
 
@@ -1552,6 +1554,10 @@ Status VOlapScanNode::close(RuntimeState* state) {
         state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
         DCHECK(runtime_filter != nullptr);
         runtime_filter->consumer_close();
+    }
+
+    for (auto& ctx : _stale_vexpr_ctxs) {
+        (*ctx)->close(state);
     }
 
     VLOG_CRITICAL << "VOlapScanNode::close()";
