@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -82,7 +83,7 @@ public class ExportMgrTest {
         ExportJob job1 = new ExportJob(id);
         Deencapsulation.setField(job1, "label", label);
 
-        TableName tbl1 = new TableName("testCluster", "testDb");
+        TableName tbl1 = new TableName(InternalDataSource.INTERNAL_DS_NAME, "testCluster", "testDb");
         Deencapsulation.setField(job1, "tableName", tbl1);
 
         BrokerDesc bd = new BrokerDesc("broker", new HashMap<>());

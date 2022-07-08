@@ -29,7 +29,7 @@ public class TableValuedFunctionRef extends TableRef {
     private TableValuedFunctionInf tableFunction;
 
     public TableValuedFunctionRef(String funcName, String alias, List<String> params) throws UserException {
-        super(new TableName(null, "_table_valued_function_" + funcName), alias);
+        super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
         this.tableFunction = TableValuedFunctionInf.getTableFunction(funcName, params);
         if (hasExplicitAlias()) {
             return;

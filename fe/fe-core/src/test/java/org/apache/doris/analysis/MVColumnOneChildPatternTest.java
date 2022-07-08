@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -31,10 +32,11 @@ import org.junit.Test;
 import java.util.List;
 
 public class MVColumnOneChildPatternTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Test
     public void testCorrectSum(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
@@ -47,7 +49,7 @@ public class MVColumnOneChildPatternTest {
 
     @Test
     public void testCorrectMin(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
@@ -68,7 +70,7 @@ public class MVColumnOneChildPatternTest {
 
     @Test
     public void testCorrectCountField(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
@@ -92,7 +94,7 @@ public class MVColumnOneChildPatternTest {
 
     @Test
     public void testIncorrectArithmeticExpr(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, slotRef1, slotRef2);
