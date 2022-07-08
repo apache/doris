@@ -133,6 +133,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
+    _oldest_write_timestamp = _input_rowsets.front()->oldest_write_timestamp();
+    _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
+
     auto use_vectorized_compaction = config::enable_vectorized_compaction;
     string merge_type = use_vectorized_compaction ? "v" : "";
 
@@ -218,6 +221,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
 Status Compaction::construct_output_rowset_writer() {
     return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
+                                         _oldest_write_timestamp, _newest_write_timestamp,
                                          &_output_rs_writer);
 }
 

@@ -550,6 +550,7 @@ set(KRB5_LIBS
 set(AWS_LIBS
     aws-sdk-s3
     aws-sdk-core
+    aws-sdk-transfer
     aws-checksums
     aws-c-io
     aws-c-event-stream
@@ -740,9 +741,9 @@ add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
+add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)

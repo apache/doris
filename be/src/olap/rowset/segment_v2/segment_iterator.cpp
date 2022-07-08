@@ -136,8 +136,9 @@ Status SegmentIterator::_init(bool is_vec) {
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     // get file handle from file descriptor of segment
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_segment->_path_desc);
-    RETURN_IF_ERROR(block_mgr->open_block(_segment->_path_desc, &_rblock));
+    auto fs = _segment->_fs;
+    RETURN_IF_ERROR(fs->open_file(_segment->_path, &_file_reader));
+
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
@@ -219,7 +220,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
-            iter_opts.rblock = _rblock.get();
+            iter_opts.file_reader = _file_reader.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -348,7 +349,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
-            iter_opts.rblock = _rblock.get();
+            iter_opts.file_reader = _file_reader.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
