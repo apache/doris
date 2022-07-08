@@ -45,18 +45,18 @@ std::string cast_to_string(int8_t);
 /**
  * @brief Column's value range
  **/
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType = typename doris::PrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using IteratorType = typename std::set<CppType>::iterator;
 
     ColumnValueRange();
 
-    ColumnValueRange(std::string col_name, doris::PrimitiveType type);
+    ColumnValueRange(std::string col_name);
 
-    ColumnValueRange(std::string col_name, doris::PrimitiveType type, const CppType& min,
-                     const CppType& max, bool contain_null);
+    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
+                     bool contain_null);
 
     // should add fixed value before add range
     Status add_fixed_value(const CppType& value);
@@ -107,7 +107,7 @@ public:
 
     bool is_end_include() const { return _high_op == FILTER_LESS_OR_EQUAL; }
 
-    doris::PrimitiveType type() const { return _column_type; }
+    PrimitiveType type() const { return _column_type; }
 
     const std::string& column_name() const { return _column_name; }
 
@@ -222,13 +222,13 @@ public:
         range.remove_fixed_value(*value);
     }
 
-    static ColumnValueRange<primitive_type> create_empty_column_value_range(PrimitiveType type) {
-        return ColumnValueRange<primitive_type>::create_empty_column_value_range("", type);
+    static ColumnValueRange<primitive_type> create_empty_column_value_range() {
+        return ColumnValueRange<primitive_type>::create_empty_column_value_range("");
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(
-            const std::string& col_name, doris::PrimitiveType type) {
-        return ColumnValueRange<primitive_type>(col_name, type, TYPE_MAX, TYPE_MIN, false);
+            const std::string& col_name) {
+        return ColumnValueRange<primitive_type>(col_name, TYPE_MAX, TYPE_MIN, false);
     }
 
 protected:
@@ -239,9 +239,9 @@ private:
     const static CppType TYPE_MAX; // Column type's max value
 
     std::string _column_name;
-    doris::PrimitiveType _column_type; // Column type (eg: TINYINT,SMALLINT,INT,BIGINT)
-    CppType _low_value;                // Column's low value, closed interval at left
-    CppType _high_value;               // Column's high value, open interval at right
+    PrimitiveType _column_type; // Column type (eg: TINYINT,SMALLINT,INT,BIGINT)
+    CppType _low_value;         // Column's low value, closed interval at left
+    CppType _high_value;        // Column's high value, open interval at right
     SQLFilterOp _low_op;
     SQLFilterOp _high_op;
     std::set<CppType> _fixed_values; // Column's fixed int value
@@ -257,7 +257,7 @@ public:
               _end_include(true),
               _is_convertible(true) {}
 
-    template <doris::PrimitiveType primitive_type>
+    template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
                            bool* exact_value);
 
@@ -323,35 +323,34 @@ typedef std::variant<ColumnValueRange<TYPE_TINYINT>, ColumnValueRange<TYPE_SMALL
                      ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_HLL>>
         ColumnValueRangeType;
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
         ColumnValueRange<primitive_type>::TYPE_MIN =
                 type_limit<typename ColumnValueRange<primitive_type>::CppType>::min();
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
         ColumnValueRange<primitive_type>::TYPE_MAX =
                 type_limit<typename ColumnValueRange<primitive_type>::CppType>::max();
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange() : _column_type(INVALID_TYPE) {}
 
-template <doris::PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, doris::PrimitiveType type)
-        : ColumnValueRange(std::move(col_name), type, TYPE_MIN, TYPE_MAX, true) {}
+template <PrimitiveType primitive_type>
+ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name)
+        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true) {}
 
-template <doris::PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, doris::PrimitiveType type,
-                                                   const CppType& min, const CppType& max,
-                                                   bool contain_null)
+template <PrimitiveType primitive_type>
+ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const CppType& min,
+                                                   const CppType& max, bool contain_null)
         : _column_name(std::move(col_name)),
-          _column_type(type),
+          _column_type(primitive_type),
           _low_value(min),
           _high_value(max),
           _low_op(FILTER_LARGER_OR_EQUAL),
           _high_op(FILTER_LESS_OR_EQUAL),
           _contain_null(contain_null) {}
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 Status ColumnValueRange<primitive_type>::add_fixed_value(const CppType& value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddFixedValue failed, Invalid type");
@@ -366,22 +365,22 @@ Status ColumnValueRange<primitive_type>::add_fixed_value(const CppType& value) {
     return Status::OK();
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 void ColumnValueRange<primitive_type>::remove_fixed_value(const CppType& value) {
     _fixed_values.erase(value);
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_fixed_value_range() const {
     return _fixed_values.size() != 0;
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_scope_value_range() const {
     return _high_value > _low_value;
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_empty_value_range() const {
     if (INVALID_TYPE == _column_type) {
         return true;
@@ -390,7 +389,7 @@ bool ColumnValueRange<primitive_type>::is_empty_value_range() const {
     return !is_fixed_value_range() && !is_scope_value_range() && !contain_null();
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_fixed_value_convertible() const {
     if (is_fixed_value_range()) {
         return false;
@@ -403,7 +402,7 @@ bool ColumnValueRange<primitive_type>::is_fixed_value_convertible() const {
     return true;
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_range_value_convertible() const {
     if (!is_fixed_value_range()) {
         return false;
@@ -416,7 +415,7 @@ bool ColumnValueRange<primitive_type>::is_range_value_convertible() const {
     return true;
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() const {
     if (!is_fixed_value_convertible()) {
         return 0;
@@ -426,24 +425,24 @@ size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() cons
 }
 
 template <>
-void ColumnValueRange<doris::PrimitiveType::TYPE_STRING>::convert_to_fixed_value();
+void ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_fixed_value();
 
 template <>
-void ColumnValueRange<doris::PrimitiveType::TYPE_CHAR>::convert_to_fixed_value();
+void ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_fixed_value();
 
 template <>
-void ColumnValueRange<doris::PrimitiveType::TYPE_VARCHAR>::convert_to_fixed_value();
+void ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_fixed_value();
 
 template <>
-void ColumnValueRange<doris::PrimitiveType::TYPE_HLL>::convert_to_fixed_value();
+void ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_fixed_value();
 
 template <>
-void ColumnValueRange<doris::PrimitiveType::TYPE_DECIMALV2>::convert_to_fixed_value();
+void ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_fixed_value();
 
 template <>
-void ColumnValueRange<doris::PrimitiveType::TYPE_LARGEINT>::convert_to_fixed_value();
+void ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_fixed_value();
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 void ColumnValueRange<primitive_type>::convert_to_fixed_value() {
     if (!is_fixed_value_convertible()) {
         return;
@@ -467,7 +466,7 @@ void ColumnValueRange<primitive_type>::convert_to_fixed_value() {
     }
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 void ColumnValueRange<primitive_type>::convert_to_range_value() {
     if (!is_range_value_convertible()) {
         return;
@@ -482,7 +481,7 @@ void ColumnValueRange<primitive_type>::convert_to_range_value() {
     }
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, CppType value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddRange failed, Invalid type");
@@ -583,7 +582,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, CppType value
     return Status::OK();
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_in_range(const CppType& value) {
     switch (_high_op) {
     case FILTER_LESS: {
@@ -628,7 +627,7 @@ bool ColumnValueRange<primitive_type>::is_in_range(const CppType& value) {
     return false;
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_type>& range) {
     // 1. clear if column type not match
     if (_column_type != range._column_type) {
@@ -687,7 +686,7 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
     }
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primitive_type>& range) {
     // 1. return false if column type not match
     if (_column_type != range._column_type) {
@@ -757,11 +756,11 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
     }
 }
 
-template <doris::PrimitiveType primitive_type>
+template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value) {
     using namespace std;
-    using CppType = typename doris::PrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using ConstIterator = typename set<CppType>::const_iterator;
 
     // 1. clear ScanKey if some column range is empty

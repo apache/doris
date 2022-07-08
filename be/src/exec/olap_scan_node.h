@@ -149,8 +149,8 @@ protected:
     bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
 
     template <PrimitiveType T, typename ChangeFixedValueRangeFunc>
-    static Status change_fixed_value_range(ColumnValueRange<T>& range, PrimitiveType type,
-                                           void* value, const ChangeFixedValueRangeFunc& func);
+    static Status change_fixed_value_range(ColumnValueRange<T>& range, void* value,
+                                           const ChangeFixedValueRangeFunc& func);
 
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);

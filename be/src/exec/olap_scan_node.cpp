@@ -574,95 +574,81 @@ Status OlapScanNode::normalize_conjuncts() {
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         switch (slots[slot_idx]->type().type) {
         case TYPE_TINYINT: {
-            ColumnValueRange<TYPE_TINYINT> range(slots[slot_idx]->col_name(),
-                                                 slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_TINYINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_SMALLINT: {
-            ColumnValueRange<TYPE_SMALLINT> range(slots[slot_idx]->col_name(),
-                                                  slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_SMALLINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_INT: {
-            ColumnValueRange<TYPE_INT> range(slots[slot_idx]->col_name(),
-                                             slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_INT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_BIGINT: {
-            ColumnValueRange<TYPE_BIGINT> range(slots[slot_idx]->col_name(),
-                                                slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_BIGINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_LARGEINT: {
-            ColumnValueRange<TYPE_LARGEINT> range(slots[slot_idx]->col_name(),
-                                                  slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_LARGEINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_CHAR: {
-            ColumnValueRange<TYPE_CHAR> range(slots[slot_idx]->col_name(),
-                                              slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_CHAR> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
         case TYPE_VARCHAR: {
-            ColumnValueRange<TYPE_VARCHAR> range(slots[slot_idx]->col_name(),
-                                                 slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_VARCHAR> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
         case TYPE_HLL: {
-            ColumnValueRange<TYPE_HLL> range(slots[slot_idx]->col_name(),
-                                             slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_HLL> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
         case TYPE_STRING: {
-            ColumnValueRange<TYPE_STRING> range(slots[slot_idx]->col_name(),
-                                                slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_STRING> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_DATE: {
-            ColumnValueRange<TYPE_DATE> range(slots[slot_idx]->col_name(),
-                                              slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DATE> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
         case TYPE_DATETIME: {
-            ColumnValueRange<TYPE_DATETIME> range(slots[slot_idx]->col_name(),
-                                                  slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DATETIME> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_DATEV2: {
-            ColumnValueRange<TYPE_DATEV2> range(slots[slot_idx]->col_name(),
-                                                slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DATEV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_DECIMALV2: {
-            ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name(),
-                                                   slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_BOOLEAN: {
-            ColumnValueRange<TYPE_BOOLEAN> range(slots[slot_idx]->col_name(),
-                                                 slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_BOOLEAN> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
@@ -1022,17 +1008,18 @@ std::pair<bool, void*> OlapScanNode::should_push_down_eq_predicate(doris::SlotDe
     return result_pair;
 }
 
-template <PrimitiveType T, typename ChangeFixedValueRangeFunc>
-Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, PrimitiveType type,
+template <PrimitiveType primitive_type, typename ChangeFixedValueRangeFunc>
+Status OlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>& temp_range,
                                               void* value, const ChangeFixedValueRangeFunc& func) {
-    switch (type) {
+    switch (primitive_type) {
     case TYPE_DATE: {
         DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
         // There is must return empty data in olap_scan_node,
         // Because data value loss accuracy
         if (!date_value.check_loss_accuracy_cast_to_date()) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&date_value));
+                 reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(
+                         &date_value));
         }
         break;
     }
@@ -1047,16 +1034,19 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_BIGINT:
     case TYPE_LARGEINT:
     case TYPE_STRING: {
-        func(temp_range, reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(value));
+        func(temp_range,
+             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(value));
         break;
     }
     case TYPE_BOOLEAN: {
         bool v = *reinterpret_cast<bool*>(value);
-        func(temp_range, reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&v));
+        func(temp_range,
+             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(&v));
         break;
     }
     default: {
-        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type=" << type << "]";
+        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
+                     << primitive_type << "]";
         return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
     }
     }
@@ -1073,7 +1063,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // create empty range as temp range, temp range should do intersection on range
-        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
 
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
@@ -1091,9 +1081,8 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                     continue;
                 }
                 auto value = const_cast<void*>(iter->get_value());
-                RETURN_IF_ERROR(
-                        change_fixed_value_range(temp_range, slot->type().type, value,
-                                                 ColumnValueRange<T>::add_fixed_value_range));
+                RETURN_IF_ERROR(change_fixed_value_range(
+                        temp_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 iter->next();
             }
 
@@ -1120,9 +1109,8 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 auto value = result_pair.second;
                 // where A = nullptr should return empty result set
                 if (value != nullptr) {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(temp_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            temp_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1153,8 +1141,7 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
     // If the conjunct of slot is fixed value, will change the fixed value set of column value range
     // else add value to not in range and push down predicate directly
     bool is_fixed_range = range->is_fixed_value_range();
-    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name(),
-                                                                             range->type());
+    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name());
 
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
@@ -1175,12 +1162,10 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
                 auto value = const_cast<void*>(iter->get_value());
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                            *range, value, ColumnValueRange<T>::remove_fixed_value_range));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
                 iter->next();
             }
@@ -1210,12 +1195,10 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
 
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                            *range, value, ColumnValueRange<T>::remove_fixed_value_range));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1255,7 +1238,7 @@ bool OlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
         return false;
     }
 
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
     temp_range.set_contain_null(is_null_str == "null");
     range->intersection(temp_range);
 
