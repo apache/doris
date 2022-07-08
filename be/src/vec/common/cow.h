@@ -146,9 +146,7 @@ protected:
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-        intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) {
-            rhs.t = nullptr;
-        }
+        intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) { rhs.t = nullptr; }
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__) || defined(__GNUG__)
@@ -183,21 +181,13 @@ protected:
             return *this;
         }
 
-        void reset() {
-            intrusive_ptr().swap(*this);
-        }
+        void reset() { intrusive_ptr().swap(*this); }
 
-        void reset(T* rhs) {
-            intrusive_ptr(rhs).swap(*this);
-        }
+        void reset(T* rhs) { intrusive_ptr(rhs).swap(*this); }
 
-        void reset(T* rhs, bool add_ref) {
-            intrusive_ptr(rhs, add_ref).swap(*this);
-        }
+        void reset(T* rhs, bool add_ref) { intrusive_ptr(rhs, add_ref).swap(*this); }
 
-        T* get() const {
-            return t;
-        }
+        T* get() const { return t; }
 
         T* detach() {
             T* ret = t;
@@ -211,25 +201,15 @@ protected:
             rhs.t = tmp;
         }
 
-        T& operator*() const& {
-            return *t;
-        }
+        T& operator*() const& { return *t; }
 
-        T&& operator*() const&& {
-            return const_cast<std::remove_const_t<T>&&>(*t);
-        }
+        T&& operator*() const&& { return const_cast<std::remove_const_t<T>&&>(*t); }
 
-        T* operator->() const {
-            return t;
-        }
+        T* operator->() const { return t; }
 
-        operator bool() const {
-            return t != nullptr;
-        }
+        operator bool() const { return t != nullptr; }
 
-        operator T*() const {
-            return t;
-        }
+        operator T*() const { return t; }
 
     private:
         T* t;
@@ -268,9 +248,7 @@ protected:
 public:
     using MutablePtr = mutable_ptr<Derived>;
 
-    unsigned int use_count() const {
-        return ref_counter.load();
-    }
+    unsigned int use_count() const { return ref_counter.load(); }
 
 protected:
     template <typename T>
@@ -328,12 +306,8 @@ public:
     }
 
 public:
-    Ptr get_ptr() const {
-        return Ptr(derived());
-    }
-    MutablePtr get_ptr() {
-        return MutablePtr(derived());
-    }
+    Ptr get_ptr() const { return Ptr(derived()); }
+    MutablePtr get_ptr() { return MutablePtr(derived()); }
 
 protected:
     MutablePtr shallow_mutate() const {
@@ -345,17 +319,11 @@ protected:
     }
 
 public:
-    MutablePtr mutate() const&& {
-        return shallow_mutate();
-    }
+    MutablePtr mutate() const&& { return shallow_mutate(); }
 
-    MutablePtr assume_mutable() const {
-        return const_cast<COW*>(this)->get_ptr();
-    }
+    MutablePtr assume_mutable() const { return const_cast<COW*>(this)->get_ptr(); }
 
-    Derived& assume_mutable_ref() const {
-        return const_cast<Derived&>(*derived());
-    }
+    Derived& assume_mutable_ref() const { return const_cast<Derived&>(*derived()); }
 
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.

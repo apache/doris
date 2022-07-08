@@ -54,9 +54,7 @@ struct UInt128 {
     explicit UInt128(const UInt64 low_, const UInt64 high_) : low(low_), high(high_) {}
     explicit UInt128(const UInt64 rhs) : low(rhs), high() {}
 
-    auto tuple() const {
-        return std::tie(high, low);
-    }
+    auto tuple() const { return std::tie(high, low); }
 
     String to_hex_string() const {
         std::ostringstream os;
@@ -64,24 +62,12 @@ struct UInt128 {
         return String(os.str());
     }
 
-    bool operator==(const UInt128 rhs) const {
-        return tuple() == rhs.tuple();
-    }
-    bool operator!=(const UInt128 rhs) const {
-        return tuple() != rhs.tuple();
-    }
-    bool operator<(const UInt128 rhs) const {
-        return tuple() < rhs.tuple();
-    }
-    bool operator<=(const UInt128 rhs) const {
-        return tuple() <= rhs.tuple();
-    }
-    bool operator>(const UInt128 rhs) const {
-        return tuple() > rhs.tuple();
-    }
-    bool operator>=(const UInt128 rhs) const {
-        return tuple() >= rhs.tuple();
-    }
+    bool operator==(const UInt128 rhs) const { return tuple() == rhs.tuple(); }
+    bool operator!=(const UInt128 rhs) const { return tuple() != rhs.tuple(); }
+    bool operator<(const UInt128 rhs) const { return tuple() < rhs.tuple(); }
+    bool operator<=(const UInt128 rhs) const { return tuple() <= rhs.tuple(); }
+    bool operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
+    bool operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
 
     template <typename T>
     bool operator==(const T rhs) const {
@@ -204,16 +190,10 @@ struct UInt256 {
         return a == rhs.a && b == rhs.b && c == rhs.c && d == rhs.d;
     }
 
-    bool operator!=(const UInt256 rhs) const {
-        return !operator==(rhs);
-    }
+    bool operator!=(const UInt256 rhs) const { return !operator==(rhs); }
 
-    bool operator==(const UInt64 rhs) const {
-        return a == rhs && b == 0 && c == 0 && d == 0;
-    }
-    bool operator!=(const UInt64 rhs) const {
-        return !operator==(rhs);
-    }
+    bool operator==(const UInt64 rhs) const { return a == rhs && b == 0 && c == 0 && d == 0; }
+    bool operator!=(const UInt64 rhs) const { return !operator==(rhs); }
 
 #if !__clang__
 #pragma GCC diagnostic pop

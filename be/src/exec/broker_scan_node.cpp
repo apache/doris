@@ -261,16 +261,14 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         }
         break;
     case TFileFormatType::FORMAT_AVRO:
-        std::cout << "whz_log : _vectorized"  << _vectorized << std::endl;
         if (_vectorized) {
-            std::cout << "whz_log : into _vectorized vavro" << std::endl;
-            scan = new vectorized::VAvroScanner(_runtime_state, runtime_profile(), scan_range.params,
-                               scan_range.ranges, scan_range.broker_addresses, _pre_filter_texprs,
-                               counter);
+            scan = new vectorized::VAvroScanner(
+                    _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
         } else {
             scan = new AvroScanner(_runtime_state, runtime_profile(), scan_range.params,
-                               scan_range.ranges, scan_range.broker_addresses, _pre_filter_texprs,
-                               counter);
+                                   scan_range.ranges, scan_range.broker_addresses,
+                                   _pre_filter_texprs, counter);
         }
         break;
     default:

@@ -167,18 +167,10 @@ inline int AbstractException::code() const {
         BASE::operator=(exc);                                                                    \
         return *this;                                                                            \
     }                                                                                            \
-    const char* CLS::name() const throw() {                                                      \
-        return NAME;                                                                             \
-    }                                                                                            \
-    const char* CLS::className() const throw() {                                                 \
-        return typeid(*this).name();                                                             \
-    }                                                                                            \
-    AbstractException* CLS::clone() const {                                                      \
-        return new CLS(*this);                                                                   \
-    }                                                                                            \
-    void CLS::rethrow() const {                                                                  \
-        throw *this;                                                                             \
-    }
+    const char* CLS::name() const throw() { return NAME; }                                       \
+    const char* CLS::className() const throw() { return typeid(*this).name(); }                  \
+    AbstractException* CLS::clone() const { return new CLS(*this); }                             \
+    void CLS::rethrow() const { throw *this; }
 
 class Exception : public AbstractException {
 public:

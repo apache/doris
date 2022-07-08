@@ -50,7 +50,9 @@ public:
 
     Status append_json(const char* data, size_t size) { return append_and_flush(data, size); }
 
-    Status append_avro(const char* data, size_t size) { return append_and_flush(data, size); }
+    Status append_avro(const char* data, size_t size) {
+        return append_and_flush(data, size);
+    }
 };
 
 } // end namespace doris

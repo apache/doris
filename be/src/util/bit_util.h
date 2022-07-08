@@ -172,43 +172,19 @@ public:
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     // Converts to big endian format (if not already in big endian).
-    static inline int64_t big_endian(int64_t value) {
-        return byte_swap(value);
-    }
-    static inline uint64_t big_endian(uint64_t value) {
-        return byte_swap(value);
-    }
-    static inline int32_t big_endian(int32_t value) {
-        return byte_swap(value);
-    }
-    static inline uint32_t big_endian(uint32_t value) {
-        return byte_swap(value);
-    }
-    static inline int16_t big_endian(int16_t value) {
-        return byte_swap(value);
-    }
-    static inline uint16_t big_endian(uint16_t value) {
-        return byte_swap(value);
-    }
+    static inline int64_t big_endian(int64_t value) { return byte_swap(value); }
+    static inline uint64_t big_endian(uint64_t value) { return byte_swap(value); }
+    static inline int32_t big_endian(int32_t value) { return byte_swap(value); }
+    static inline uint32_t big_endian(uint32_t value) { return byte_swap(value); }
+    static inline int16_t big_endian(int16_t value) { return byte_swap(value); }
+    static inline uint16_t big_endian(uint16_t value) { return byte_swap(value); }
 #else
-    static inline int64_t big_endian(int64_t val) {
-        return val;
-    }
-    static inline uint64_t big_endian(uint64_t val) {
-        return val;
-    }
-    static inline int32_t big_endian(int32_t val) {
-        return val;
-    }
-    static inline uint32_t big_endian(uint32_t val) {
-        return val;
-    }
-    static inline int16_t big_endian(int16_t val) {
-        return val;
-    }
-    static inline uint16_t big_endian(uint16_t val) {
-        return val;
-    }
+    static inline int64_t big_endian(int64_t val) { return val; }
+    static inline uint64_t big_endian(uint64_t val) { return val; }
+    static inline int32_t big_endian(int32_t val) { return val; }
+    static inline uint32_t big_endian(uint32_t val) { return val; }
+    static inline int16_t big_endian(int16_t val) { return val; }
+    static inline uint16_t big_endian(uint16_t val) { return val; }
 #endif
 
     /// Returns the smallest power of two that contains v. If v is a power of two, v is
@@ -227,14 +203,10 @@ public:
     }
 
     // Wrap the gutil/ version for convenience.
-    static inline int Log2FloorNonZero64(uint64_t n) {
-        return Bits::Log2FloorNonZero64(n);
-    }
+    static inline int Log2FloorNonZero64(uint64_t n) { return Bits::Log2FloorNonZero64(n); }
 
     // Wrap the gutil/ version for convenience.
-    static inline int Log2Floor64(uint64_t n) {
-        return Bits::Log2Floor64(n);
-    }
+    static inline int Log2Floor64(uint64_t n) { return Bits::Log2Floor64(n); }
 
     static inline int Log2Ceiling64(uint64_t n) {
         int floor = Log2Floor64(n);
@@ -259,17 +231,13 @@ public:
     }
 
     // Returns the rounded up to 64 multiple. Used for conversions of bits to i64.
-    static inline uint32_t round_up_numi_64(uint32_t bits) {
-        return (bits + 63) >> 6;
-    }
+    static inline uint32_t round_up_numi_64(uint32_t bits) { return (bits + 63) >> 6; }
 
     constexpr static inline int64_t Ceil(int64_t value, int64_t divisor) {
         return value / divisor + (value % divisor != 0);
     }
 
-    constexpr static inline bool IsPowerOf2(int64_t value) {
-        return (value & (value - 1)) == 0;
-    }
+    constexpr static inline bool IsPowerOf2(int64_t value) { return (value & (value - 1)) == 0; }
 
     constexpr static inline int64_t RoundDown(int64_t value, int64_t factor) {
         return (value / factor) * factor;
@@ -278,9 +246,7 @@ public:
     /// Specialized round up and down functions for frequently used factors,
     /// like 8 (bits->bytes), 32 (bits->i32), and 64 (bits->i64)
     /// Returns the rounded up number of bytes that fit the number of bits.
-    constexpr static inline uint32_t RoundUpNumBytes(uint32_t bits) {
-        return (bits + 7) >> 3;
-    }
+    constexpr static inline uint32_t RoundUpNumBytes(uint32_t bits) { return (bits + 7) >> 3; }
 
     /// Non hw accelerated pop count.
     /// TODO: we don't use this in any perf sensitive code paths currently.  There

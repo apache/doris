@@ -286,7 +286,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
                                      http_req->header(HTTP_FORMAT_KEY));
     }
 
-    if (ctx->format == TFileFormatType::FORMAT_AVRO && http_req->header(HTTP_AVRO_SCHEMA_NAME).empty()) {
+    if (ctx->format == TFileFormatType::FORMAT_AVRO &&
+        http_req->header(HTTP_AVRO_SCHEMA_NAME).empty()) {
         return Status::InternalError("should give an avro schema name while using avro format");
     }
     if (ctx->two_phase_commit && config::disable_stream_load_2pc) {

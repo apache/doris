@@ -176,9 +176,7 @@ private:
 
 #endif
     // Size of the internal directory structure in bytes.
-    int64_t directory_size() const {
-        return 1ULL << log_space_bytes();
-    }
+    int64_t directory_size() const { return 1ULL << log_space_bytes(); }
 
     // Some constants used in hashing. #defined for efficiency reasons.
 #define BLOOM_HASH_CONSTANTS                                                                   \

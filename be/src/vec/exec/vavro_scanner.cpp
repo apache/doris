@@ -26,10 +26,10 @@
 
 namespace doris::vectorized {
 
-
 void deserializeColumnNoop(vectorized::IColumn*, SlotDescriptor*, avro::Decoder&, int) {}
 
-VAvroScanner::VAvroScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
+VAvroScanner::VAvroScanner(RuntimeState* state, RuntimeProfile* profile,
+                           const TBrokerScanRangeParams& params,
                            const std::vector<TBrokerRangeDesc>& ranges,
                            const std::vector<TNetworkAddress>& broker_addresses,
                            const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
@@ -53,8 +53,8 @@ Status VAvroScanner::get_next(vectorized::Block* output_block, bool* eof) {
         }
 
         bool is_empty_row = false;
-        RETURN_IF_ERROR(_cur_vavro_reader->read_avro_column(columns, _src_slot_descs,
-                                                        &is_empty_row, &_cur_reader_eof));
+        RETURN_IF_ERROR(_cur_vavro_reader->read_avro_column(columns, _src_slot_descs, &is_empty_row,
+                                                            &_cur_reader_eof));
 
         if (is_empty_row) {
             continue;
@@ -86,7 +86,7 @@ Status VAvroScanner::open_vavro_reader() {
 }
 
 VAvroReader::VAvroReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-                         FileReader* file_reader, LineReader* line_reader) 
+                         FileReader* file_reader, LineReader* line_reader)
         : AvroReader(state, counter, profile, file_reader, line_reader) {}
 
 VAvroReader::~VAvroReader() {}
@@ -108,7 +108,8 @@ VAvroReader::DeserializeColumnFn VAvroReader::createDeserializeColumnFn(avro::No
             if (val_string.empty()) {
                 if (slot_desc->is_nullable()) {
                     //tuple->set_null(slot_desc->null_indicator_offset());
-                    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+                    auto* nullable_column =
+                            reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
                     nullable_column->insert_default();
                     nullcount++;
                 } else {
@@ -119,7 +120,8 @@ VAvroReader::DeserializeColumnFn VAvroReader::createDeserializeColumnFn(avro::No
                 //_fill_slot(tuple, slot_desc, tuple_pool, (uint8_t*)val_string.c_str(),
                 //           (int32_t)strlen(val_string.c_str()));
                 DCHECK(slot_desc->type().type == TYPE_VARCHAR);
-                assert_cast<ColumnString*>(column_ptr)->insert_data(val_string.c_str(), (int32_t)strlen(val_string.c_str()));
+                assert_cast<ColumnString*>(column_ptr)
+                        ->insert_data(val_string.c_str(), (int32_t)strlen(val_string.c_str()));
             }
         };
     } break;
@@ -225,11 +227,7 @@ VAvroReader::DeserializeColumnFn VAvroReader::createDeserializeColumnFn(avro::No
     throw avro::Exception("Type " + slot_desc->type().type +
                           std::string(" is not compatible with Avro ") +
                           avro::ValidSchema(root_node).toJson(false));
-        
-
 }
-
-
 
 VAvroReader::SkipColumnFn VAvroReader::createSkipColumnFn(avro::NodePtr root_node) {
     switch (root_node->type()) {
@@ -301,9 +299,6 @@ VAvroReader::SkipColumnFn VAvroReader::createSkipColumnFn(avro::NodePtr root_nod
     }
 }
 
-
-
-
 Status VAvroReader::_get_field_mapping_column(const std::vector<SlotDescriptor*>& slot_descs) {
     _field_mapping.resize(_schema.root()->leaves(), -1);
     for (size_t i = 0; i < _schema.root()->leaves(); ++i) {
@@ -319,7 +314,8 @@ Status VAvroReader::_get_field_mapping_column(const std::vector<SlotDescriptor*>
         }
         auto field_schema = _schema.root()->leafAt(field_index);
         try {
-            _deserialize_fns_column[field_index] = createDeserializeColumnFn(field_schema, slot_descs[i]);
+            _deserialize_fns_column[field_index] =
+                    createDeserializeColumnFn(field_schema, slot_descs[i]);
         } catch (...) {
             return Status::DataQualityError("column " + slot_descs[i]->col_name() +
                                             " failed to create deserialize function.");
@@ -330,12 +326,12 @@ Status VAvroReader::_get_field_mapping_column(const std::vector<SlotDescriptor*>
     return Status::OK();
 }
 
-Status VAvroReader::deserialize_column(std::vector<MutableColumnPtr>& columns, 
-                              const std::vector<SlotDescriptor*>& slot_descs,
-                              bool* is_empty_row, bool* eof) {
+Status VAvroReader::deserialize_column(std::vector<MutableColumnPtr>& columns,
+                                       const std::vector<SlotDescriptor*>& slot_descs,
+                                       bool* is_empty_row, bool* eof) {
     size_t size = 0;
     Status st = _get_avro_doc(&size, eof);
-    
+
     if (st.is_data_quality_error()) {
         return Status::DataQualityError("avro data quality bad.");
     }
@@ -348,18 +344,19 @@ Status VAvroReader::deserialize_column(std::vector<MutableColumnPtr>& columns,
     int nullcount = 0;
     // do deserialize
     for (size_t i = 0; i < _field_mapping.size(); i++) {
-        int dest_index = _field_mapping[i]; 
+        int dest_index = _field_mapping[i];
         if (dest_index >= 0) {
             try {
                 auto* column_ptr = columns[dest_index].get();
                 if (slot_descs[dest_index]->is_nullable()) {
-                    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+                    auto* nullable_column =
+                            reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
                     nullable_column->get_null_map_data().push_back(0);
                     column_ptr = &nullable_column->get_nested_column();
                 }
 
                 _deserialize_fns_column[i](column_ptr, slot_descs[dest_index], *_decoder,
-                                    nullcount);
+                                           nullcount);
             } catch (avro::Exception& e) {
                 return Status::DataQualityError(
                         std::string(" Error occured in deserialize fns: ") + e.what() +
@@ -384,8 +381,8 @@ Status VAvroReader::deserialize_column(std::vector<MutableColumnPtr>& columns,
 }
 
 Status VAvroReader::read_avro_column(std::vector<MutableColumnPtr>& columns,
-                                     const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                     bool* eof) {
+                                     const std::vector<SlotDescriptor*>& slot_descs,
+                                     bool* is_empty_row, bool* eof) {
     Status st = _get_field_mapping_column(slot_descs);
     RETURN_IF_ERROR(st);
     return VAvroReader::deserialize_column(columns, slot_descs, is_empty_row, eof);

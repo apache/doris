@@ -193,8 +193,7 @@ Status AvroReader::init(std::string avro_schema_name) {
     std::string schema_path = config::custom_config_dir + std::string("/") + avro_schema_name;
     bool exist = FileUtils::check_exist(schema_path);
     if (!exist) {
-        return Status::InternalError("there is no avro schema file at " +
-                                     schema_path +
+        return Status::InternalError("there is no avro schema file at " + schema_path +
                                      ". Please put an schema file in json format.");
     }
 
@@ -358,7 +357,7 @@ AvroReader::DeserializeFn AvroReader::createDeserializeFn(avro::NodePtr root_nod
         } else {
             throw avro::Exception("NULL data for non-nullable column" + slot_desc->col_name());
         }
-    } break;
+    }; break;
     case avro::AVRO_ENUM:
         [[fallthrough]];
     case avro::AVRO_FIXED:

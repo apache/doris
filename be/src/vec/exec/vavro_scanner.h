@@ -61,7 +61,6 @@ private:
     std::unique_ptr<VAvroReader> _cur_vavro_reader;
 };
 
-
 class VAvroReader : public AvroReader {
 public:
     VAvroReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
@@ -74,17 +73,18 @@ public:
     Status read_avro_column(std::vector<MutableColumnPtr>& columns,
                             const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                             bool* eof);
-                        
-private:
-    Status deserialize_column(std::vector<MutableColumnPtr>& columns, 
-                              const std::vector<SlotDescriptor*>& slot_descs,
-                              bool* is_empty_row, bool* eof);
 
-    using DeserializeColumnFn = 
+private:
+    Status deserialize_column(std::vector<MutableColumnPtr>& columns,
+                              const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                              bool* eof);
+
+    using DeserializeColumnFn =
             std::function<void(vectorized::IColumn* column_ptr, SlotDescriptor* slot_desc,
                                avro::Decoder& decoder, int nullcount)>;
     using SkipColumnFn = std::function<void(avro::Decoder& decoder)>;
-    DeserializeColumnFn createDeserializeColumnFn(avro::NodePtr root_node, SlotDescriptor* slot_desc);
+    DeserializeColumnFn createDeserializeColumnFn(avro::NodePtr root_node,
+                                                  SlotDescriptor* slot_desc);
     SkipColumnFn createSkipColumnFn(avro::NodePtr root_node);
 
     Status _get_field_mapping_column(const std::vector<SlotDescriptor*>& slot_descs);
@@ -92,12 +92,7 @@ private:
 private:
     std::vector<SkipColumnFn> _skip_fns_column;
     std::vector<DeserializeColumnFn> _deserialize_fns_column;
-};   
-
-
-
-
-
+};
 
 } // namespace vectorized
 } // namespace doris

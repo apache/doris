@@ -374,7 +374,7 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block.clear();
-    
+
     size_t dest_size = dest_block->columns();
     // do filter
     dest_block->insert(vectorized::ColumnWithTypeAndName(
