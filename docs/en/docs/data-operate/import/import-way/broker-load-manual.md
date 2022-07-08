@@ -407,6 +407,19 @@ Currently the Profile can only be viewed after the job has been successfully exe
 
   Please refer to the Best Practices section in the document to modify the FE configuration items `max_bytes_per_broker_scanner` and `max_broker_concurrency`
 
+- `org.apache.thrift.transport.TTransportException: java.net.SocketException: Broken pipe` during import
+
+  The reason for this problem may be that when importing data from external storage (such as HDFS), because there are too many files in the directory, it takes too long to list the file directory. Here, the Broker RPC Timeout defaults to 10 seconds, and the timeout needs to be adjusted appropriately here. time.
+
+  Modify the `fe.conf` configuration file to add the following parameters:
+
+  ````
+  broker_timeout_ms = 10000
+  ##The default here is 10 seconds, you need to increase this parameter appropriately
+  ````
+
+  Adding parameters here requires restarting the FE service.
+
 - Import error: `failed to send batch` or `TabletWriter add batch with unknown id`
 
   Modify `query_timeout` and `streaming_load_rpc_max_alive_time_sec` appropriately.
