@@ -106,7 +106,7 @@ public class PlanTranslatorContext {
      * Create SlotDesc and add it to the mappings from expression to the stales epxr
      */
     public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
-        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc, slotReference.getExprId().asInt());
+        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         Column column = slotReference.getColumn();
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
         if (column != null) {
@@ -116,6 +116,17 @@ public class PlanTranslatorContext {
         slotDescriptor.setIsMaterialized(true);
         this.addSlotRefMapping(slotReference, new SlotRef(slotDescriptor));
         return slotDescriptor;
+    }
+
+    /**
+     * Create slotDesc with Expression.
+     */
+    public void createSlotDesc(TupleDescriptor tupleDesc, Expression expression) {
+        if (!expressionToExecExpr.containsKey(expression)) {
+            SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
+            slotDescriptor.setType(expression.getDataType().toCatalogDataType());
+            this.addSlotRefMapping(expression, new SlotRef(slotDescriptor));
+        }
     }
 
     public TupleDescriptor getTupleDesc(TupleId tupleId) {
