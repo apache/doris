@@ -247,12 +247,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         });
         // 4. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
-        createSortTupleSlotExprs(sortInfo, tupleDesc, sortTupleOutputList, oldOrderingExprList);
-
         PlanNode childNode = childFragment.getPlanRoot();
         // TODO: notice topN
         SortNode sortNode = new SortNode(context.nextNodeId(), childNode, sortInfo, true,
                 physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
+        sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
         childFragment.addPlanRoot(sortNode);
         if (!childFragment.isPartitioned()) {
             return childFragment;
@@ -279,19 +278,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         return mergeFragment;
     }
 
-    /**
-     * Populate the SortTupleSlotExprs member.
-     */
-    private void createSortTupleSlotExprs(SortInfo info,
-            TupleDescriptor tupleDescriptor,
-            List<Expr> outputList, List<Expr> orderingExpr) {
-        List<Expr> sortTupleSlotExprs = new ArrayList<>();
-        sortTupleSlotExprs.addAll(outputList);
-        sortTupleSlotExprs.addAll(orderingExpr);
-        info.setTupleInfo(tupleDescriptor, sortTupleSlotExprs);
-    }
-
-    // TODO: 1. support broadcast join / co-locate / bucket shuffle join later
+    // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
     //       2. For ssb, there are only binary equal predicate, we shall support more in the future.
     @Override
     public PlanFragment visitPhysicalHashJoin(

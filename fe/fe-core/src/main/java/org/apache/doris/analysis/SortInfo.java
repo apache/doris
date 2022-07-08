@@ -30,8 +30,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -119,24 +117,6 @@ public class SortInfo {
         }
     }
 
-    /**
-     * Sets tupleInfo.
-     * Just for Nereids.
-     */
-    public void setTupleInfo(
-            TupleDescriptor tupleDesc, List<Expr> sourceExprs) {
-        List<Expr> afterDeduplication = new ArrayList<>();
-        Set<ExprId> exprIds = new HashSet<>();
-        for (int i = 0; i < sourceExprs.size(); i++) {
-            Expr expr = sourceExprs.get(i);
-            if (!exprIds.contains(expr.getId())) {
-                afterDeduplication.add(expr);
-            }
-        }
-        sortTupleDesc = tupleDesc;
-        sortTupleSlotExprs = afterDeduplication;
-    }
-
     public List<Expr> getOrderingExprs() {
         return orderingExprs;
     }
@@ -159,6 +139,10 @@ public class SortInfo {
 
     public void setSortTupleSlotExprs(List<Expr> sortTupleSlotExprs) {
         this.sortTupleSlotExprs = sortTupleSlotExprs;
+    }
+
+    public void setSortTupleDesc(TupleDescriptor tupleDesc) {
+        sortTupleDesc = tupleDesc;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {
