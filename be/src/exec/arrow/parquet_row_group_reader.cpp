@@ -101,7 +101,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     _parent->statistics()->total_groups = total_group;
     _parent->statistics()->total_rows = _file_metadata->num_rows();
 
-    int64_t filtered_num_row_groups = 0;
+    int32_t filtered_num_row_groups = 0;
     int64_t filtered_num_rows = 0;
     int64_t filtered_total_byte_size = 0;
     bool need_filter = false;
@@ -134,7 +134,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
             if (need_filter) {
                 filtered_num_row_groups++;
                 filtered_num_rows += row_group_meta->num_rows();
-                filtered_total_byte_size += row_group_meta->total_byte_size();
+                filtered_total_byte_size += row_group_meta->total_compressed_size();
                 VLOG_DEBUG << "Filter row group id: " << row_group_id;
                 _filter_group.emplace(row_group_id);
             }
