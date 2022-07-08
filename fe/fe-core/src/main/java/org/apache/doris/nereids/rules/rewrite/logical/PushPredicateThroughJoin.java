@@ -71,20 +71,18 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
 
             LogicalJoin joinOp = filter.child().operator;
 
-            Expression wherePredicates = filter.operator.getPredicates();
-            Expression onPredicates = Literal.TRUE_LITERAL;
+            List<Expression> allPredicates = Lists.newArrayList(filter.operator.getPredicates());
+            if (joinOp.getCondition().isPresent()) {
+                allPredicates.add(joinOp.getCondition().get());
+            }
 
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
 
-            if (joinOp.getCondition().isPresent()) {
-                onPredicates = joinOp.getCondition().get();
-            }
+            Set<Slot> leftInput = Sets.newLinkedHashSet(filter.child().left().getOutput());
+            Set<Slot> rightInput = Sets.newLinkedHashSet(filter.child().right().getOutput());
 
-            List<Slot> leftInput = filter.child().left().getOutput();
-            List<Slot> rightInput = filter.child().right().getOutput();
-
-            ExpressionUtils.extractConjunct(ExpressionUtils.add(onPredicates, wherePredicates)).forEach(predicate -> {
+            ExpressionUtils.extractConjunct(ExpressionUtils.and(allPredicates)).forEach(predicate -> {
                 if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
                     eqConditions.add(predicate);
                 } else {
@@ -112,7 +110,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             otherConditions.removeAll(leftPredicates);
             otherConditions.removeAll(rightPredicates);
             otherConditions.addAll(eqConditions);
-            Expression joinConditions = ExpressionUtils.add(otherConditions);
+            Expression joinConditions = ExpressionUtils.and(otherConditions);
 
             return pushDownPredicate(filter.child(), joinConditions, leftPredicates, rightPredicates);
         }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_JOIN);
@@ -121,8 +119,8 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
     private Plan pushDownPredicate(LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> joinPlan,
             Expression joinConditions, List<Expression> leftPredicates, List<Expression> rightPredicates) {
 
-        Expression left = ExpressionUtils.add(leftPredicates);
-        Expression right = ExpressionUtils.add(rightPredicates);
+        Expression left = ExpressionUtils.and(leftPredicates);
+        Expression right = ExpressionUtils.and(rightPredicates);
         //todo expr should optimize again using expr rewrite
         ExpressionRuleExecutor exprRewriter = new ExpressionRuleExecutor();
         Plan leftPlan = joinPlan.left();
@@ -138,7 +136,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
         return plan(new LogicalJoin(joinPlan.operator.getJoinType(), Optional.of(joinConditions)), leftPlan, rightPlan);
     }
 
-    private Expression getJoinCondition(Expression predicate, List<Slot> leftOutputs, List<Slot> rightOutputs) {
+    private Expression getJoinCondition(Expression predicate, Set<Slot> leftInput, Set<Slot> rightInput) {
         if (!(predicate instanceof ComparisonPredicate)) {
             return null;
         }
@@ -152,11 +150,8 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             return null;
         }
 
-        Set<Slot> left = Sets.newLinkedHashSet(leftOutputs);
-        Set<Slot> right = Sets.newLinkedHashSet(rightOutputs);
-
-        if ((left.containsAll(leftSlots) && right.containsAll(rightSlots)) || (left.containsAll(rightSlots)
-                && right.containsAll(leftSlots))) {
+        if ((leftInput.containsAll(leftSlots) && rightInput.containsAll(rightSlots))
+                || (leftInput.containsAll(rightSlots) && rightInput.containsAll(leftSlots))) {
             return predicate;
         }
 

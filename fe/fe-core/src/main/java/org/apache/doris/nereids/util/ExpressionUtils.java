@@ -69,11 +69,11 @@ public class ExpressionUtils {
     }
 
 
-    public static Expression add(List<Expression> expressions) {
+    public static Expression and(List<Expression> expressions) {
         return combine(NodeType.AND, expressions);
     }
 
-    public static Expression add(Expression... expressions) {
+    public static Expression and(Expression... expressions) {
         return combine(NodeType.AND, Lists.newArrayList(expressions));
     }
 
