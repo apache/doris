@@ -58,6 +58,7 @@ private:
     int create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id);
     void create_expr_info();
     void init_desc_table();
+    void init_filter_expr();
     RuntimeState _runtime_state;
     ObjectPool _obj_pool;
     std::map<std::string, SlotDescriptor*> _slots_map;
@@ -406,10 +407,70 @@ void ParquetScannerTest::create_expr_info() {
     _params.__set_src_tuple_id(TUPLE_ID_SRC);
 }
 
+void ParquetScannerTest::init_filter_expr() {
+    TTypeDesc bool_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::BOOLEAN);
+        scalar_type.__set_len(5000);
+        node.__set_scalar_type(scalar_type);
+        bool_type.types.push_back(node);
+    }
+    TTypeDesc int_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::BIGINT);
+        node.__set_scalar_type(scalar_type);
+        int_type.types.push_back(node);
+    }
+
+    // create predicate
+    ::doris::TExpr expr;
+
+    // create predicate elements: LeftExpr op RightExpr
+    // expr: log_time > 1
+    ::doris::TExprNode op;
+    op.node_type = TExprNodeType::BINARY_PRED;
+    op.opcode = TExprOpcode::GT;
+    op.type = bool_type;
+    op.num_children = 2;
+    op.child_type = TPrimitiveType::BIGINT;
+    op.__isset.opcode = true;
+    expr.nodes.push_back(op);
+
+    // log_time
+    ::doris::TExprNode slot_ref;
+    slot_ref.node_type = TExprNodeType::SLOT_REF;
+    slot_ref.type = int_type;
+    slot_ref.slot_ref.slot_id = 1;
+    slot_ref.slot_ref.tuple_id = 0;
+    slot_ref.num_children = 0;
+    slot_ref.__isset.slot_ref = true;
+    expr.nodes.push_back(slot_ref);
+
+    ::doris::TExprNode int_expr;
+    int_expr.node_type = TExprNodeType::INT_LITERAL;
+    int_expr.type = int_type;
+    int_expr.int_literal.value = 1;
+    int_expr.num_children = 0;
+    int_expr.__isset.int_literal = true;
+
+    expr.nodes.push_back(int_expr);
+
+    std::vector<::doris::TExpr> conjuncts;
+    conjuncts.push_back(expr);
+    // push down conjuncts;
+    _tnode.__set_conjuncts(conjuncts);
+}
+
 void ParquetScannerTest::init() {
     create_expr_info();
     init_desc_table();
-
+    init_filter_expr();
     // Node Id
     _tnode.node_id = 0;
     _tnode.node_type = TPlanNodeType::SCHEMA_SCAN_NODE;
@@ -419,6 +480,7 @@ void ParquetScannerTest::init() {
     _tnode.nullable_tuples.push_back(false);
     _tnode.broker_scan_node.tuple_id = 0;
     _tnode.__isset.broker_scan_node = true;
+    _tnode.__isset.conjuncts = true;
 }
 
 TEST_F(ParquetScannerTest, normal) {

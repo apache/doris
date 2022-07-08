@@ -37,7 +37,13 @@ VArrowScanner::VArrowScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_file_reader(nullptr),
           _cur_file_eof(false),
           _batch(nullptr),
-          _arrow_batch_cur_idx(0) {}
+          _arrow_batch_cur_idx(0) {
+    _filtered_row_groups_counter = ADD_COUNTER(_profile, "FileFilteredRowGroups", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "FileFilteredRows", TUnit::UNIT);
+    _filtered_bytes_counter = ADD_COUNTER(_profile, "FileFilteredBytes", TUnit::BYTES);
+    _total_rows_counter = ADD_COUNTER(_profile, "FileTotalRows", TUnit::UNIT);
+    _total_groups_counter = ADD_COUNTER(_profile, "FileTotalRowGroups", TUnit::UNIT);
+}
 
 VArrowScanner::~VArrowScanner() {
     close();
@@ -72,8 +78,9 @@ Status VArrowScanner::_open_next_reader() {
         }
         _cur_file_reader = _new_arrow_reader(file_reader.release(), _state->batch_size(),
                                              num_of_columns_from_file);
-
-        Status status = _cur_file_reader->init_reader(_src_slot_descs, _state->timezone());
+        auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
+        Status status = _cur_file_reader->init_reader(tuple_desc, _src_slot_descs, _conjunct_ctxs,
+                                                      _state->timezone());
 
         if (status.is_end_of_file()) {
             continue;
@@ -82,10 +89,19 @@ Status VArrowScanner::_open_next_reader() {
                 return Status::InternalError(" file: {} error:{}", range.path,
                                              status.get_error_msg());
             } else {
+                update_profile(_cur_file_reader->statistics());
                 return status;
             }
         }
     }
+}
+
+void VArrowScanner::update_profile(std::shared_ptr<Statistics>& statistics) {
+    COUNTER_UPDATE(_total_groups_counter, statistics->total_groups);
+    COUNTER_UPDATE(_filtered_row_groups_counter, statistics->filtered_row_groups);
+    COUNTER_UPDATE(_total_rows_counter, statistics->total_rows);
+    COUNTER_UPDATE(_filtered_rows_counter, statistics->filtered_rows);
+    COUNTER_UPDATE(_filtered_bytes_counter, statistics->filtered_total_bytes);
 }
 
 Status VArrowScanner::open() {

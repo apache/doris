@@ -321,6 +321,7 @@ std::unique_ptr<BaseScanner> VBrokerScanNode::create_scanner(const TBrokerScanRa
                                               scan_range.ranges, scan_range.broker_addresses,
                                               _pre_filter_texprs, counter);
     }
+    scan->reg_conjunct_ctxs(_tuple_id, _conjunct_ctxs);
     std::unique_ptr<BaseScanner> scanner(scan);
     return scanner;
 }

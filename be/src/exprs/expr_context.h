@@ -164,6 +164,7 @@ private:
     friend class BloomFilterPredicate;
     friend class OlapScanNode;
     friend class EsPredicate;
+    friend class RowGroupReader;
     friend class vectorized::VOlapScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
