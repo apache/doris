@@ -112,7 +112,6 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 }
 
 void ParquetReaderWrap::close() {
-    LOG(INFO) << "ParquetReaderWrap _closed: " << _closed;
     _closed = true;
     _queue_writer_cond.notify_one();
     ArrowReaderWrap::close();

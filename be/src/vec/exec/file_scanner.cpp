@@ -69,7 +69,7 @@ Status FileScanner::open() {
     return Status::OK();
 }
 
-void FileScanner::reg_conjunct_ctxs(TupleId tupleId, std::vector<ExprContext*> conjunct_ctxs) {
+void FileScanner::reg_conjunct_ctxs(const TupleId& tupleId, const std::vector<ExprContext*>& conjunct_ctxs) {
     _conjunct_ctxs = conjunct_ctxs;
     _tupleId = tupleId;
 }

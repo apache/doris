@@ -135,8 +135,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                 filtered_num_row_groups++;
                 filtered_num_rows += row_group_meta->num_rows();
                 filtered_total_byte_size += row_group_meta->total_byte_size();
-                row_group_meta->schema()->name();
-                LOG(INFO) << "Filter row group id: " << row_group_id;
+                VLOG_DEBUG << "Filter row group id: " << row_group_id;
                 _filter_group.emplace(row_group_id);
             }
         }
@@ -145,9 +144,9 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
         _parent->statistics()->filtered_row_groups = filtered_num_row_groups;
         _parent->statistics()->filtered_rows = filtered_num_rows;
         _parent->statistics()->filtered_total_bytes = filtered_total_byte_size;
-        LOG(INFO) << "Parquet file: " << _file_metadata->schema()->name()
-                  << ", Num of read row group: " << total_group
-                  << ", and num of skip row group: " << filtered_num_row_groups;
+        VLOG_DEBUG << "Parquet file: " << _file_metadata->schema()->name()
+                   << ", Num of read row group: " << total_group
+                   << ", and num of skip row group: " << filtered_num_row_groups;
     }
     return Status::OK();
 }
