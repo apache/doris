@@ -184,4 +184,4 @@ Empty set
 
 ### keywords
 
-    explode_json_array
+explode,json,array,json_array,explode_json,explode_json_array
