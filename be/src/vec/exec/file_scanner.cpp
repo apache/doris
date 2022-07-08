@@ -69,6 +69,12 @@ Status FileScanner::open() {
     return Status::OK();
 }
 
+void FileScanner::reg_conjunct_ctxs(const TupleId& tupleId,
+                                    const std::vector<ExprContext*>& conjunct_ctxs) {
+    _conjunct_ctxs = conjunct_ctxs;
+    _tupleId = tupleId;
+}
+
 Status FileScanner::_init_expr_ctxes() {
     const TupleDescriptor* src_tuple_desc =
             _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
