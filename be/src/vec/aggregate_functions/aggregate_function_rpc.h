@@ -22,10 +22,16 @@
 
 #include "common/status.h"
 #include "gen_cpp/Exprs_types.h"
+#include "json2pb/json_to_pb.h"
+#include "json2pb/pb_to_json.h"
+#include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/jni-util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/exception.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -34,14 +40,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
-#include "runtime/exec_env.h"
-#include "util/brpc_client_cache.h"
-#include "json2pb/json_to_pb.h"
-#include "json2pb/pb_to_json.h"
 namespace doris::vectorized {
-
 
 template <bool nullable>
 void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
@@ -176,28 +175,6 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Add(data.begin(), data.begin() + row_count);
         break;
     }
-    case vectorized::TypeIndex::Decimal128: {
-        ptype->set_id(PGenericType::DECIMAL128);
-        auto dec_type = std::reinterpret_pointer_cast<
-                const vectorized::DataTypeDecimal<vectorized::Decimal128>>(data_type);
-        ptype->mutable_decimal_type()->set_precision(dec_type->get_precision());
-        ptype->mutable_decimal_type()->set_scale(dec_type->get_scale());
-        arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
-            if constexpr (nullable) {
-                if (column->is_null_at(row_num)) {
-                    arg->add_bytes_value(nullptr);
-                } else {
-                    StringRef data = column->get_data_at(row_num);
-                    arg->add_bytes_value(data.data, data.size);
-                }
-            } else {
-                StringRef data = column->get_data_at(row_num);
-                arg->add_bytes_value(data.data, data.size);
-            }
-        }
-        break;
-    }
     case vectorized::TypeIndex::String: {
         ptype->set_id(PGenericType::STRING);
         arg->mutable_bytes_value()->Reserve(row_count);
@@ -314,10 +291,6 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         break;
     }
 }
-
-
-
-
 
 template <bool nullable>
 void convert_to_column(vectorized::MutableColumnPtr& column, const PValues& result) {
@@ -471,7 +444,7 @@ void convert_to_column(vectorized::MutableColumnPtr& column, const PValues& resu
     }
 }
 
-template<typename T>
+template <typename T>
 typename std::underlying_type<T>::type PrintEnum(T const value) {
     return static_cast<typename std::underlying_type<T>::type>(value);
 }
@@ -522,26 +495,19 @@ private:
     bool saved_last_result;
     std::shared_ptr<PFunctionService_Stub> _client;
     PFunctionCallResponse res;
+
 public:
     AggregateRpcUdafData() = default;
-    AggregateRpcUdafData(int64_t num_args) {
-        set_last_result(false);
-    }
+    AggregateRpcUdafData(int64_t num_args) { set_last_result(false); }
 
-    bool  has_last_result(){
-        return saved_last_result==true;
-    }
+    bool has_last_result() { return saved_last_result == true; }
 
-    void set_last_result(bool flag){
-        saved_last_result = flag;
-    }
+    void set_last_result(bool flag) { saved_last_result = flag; }
 
-    ~AggregateRpcUdafData() {
-
-    }
+    ~AggregateRpcUdafData() {}
 
     Status merge(const AggregateRpcUdafData& rhs) {
-        if(has_last_result()){
+        if (has_last_result()) {
             PFunctionCallRequest request;
             PFunctionCallResponse response;
             brpc::Controller cntl;
@@ -555,10 +521,10 @@ public:
             //current result
             arg->CopyFrom(current_res.result(0));
 
-            //send to rpc server  that impl the merge op, the will save the result 
+            //send to rpc server  that impl the merge op, the will save the result
             RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
             res = response;
-        }else{
+        } else {
             res = rhs.get_result();
             set_last_result(true);
         }
@@ -571,52 +537,57 @@ public:
         _server_addr = fn.hdfs_location;
         _finalize_fn = fn.aggregate_fn.finalize_fn_symbol;
         _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server_addr);
-        if(_client == nullptr ){
-            std::string err_msg="init rpc error, addr:"+_server_addr;
+        if (_client == nullptr) {
+            std::string err_msg = "init rpc error, addr:" + _server_addr;
             LOG(ERROR) << err_msg;
             return Status::InternalError(err_msg);
         }
         return Status::OK();
     }
 
-    Status send_rpc_request(brpc::Controller &cntl, PFunctionCallRequest &request, PFunctionCallResponse &response) const{
-         _client->fn_call(&cntl, &request, &response, nullptr);
+    Status send_rpc_request(brpc::Controller& cntl, PFunctionCallRequest& request,
+                            PFunctionCallResponse& response) const {
+        _client->fn_call(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
-            return Status::InternalError(
-                    fmt::format("call to rpc function {} failed: {}", request.function_name() , cntl.ErrorText())
-                            .c_str());
+            return Status::InternalError(fmt::format("call to rpc function {} failed: {}",
+                                                     request.function_name(), cntl.ErrorText())
+                                                 .c_str());
         }
         if (!response.has_status() || response.result_size() == 0) {
-            return Status::InternalError(fmt::format(
-                    "call rpc function {} failed: status or result is not set.", request.function_name()));
+            return Status::InternalError(
+                    fmt::format("call rpc function {} failed: status or result is not set.",
+                                request.function_name()));
         }
         if (response.status().status_code() != 0) {
-            return Status::InternalError(fmt::format("call to rpc function {} failed: {}", request.function_name(),
-                                                    response.status().DebugString()));
+            return Status::InternalError(fmt::format("call to rpc function {} failed: {}",
+                                                     request.function_name(),
+                                                     response.status().DebugString()));
         }
         return Status::OK();
     }
 
-    Status add(const IColumn** columns, int row_num,
-               const DataTypes& argument_types){
+    Status add(const IColumn** columns, int row_num, const DataTypes& argument_types) {
         PFunctionCallRequest request;
         PFunctionCallResponse response;
         brpc::Controller cntl;
         request.set_function_name(_update_fn);
-        for(int i=0;i<argument_types.size();i++){
+        for (int i = 0; i < argument_types.size(); i++) {
             PValues* arg = request.add_args();
-            if (auto* nullable =
-                        vectorized::check_and_get_column<const vectorized::ColumnNullable>(*columns[i])) {
+            if (auto* nullable = vectorized::check_and_get_column<const vectorized::ColumnNullable>(
+                        *columns[i])) {
                 auto data_col = nullable->get_nested_column_ptr();
                 auto& null_col = nullable->get_null_map_column();
-                auto data_type =std::reinterpret_pointer_cast<const vectorized::DataTypeNullable>(argument_types[i]);
+                auto data_type = std::reinterpret_pointer_cast<const vectorized::DataTypeNullable>(
+                        argument_types[i]);
                 convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                            data_type->get_nested_type(), null_col, arg, row_num);
+                                               data_type->get_nested_type(), null_col, arg,
+                                               row_num);
             } else {
-                convert_col_to_pvalue<false>(columns[i]->convert_to_full_column_if_const(), argument_types[i], arg, row_num);
+                convert_col_to_pvalue<false>(columns[i]->convert_to_full_column_if_const(),
+                                             argument_types[i], arg, row_num);
             }
-        }   
-        if(has_last_result()){
+        }
+        if (has_last_result()) {
             request.mutable_last_result()->CopyFrom(res.result());
         }
         RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
@@ -625,29 +596,30 @@ public:
         return Status::OK();
     }
 
-    void serialize(BufferWritable& buf) { 
+    void serialize(BufferWritable& buf) {
         std::string serialize_data = res.SerializeAsString();
         write_binary(serialize_data, buf);
     }
 
-    void deserialize(BufferReadable& buf) { 
+    void deserialize(BufferReadable& buf) {
         std::string serialize_data;
         read_binary(serialize_data, buf);
         res.ParseFromString(serialize_data);
         set_last_result(true);
     }
 
-    Status get(IColumn& to, const DataTypePtr& return_type) const{
+    Status get(IColumn& to, const DataTypePtr& return_type) const {
         PFunctionCallRequest request;
         PFunctionCallResponse response;
         brpc::Controller cntl;
         request.set_function_name(_finalize_fn);
         request.mutable_last_result()->CopyFrom(res.result());
         send_rpc_request(cntl, request, response);
-        
-        DataTypePtr result_type= return_type;
+
+        DataTypePtr result_type = return_type;
         if (return_type->is_nullable()) {
-            result_type = reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
+            result_type =
+                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
         }
         WhichDataType which(result_type);
         if (which.is_int32()) {
@@ -657,16 +629,14 @@ public:
         return Status::OK();
     }
 
-    PFunctionCallResponse get_result() const {
-        return res;
-    }
+    PFunctionCallResponse get_result() const { return res; }
 };
 
 class AggregateRpcUdaf final
         : public IAggregateFunctionDataHelper<AggregateRpcUdafData, AggregateRpcUdaf> {
 public:
     AggregateRpcUdaf(const TFunction& fn, const DataTypes& argument_types, const Array& parameters,
-                      const DataTypePtr& return_type)
+                     const DataTypePtr& return_type)
             : IAggregateFunctionDataHelper(argument_types, parameters),
               _fn(fn),
               _return_type(return_type) {}
@@ -700,7 +670,7 @@ public:
     // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        this->data(place).add(columns,batch_size, argument_types);
+        this->data(place).add(columns, batch_size, argument_types);
     }
 
     void reset(AggregateDataPtr place) const override {}
@@ -719,7 +689,7 @@ public:
         this->data(place).deserialize(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override{
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).get(to, _return_type);
     }
 
