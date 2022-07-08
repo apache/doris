@@ -315,6 +315,7 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
         scan = new FileTextScanner(_runtime_state, runtime_profile(), scan_range.params,
                                    scan_range.ranges, _pre_filter_texprs, counter);
     }
+    scan->reg_conjunct_ctxs(_tuple_id, _conjunct_ctxs);
     std::unique_ptr<FileScanner> scanner(scan);
     return scanner;
 }

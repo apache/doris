@@ -70,8 +70,9 @@ Status FileArrowScanner::_open_next_reader() {
         _cur_file_reader = _new_arrow_reader(file_reader.release(), _state->batch_size(),
                                              num_of_columns_from_file);
 
-        Status status = _cur_file_reader->init_reader(_file_slot_descs, _state->timezone());
-
+        auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
+        Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs,
+                                                      _state->timezone());
         if (status.is_end_of_file()) {
             continue;
         } else {
@@ -207,7 +208,7 @@ VFileParquetScanner::VFileParquetScanner(RuntimeState* state, RuntimeProfile* pr
 
 ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                                         int32_t num_of_columns_from_file) {
-    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file);
+    return new ParquetReaderWrap(_profile, file_reader, batch_size, num_of_columns_from_file);
 }
 
 VFileORCScanner::VFileORCScanner(RuntimeState* state, RuntimeProfile* profile,

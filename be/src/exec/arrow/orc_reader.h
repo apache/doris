@@ -35,7 +35,9 @@ public:
     ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
     ~ORCReaderWrap() override = default;
 
-    Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+    Status init_reader(const TupleDescriptor* tuple_desc,
+                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                       const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
