@@ -82,6 +82,7 @@ Status VBrokerScanNode::prepare(RuntimeState* state) {
 }
 
 Status VBrokerScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBrokerScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -97,11 +98,16 @@ Status VBrokerScanNode::start_scanners() {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
         _num_running_scanners = 1;
     }
-    _scanner_threads.emplace_back(&VBrokerScanNode::scanner_worker, this, 0, _scan_ranges.size());
+    _scanner_threads.emplace_back([this, size = 0, length = _scan_ranges.size(),
+                                   parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+        OpentelemetryScope scope {parent_span};
+        this->scanner_worker(size, length);
+    });
     return Status::OK();
 }
 
 Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VBrokerScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // check if CANCELLED.
     if (state->is_cancelled()) {
@@ -195,6 +201,7 @@ Status VBrokerScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBrokerScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _scan_finished.store(true);
     _queue_writer_cond.notify_all();
@@ -264,6 +271,7 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
 }
 
 void VBrokerScanNode::scanner_worker(int start_idx, int length) {
+    START_AND_SCOPE_SPAN(_runtime_state->get_tracer(), span, "VBrokerScanNode::scanner_worker");
     Thread::set_self_name("vbroker_scanner");
     Status status = Status::OK();
     ScannerCounter counter;

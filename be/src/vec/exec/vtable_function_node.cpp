@@ -79,6 +79,8 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
 }
 
 Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
+                                 "VTableFunctionNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_CANCELLED(state);
@@ -114,7 +116,9 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
         // if child_block is empty, get data from child.
         if (_child_block->rows() == 0) {
             while (_child_block->rows() == 0 && !_child_eos) {
-                RETURN_IF_ERROR(child(0)->get_next(state, _child_block.get(), &_child_eos));
+                RETURN_IF_ERROR_AND_CHECK_SPAN(
+                        child(0)->get_next(state, _child_block.get(), &_child_eos),
+                        child(0)->get_next_span(), _child_eos);
             }
             if (_child_eos && _child_block->rows() == 0) {
                 *eos = true;

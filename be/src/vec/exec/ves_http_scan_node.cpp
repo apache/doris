@@ -118,6 +118,7 @@ Status VEsHttpScanNode::build_conjuncts_list() {
 }
 
 Status VEsHttpScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VEsHttpScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -191,13 +192,18 @@ Status VEsHttpScanNode::start_scanners() {
 
     _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
-        _scanner_threads.emplace_back(&VEsHttpScanNode::scanner_worker, this, i,
-                                      _scan_ranges.size(), std::ref(_scanners_status[i]));
+        _scanner_threads.emplace_back(
+                [this, i, length = _scan_ranges.size(), &p_status = _scanners_status[i],
+                 parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+                    OpentelemetryScope scope {parent_span};
+                    this->scanner_worker(i, length, p_status);
+                });
     }
     return Status::OK();
 }
 
 Status VEsHttpScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VEsHttpScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_block_queue_lock);
@@ -377,6 +383,7 @@ void VEsHttpScanNode::debug_string(int ident_level, std::stringstream* out) cons
 }
 
 void VEsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
+    START_AND_SCOPE_SPAN(_runtime_state->get_tracer(), span, "VEsHttpScanNode::scanner_worker");
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;

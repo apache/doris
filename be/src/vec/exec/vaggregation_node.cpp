@@ -330,6 +330,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
 }
 
 Status AggregationNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute open.");
@@ -356,7 +357,8 @@ Status AggregationNode::open(RuntimeState* state) {
     while (!eos) {
         RETURN_IF_CANCELLED(state);
         release_block_memory(block);
-        RETURN_IF_ERROR(_children[0]->get_next(state, &block, &eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next(state, &block, &eos),
+                                       _children[0]->get_next_span(), eos);
         if (block.rows() == 0) {
             continue;
         }
@@ -372,6 +374,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 }
 
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute get_next.");
@@ -382,7 +385,9 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         RETURN_IF_CANCELLED(state);
         do {
             release_block_memory(_preagg_block);
-            RETURN_IF_ERROR(_children[0]->get_next(state, &_preagg_block, &child_eos));
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    _children[0]->get_next(state, &_preagg_block, &child_eos),
+                    _children[0]->get_next_span(), child_eos);
         } while (_preagg_block.rows() == 0 && !child_eos);
 
         if (_preagg_block.rows() != 0) {
@@ -408,6 +413,7 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
 Status AggregationNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
 
     for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
     VExpr::close(_probe_expr_ctxs, state);

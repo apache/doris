@@ -35,6 +35,8 @@
 #include "util/md5.h"
 #include "util/proto_util.h"
 #include "util/string_util.h"
+#include "util/telemetry/brpc_carrier.h"
+#include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -172,6 +174,8 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,
                                               google::protobuf::Closure* done) {
+    auto span = telemetry::start_rpc_server_span("exec_plan_fragment", cntl_base);
+    auto scope = OpentelemetryScope {span};
     SCOPED_SWITCH_BTHREAD();
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
@@ -196,6 +200,8 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
+    auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
+    auto scope = OpentelemetryScope {span};
     SCOPED_SWITCH_BTHREAD();
     brpc::ClosureGuard closure_guard(done);
     auto st = _exec_env->fragment_mgr()->start_query_execution(request);
@@ -368,6 +374,8 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
                                                 const PCancelPlanFragmentRequest* request,
                                                 PCancelPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
+    auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", cntl_base);
+    auto scope = OpentelemetryScope {span};
     SCOPED_SWITCH_BTHREAD();
     brpc::ClosureGuard closure_guard(done);
     TUniqueId tid;

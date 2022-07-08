@@ -38,10 +38,12 @@
 #include "runtime/row_batch.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
+#include "util/defer_op.h"
 #include "util/logging.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/vexchange_node.h"
@@ -72,6 +74,12 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                      QueryFragmentsCtx* fragments_ctx) {
+    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
+    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
+        tracer = telemetry::get_tracer(print_id(_query_id));
+    }
+    START_AND_SCOPE_SPAN(tracer, span, "PlanFragmentExecutor::prepare");
+
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
@@ -87,6 +95,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
     _runtime_state->set_query_fragments_ctx(fragments_ctx);
+    _runtime_state->set_tracer(std::move(tracer));
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     SCOPED_ATTACH_TASK_THREAD(_runtime_state.get(), _runtime_state->instance_mem_tracker());
@@ -262,30 +271,33 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         RETURN_IF_ERROR(_sink->open(runtime_state()));
     }
 
-    while (true) {
-        doris::vectorized::Block* block;
+    {
+        auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
+        while (true) {
+            doris::vectorized::Block* block;
 
-        {
+            {
+                SCOPED_CPU_TIMER(_fragment_cpu_timer);
+                RETURN_IF_ERROR(get_vectorized_internal(&block));
+            }
+
+            if (block == NULL) {
+                break;
+            }
+
+            SCOPED_TIMER(profile()->total_time_counter());
             SCOPED_CPU_TIMER(_fragment_cpu_timer);
-            RETURN_IF_ERROR(get_vectorized_internal(&block));
-        }
+            // Collect this plan and sub plan statistics, and send to parent plan.
+            if (_collect_query_statistics_with_every_batch) {
+                _collect_query_statistics();
+            }
 
-        if (block == NULL) {
-            break;
+            auto st = _sink->send(runtime_state(), block);
+            if (st.is_end_of_file()) {
+                break;
+            }
+            RETURN_IF_ERROR(st);
         }
-
-        SCOPED_TIMER(profile()->total_time_counter());
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
-        // Collect this plan and sub plan statistics, and send to parent plan.
-        if (_collect_query_statistics_with_every_batch) {
-            _collect_query_statistics();
-        }
-
-        auto st = _sink->send(runtime_state(), block);
-        if (st.is_end_of_file()) {
-            break;
-        }
-        RETURN_IF_ERROR(st);
     }
 
     {
@@ -318,7 +330,8 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
     while (!_done) {
         _block->clear_column_data(_plan->row_desc().num_materialized_slots());
         SCOPED_TIMER(profile()->total_time_counter());
-        RETURN_IF_ERROR(_plan->get_next(_runtime_state.get(), _block.get(), &_done));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(_plan->get_next(_runtime_state.get(), _block.get(), &_done),
+                                       _plan->get_next_span(), _done);
 
         if (_block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, _block->rows());
