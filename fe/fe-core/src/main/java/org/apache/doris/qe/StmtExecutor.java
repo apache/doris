@@ -978,7 +978,6 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-
         MysqlChannel channel = context.getMysqlChannel();
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
 
