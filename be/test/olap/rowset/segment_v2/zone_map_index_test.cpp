@@ -24,6 +24,9 @@
 
 #include "common/config.h"
 #include "env/env.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
 #include "olap/page_cache.h"
@@ -51,6 +54,7 @@ public:
 
     void test_string(std::string testname, Field* field) {
         std::string filename = kTestDir + "/" + testname;
+        auto fs = io::global_local_filesystem();
 
         ZoneMapIndexWriter builder(field);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
@@ -73,16 +77,14 @@ public:
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
-            std::unique_ptr<fs::WritableBlock> wblock;
-            fs::CreateBlockOptions opts(filename);
-            std::string storage_name;
-            EXPECT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
-            EXPECT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
+            std::unique_ptr<io::FileWriter> file_writer;
+            EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+            EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
-            EXPECT_TRUE(wblock->close().ok());
+            EXPECT_TRUE(file_writer->close().ok());
         }
 
-        ZoneMapIndexReader column_zone_map(filename, &index_meta.zone_map_index());
+        ZoneMapIndexReader column_zone_map(fs, filename, &index_meta.zone_map_index());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(3, column_zone_map.num_pages());
@@ -104,6 +106,7 @@ public:
 
     void test_cut_zone_map(std::string testname, Field* field) {
         std::string filename = kTestDir + "/" + testname;
+        auto fs = io::global_local_filesystem();
 
         ZoneMapIndexWriter builder(field);
         char ch = 'a';
@@ -118,16 +121,14 @@ public:
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
-            std::unique_ptr<fs::WritableBlock> wblock;
-            fs::CreateBlockOptions opts(filename);
-            std::string storage_name;
-            EXPECT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
-            EXPECT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
+            std::unique_ptr<io::FileWriter> file_writer;
+            EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+            EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
-            EXPECT_TRUE(wblock->close().ok());
+            EXPECT_TRUE(file_writer->close().ok());
         }
 
-        ZoneMapIndexReader column_zone_map(filename, &index_meta.zone_map_index());
+        ZoneMapIndexReader column_zone_map(fs, filename, &index_meta.zone_map_index());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
@@ -148,6 +149,7 @@ public:
 // Test for int
 TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     std::string filename = kTestDir + "/NormalTestIntPage";
+    auto fs = io::global_local_filesystem();
 
     TabletColumn int_column = create_int_key(0);
     Field* field = FieldFactory::create(int_column);
@@ -169,16 +171,14 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     // write out zone map index
     ColumnIndexMetaPB index_meta;
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({filename});
-        std::string storage_name;
-        EXPECT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
-        EXPECT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
+        std::unique_ptr<io::FileWriter> file_writer;
+        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+        EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
         EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
-        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
     }
 
-    ZoneMapIndexReader column_zone_map(filename, &index_meta.zone_map_index());
+    ZoneMapIndexReader column_zone_map(fs, filename, &index_meta.zone_map_index());
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());

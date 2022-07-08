@@ -93,6 +93,12 @@ message RowsetMetaPB {
     optional int64 num_segments = 22;
     // rowset id definition, it will replace required rowset id 
     optional string rowset_id_v2 = 23;
+    // resource id
+    optional string resource_id = 24;
+    // earliest write time
+    optional int64 oldest_write_timestamp = 25 [default = -1];
+    // latest write time
+    optional int64 newest_write_timestamp = 26 [default = -1];
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
     // to indicate whether the data between the segments overlap
@@ -263,6 +269,7 @@ message TabletMetaPB {
     optional StorageMediumPB storage_medium = 19 [default = HDD];
     optional string remote_storage_name = 20;
     optional int64 replica_id = 21 [default = 0];
+    optional string storage_policy = 22;
 }
 
 message OLAPIndexHeaderMessage {

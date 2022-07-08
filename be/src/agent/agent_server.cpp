@@ -39,7 +39,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
         : _exec_env(exec_env), _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
     for (auto& path : exec_env->store_paths()) {
         try {
-            string dpp_download_path_str = path.path + DPP_PREFIX;
+            string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
             std::filesystem::path dpp_download_path(dpp_download_path_str);
             if (std::filesystem::exists(dpp_download_path)) {
                 std::filesystem::remove_all(dpp_download_path);
@@ -89,7 +89,8 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
-    CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE_V2, _storage_medium_migrate_v2_workers);
+    CREATE_AND_START_THREAD(REFRESH_STORAGE_POLICY, _storage_refresh_policy_workers);
+    CREATE_AND_START_POOL(UPDATE_STORAGE_POLICY, _storage_update_policy_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
@@ -152,8 +153,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             HANDLE_TYPE(TTaskType::UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers,
                         update_tablet_meta_info_req);
             HANDLE_TYPE(TTaskType::COMPACTION, _submit_table_compaction_workers, compaction_req);
-            HANDLE_TYPE(TTaskType::STORAGE_MEDIUM_MIGRATE_V2, _storage_medium_migrate_v2_workers,
-                        storage_migration_req_v2);
+            HANDLE_TYPE(TTaskType::NOTIFY_UPDATE_STORAGE_POLICY, _storage_update_policy_workers,
+                        update_policy);
 
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:

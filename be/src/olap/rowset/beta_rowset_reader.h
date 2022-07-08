@@ -43,6 +43,9 @@ public:
 
     Version version() override { return _rowset->version(); }
 
+    int64_t oldest_write_timestamp() override { return _rowset->oldest_write_timestamp(); }
+    int64_t newest_write_timestamp() override { return _rowset->newest_write_timestamp(); }
+
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
     // Return the total number of filtered rows, will be used for validation of schema change

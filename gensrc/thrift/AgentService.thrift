@@ -76,6 +76,20 @@ struct TS3StorageParam {
     6: optional i32 s3_request_timeout_ms = 3000
     7: optional i32 s3_conn_timeout_ms = 1000
     8: optional string root_path
+    9: optional string bucket
+}
+
+struct TGetStoragePolicy {
+    1: required string policy_name
+    2: required i64 cooldown_datetime
+    3: required i64 cooldown_ttl
+    4: required TS3StorageParam s3_storage_param
+    5: required string md5_checksum
+}
+
+struct TGetStoragePolicyResult {
+    1: required Status.TStatus status
+    2: required list<TGetStoragePolicy> result_entrys
 }
 
 struct TStorageParam {
@@ -119,12 +133,14 @@ struct TCreateTabletReq {
     15: optional TStorageParam storage_param
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
     17: optional Types.TReplicaId replica_id = 0
+    18: optional string storage_policy
 }
 
 struct TDropTabletReq {
     1: required Types.TTabletId tablet_id
     2: optional Types.TSchemaHash schema_hash
     3: optional Types.TReplicaId replica_id = 0
+    4: optional bool is_drop_table_or_partition = false
 }
 
 struct TAlterTabletReq {
@@ -333,6 +349,7 @@ struct TTabletMetaInfo {
     3: optional Types.TPartitionId partition_id
     4: optional TTabletMetaType meta_type
     5: optional bool is_in_memory
+    6: optional string storage_policy;
 }
 
 struct TUpdateTabletMetaInfoReq {
@@ -376,6 +393,7 @@ struct TAgentTaskRequest {
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
     27: optional TCompactionReq compaction_req
     28: optional TStorageMigrationReqV2 storage_migration_req_v2
+    29: optional TGetStoragePolicy update_policy
 }
 
 struct TAgentResult {

@@ -43,7 +43,8 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
-            request.storage_medium, request.storage_param.storage_name, request.compression_type));
+            request.storage_medium, request.storage_param.storage_name, request.compression_type,
+            request.storage_policy));
     return Status::OK();
 }
 
@@ -55,7 +56,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TStorageMedium::type t_storage_medium, const std::string& storage_name,
-                       TCompressionType::type compression_type)
+                       TCompressionType::type compression_type, const std::string& storage_policy)
         : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -74,6 +75,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
     tablet_meta_pb.set_storage_medium(fs::fs_util::get_storage_medium_pb(t_storage_medium));
     tablet_meta_pb.set_remote_storage_name(storage_name);
+    tablet_meta_pb.set_storage_policy(storage_policy);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -194,7 +196,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _remote_storage_name(b._remote_storage_name),
-          _storage_medium(b._storage_medium) {};
+          _storage_medium(b._storage_medium),
+          _cooldown_resource(b._cooldown_resource) {};
 
 void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                            ColumnPB* column) {
@@ -372,6 +375,19 @@ Status TabletMeta::deserialize(const string& meta_binary) {
     return Status::OK();
 }
 
+void TabletMeta::init_rs_metas_fs(const io::FileSystemPtr& fs) {
+    for (auto& rs_meta : _rs_metas) {
+        if (rs_meta->is_local()) {
+            rs_meta->set_fs(fs);
+        }
+    }
+    for (auto& rs_meta : _stale_rs_metas) {
+        if (rs_meta->is_local()) {
+            rs_meta->set_fs(fs);
+        }
+    }
+}
+
 void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _table_id = tablet_meta_pb.table_id();
     _partition_id = tablet_meta_pb.partition_id();
@@ -439,6 +455,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     _remote_storage_name = tablet_meta_pb.remote_storage_name();
     _storage_medium = tablet_meta_pb.storage_medium();
+    _cooldown_resource = tablet_meta_pb.storage_policy();
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -487,6 +504,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
 
     tablet_meta_pb->set_remote_storage_name(_remote_storage_name);
     tablet_meta_pb->set_storage_medium(_storage_medium);
+    tablet_meta_pb->set_storage_policy(_cooldown_resource);
 }
 
 uint32_t TabletMeta::mem_size() const {
@@ -703,6 +721,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_medium != b._storage_medium) return false;
     if (a._remote_storage_name != b._remote_storage_name) return false;
+    if (a._cooldown_resource != b._cooldown_resource) return false;
     return true;
 }
 
