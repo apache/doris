@@ -53,6 +53,32 @@ const char* ColumnVector<T>::deserialize_and_insert_from_arena(const char* pos) 
 }
 
 template <typename T>
+size_t ColumnVector<T>::get_max_row_byte_size() const {
+    return sizeof(T);
+}
+
+template <typename T>
+void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                                    size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        keys[i].size += sizeof(T);
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                                  const uint8_t* null_map,
+                                                  size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            keys[i].size += sizeof(T);
+        }
+    }
+}
+
+template <typename T>
 void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
 }

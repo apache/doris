@@ -246,6 +246,23 @@ public:
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
 
+    /// Return the size of largest row.
+    /// This is for calculating the memory size for vectorized serialization of aggregation keys.
+    virtual size_t get_max_row_byte_size() const {
+        LOG(FATAL) << "get_max_row_byte_size not supported";
+    }
+
+    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                               size_t max_row_byte_size) const {
+        LOG(FATAL) << "serialize_vec not supported";
+    }
+
+    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                             const uint8_t* null_map,
+                                             size_t max_row_byte_size) const {
+        LOG(FATAL) << "serialize_vec_with_null_map not supported";
+    }
+
     /// Update state of hash function with value of n-th element.
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
     ///  passed bytes to hash must identify sequence of values unambiguously.

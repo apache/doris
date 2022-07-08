@@ -84,6 +84,7 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
           _is_merge(false),
           _agg_data(),
           _build_timer(nullptr),
+          _serialize_key_timer(nullptr),
           _exec_timer(nullptr),
           _merge_timer(nullptr) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
@@ -206,6 +207,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
+    _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTimer");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
@@ -754,6 +756,9 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                     using HashMethodType = std::decay_t<decltype(agg_method)>;
                     using AggState = typename HashMethodType::State;
                     AggState state(key_columns, _probe_key_sz, nullptr);
+
+                    _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
+
                     /// For all rows.
                     for (size_t i = 0; i < rows; ++i) {
                         AggregateDataPtr aggregate_data = nullptr;
@@ -815,6 +820,9 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
+
+                _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
@@ -1034,6 +1042,9 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
+
+                _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
