@@ -64,7 +64,6 @@ public:
     }
 
 private:
-
     template <typename NestedColumnType, typename RightColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
                               const IColumn& right_column, const UInt8* nested_null_map) {

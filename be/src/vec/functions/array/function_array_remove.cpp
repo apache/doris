@@ -26,4 +26,3 @@ void register_function_array_remove(SimpleFunctionFactory& factory) {
 }
 
 } // namespace doris::vectorized
-
