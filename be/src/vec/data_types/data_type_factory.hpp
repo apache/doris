@@ -102,6 +102,10 @@ public:
 
     DataTypePtr create_data_type(const arrow::DataType* type, bool is_nullable);
 
+    DataTypePtr create_data_type(const TTypeDesc& raw_type) {
+        return create_data_type(TypeDescriptor::from_thrift(raw_type), raw_type.is_nullable);
+    }
+
 private:
     DataTypePtr _create_primitive_data_type(const FieldType& type) const;
 

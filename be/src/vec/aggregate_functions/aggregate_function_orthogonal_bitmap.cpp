@@ -34,8 +34,6 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
         LOG(WARNING) << "Incorrect number of arguments for aggregate function " << name;
         return nullptr;
     } else if (argument_types.size() == 1) {
-        // only used at AGGREGATE (merge finalize) for variadic function
-        // and for orthogonal_bitmap_union_count function
         return std::make_shared<AggFunctionOrthBitmapFunc<Impl<StringValue>>>(argument_types);
     } else {
         const IDataType& argument_type = *argument_types[1];

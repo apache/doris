@@ -37,7 +37,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -69,6 +68,9 @@ public class FunctionCallExpr extends Expr {
     // private BuiltinAggregateFunction.Operator aggOp;
     private FunctionParams fnParams;
 
+    // represent original parament from aggregate function
+    private FunctionParams aggFnParams;
+
     // check analytic function
     private boolean isAnalyticFnCall = false;
     // check table function
@@ -91,6 +93,10 @@ public class FunctionCallExpr extends Expr {
     private Expr originStmtFnExpr;
 
     private boolean isRewrote = false;
+
+    public void setAggFnParams(FunctionParams aggFnParams) {
+        this.aggFnParams = aggFnParams;
+    }
 
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
@@ -153,6 +159,7 @@ public class FunctionCallExpr extends Expr {
         // aggOp = e.aggOp;
         isAnalyticFnCall = e.isAnalyticFnCall;
         fnParams = params;
+        aggFnParams = e.aggFnParams;
         // Just inherit the function object from 'e'.
         fn = e.fn;
         this.isMergeAggFn = e.isMergeAggFn;
@@ -175,6 +182,7 @@ public class FunctionCallExpr extends Expr {
         } else {
             fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
         }
+        aggFnParams = other.aggFnParams;
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
@@ -428,9 +436,10 @@ public class FunctionCallExpr extends Expr {
         // except in test cases that do it explicitly.
         if (isAggregate() || isAnalyticFnCall) {
             msg.node_type = TExprNodeType.AGG_EXPR;
-            if (!isAnalyticFnCall) {
-                msg.setAggExpr(new TAggregateExpr(isMergeAggFn));
+            if (aggFnParams == null) {
+                aggFnParams = fnParams;
             }
+            msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
@@ -1143,14 +1152,15 @@ public class FunctionCallExpr extends Expr {
     }
 
     public static FunctionCallExpr createMergeAggCall(
-            FunctionCallExpr agg, List<Expr> params) {
+            FunctionCallExpr agg, List<Expr> intermediateParams, List<Expr> realParams) {
         Preconditions.checkState(agg.isAnalyzed);
         Preconditions.checkState(agg.isAggregateFunction());
         FunctionCallExpr result = new FunctionCallExpr(
-                agg.fnName, new FunctionParams(false, params), true);
+                agg.fnName, new FunctionParams(false, intermediateParams), true);
         // Inherit the function object from 'agg'.
         result.fn = agg.fn;
         result.type = agg.type;
+        result.setAggFnParams(new FunctionParams(false, realParams));
         return result;
     }
 

@@ -168,14 +168,6 @@ struct StringDataImplTopN {
     }
 };
 
-struct AggregateFunctionTopNImplEmpty {
-    // only used at AGGREGATE (merge finalize)
-    static void add(AggregateFunctionTopNData& __restrict place, const IColumn** columns,
-                    size_t row_num) {
-        LOG(FATAL) << "AggregateFunctionTopNImplEmpty do not support add()";
-    }
-};
-
 template <typename DataHelper>
 struct AggregateFunctionTopNImplInt {
     static void add(AggregateFunctionTopNData& __restrict place, const IColumn** columns,
