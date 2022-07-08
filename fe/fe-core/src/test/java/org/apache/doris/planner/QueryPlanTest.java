@@ -2169,4 +2169,22 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("CROSS JOIN"));
 
     }
+
+    @Test
+    public void testDefaultJoinReorderWithView() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE t_1 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createTable("CREATE TABLE t_2 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createView("CREATE VIEW v_1 as select col1 from t_1;");
+        createView("CREATE VIEW v_2 as select x.col2 from (select t_2.col2, 1 + 1 from t_2) x;");
+
+        String sql = "explain select t_1.col2, v_1.col1 from t_1 inner join t_2 on t_1.col1 = t_2.col1 inner join v_1 "
+                + "on v_1.col1 = t_2.col2 inner join v_2 on v_2.col2 = t_2.col1";
+        String explainString = getSQLPlanOrErrorMsg(sql);
+        System.out.println(explainString);
+        // errCode = 2, detailMessage = Unknown column 'col2' in 't_2'
+        Assert.assertFalse(explainString.contains("errCode"));
+    }
 }
