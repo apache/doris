@@ -49,6 +49,14 @@ class SlotDescriptor;
 class MemPool;
 class FileReader;
 
+struct Statistics {
+    int32_t filtered_row_groups = 0;
+    int32_t total_groups = 0;
+    int64_t filtered_rows = 0;
+    int64_t total_rows = 0;
+    int64_t filtered_total_bytes = 0;
+};
+
 class ArrowFile : public arrow::io::RandomAccessFile {
 public:
     ArrowFile(FileReader* file);
@@ -85,6 +93,7 @@ public:
     // for vec
     virtual Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) = 0;
     virtual void close();
+    std::shared_ptr<Statistics>& statistics() { return _statistics; }
     virtual Status size(int64_t* size) { return Status::NotSupported("Not Implemented size"); }
 
 protected:
@@ -99,6 +108,7 @@ protected:
     int _current_group;                     // current group(stripe)
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::vector<int> _include_column_ids;   // columns that need to get from file
+    std::shared_ptr<Statistics> _statistics;
 };
 
 } // namespace doris

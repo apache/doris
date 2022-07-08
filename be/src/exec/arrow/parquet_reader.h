@@ -58,14 +58,6 @@ class MemPool;
 class FileReader;
 class RowGroupReader;
 
-struct Statistics {
-    int32_t filtered_row_groups;
-    int32_t total_groups;
-    int64_t filtered_rows;
-    int64_t total_rows;
-    int64_t filtered_total_bytes;
-};
-
 // Reader of parquet file
 class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
@@ -85,7 +77,6 @@ public:
     Status init_parquet_type();
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
     void close() override;
-    std::shared_ptr<Statistics>& statistics() { return _statistics; }
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
@@ -122,7 +113,6 @@ private:
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     std::unique_ptr<doris::RowGroupReader> _row_group_reader;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
-    std::shared_ptr<Statistics> _statistics;
 };
 
 } // namespace doris

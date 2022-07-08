@@ -37,7 +37,13 @@ VArrowScanner::VArrowScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_file_reader(nullptr),
           _cur_file_eof(false),
           _batch(nullptr),
-          _arrow_batch_cur_idx(0) {}
+          _arrow_batch_cur_idx(0) {
+    _filtered_row_groups_counter = ADD_COUNTER(_profile, "FileFilteredRowGroups", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "FileFilteredRows", TUnit::UNIT);
+    _filtered_bytes_counter = ADD_COUNTER(_profile, "FileFilteredBytes", TUnit::BYTES);
+    _total_rows_counter = ADD_COUNTER(_profile, "FileTotalRows", TUnit::UNIT);
+    _total_groups_counter = ADD_COUNTER(_profile, "FileTotalRowGroups", TUnit::UNIT);
+}
 
 VArrowScanner::~VArrowScanner() {
     close();
@@ -83,10 +89,20 @@ Status VArrowScanner::_open_next_reader() {
                 return Status::InternalError(" file: {} error:{}", range.path,
                                              status.get_error_msg());
             } else {
+                update_profile(_cur_file_reader->statistics());
                 return status;
             }
         }
     }
+}
+
+void VArrowScanner::update_profile(std::shared_ptr<Statistics>& statistics) {
+    COUNTER_UPDATE(_total_groups_counter, _cur_file_reader->statistics()->total_groups);
+    COUNTER_UPDATE(_filtered_row_groups_counter,
+                   _cur_file_reader->statistics()->filtered_row_groups);
+    COUNTER_UPDATE(_total_rows_counter, _cur_file_reader->statistics()->total_rows);
+    COUNTER_UPDATE(_filtered_rows_counter, _cur_file_reader->statistics()->filtered_rows);
+    COUNTER_UPDATE(_filtered_bytes_counter, _cur_file_reader->statistics()->filtered_total_bytes);
 }
 
 Status VArrowScanner::open() {
