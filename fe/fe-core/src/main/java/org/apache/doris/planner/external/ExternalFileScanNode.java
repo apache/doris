@@ -135,27 +135,27 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    private static class FileSpiltStrategy {
-        private long totalSpiltSize;
-        private int spiltNum;
+    private static class FileSplitStrategy {
+        private long totalSplitSize;
+        private int splitNum;
 
-        FileSpiltStrategy() {
-            this.totalSpiltSize = 0;
-            this.spiltNum = 0;
+        FileSplitStrategy() {
+            this.totalSplitSize = 0;
+            this.splitNum = 0;
         }
 
         public void update(FileSplit split) {
-            totalSpiltSize += split.getLength();
-            spiltNum++;
+            totalSplitSize += split.getLength();
+            splitNum++;
         }
 
         public boolean hasNext() {
-            return totalSpiltSize > Config.file_scan_node_spilt_size || spiltNum > Config.file_scan_node_spilt_num;
+            return totalSplitSize > Config.file_scan_node_split_size || splitNum > Config.file_scan_node_split_num;
         }
 
         public void next() {
-            totalSpiltSize = 0;
-            spiltNum = 0;
+            totalSplitSize = 0;
+            splitNum = 0;
         }
     }
 
@@ -284,7 +284,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         TScanRangeLocations curLocations = newLocations(context.params);
 
-        FileSpiltStrategy fileSpiltStrategy = new FileSpiltStrategy();
+        FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
 
         for (InputSplit split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
@@ -300,12 +300,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     + " with table split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
 
-            fileSpiltStrategy.update(fileSplit);
-            // Add a new location when it's can be spilt
-            if (fileSpiltStrategy.hasNext()) {
+            fileSplitStrategy.update(fileSplit);
+            // Add a new location when it's can be split
+            if (fileSplitStrategy.hasNext()) {
                 scanRangeLocations.add(curLocations);
                 curLocations = newLocations(context.params);
-                fileSpiltStrategy.next();
+                fileSplitStrategy.next();
             }
         }
         if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
@@ -380,7 +380,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        LOG.info("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
+        LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
         return scanRangeLocations;
     }
 
