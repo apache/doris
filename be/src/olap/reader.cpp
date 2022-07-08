@@ -198,12 +198,18 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
             // it's ok for rowset to return unordered result
             need_ordered_result = false;
         }
+
+        if (read_params.read_orderby_key) {
+            need_ordered_result = true;
+        }
     }
 
     _reader_context.reader_type = read_params.reader_type;
     _reader_context.version = read_params.version;
     _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
+    _reader_context.read_orderby_key = read_params.read_orderby_key;
+    _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.return_columns = &_return_columns;
     _reader_context.seek_columns = &_seek_columns;
     _reader_context.load_bf_columns = &_load_bf_columns;

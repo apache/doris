@@ -160,6 +160,7 @@ private:
 
 private:
     class BitmapRangeIterator;
+    class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;

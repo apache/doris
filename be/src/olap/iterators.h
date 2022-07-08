@@ -95,6 +95,7 @@ public:
 
     const TabletSchema* tablet_schema = nullptr;
     bool record_rowids = false;
+    bool read_orderby_key_reverse = false;
 };
 
 // Used to read data in RowBlockV2 one by one

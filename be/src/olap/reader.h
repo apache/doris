@@ -94,6 +94,9 @@ public:
 
         // used for comapction to record row ids
         bool record_rowids = false;
+        // used for special optimization for query : ORDER BY key LIMIT n
+        bool read_orderby_key = false;
+        bool read_orderby_key_reverse = false;
 
         void check_validation() const;
 
