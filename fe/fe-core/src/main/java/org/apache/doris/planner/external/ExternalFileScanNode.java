@@ -247,6 +247,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
         partitionKeys.addAll(scanProvider.getPathPartitionKeys());
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
+            if (!slot.isMaterialized()) {
+                continue;
+            }
             int slotId = slotDescByName.get(slot.getColumn().getName()).getId().asInt();
 
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
