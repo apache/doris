@@ -44,6 +44,14 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size
           _current_line_of_group(0),
           _current_line_of_batch(0) {}
 
+ParquetReaderWrap::~ParquetReaderWrap() {
+    _closed = true;
+    _queue_writer_cond.notify_one();
+    if (_thread.joinable()) {
+        _thread.join();
+    }
+}
+
 Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                       const std::string& timezone) {
     try {
@@ -92,8 +100,7 @@ Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
 
-        std::thread thread(&ParquetReaderWrap::prefetch_batch, this);
-        thread.detach();
+        _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
 
         // read batch
         RETURN_IF_ERROR(read_next_batch());
@@ -115,12 +122,6 @@ Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }
-}
-
-void ParquetReaderWrap::close() {
-    _closed = true;
-    _queue_writer_cond.notify_one();
-    ArrowReaderWrap::close();
 }
 
 Status ParquetReaderWrap::size(int64_t* size) {
@@ -531,8 +532,9 @@ void ParquetReaderWrap::prefetch_batch() {
         _queue_reader_cond.notify_one();
     };
     int current_group = 0;
+    int total_groups = _total_groups;
     while (true) {
-        if (_closed || current_group >= _total_groups) {
+        if (_closed || current_group >= total_groups) {
             return;
         }
         _status = _reader->GetRecordBatchReader({current_group}, _include_column_ids, &_rb_reader);
