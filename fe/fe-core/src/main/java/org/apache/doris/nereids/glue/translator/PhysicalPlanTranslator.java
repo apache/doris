@@ -286,13 +286,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
         List<Expr> sortTupleSlotExprs = new ArrayList<>();
-        Set<ExprId> exprIds = new HashSet<>();
-        outputList.addAll(orderingExpr);
-        for (Expr expr : outputList) {
-            if (!exprIds.contains(expr)) {
-                sortTupleSlotExprs.add(expr);
-            }
-        }
+        sortTupleSlotExprs.addAll(outputList);
+        sortTupleSlotExprs.addAll(orderingExpr);
         info.setTupleInfo(tupleDescriptor, sortTupleSlotExprs);
     }
 

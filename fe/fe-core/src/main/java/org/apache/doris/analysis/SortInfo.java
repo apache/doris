@@ -30,6 +30,8 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -63,7 +65,6 @@ public class SortInfo {
     // Input expressions materialized into sortTupleDesc_. One expr per slot in
     // sortTupleDesc_.
     private List<Expr> sortTupleSlotExprs;
-
 
     public SortInfo(List<Expr> orderingExprs, List<Boolean> isAscOrder,
                     List<Boolean> nullsFirstParams) {
@@ -124,8 +125,16 @@ public class SortInfo {
      */
     public void setTupleInfo(
             TupleDescriptor tupleDesc, List<Expr> sourceExprs) {
+        List<Expr> afterDeduplication = new ArrayList<>();
+        Set<ExprId> exprIds = new HashSet<>();
+        for (int i = 0; i < sourceExprs.size(); i++) {
+            Expr expr = sourceExprs.get(i);
+            if (!exprIds.contains(expr.getId())) {
+                afterDeduplication.add(expr);
+            }
+        }
         sortTupleDesc = tupleDesc;
-        sortTupleSlotExprs = sourceExprs;
+        sortTupleSlotExprs = afterDeduplication;
     }
 
     public List<Expr> getOrderingExprs() {
