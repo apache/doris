@@ -63,4 +63,4 @@ mysql> select c_left,c_right,arrays_overlap(c_left,c_right) from array_test;
 
 ### keywords
 
-ARRAYS_OVERLAP
+ARRAY,ARRAYS,OVERLAP,ARRAYS_OVERLAP
