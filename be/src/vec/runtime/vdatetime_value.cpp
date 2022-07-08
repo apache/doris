@@ -837,9 +837,17 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
 }
 
 uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year) {
-    if (mode == 3 && value._year >= 1949 && value._year < 2030) {
+    //mode=3 is used for week_of_year()
+    if (mode == 3 && value._year >= 1950 && value._year < 2030) {
+        DCHECK(value._month < 13 && value._day < 32);
         return week_of_year_table[value._year - 1950][value._month][value._day];
     }
+    //mode=4 is used for week()
+    if (mode == 4 && value._year >= 1950 && value._year < 2030) {
+        DCHECK(value._month < 13 && value._day < 32);
+        return week_table[value._year - 1950][value._month][value._day];
+    }
+    //not covered by pre calculated dates, calculate at runtime
     bool monday_first = mode & WEEK_MONDAY_FIRST;
     bool week_year = mode & WEEK_YEAR;
     bool first_weekday = mode & WEEK_FIRST_WEEKDAY;
@@ -890,6 +898,13 @@ uint8_t VecDateTimeValue::week(uint8_t mode) const {
 }
 
 uint32_t VecDateTimeValue::year_week(uint8_t mode) const {
+    //mode=4 is used for yearweek()
+    if (mode == 4 && _year >= 1950 && _year < 2030) {
+        DCHECK(_month < 13 && _day < 32);
+        return year_week_table[_year - 1950][_month][_day];
+    }
+
+    //not covered by year_week_table, calculate at runtime
     uint32_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
     uint8_t week = calc_week(*this, mode | 2, &year);

@@ -203,6 +203,8 @@ set(VEC_FILES
   sink/vresult_file_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/week_of_year.data
+  runtime/week.data
+  runtime/year_week.data
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp
