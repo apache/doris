@@ -25,7 +25,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Id;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -39,7 +38,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -104,8 +102,8 @@ public class NereidsPlanner extends Planner {
                 outputCandidates.put(slotDescriptor.getId().asInt(), slotRef);
             }
         }
-        physicalPlan.getOutput().stream().map(Slot::getExprId)
-                .map(Id::asInt).forEach(i -> outputExprs.add(outputCandidates.get(i)));
+        physicalPlan.getOutput().stream()
+                .forEach(i -> outputExprs.add(planTranslatorContext.findExpr(i)));
         root.setOutputExprs(outputExprs);
         root.getPlanRoot().convertToVectoriezd();
 

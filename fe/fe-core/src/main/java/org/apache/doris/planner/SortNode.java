@@ -22,11 +22,13 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
@@ -44,6 +46,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -263,5 +266,25 @@ public class SortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    /**
+     * Supplement the information needed by be for the sort node.
+     */
+    public void finalizeForNereids(TupleDescriptor tupleDescriptor,
+            List<Expr> outputList, List<Expr> orderingExpr) {
+        List<Expr> sortTupleSlotExprs = new ArrayList<>();
+        sortTupleSlotExprs.addAll(outputList);
+        sortTupleSlotExprs.addAll(orderingExpr);
+        List<Expr> afterDeduplication = new ArrayList<>();
+        Set<ExprId> exprIds = new HashSet<>();
+        for (int i = 0; i < sortTupleSlotExprs.size(); i++) {
+            Expr expr = sortTupleSlotExprs.get(i);
+            if (!exprIds.contains(expr.getId())) {
+                afterDeduplication.add(expr);
+            }
+        }
+        info.setSortTupleDesc(tupleDescriptor);
+        info.setSortTupleSlotExprs(afterDeduplication);
     }
 }

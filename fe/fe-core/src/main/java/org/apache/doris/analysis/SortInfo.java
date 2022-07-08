@@ -141,6 +141,10 @@ public class SortInfo {
         this.sortTupleSlotExprs = sortTupleSlotExprs;
     }
 
+    public void setSortTupleDesc(TupleDescriptor tupleDesc) {
+        sortTupleDesc = tupleDesc;
+    }
+
     public TupleDescriptor getSortTupleDescriptor() {
         return sortTupleDesc;
     }
