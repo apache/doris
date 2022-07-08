@@ -574,67 +574,95 @@ Status OlapScanNode::normalize_conjuncts() {
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         switch (slots[slot_idx]->type().type) {
         case TYPE_TINYINT: {
-            ColumnValueRange<int8_t> range(slots[slot_idx]->col_name(),
-                                           slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_TINYINT> range(slots[slot_idx]->col_name(),
+                                                 slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_SMALLINT: {
-            ColumnValueRange<int16_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
-            normalize_predicate(range, slots[slot_idx]);
-            break;
-        }
-
-        case TYPE_INT: {
-            ColumnValueRange<int32_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
-            normalize_predicate(range, slots[slot_idx]);
-            break;
-        }
-
-        case TYPE_BIGINT: {
-            ColumnValueRange<int64_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
-            normalize_predicate(range, slots[slot_idx]);
-            break;
-        }
-
-        case TYPE_LARGEINT: {
-            ColumnValueRange<__int128> range(slots[slot_idx]->col_name(),
-                                             slots[slot_idx]->type().type);
-            normalize_predicate(range, slots[slot_idx]);
-            break;
-        }
-
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-        case TYPE_STRING: {
-            ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
-                                                slots[slot_idx]->type().type);
-            normalize_predicate(range, slots[slot_idx]);
-            break;
-        }
-
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            ColumnValueRange<DateTimeValue> range(slots[slot_idx]->col_name(),
+            ColumnValueRange<TYPE_SMALLINT> range(slots[slot_idx]->col_name(),
                                                   slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
+        case TYPE_INT: {
+            ColumnValueRange<TYPE_INT> range(slots[slot_idx]->col_name(),
+                                             slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_BIGINT: {
+            ColumnValueRange<TYPE_BIGINT> range(slots[slot_idx]->col_name(),
+                                                slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_LARGEINT: {
+            ColumnValueRange<TYPE_LARGEINT> range(slots[slot_idx]->col_name(),
+                                                  slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_CHAR: {
+            ColumnValueRange<TYPE_CHAR> range(slots[slot_idx]->col_name(),
+                                              slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_VARCHAR: {
+            ColumnValueRange<TYPE_VARCHAR> range(slots[slot_idx]->col_name(),
+                                                 slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_HLL: {
+            ColumnValueRange<TYPE_HLL> range(slots[slot_idx]->col_name(),
+                                             slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_STRING: {
+            ColumnValueRange<TYPE_STRING> range(slots[slot_idx]->col_name(),
+                                                slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DATE: {
+            ColumnValueRange<TYPE_DATE> range(slots[slot_idx]->col_name(),
+                                              slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_DATETIME: {
+            ColumnValueRange<TYPE_DATETIME> range(slots[slot_idx]->col_name(),
+                                                  slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DATEV2: {
+            ColumnValueRange<TYPE_DATEV2> range(slots[slot_idx]->col_name(),
+                                                slots[slot_idx]->type().type);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         case TYPE_DECIMALV2: {
-            ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
+            ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name(),
                                                    slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_BOOLEAN: {
-            ColumnValueRange<bool> range(slots[slot_idx]->col_name(), slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_BOOLEAN> range(slots[slot_idx]->col_name(),
+                                                 slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
@@ -879,7 +907,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     return Status::OK();
 }
 
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot) {
     // 1. Normalize InPredicate, add to ColumnValueRange
     RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
@@ -994,7 +1022,7 @@ std::pair<bool, void*> OlapScanNode::should_push_down_eq_predicate(doris::SlotDe
     return result_pair;
 }
 
-template <typename T, typename ChangeFixedValueRangeFunc>
+template <PrimitiveType T, typename ChangeFixedValueRangeFunc>
 Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, PrimitiveType type,
                                               void* value, const ChangeFixedValueRangeFunc& func) {
     switch (type) {
@@ -1003,7 +1031,8 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
         // There is must return empty data in olap_scan_node,
         // Because data value loss accuracy
         if (!date_value.check_loss_accuracy_cast_to_date()) {
-            func(temp_range, reinterpret_cast<T*>(&date_value));
+            func(temp_range,
+                 reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&date_value));
         }
         break;
     }
@@ -1018,12 +1047,12 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_BIGINT:
     case TYPE_LARGEINT:
     case TYPE_STRING: {
-        func(temp_range, reinterpret_cast<T*>(value));
+        func(temp_range, reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(value));
         break;
     }
     case TYPE_BOOLEAN: {
         bool v = *reinterpret_cast<bool*>(value);
-        func(temp_range, reinterpret_cast<T*>(&v));
+        func(temp_range, reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&v));
         break;
     }
     default: {
@@ -1038,7 +1067,7 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
 // It will only handle the InPredicate and eq BinaryPredicate in _conjunct_ctxs.
 // It will try to push down conditions of that column as much as possible,
 // But if the number of conditions exceeds the limit, none of conditions will be pushed down.
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                                                    ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
@@ -1118,7 +1147,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 // It will only handle the NotInPredicate and not eq BinaryPredicate in _conjunct_ctxs.
 // It will try to push down conditions of that column as much as possible,
 // But if the number of conditions exceeds the limit, none of conditions will be pushed down.
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
                                                            ColumnValueRange<T>* range) {
     // If the conjunct of slot is fixed value, will change the fixed value set of column value range
@@ -1209,7 +1238,7 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 bool OlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
                                                const std::string& is_null_str,
                                                ColumnValueRange<T>* range) {
@@ -1233,7 +1262,7 @@ bool OlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
     return true;
 }
 
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                                                       ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
@@ -1303,7 +1332,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                         }
                     }
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(&date_value));
+                                     *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
+                                             &date_value));
                     break;
                 }
                 case TYPE_TINYINT:
@@ -1318,8 +1348,9 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_LARGEINT:
                 case TYPE_BOOLEAN:
                 case TYPE_STRING: {
-                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(value));
+                    range->add_range(
+                            to_olap_filter_type(pred->op(), child_idx),
+                            *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(value));
                     break;
                 }
 
@@ -1337,7 +1368,9 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
 
                 VLOG_CRITICAL << slot->col_name() << " op: "
                               << static_cast<int>(to_olap_filter_type(pred->op(), child_idx))
-                              << " value: " << *reinterpret_cast<T*>(value);
+                              << " value: "
+                              << *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
+                                         value);
             }
         }
     }
