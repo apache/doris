@@ -97,12 +97,11 @@ Status VArrowScanner::_open_next_reader() {
 }
 
 void VArrowScanner::update_profile(std::shared_ptr<Statistics>& statistics) {
-    COUNTER_UPDATE(_total_groups_counter, _cur_file_reader->statistics()->total_groups);
-    COUNTER_UPDATE(_filtered_row_groups_counter,
-                   _cur_file_reader->statistics()->filtered_row_groups);
-    COUNTER_UPDATE(_total_rows_counter, _cur_file_reader->statistics()->total_rows);
-    COUNTER_UPDATE(_filtered_rows_counter, _cur_file_reader->statistics()->filtered_rows);
-    COUNTER_UPDATE(_filtered_bytes_counter, _cur_file_reader->statistics()->filtered_total_bytes);
+    COUNTER_UPDATE(_total_groups_counter, statistics->total_groups);
+    COUNTER_UPDATE(_filtered_row_groups_counter, statistics->filtered_row_groups);
+    COUNTER_UPDATE(_total_rows_counter, statistics->total_rows);
+    COUNTER_UPDATE(_filtered_rows_counter, statistics->filtered_rows);
+    COUNTER_UPDATE(_filtered_bytes_counter, statistics->filtered_total_bytes);
 }
 
 Status VArrowScanner::open() {

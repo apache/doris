@@ -42,9 +42,7 @@ ParquetReaderWrap::ParquetReaderWrap(RuntimeProfile* profile, FileReader* file_r
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0),
-          _profile(profile) {
-    _statistics = std::make_shared<Statistics>();
-}
+          _profile(profile) {}
 
 ParquetReaderWrap::~ParquetReaderWrap() {
     _closed = true;
