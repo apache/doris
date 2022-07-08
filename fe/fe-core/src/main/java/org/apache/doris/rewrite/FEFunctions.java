@@ -238,10 +238,21 @@ public class FEFunctions {
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 
+    @FEFunction(name = "now", argTypes = { "TINYINT" }, returnType = "DATETIME")
+    public static DateLiteral now(LiteralExpr precision) throws AnalysisException {
+        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
+                DateLiteral.getDefaultDateType(Type.DATETIME), (int) precision.getLongValue());
+    }
+
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
         return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
             DateLiteral.getDefaultDateType(Type.DATETIME));
+    }
+
+    @FEFunction(name = "current_timestamp", argTypes = { "TINYINT" }, returnType = "DATETIME")
+    public static DateLiteral currentTimestamp(LiteralExpr precision) throws AnalysisException {
+        return now(precision);
     }
 
     @FEFunction(name = "current_timestamp", argTypes = {}, returnType = "DATETIME")

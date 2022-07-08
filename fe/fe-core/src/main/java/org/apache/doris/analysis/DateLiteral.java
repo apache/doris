@@ -293,6 +293,36 @@ public class DateLiteral extends LiteralExpr {
         this.hour = dateTime.getHourOfDay();
         this.minute = dateTime.getMinuteOfHour();
         this.second = dateTime.getSecondOfMinute();
+        this.microsecond = dateTime.getMillisOfSecond() * 1000L;
+        this.type = type;
+    }
+
+    public DateLiteral(LocalDateTime dateTime, Type type, int precision) {
+        this.year = dateTime.getYear();
+        this.month = dateTime.getMonthOfYear();
+        this.day = dateTime.getDayOfMonth();
+        this.hour = dateTime.getHourOfDay();
+        this.minute = dateTime.getMinuteOfHour();
+        this.second = dateTime.getSecondOfMinute();
+        switch (precision) {
+            case 1:
+                this.microsecond = dateTime.getMillisOfSecond() / 100 * 100L * 1000L;
+                break;
+            case 2:
+                this.microsecond = dateTime.getMillisOfSecond() / 10 * 10L * 1000L;
+                break;
+            case 3:
+            case 4:
+            case 5:
+            case 6:
+                this.microsecond = dateTime.getMillisOfSecond() * 1000L;
+                break;
+            case 0:
+            default:
+                this.microsecond = 0;
+
+        }
+        this.microsecond = dateTime.getMillisOfSecond() * 1000L;
         this.type = type;
     }
 
@@ -301,10 +331,10 @@ public class DateLiteral extends LiteralExpr {
         hour = other.hour;
         minute = other.minute;
         second = other.second;
+        microsecond = other.microsecond;
         year = other.year;
         month = other.month;
         day = other.day;
-        microsecond = other.microsecond;
         type = other.type;
     }
 
