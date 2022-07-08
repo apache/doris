@@ -22,13 +22,14 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Literal;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Expression rewrite helper class.
@@ -87,13 +88,8 @@ public class ExpressionUtils {
      * Use AND/OR to combine expressions together.
      */
     public static Expression combine(NodeType op, List<Expression> expressions) {
+        Preconditions.checkArgument(op == NodeType.AND || op == NodeType.OR);
         Objects.requireNonNull(expressions, "expressions is null");
-
-        if (expressions.size() == 0) {
-            return new Literal(op == NodeType.AND);
-        } else if (expressions.size() == 1) {
-            return expressions.get(0);
-        }
 
         Expression shortCircuit = (op == NodeType.AND ? Literal.FALSE_LITERAL : Literal.TRUE_LITERAL);
         Expression skip = (op == NodeType.AND ? Literal.TRUE_LITERAL : Literal.FALSE_LITERAL);
@@ -106,17 +102,8 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> result = Lists.newArrayListWithCapacity(distinctExpressions.size() / 2 + 1);
-        Iterator<Expression> iterator = distinctExpressions.iterator();
-        while (iterator.hasNext()) {
-            Expression left = iterator.next();
-            if (iterator.hasNext()) {
-                Expression right = iterator.next();
-                result.add(new CompoundPredicate(op, left, right));
-            } else {
-                result.add(left);
-            }
-        }
-        return combine(op, result);
+        Optional<Expression> result =
+                distinctExpressions.stream().reduce((left, right) -> new CompoundPredicate<>(op, left, right));
+        return result.orElse(new Literal(op == NodeType.AND));
     }
 }
