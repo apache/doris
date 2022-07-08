@@ -34,6 +34,8 @@ under the License.
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <log4j2.version>2.17.2</log4j2.version>
         <antlr4.version>4.9.3</antlr4.version>
+        <testcontainers.version>1.17.3</testcontainers.version>
+        <jna.version>5.12.1</jna.version>
     </properties>
     <profiles>
         <profile>
@@ -246,6 +248,18 @@ under the License.
             <groupId>org.junit.vintage</groupId>
             <artifactId>junit-vintage-engine</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
@@ -545,12 +559,12 @@ under the License.
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
-            <version>5.5.0</version>
+            <version>${jna.version}</version>
         </dependency>
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna-platform</artifactId>
-            <version>5.5.0</version>
+            <version>${jna.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>

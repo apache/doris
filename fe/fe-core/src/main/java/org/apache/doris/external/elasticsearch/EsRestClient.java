@@ -171,7 +171,7 @@ public class EsRestClient {
      * @param path the path must not leading with '/'
      * @return response
      */
-    private String execute(String path) throws DorisEsException {
+    public String execute(String path) throws DorisEsException {
         int retrySize = nodes.length;
         DorisEsException scratchExceptionForThrow = null;
         OkHttpClient httpClient;

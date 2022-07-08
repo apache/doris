@@ -71,13 +71,13 @@ public class HttpUtils {
         return url.toString();
     }
 
-    static String doGet(String url, Map<String, String> headers) throws IOException {
+    public static String doGet(String url, Map<String, String> headers) throws IOException {
         HttpGet httpGet = new HttpGet(url);
         setRequestConfig(httpGet, headers);
         return executeRequest(httpGet);
     }
 
-    static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+    public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
             String jsonString = GsonUtils.GSON.toJson(body);

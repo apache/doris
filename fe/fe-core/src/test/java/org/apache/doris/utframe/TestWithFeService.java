@@ -77,6 +77,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -94,6 +95,7 @@ import java.util.UUID;
 public abstract class TestWithFeService {
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
+    protected final boolean M1_CHIP_FLAG = Objects.equals(System.getProperty("m1_chip"), "true");
 
     @BeforeAll
     public final void beforeAll() throws Exception {
