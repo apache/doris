@@ -48,6 +48,8 @@ public:
     // Close this scanner
     virtual void close() = 0;
 
+    std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
+
 protected:
     Status finalize_block(vectorized::Block* dest_block, bool* eof);
     Status init_block(vectorized::Block* block);
@@ -88,10 +90,17 @@ protected:
     std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
     int _num_of_columns_from_file;
 
+<<<<<<< HEAD
     // File formats based push down predicate
     std::vector<ExprContext*> _conjunct_ctxs;
     // slot_ids for parquet predicate push down are in tuple desc
     TupleId _tupleId;
+=======
+    // to record which runtime filters have been used
+    std::vector<bool> _runtime_filter_marks;
+
+    FileScanNode* _parent;
+>>>>>>> 313d872e0 (hms table runtime filter)
 
 private:
     Status _init_expr_ctxes();

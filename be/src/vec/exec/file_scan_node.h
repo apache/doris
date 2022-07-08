@@ -121,6 +121,12 @@ private:
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
     std::unique_ptr<MutableBlock> _mutable_block;
+
+protected:
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const {
+        return _runtime_filter_descs;
+    }
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 } // namespace vectorized
 } // namespace doris
