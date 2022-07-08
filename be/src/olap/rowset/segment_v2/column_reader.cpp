@@ -960,13 +960,6 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
-    case OLAP_FIELD_TYPE_DATEV2: {
-        assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType)); //uint32_t
-
-        int128 = *((FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType*)mem_value);
-        dst->insert_many_data(data_ptr, data_len, n);
-        break;
-    }
     case OLAP_FIELD_TYPE_DECIMAL: {
         assert(type_size ==
                sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
