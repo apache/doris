@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -134,6 +135,10 @@ public class SortInfo {
 
     public List<Expr> getSortTupleSlotExprs() {
         return sortTupleSlotExprs;
+    }
+
+    public void setSortTupleSlotExprs(List<Expr> sortTupleSlotExprs) {
+        this.sortTupleSlotExprs = sortTupleSlotExprs;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {
@@ -272,5 +277,16 @@ public class SortInfo {
             materializedOrderingExprs.add(origOrderingExpr);
         }
         return substOrderBy;
+    }
+
+    /**
+     * Convert the sort info to TSortInfo.
+     */
+    public TSortInfo toThrift() {
+        TSortInfo sortInfo = new TSortInfo(
+                Expr.treesToThrift(orderingExprs),
+                isAscOrder,
+                nullsFirstParams);
+        return sortInfo;
     }
 }

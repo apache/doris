@@ -332,6 +332,8 @@ private:
     std::vector<SlotId> _output_slot_ids;
 
     std::vector<bool> _output_slot_flags;
+    phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
+    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
 };
 } // namespace vectorized
 } // namespace doris

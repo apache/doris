@@ -52,7 +52,7 @@ public class HiveMetaStoreClientHelperTest {
     @BeforeClass
     public static void beforeAll() {
         tableNameString = "test_table";
-        tableName = new TableName("", tableNameString);
+        tableName = new TableName("hive", "", tableNameString);
         partitionKeys.add(p1);
         partitionKeys.add(p2);
     }

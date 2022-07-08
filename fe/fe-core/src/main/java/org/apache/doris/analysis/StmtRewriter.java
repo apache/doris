@@ -1108,7 +1108,7 @@ public class StmtRewriter {
             return null;
         }
         // Create a SlotRef from the first item of inlineView's select list
-        SlotRef slotRef = new SlotRef(new TableName(null, inlineView.getAlias()),
+        SlotRef slotRef = new SlotRef(new TableName(null, null, inlineView.getAlias()),
                 inlineView.getColLabels().get(0));
         slotRef.analyze(analyzer);
         Expr subquerySubstitute = slotRef;

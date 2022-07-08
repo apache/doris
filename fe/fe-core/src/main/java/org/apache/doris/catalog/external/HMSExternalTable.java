@@ -138,6 +138,11 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
+    public boolean isView() {
+        return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
+    }
+
+    @Override
     public List<Column> getFullSchema() {
         makeSureInitialized();
         return fullSchema;

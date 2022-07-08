@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -32,10 +33,11 @@ import org.junit.Test;
 import java.util.List;
 
 public class MVColumnHLLUnionPatternTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Test
     public void testCorrectExpr1(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
@@ -50,7 +52,7 @@ public class MVColumnHLLUnionPatternTest {
 
     @Test
     public void testCorrectExpr2(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         new Expectations() {
             {
@@ -71,7 +73,7 @@ public class MVColumnHLLUnionPatternTest {
 
     @Test
     public void testUpperCaseOfFunction(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
@@ -111,7 +113,7 @@ public class MVColumnHLLUnionPatternTest {
 
     @Test
     public void testIncorrectDecimalSlotRef(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.DECIMALV2);
         List<Expr> child0Params = Lists.newArrayList();
@@ -128,7 +130,7 @@ public class MVColumnHLLUnionPatternTest {
     @Test
     public void testAggTableHLLColumn(@Injectable SlotDescriptor desc,
             @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef1);
