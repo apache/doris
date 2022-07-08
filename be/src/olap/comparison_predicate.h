@@ -160,8 +160,9 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
-                      bool* flags) const override {
+    template <bool is_and>
+    __attribute__((flatten)) void _evaluate_vec_internal(const vectorized::IColumn& column,
+                                                         uint16_t size, bool* flags) const {
         if (column.is_nullable()) {
             auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -180,7 +181,8 @@ public:
                                                  : dict_column_ptr->find_code(_value);
                     auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<true>(size, flags, null_map.data(), data_array, dict_code);
+                    _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
+                                                 dict_code);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
@@ -190,7 +192,7 @@ public:
                                            .get_data()
                                            .data();
 
-                _base_loop_vec<true>(size, flags, null_map.data(), data_array, _value_real);
+                _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value_real);
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -202,7 +204,7 @@ public:
                                                  : dict_column_ptr->find_code(_value);
                     auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<false>(size, flags, nullptr, data_array, dict_code);
+                    _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
@@ -213,7 +215,7 @@ public:
                                 ->get_data()
                                 .data();
 
-                _base_loop_vec<false>(size, flags, nullptr, data_array, _value_real);
+                _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value_real);
             }
         }
 
@@ -222,6 +224,16 @@ public:
                 flags[i] = !flags[i];
             }
         }
+    }
+
+    void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
+                      bool* flags) const override {
+        _evaluate_vec_internal<false>(column, size, flags);
+    }
+
+    void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
+                          bool* flags) const override {
+        _evaluate_vec_internal<true>(column, size, flags);
     }
 
 private:
@@ -313,14 +325,28 @@ private:
         }
     }
 
-    template <bool is_nullable, typename TArray, typename TValue>
-    void _base_loop_vec(uint16_t size, bool* __restrict flags, const uint8_t* __restrict null_map,
-                        const TArray* __restrict data_array, const TValue& value) const {
-        for (uint16_t i = 0; i < size; i++) {
-            if constexpr (is_nullable) {
-                flags[i] = !null_map[i] && _operator(data_array[i], value);
-            } else {
-                flags[i] = _operator(data_array[i], value);
+    template <bool is_nullable, bool is_and, typename TArray, typename TValue>
+    __attribute__((flatten)) void _base_loop_vec(uint16_t size, bool* __restrict bflags,
+                                                 const uint8_t* __restrict null_map,
+                                                 const TArray* __restrict data_array,
+                                                 const TValue& value) const {
+        //uint8_t helps compiler to generate vectorized code
+        uint8_t* flags = reinterpret_cast<uint8_t*>(bflags);
+        if constexpr (is_and) {
+            for (uint16_t i = 0; i < size; i++) {
+                if constexpr (is_nullable) {
+                    flags[i] &= (uint8_t)(!null_map[i] && _operator(data_array[i], value));
+                } else {
+                    flags[i] &= (uint8_t)_operator(data_array[i], value);
+                }
+            }
+        } else {
+            for (uint16_t i = 0; i < size; i++) {
+                if constexpr (is_nullable) {
+                    flags[i] = !null_map[i] && _operator(data_array[i], value);
+                } else {
+                    flags[i] = _operator(data_array[i], value);
+                }
             }
         }
     }

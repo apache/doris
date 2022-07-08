@@ -122,6 +122,29 @@ private:
 
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
+    // Dictionary column should do something to initial.
+    void _convert_dict_code_for_predicate_if_necessary() {
+        for (auto predicate : _short_cir_eval_predicate) {
+            auto& column = _current_return_columns[predicate->column_id()];
+            auto* col_ptr = column.get();
+            if (PredicateTypeTraits::is_range(predicate->type())) {
+                col_ptr->convert_dict_codes_if_necessary();
+            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+                col_ptr->generate_hash_values_for_runtime_filter();
+            }
+        }
+
+        for (auto predicate : _pre_eval_block_predicate) {
+            auto& column = _current_return_columns[predicate->column_id()];
+            auto* col_ptr = column.get();
+            if (PredicateTypeTraits::is_range(predicate->type())) {
+                col_ptr->convert_dict_codes_if_necessary();
+            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+                col_ptr->generate_hash_values_for_runtime_filter();
+            }
+        }
+    }
+
 private:
     class BitmapRangeIterator;
 
@@ -159,7 +182,7 @@ private:
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
     std::vector<bool> _is_pred_column; // columns hold by segmentIter
     vectorized::MutableColumns _current_return_columns;
-    std::unique_ptr<AndBlockColumnPredicate> _pre_eval_block_predicate;
+    std::vector<ColumnPredicate*> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
     // when lazy materialization is enable, segmentIter need to read data at least twice
     // first, read predicate columns by various index
