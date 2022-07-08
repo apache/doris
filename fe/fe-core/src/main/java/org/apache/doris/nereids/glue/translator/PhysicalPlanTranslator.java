@@ -233,7 +233,8 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, olapTable.getName());
-        TableName tableName = new TableName("", "");
+        // TODO: Do we really need tableName here?
+        TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
@@ -278,7 +279,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // TODO: notice topN
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true,
                 physicalHeapSort.hasLimit(), physicalHeapSort.getOffset());
-        exec(sortNode::init);
         childFragment.addPlanRoot(sortNode);
         if (!childFragment.isPartitioned()) {
             return childFragment;

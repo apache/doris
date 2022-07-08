@@ -34,9 +34,9 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
  * For example:
  * 5 > id -> id < 5
  */
-public class NormalizeExpressionRule extends AbstractExpressionRewriteRule {
+public class NormalizeBinaryPredicatesRule extends AbstractExpressionRewriteRule {
 
-    public static NormalizeExpressionRule INSTANCE = new NormalizeExpressionRule();
+    public static NormalizeBinaryPredicatesRule INSTANCE = new NormalizeBinaryPredicatesRule();
 
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate expr, ExpressionRewriteContext context) {

@@ -47,7 +47,7 @@ public class AlterTableStmt extends DdlStmt {
     }
 
     public void setTableName(String newTableName) {
-        tbl = new TableName(tbl.getDb(), newTableName);
+        tbl = new TableName(tbl.getCtl(), tbl.getDb(), newTableName);
     }
 
     public TableName getTbl() {

@@ -325,6 +325,9 @@ private:
     int _max_materialized_blocks;
 
     size_t _block_size = 0;
+
+    phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
+    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
 };
 } // namespace vectorized
 } // namespace doris
