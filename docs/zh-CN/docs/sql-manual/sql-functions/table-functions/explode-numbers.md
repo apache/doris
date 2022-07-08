@@ -54,4 +54,4 @@ mysql> select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as
 ```
 ### keywords
 
-    explode_numbers
+explode,numbers,explode_numbers
