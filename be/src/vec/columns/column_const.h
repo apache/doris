@@ -112,6 +112,19 @@ public:
         return res;
     }
 
+    size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
+
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const override {
+        data->serialize_vec(keys, num_rows, max_row_byte_size);
+    }
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map,
+                                     size_t max_row_byte_size) const override {
+        data->serialize_vec_with_null_map(keys, num_rows, null_map, max_row_byte_size);
+    }
+
     void update_hash_with_value(size_t, SipHash& hash) const override {
         data->update_hash_with_value(0, hash);
     }

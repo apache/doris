@@ -50,13 +50,41 @@ struct AggregationMethodSerialized {
     Data data;
     Iterator iterator;
     bool inited = false;
+    std::vector<StringRef> keys;
+    AggregationMethodSerialized()
+            : _serialized_key_buffer_size(0),
+              _serialized_key_buffer(nullptr),
+              _mem_pool(new MemPool) {}
 
-    AggregationMethodSerialized() = default;
+    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
 
     template <typename Other>
     explicit AggregationMethodSerialized(const Other& other) : data(other.data) {}
 
-    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped>;
+    void serialize_keys(const ColumnRawPtrs& key_columns, const size_t num_rows) {
+        size_t max_one_row_byte_size = 0;
+        for (const auto& column : key_columns) {
+            max_one_row_byte_size += column->get_max_row_byte_size();
+        }
+
+        if ((max_one_row_byte_size * num_rows) > _serialized_key_buffer_size) {
+            _serialized_key_buffer_size = max_one_row_byte_size * num_rows;
+            _mem_pool->clear();
+            _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size);
+        }
+
+        if (keys.size() < num_rows) keys.resize(num_rows);
+
+        for (size_t i = 0; i < num_rows; ++i) {
+            keys[i].data =
+                    reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
+            keys[i].size = 0;
+        }
+
+        for (const auto& column : key_columns) {
+            column->serialize_vec(keys, num_rows, max_one_row_byte_size);
+        }
+    }
 
     static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
                                         const Sizes&) {
@@ -70,6 +98,11 @@ struct AggregationMethodSerialized {
             iterator = data.begin();
         }
     }
+
+private:
+    size_t _serialized_key_buffer_size;
+    uint8_t* _serialized_key_buffer;
+    std::unique_ptr<MemPool> _mem_pool;
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
@@ -448,6 +481,7 @@ private:
     Arena _agg_arena_pool;
 
     RuntimeProfile::Counter* _build_timer;
+    RuntimeProfile::Counter* _serialize_key_timer;
     RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _merge_timer;
     RuntimeProfile::Counter* _expr_timer;
@@ -483,6 +517,16 @@ private:
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
     void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
+
+    template <typename AggState, typename AggMethod>
+    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
+                                    const ColumnRawPtrs& key_columns, const size_t num_rows) {
+        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
+            SCOPED_TIMER(_serialize_key_timer);
+            agg_method.serialize_keys(key_columns, num_rows);
+            state.set_serialized_keys(agg_method.keys.data());
+        }
+    }
 
     void release_tracker();
 
