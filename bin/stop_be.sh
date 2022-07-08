@@ -23,7 +23,7 @@ export DORIS_HOME=`cd "$curdir/.."; pwd`
 export PID_DIR=`cd "$curdir"; pwd`
 
 signum=9
-if [ $1 = "--grace" ]; then
+if [[ $1 = "--grace" ]]; then
     signum=15
 fi
 
