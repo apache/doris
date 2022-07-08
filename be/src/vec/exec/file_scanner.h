@@ -34,7 +34,8 @@ public:
 
     virtual ~FileScanner() = default;
 
-    virtual void reg_conjunct_ctxs(const TupleId& tupleId, const std::vector<ExprContext*>& conjunct_ctxs);
+    virtual void reg_conjunct_ctxs(const TupleId& tupleId,
+                                   const std::vector<ExprContext*>& conjunct_ctxs);
 
     // Open this scanner, will initialize information need to
     virtual Status open();

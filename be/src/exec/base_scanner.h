@@ -65,7 +65,8 @@ public:
     }
 
     // Register conjuncts for push down
-    virtual void reg_conjunct_ctxs(const TupleId& tupleId, const std::vector<ExprContext*>& conjunct_ctxs);
+    virtual void reg_conjunct_ctxs(const TupleId& tupleId,
+                                   const std::vector<ExprContext*>& conjunct_ctxs);
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
