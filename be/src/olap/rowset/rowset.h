@@ -264,6 +264,8 @@ public:
         return Status::OK();
     }
 
+    bool check_rowset_segment();
+
 protected:
     friend class RowsetFactory;
 
@@ -284,7 +286,10 @@ protected:
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version) {}
 
+    virtual bool check_current_rowset_segment() = 0;
+
     TabletSchemaSPtr _schema;
+
     std::string _tablet_path;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor
