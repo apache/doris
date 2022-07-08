@@ -26,6 +26,9 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+
+class FileScanNode;
+
 class FileScanner {
 public:
     FileScanner(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams& params,
