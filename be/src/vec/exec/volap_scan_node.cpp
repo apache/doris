@@ -29,6 +29,7 @@
 #include "util/to_string.h"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scanner.h"
+#include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
@@ -1655,7 +1656,7 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         auto slots = _tuple_desc->slots();
         for (int i = 0; i < slots.size(); i++) {
             if (!_output_slot_flags[i]) {
-                (*std::move(columns[i])).assume_mutable()->clear();
+                std::move(columns[i])->assume_mutable()->clear();
             }
         }
         return Status::OK();
