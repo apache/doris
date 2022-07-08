@@ -108,4 +108,35 @@ public class ProjectPlannerFunctionTest {
         Assert.assertTrue(explainString.contains("output slot ids: 1"));
         Assert.assertTrue(explainString.contains("hash output slot ids: 1 2 3"));
     }
+
+    @Test
+    public void projectOlap() throws Exception {
+        String createOrdersTbl = "CREATE TABLE test.`orders` (\n" + "  `o_orderkey` integer NOT NULL,\n"
+                + "  `o_custkey` integer NOT NULL,\n" + "  `o_orderstatus` char(1) NOT NULL,\n"
+                + "  `o_totalprice` decimal(12, 2) NOT NULL,\n" + "  `o_orderdate` date NOT NULL,\n"
+                + "  `o_orderpriority` char(15) NOT NULL,\n" + "  `o_clerk` char(15) NOT NULL,\n"
+                + "  `o_shippriority` integer NOT NULL,\n" + "  `o_comment` varchar(79) NOT NULL\n"
+                + ") DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 32 PROPERTIES (\"replication_num\" = \"1\");";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createOrdersTbl, connectContext);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        String createCustomerTbl = "CREATE TABLE test.`customer` (\n" + "  `c_custkey` integer NOT NULL,\n"
+                + "  `c_name` varchar(25) NOT NULL,\n" + "  `c_address` varchar(40) NOT NULL,\n"
+                + "  `c_nationkey` integer NOT NULL,\n" + "  `c_phone` char(15) NOT NULL,\n"
+                + "  `c_acctbal` decimal(12, 2) NOT NULL,\n" + "  `c_mktsegment` char(10) NOT NULL,\n"
+                + "  `c_comment` varchar(117) NOT NULL\n"
+                + ") DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 32 PROPERTIES (\"replication_num\" = \"1\");";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createCustomerTbl, connectContext);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        String tpcH13 = "select\n" + "    c_count,\n" + "    count(*) as custdist\n" + "from\n" + "    (\n"
+                + "        select\n" + "            c_custkey,\n" + "            count(o_orderkey) as c_count\n"
+                + "        from\n" + "            test.customer left outer join test.orders on\n"
+                + "                c_custkey = o_custkey\n"
+                + "                and o_comment not like '%special%requests%'\n" + "        group by\n"
+                + "            c_custkey\n" + "    ) as c_orders\n" + "group by\n" + "    c_count\n" + "order by\n"
+                + "    custdist desc,\n" + "    c_count desc;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, tpcH13);
+        Assert.assertTrue(explainString.contains("output slot ids: 1 3"));
+
+    }
 }
