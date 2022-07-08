@@ -17,7 +17,7 @@
 
 package org.apache.doris.ldap;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LdapConfig;
@@ -105,7 +105,7 @@ public class LdapClient {
     }
 
     private static void init() {
-        LdapInfo ldapInfo = Catalog.getCurrentCatalog().getAuth().getLdapInfo();
+        LdapInfo ldapInfo = Env.getCurrentEnv().getAuth().getLdapInfo();
         if (ldapInfo == null || !ldapInfo.isValid()) {
             LOG.error("info is null, maybe no ldap admin password is set.");
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);

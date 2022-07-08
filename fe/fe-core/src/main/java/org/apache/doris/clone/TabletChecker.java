@@ -19,8 +19,8 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -64,7 +64,7 @@ import java.util.stream.Collectors;
 public class TabletChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
-    private Catalog catalog;
+    private Env env;
     private SystemInfoService infoService;
     private TabletScheduler tabletScheduler;
     private TabletSchedulerStat stat;
@@ -125,10 +125,10 @@ public class TabletChecker extends MasterDaemon {
         }
     }
 
-    public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
+    public TabletChecker(Env env, SystemInfoService infoService, TabletScheduler tabletScheduler,
                          TabletSchedulerStat stat) {
         super("tablet checker", FeConstants.tablet_checker_interval_ms);
-        this.catalog = catalog;
+        this.env = env;
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;
         this.stat = stat;
@@ -241,7 +241,7 @@ public class TabletChecker extends MasterDaemon {
 
         OUT:
         for (long dbId : copiedPrios.rowKeySet()) {
-            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -273,10 +273,10 @@ public class TabletChecker extends MasterDaemon {
         }
 
         // 2. Traverse other partitions not in "prios"
-        List<Long> dbIds = catalog.getInternalDataSource().getDbIds();
+        List<Long> dbIds = env.getInternalDataSource().getDbIds();
         OUT:
         for (Long dbId : dbIds) {
-            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -435,7 +435,7 @@ public class TabletChecker extends MasterDaemon {
         while (iter.hasNext()) {
             Map.Entry<Long, Map<Long, Set<PrioPart>>> dbEntry = iter.next();
             long dbId = dbEntry.getKey();
-            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 iter.remove();
                 continue;
@@ -527,8 +527,8 @@ public class TabletChecker extends MasterDaemon {
 
     public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName,
             List<String> partitions) throws DdlException {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Env env = Env.getCurrentEnv();
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
 
         long dbId = db.getId();
         long tblId = -1;

@@ -17,8 +17,8 @@
 
 package org.apache.doris.consistency;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -105,14 +105,14 @@ public class CheckConsistencyJob {
      *  false: cancel
      */
     public boolean sendTasks() {
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
         if (tabletMeta == null) {
             LOG.debug("tablet[{}] has been removed", tabletId);
             return false;
         }
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
@@ -247,13 +247,13 @@ public class CheckConsistencyJob {
         }
 
         // check again. in case tablet has already been removed
-        TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
         if (tabletMeta == null) {
             LOG.warn("tablet[{}] has been removed", tabletId);
             return -1;
         }
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;
@@ -364,7 +364,7 @@ public class CheckConsistencyJob {
             ConsistencyCheckInfo info = new ConsistencyCheckInfo(db.getId(), table.getId(), partition.getId(),
                                                                  index.getId(), tabletId, lastCheckTime,
                                                                  checkedVersion, isConsistent);
-            Catalog.getCurrentCatalog().getEditLog().logFinishConsistencyCheck(info);
+            Env.getCurrentEnv().getEditLog().logFinishConsistencyCheck(info);
             return 1;
 
         } finally {

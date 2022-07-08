@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -65,7 +65,7 @@ public class SetUserPropertyVar extends SetVar {
         for (Pattern advPattern : UserProperty.ADVANCED_PROPERTIES) {
             Matcher matcher = advPattern.matcher(key);
             if (matcher.find()) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                         "ADMIN");
                 }
@@ -76,7 +76,7 @@ public class SetUserPropertyVar extends SetVar {
         for (Pattern commPattern : UserProperty.COMMON_PROPERTIES) {
             Matcher matcher = commPattern.matcher(key);
             if (matcher.find()) {
-                if (!isSelf && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                if (!isSelf && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
                                                                                       PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                         "GRANT");

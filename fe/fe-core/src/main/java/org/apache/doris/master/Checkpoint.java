@@ -17,7 +17,7 @@
 
 package org.apache.doris.master;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -52,13 +52,13 @@ public class Checkpoint extends MasterDaemon {
     private static final int CONNECT_TIMEOUT_SECOND = 1;
     private static final int READ_TIMEOUT_SECOND = 1;
 
-    private Catalog catalog;
+    private Env env;
     private String imageDir;
     private EditLog editLog;
 
     public Checkpoint(EditLog editLog) {
         super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
-        this.imageDir = Catalog.getServingCatalog().getImageDir();
+        this.imageDir = Env.getServingEnv().getImageDir();
         this.editLog = editLog;
     }
 
@@ -114,33 +114,34 @@ public class Checkpoint extends MasterDaemon {
         // generate new image file
         long replayedJournalId = -1;
         LOG.info("begin to generate new image: image.{}", checkPointVersion);
-        catalog = Catalog.getCurrentCatalog();
-        catalog.setEditLog(editLog);
+        env = Env.getCurrentEnv();
+        env.setEditLog(editLog);
         createStaticFieldForCkpt();
         boolean exceptionCaught = false;
         String latestImageFilePath = null;
         try {
-            catalog.loadImage(imageDir);
-            catalog.replayJournal(checkPointVersion);
-            if (catalog.getReplayedJournalId() != checkPointVersion) {
-                throw new CheckpointException(String.format("checkpoint version should be %d,"
-                        + " actual replayed journal id is %d", checkPointVersion, catalog.getReplayedJournalId()));
+            env.loadImage(imageDir);
+            env.replayJournal(checkPointVersion);
+            if (env.getReplayedJournalId() != checkPointVersion) {
+                throw new CheckpointException(
+                        String.format("checkpoint version should be %d," + " actual replayed journal id is %d",
+                                checkPointVersion, env.getReplayedJournalId()));
             }
-            catalog.fixBugAfterMetadataReplayed(false);
-            latestImageFilePath = catalog.saveImage();
-            replayedJournalId = catalog.getReplayedJournalId();
+            env.fixBugAfterMetadataReplayed(false);
+            latestImageFilePath = env.saveImage();
+            replayedJournalId = env.getReplayedJournalId();
 
             // destroy checkpoint catalog, reclaim memory
-            catalog = null;
-            Catalog.destroyCheckpoint();
+            env = null;
+            Env.destroyCheckpoint();
             destroyStaticFieldForCkpt();
 
             // Load image to verify if the newly generated image file is valid
             // If success, do all the following jobs
             // If failed, just return
-            catalog = Catalog.getCurrentCatalog();
+            env = Env.getCurrentEnv();
             createStaticFieldForCkpt();
-            catalog.loadImage(imageDir);
+            env.loadImage(imageDir);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
@@ -154,8 +155,8 @@ public class Checkpoint extends MasterDaemon {
             throw new CheckpointException(e.getMessage(), e);
         } finally {
             // destroy checkpoint catalog, reclaim memory
-            catalog = null;
-            Catalog.destroyCheckpoint();
+            env = null;
+            Env.destroyCheckpoint();
             destroyStaticFieldForCkpt();
             // if new image generated && exception caught, delete the latest image here
             // delete the newest image file, cuz it is invalid
@@ -177,14 +178,14 @@ public class Checkpoint extends MasterDaemon {
 
         // push image file to all the other non master nodes
         // DO NOT get other nodes from HaProtocol, because node may not in bdbje replication group yet.
-        List<Frontend> allFrontends = Catalog.getServingCatalog().getFrontends(null);
+        List<Frontend> allFrontends = Env.getServingEnv().getFrontends(null);
         int successPushed = 0;
         int otherNodesCount = 0;
         if (!allFrontends.isEmpty()) {
             otherNodesCount = allFrontends.size() - 1; // skip master itself
             for (Frontend fe : allFrontends) {
                 String host = fe.getHost();
-                if (host.equals(Catalog.getServingCatalog().getMasterIp())) {
+                if (host.equals(Env.getServingEnv().getMasterIp())) {
                     // skip master itself
                     continue;
                 }
@@ -226,7 +227,7 @@ public class Checkpoint extends MasterDaemon {
                 if (successPushed > 0) {
                     for (Frontend fe : allFrontends) {
                         String host = fe.getHost();
-                        if (host.equals(Catalog.getServingCatalog().getMasterIp())) {
+                        if (host.equals(Env.getServingEnv().getMasterIp())) {
                             // skip master itself
                             continue;
                         }

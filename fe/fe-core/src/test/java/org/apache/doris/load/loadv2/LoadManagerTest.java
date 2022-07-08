@@ -19,8 +19,8 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -67,7 +67,7 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testCreateHadoopJob(@Injectable LoadStmt stmt, @Injectable LabelName labelName, @Mocked Catalog catalog,
+    public void testCreateHadoopJob(@Injectable LoadStmt stmt, @Injectable LabelName labelName, @Mocked Env env,
             @Mocked InternalDataSource ds, @Injectable Database database, @Injectable BrokerLoadJob brokerLoadJob) {
         Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newHashMap();
         Map<String, List<LoadJob>> labelToLoadJobs = Maps.newHashMap();
@@ -87,7 +87,7 @@ public class LoadManagerTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = "label1";
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
                 ds.getDbNullable(anyString);
@@ -111,11 +111,11 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testSerializationNormal(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
-            @Injectable Database database, @Injectable Table table) throws Exception {
+    public void testSerializationNormal(@Mocked Env env, @Mocked InternalDataSource ds, @Injectable Database database,
+            @Injectable Table table) throws Exception {
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
                 ds.getDbNullable(anyLong);
@@ -127,7 +127,7 @@ public class LoadManagerTest {
                 table.getName();
                 minTimes = 0;
                 result = "tablename";
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeMetaVersion.VERSION_CURRENT;
             }
@@ -147,11 +147,11 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testSerializationWithJobRemoved(@Mocked MetaContext metaContext, @Mocked Catalog catalog,
+    public void testSerializationWithJobRemoved(@Mocked MetaContext metaContext, @Mocked Env env,
             @Mocked InternalDataSource ds, @Injectable Database database, @Injectable Table table) throws Exception {
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
                 ds.getDbNullable(anyLong);
@@ -163,7 +163,7 @@ public class LoadManagerTest {
                 table.getName();
                 minTimes = 0;
                 result = "tablename";
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeMetaVersion.VERSION_CURRENT;
             }
