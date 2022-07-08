@@ -37,6 +37,7 @@ class ConfigOptions {
     static Option feHttpPasswordOpt
     static Option pathOpt
     static Option dataOpt
+    static Option realDataOpt
     static Option pluginOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
@@ -117,6 +118,14 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("dataPath")
                 .desc("the data path")
+                .build()
+        realDataOpt = Option.builder("RD")
+                .argName("realDataPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("realDataPath")
+                .desc("the real data path")
                 .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
