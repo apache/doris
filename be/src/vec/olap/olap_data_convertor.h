@@ -298,7 +298,7 @@ private:
                 const VecDateTimeValue* datetime_end = datetime_cur + _num_rows;
                 uint32_t* value = const_cast<uint32_t*>(values_);
                 if (_nullmap) {
-                    const UInt8* nullmap_cur = _nullmap + _row_pos;
+                    const UInt8* nullmap_cur = _nullmap;
                     while (datetime_cur != datetime_end) {
                         if (!*nullmap_cur) {
                             *value = datetime_cur->to_date_v2();
