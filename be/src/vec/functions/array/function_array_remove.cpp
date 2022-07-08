@@ -21,9 +21,9 @@
 
 namespace doris::vectorized {
 
-    void register_function_array_remove(SimpleFunctionFactory& factory) {
-        factory.register_function<FunctionArrayRemove>();
-    }
+void register_function_array_remove(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayRemove>();
+}
 
 } // namespace doris::vectorized
 
