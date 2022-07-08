@@ -1257,6 +1257,7 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
+        // TODO: support other functions
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
             Type childType = getChild(0).type.getMaxResolutionType();

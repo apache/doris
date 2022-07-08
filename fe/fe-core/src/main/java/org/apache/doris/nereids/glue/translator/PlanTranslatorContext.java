@@ -81,7 +81,7 @@ public class PlanTranslatorContext {
         this.planFragmentList.add(planFragment);
     }
 
-    public void addIdPair(ExprId exprId, SlotRef slotRef) {
+    public void addExprIdPair(ExprId exprId, SlotRef slotRef) {
         exprIdSlotRefMap.put(exprId, slotRef);
     }
 
@@ -109,7 +109,7 @@ public class PlanTranslatorContext {
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
-        this.addIdPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
+        this.addExprIdPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
         return slotDescriptor;
     }
 
