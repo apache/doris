@@ -1675,7 +1675,7 @@ public class Config extends ConfigBase {
      * Decimalv3 of storage layer needs to be enabled first.
      */
     @ConfField
-    public static boolean relax_decimal_precision_limit = false;
+    public static boolean enable_decimalv3 = false;
 
     /**
      * If set to TRUE, FE will:

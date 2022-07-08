@@ -101,7 +101,7 @@ public class DecimalLiteral extends LiteralExpr {
         this.value = value;
         int precision = getBigDecimalPrecision(this.value);
         int scale = getBigDecimalScale(this.value);
-        type = ScalarType.createDecimalV2Type(precision, scale);
+        type = ScalarType.createDecimalType(precision, scale);
     }
 
     public BigDecimal getValue() {
@@ -159,6 +159,9 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.longValue());
                 break;
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 buffer = ByteBuffer.allocate(12);
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
 
@@ -259,16 +262,32 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public void roundCeiling() {
-        value = value.setScale(0, RoundingMode.CEILING);
+        roundCeiling(0);
     }
 
     public void roundFloor() {
-        value = value.setScale(0, RoundingMode.FLOOR);
+        roundFloor(0);
+    }
+
+    public void roundCeiling(int newScale) {
+        value = value.setScale(newScale, RoundingMode.CEILING);
+        type = ScalarType.createDecimalType(((ScalarType) type)
+                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
+    }
+
+    public void roundFloor(int newScale) {
+        value = value.setScale(newScale, RoundingMode.FLOOR);
+        type = ScalarType.createDecimalType(((ScalarType) type)
+                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
     }
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDecimalV2()) {
+        if (targetType.isDecimalV2() && type.isDecimalV2()) {
+            return this;
+        } else if (targetType.isDecimalV3() && type.isDecimalV3()
+                && (((ScalarType) targetType).decimalPrecision() == value.precision())
+                && (((ScalarType) targetType).decimalScale() == value.precision())) {
             return this;
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);

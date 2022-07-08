@@ -28,6 +28,7 @@
 #include "util/priority_thread_pool.hpp"
 #include "util/to_string.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/volap_scanner.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
@@ -715,6 +716,30 @@ Status VOlapScanNode::normalize_conjuncts() {
             break;
         }
 
+        case TYPE_DECIMAL32: {
+            ColumnValueRange<TYPE_DECIMAL32> range(slots[slot_idx]->col_name(),
+                                                   slots[slot_idx]->type().precision,
+                                                   slots[slot_idx]->type().scale);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DECIMAL64: {
+            ColumnValueRange<TYPE_DECIMAL64> range(slots[slot_idx]->col_name(),
+                                                   slots[slot_idx]->type().precision,
+                                                   slots[slot_idx]->type().scale);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DECIMAL128: {
+            ColumnValueRange<TYPE_DECIMAL128> range(slots[slot_idx]->col_name(),
+                                                    slots[slot_idx]->type().precision,
+                                                    slots[slot_idx]->type().scale);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         case TYPE_BOOLEAN: {
             ColumnValueRange<TYPE_BOOLEAN> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
@@ -948,7 +973,9 @@ std::pair<bool, void*> VOlapScanNode::should_push_down_eq_predicate(doris::SlotD
     }
 
     // get value in result pair
-    result_pair = std::make_pair(true, _conjunct_ctxs[conj_idx]->get_value(expr, nullptr));
+    result_pair = std::make_pair(
+            true, _conjunct_ctxs[conj_idx]->get_value(expr, nullptr, slot->type().precision,
+                                                      slot->type().scale));
 
     return result_pair;
 }
@@ -978,6 +1005,9 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>&
     case TYPE_INT:
     case TYPE_BIGINT:
     case TYPE_LARGEINT:
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128:
     case TYPE_STRING: {
         func(temp_range,
              reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(value));
@@ -1084,7 +1114,8 @@ Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // create empty range as temp range, temp range should do intersection on range
-        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
+        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
+                slot->type().precision, slot->type().scale);
 
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
@@ -1259,7 +1290,8 @@ bool VOlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot
         return false;
     }
 
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
+                                                                           slot->type().scale);
     temp_range.set_contain_null(is_null_str == "null");
     range->intersection(temp_range);
 
@@ -1319,7 +1351,8 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     continue;
                 }
 
-                void* value = _conjunct_ctxs[conj_idx]->get_value(expr, nullptr);
+                void* value = _conjunct_ctxs[conj_idx]->get_value(
+                        expr, nullptr, slot->type().precision, slot->type().scale);
                 // for case: where col > null
                 if (value == nullptr) {
                     continue;
@@ -1358,6 +1391,9 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 }
                 case TYPE_TINYINT:
                 case TYPE_DECIMALV2:
+                case TYPE_DECIMAL32:
+                case TYPE_DECIMAL64:
+                case TYPE_DECIMAL128:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
                 case TYPE_HLL:

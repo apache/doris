@@ -1248,7 +1248,10 @@ void HashJoinNode::_hash_table_init() {
             _hash_table_variants.emplace<I64HashTableContext>();
             break;
         case TYPE_LARGEINT:
-        case TYPE_DECIMALV2: {
+        case TYPE_DECIMALV2:
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128: {
             DataTypePtr& type_ptr = _build_expr_ctxs[0]->root()->data_type();
             TypeIndex idx = _build_expr_ctxs[0]->root()->is_nullable()
                                     ? assert_cast<const DataTypeNullable&>(*type_ptr)

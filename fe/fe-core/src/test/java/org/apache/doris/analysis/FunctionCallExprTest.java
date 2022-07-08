@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Mock;
@@ -31,6 +32,7 @@ import org.junit.Test;
 import java.util.Arrays;
 
 public class FunctionCallExprTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Test
     public void testDecimalFunction(@Mocked Analyzer analyzer) throws AnalysisException {
@@ -40,7 +42,7 @@ public class FunctionCallExprTest {
                 return;
             }
         };
-        Expr argExpr = new SlotRef(new TableName("db", "table"), "c0");
+        Expr argExpr = new SlotRef(new TableName(internalCtl, "db", "table"), "c0");
         FunctionCallExpr functionCallExpr;
         boolean hasException = false;
         Type res;
@@ -52,20 +54,20 @@ public class FunctionCallExprTest {
                 .add("sum").add("avg").add("multi_distinct_sum").build();
         try {
             for (String func : sameTypeFunction) {
-                Type argType = ScalarType.createDecimalV2Type(9, 4);
+                Type argType = ScalarType.createDecimalType(9, 4);
                 argExpr.setType(argType);
                 functionCallExpr = new FunctionCallExpr(func, Arrays.asList(argExpr));
                 functionCallExpr.setIsAnalyticFnCall(true);
-                res = ScalarType.createDecimalV2Type(9, 4);
+                res = ScalarType.createDecimalType(9, 4);
                 functionCallExpr.analyzeImpl(analyzer);
                 Assert.assertEquals(functionCallExpr.type, res);
             }
 
             for (String func : widerTypeFunction) {
-                Type argType = ScalarType.createDecimalV2Type(9, 4);
+                Type argType = ScalarType.createDecimalType(9, 4);
                 argExpr.setType(argType);
                 functionCallExpr = new FunctionCallExpr(func, Arrays.asList(argExpr));
-                res = ScalarType.createDecimalV2Type(38, 4);
+                res = ScalarType.createDecimalType(38, 4);
                 functionCallExpr.analyzeImpl(analyzer);
                 Assert.assertEquals(functionCallExpr.type, res);
             }

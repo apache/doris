@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
@@ -156,7 +157,7 @@ public final class HiveUtil {
                     case TIMESTAMP:
                         return Type.DATETIME;
                     case DECIMAL:
-                        return Type.DECIMALV2;
+                        return Config.enable_decimalv3 ? Type.DECIMAL128 : Type.DECIMALV2;
                     default:
                         throw new UnsupportedOperationException("Unsupported type: "
                             + primitiveTypeInfo.getPrimitiveCategory());

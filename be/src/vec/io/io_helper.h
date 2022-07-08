@@ -295,7 +295,7 @@ bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
 template <typename T>
 bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
-    if (config::enable_execution_decimalv3) {
+    if (config::enable_decimalv3) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
         x.value = StringParser::string_to_decimal<typename T::NativeType>(
@@ -304,8 +304,6 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
         buf.position() = buf.end();
         return result != StringParser::PARSE_FAILURE;
     }
-    // TODO: open this static_assert
-    // static_assert(std::is_same_v<Decimal128, T>);
     auto dv = binary_cast<Int128, DecimalV2Value>(x.value);
     auto ans = dv.parse_from_str((const char*)buf.position(), buf.count()) == 0;
 

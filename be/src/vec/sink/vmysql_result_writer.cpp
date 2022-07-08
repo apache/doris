@@ -151,8 +151,8 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             _buffer.close_dynamic_mode();
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
-    } else if (type == TYPE_DECIMALV2) {
-        WhichDataType which(nested_type_ptr);
+    } else if constexpr (type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
+                         type == TYPE_DECIMAL128) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -166,26 +166,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     continue;
                 }
             }
-            std::string decimal_str;
-            if (config::enable_execution_decimalv3) {
-                if (which.is_decimal32()) {
-                    decimal_str =
-                            assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type_ptr.get())
-                                    ->to_string(*column, i);
-                } else if (which.is_decimal64()) {
-                    decimal_str =
-                            assert_cast<const DataTypeDecimal<Decimal64>*>(nested_type_ptr.get())
-                                    ->to_string(*column, i);
-                } else if (which.is_decimal128()) {
-                    decimal_str =
-                            assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type_ptr.get())
-                                    ->to_string(*column, i);
-                }
-            } else {
-                DecimalV2Value decimal_val(
-                        assert_cast<const ColumnDecimal<Decimal128>&>(*column).get_element(i));
-                decimal_str = decimal_val.to_string();
-            }
+            std::string decimal_str = nested_type_ptr->to_string(*column, i);
             buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
@@ -335,14 +316,6 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         char buf[64];
         char* pos = datetime.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
-    } else if (which.is_decimal32()) {
-        DataTypePtr nested_type = type;
-        if (type->is_nullable()) {
-            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
-        }
-        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type.get())
-                                   ->to_string(*column, row_idx);
-        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
     } else if (which.is_date_v2()) {
         auto& column_vector = assert_cast<const ColumnVector<UInt32>&>(*column);
         auto value = column_vector[row_idx].get<UInt32>();
@@ -351,6 +324,14 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         char buf[64];
         char* pos = datev2.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
+    } else if (which.is_decimal32()) {
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type.get())
+                                   ->to_string(*column, row_idx);
+        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
     } else if (which.is_decimal64()) {
         DataTypePtr nested_type = type;
         if (type->is_nullable()) {
@@ -360,7 +341,7 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
                                    ->to_string(*column, row_idx);
         return buffer.push_string(decimal_str.c_str(), decimal_str.length());
     } else if (which.is_decimal128()) {
-        if (config::enable_execution_decimalv3) {
+        if (config::enable_decimalv3) {
             DataTypePtr nested_type = type;
             if (type->is_nullable()) {
                 nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
@@ -531,6 +512,42 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result,
                                                                                type_ptr);
+            }
+            break;
+        }
+        case TYPE_DECIMAL32: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, true>(column_ptr, result,
+                                                                              nested_type);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, false>(column_ptr, result,
+                                                                               type_ptr);
+            }
+            break;
+        }
+        case TYPE_DECIMAL64: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, true>(column_ptr, result,
+                                                                              nested_type);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, false>(column_ptr, result,
+                                                                               type_ptr);
+            }
+            break;
+        }
+        case TYPE_DECIMAL128: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, true>(column_ptr, result,
+                                                                               nested_type);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, false>(column_ptr, result,
+                                                                                type_ptr);
             }
             break;
         }

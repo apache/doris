@@ -217,7 +217,7 @@ public class FunctionCallExpr extends Expr {
                 sb.append("1");
             } else if (type.isFixedPointType()) {
                 sb.append("2");
-            } else if (type.isFloatingPointType() || type.isDecimalV2()) {
+            } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
                 sb.append("3");
             } else if (type.isTime()) {
                 sb.append("4");
@@ -1076,15 +1076,16 @@ public class FunctionCallExpr extends Expr {
         }
 
         // DECIMAL need to pass precision and scale to be
-        if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction()) && this.type.isDecimalV2()) {
+        if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction())
+                && (this.type.isDecimalV2() || this.type.isDecimalV3())) {
             if (DECIMAL_SAME_TYPE_SET.contains(fnName.getFunction())) {
                 this.type = argTypes[0];
             } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
-                this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION,
                     ((ScalarType) argTypes[0]).getScalarScale());
             } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
                 // for all stddev function, use decimal(38,9) as computing result
-                this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION, STDDEV_DECIMAL_SCALE);
+                this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION, STDDEV_DECIMAL_SCALE);
             }
         }
         // rewrite return type if is nested type function

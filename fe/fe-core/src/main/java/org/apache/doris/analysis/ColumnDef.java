@@ -334,6 +334,9 @@ public class ColumnDef {
                 new FloatLiteral(defaultValue);
                 break;
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;

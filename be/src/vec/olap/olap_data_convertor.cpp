@@ -64,17 +64,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorDateTime>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        if (config::enable_execution_decimalv3) {
-            if (column.precision() <= BeConsts::MAX_DECIMAL32_PRECISION) {
-                return std::make_unique<OlapColumnDataConvertorDecimal<Decimal32>>();
-            } else if (column.precision() <= BeConsts::MAX_DECIMAL64_PRECISION) {
-                return std::make_unique<OlapColumnDataConvertorDecimal<Decimal64>>();
-            } else {
-                return std::make_unique<OlapColumnDataConvertorDecimal<Decimal128>>();
-            }
-        } else {
-            return std::make_unique<OlapColumnDataConvertorDecimal<Decimal128>>();
-        }
+        return std::make_unique<OlapColumnDataConvertorDecimal>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal32>>();
@@ -630,45 +620,45 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
     return Status::OK();
 }
 
-template <typename T>
-Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal<T>::convert_to_olap() {
+Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap() {
     assert(_typed_column.column);
-    const vectorized::ColumnDecimal<T>* column_decimal = nullptr;
+    const vectorized::ColumnDecimal<vectorized::Decimal128>* column_decimal = nullptr;
     if (_nullmap) {
         auto nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_decimal = assert_cast<const vectorized::ColumnDecimal<T>*>(
+        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_decimal =
-                assert_cast<const vectorized::ColumnDecimal<T>*>(_typed_column.column.get());
+        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
+                _typed_column.column.get());
     }
 
     assert(column_decimal);
 
+    const DecimalV2Value* decimal_cur =
+            (const DecimalV2Value*)(column_decimal->get_data().data()) + _row_pos;
+    const DecimalV2Value* decimal_end = decimal_cur + _num_rows;
     decimal12_t* value = _values.data();
     if (_nullmap) {
         const UInt8* nullmap_cur = _nullmap + _row_pos;
-        for (auto i = 0; i < _num_rows; i++) {
+        while (decimal_cur != decimal_end) {
             if (!*nullmap_cur) {
-                value->integer = column_decimal->get_whole_part(i);
-                value->fraction =
-                        column_decimal->get_fractional_part(i) *
-                        (DecimalV2Value::ONE_BILLION / column_decimal->get_scale_multiplier());
+                value->integer = decimal_cur->int_value();
+                value->fraction = decimal_cur->frac_value();
             } else {
                 // do nothing
             }
             ++value;
+            ++decimal_cur;
             ++nullmap_cur;
         }
         assert(nullmap_cur == _nullmap + _num_rows && value == _values.get_end_ptr());
     } else {
-        for (auto i = 0; i < _num_rows; i++) {
-            value->integer = column_decimal->get_whole_part(i);
-            value->fraction =
-                    column_decimal->get_fractional_part(i) *
-                    (DecimalV2Value::ONE_BILLION / column_decimal->get_scale_multiplier());
+        while (decimal_cur != decimal_end) {
+            value->integer = decimal_cur->int_value();
+            value->fraction = decimal_cur->frac_value();
             ++value;
+            ++decimal_cur;
         }
         assert(value == _values.get_end_ptr());
     }
@@ -743,9 +733,5 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
     }
     return Status::OK();
 }
-/// Explicit template instantiations.
-template class OlapBlockDataConvertor::OlapColumnDataConvertorDecimal<Decimal32>;
-template class OlapBlockDataConvertor::OlapColumnDataConvertorDecimal<Decimal64>;
-template class OlapBlockDataConvertor::OlapColumnDataConvertorDecimal<Decimal128>;
 
 } // namespace doris::vectorized

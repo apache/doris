@@ -773,10 +773,7 @@ CONF_Bool(parquet_predicate_push_down, "false");
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
 
-// decimalv3: Decimal32/Decimal64/Decimal128
-// decimalv2 is converted to decimalv3 for calculation when enable_execution_decimalv3 is true.
-CONF_Bool(enable_execution_decimalv3, "false");
-CONF_Bool(enable_storage_decimalv3, "false");
+CONF_Bool(enable_decimalv3, "false");
 
 //whether turn on quick compaction feature
 CONF_Bool(enable_quick_compaction, "false");

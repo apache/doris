@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.datasource.InternalDataSource;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -31,11 +32,12 @@ import java.util.Arrays;
 import java.util.List;
 
 public class ArithmeticExprTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Test
     public void testDecimalArithmetic(@Mocked VectorizedUtil vectorizedUtil) {
-        Expr lhsExpr = new SlotRef(new TableName("db", "table"), "c0");
-        Expr rhsExpr = new SlotRef(new TableName("db", "table"), "c1");
+        Expr lhsExpr = new SlotRef(new TableName(internalCtl, "db", "table"), "c0");
+        Expr rhsExpr = new SlotRef(new TableName(internalCtl, "db", "table"), "c1");
         ScalarType t1;
         ScalarType t2;
         ScalarType res;
@@ -52,64 +54,64 @@ public class ArithmeticExprTest {
                 ArithmeticExpr.Operator.MULTIPLY, ArithmeticExpr.Operator.DIVIDE);
         try {
             for (ArithmeticExpr.Operator operator : operators) {
-                t1 = ScalarType.createDecimalV2Type(9, 4);
-                t2 = ScalarType.createDecimalV2Type(19, 6);
+                t1 = ScalarType.createDecimalType(9, 4);
+                t2 = ScalarType.createDecimalType(19, 6);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
                 arithmeticExpr = new ArithmeticExpr(operator, lhsExpr, rhsExpr);
-                res = ScalarType.createDecimalV2Type(38, 6);
+                res = ScalarType.createDecimalType(38, 6);
                 if (operator == ArithmeticExpr.Operator.MULTIPLY) {
-                    res = ScalarType.createDecimalV2Type(38, 10);
+                    res = ScalarType.createDecimalType(38, 10);
                 }
                 if (operator == ArithmeticExpr.Operator.DIVIDE) {
-                    res = ScalarType.createDecimalV2Type(38, 4);
+                    res = ScalarType.createDecimalType(38, 4);
                 }
                 arithmeticExpr.analyzeImpl(null);
                 Assert.assertEquals(arithmeticExpr.type, res);
 
-                t1 = ScalarType.createDecimalV2Type(9, 4);
-                t2 = ScalarType.createDecimalV2Type(18, 5);
+                t1 = ScalarType.createDecimalType(9, 4);
+                t2 = ScalarType.createDecimalType(18, 5);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
                 arithmeticExpr = new ArithmeticExpr(operator, lhsExpr, rhsExpr);
-                res = ScalarType.createDecimalV2Type(18, 5);
+                res = ScalarType.createDecimalType(18, 5);
                 if (operator == ArithmeticExpr.Operator.MULTIPLY) {
-                    res = ScalarType.createDecimalV2Type(18, 9);
+                    res = ScalarType.createDecimalType(18, 9);
                 }
                 if (operator == ArithmeticExpr.Operator.DIVIDE) {
-                    res = ScalarType.createDecimalV2Type(18, 4);
+                    res = ScalarType.createDecimalType(18, 4);
                 }
                 arithmeticExpr.analyzeImpl(null);
                 Assert.assertEquals(arithmeticExpr.type, res);
 
-                t1 = ScalarType.createDecimalV2Type(9, 4);
+                t1 = ScalarType.createDecimalType(9, 4);
                 t2 = ScalarType.createType(PrimitiveType.BIGINT);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
                 arithmeticExpr = new ArithmeticExpr(operator, lhsExpr, rhsExpr);
-                res = ScalarType.createDecimalV2Type(18, 4);
+                res = ScalarType.createDecimalType(18, 4);
                 arithmeticExpr.analyzeImpl(null);
                 Assert.assertEquals(arithmeticExpr.type, res);
 
-                t1 = ScalarType.createDecimalV2Type(9, 4);
+                t1 = ScalarType.createDecimalType(9, 4);
                 t2 = ScalarType.createType(PrimitiveType.LARGEINT);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
                 arithmeticExpr = new ArithmeticExpr(operator, lhsExpr, rhsExpr);
-                res = ScalarType.createDecimalV2Type(38, 4);
+                res = ScalarType.createDecimalType(38, 4);
                 arithmeticExpr.analyzeImpl(null);
                 Assert.assertEquals(arithmeticExpr.type, res);
 
-                t1 = ScalarType.createDecimalV2Type(9, 4);
+                t1 = ScalarType.createDecimalType(9, 4);
                 t2 = ScalarType.createType(PrimitiveType.INT);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
                 arithmeticExpr = new ArithmeticExpr(operator, lhsExpr, rhsExpr);
-                res = ScalarType.createDecimalV2Type(9, 4);
+                res = ScalarType.createDecimalType(9, 4);
                 arithmeticExpr.analyzeImpl(null);
                 Assert.assertEquals(arithmeticExpr.type, res);
 
-                t1 = ScalarType.createDecimalV2Type(9, 4);
+                t1 = ScalarType.createDecimalType(9, 4);
                 t2 = ScalarType.createType(PrimitiveType.FLOAT);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
@@ -118,7 +120,7 @@ public class ArithmeticExprTest {
                 arithmeticExpr.analyzeImpl(null);
                 Assert.assertEquals(arithmeticExpr.type, res);
 
-                t1 = ScalarType.createDecimalV2Type(9, 4);
+                t1 = ScalarType.createDecimalType(9, 4);
                 t2 = ScalarType.createType(PrimitiveType.DOUBLE);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
@@ -136,8 +138,8 @@ public class ArithmeticExprTest {
 
     @Test
     public void testDecimalBitOperation(@Mocked VectorizedUtil vectorizedUtil) {
-        Expr lhsExpr = new SlotRef(new TableName("db", "table"), "c0");
-        Expr rhsExpr = new SlotRef(new TableName("db", "table"), "c1");
+        Expr lhsExpr = new SlotRef(new TableName(internalCtl, "db", "table"), "c0");
+        Expr rhsExpr = new SlotRef(new TableName(internalCtl, "db", "table"), "c1");
         ScalarType t1;
         ScalarType t2;
         ScalarType res;
@@ -153,8 +155,8 @@ public class ArithmeticExprTest {
                 ArithmeticExpr.Operator.BITOR, ArithmeticExpr.Operator.BITXOR);
         try {
             for (ArithmeticExpr.Operator operator : operators) {
-                t1 = ScalarType.createDecimalV2Type(9, 4);
-                t2 = ScalarType.createDecimalV2Type(19, 6);
+                t1 = ScalarType.createDecimalType(9, 4);
+                t2 = ScalarType.createDecimalType(19, 6);
                 lhsExpr.setType(t1);
                 rhsExpr.setType(t2);
                 arithmeticExpr = new ArithmeticExpr(operator, lhsExpr, rhsExpr);
