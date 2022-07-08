@@ -112,7 +112,6 @@ private:
     std::vector<bool> _runtime_filter_marks;
 
     int _id;
-    static std::atomic<int> _id_gen;
     bool _is_open;
     bool _aggregation;
     bool _need_agg_finalize = true;

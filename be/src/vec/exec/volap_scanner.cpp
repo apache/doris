@@ -27,15 +27,12 @@
 
 namespace doris::vectorized {
 
-std::atomic<int> VOlapScanner::_id_gen = 0;
-
 VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
                            bool need_agg_finalize, const TPaloScanRange& scan_range,
                            const std::shared_ptr<MemTracker>& tracker)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
-          _id(_id_gen++),
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
