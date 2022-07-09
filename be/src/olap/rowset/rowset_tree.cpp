@@ -21,14 +21,14 @@
 
 #include "olap/rowset/rowset_tree.h"
 
+#include <glog/logging.h>
+
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
-#include <ostream>
-
-#include <glog/logging.h>
 
 #include "gutil/stl_util.h"
 #include "gutil/strings/substitute.h"
@@ -195,8 +195,8 @@ void RowsetTree::FindRowsetsIntersectingInterval(
     }
 }
 
-void RowsetTree::FindRowsetsWithKeyInRange(const Slice& encoded_key,
-                                           vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const {
+void RowsetTree::FindRowsetsWithKeyInRange(
+        const Slice& encoded_key, vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const {
     DCHECK(initted_);
 
     // Query the interval tree to efficiently find rowsets with known bounds
@@ -210,8 +210,9 @@ void RowsetTree::FindRowsetsWithKeyInRange(const Slice& encoded_key,
     }
 }
 
-void RowsetTree::ForEachRowsetContainingKeys(const std::vector<Slice>& encoded_keys,
-                                             const std::function<void(RowsetSharedPtr, int)>& cb) const {
+void RowsetTree::ForEachRowsetContainingKeys(
+        const std::vector<Slice>& encoded_keys,
+        const std::function<void(RowsetSharedPtr, int)>& cb) const {
     DCHECK(std::is_sorted(encoded_keys.cbegin(), encoded_keys.cend(), Slice::Comparator()));
     // The interval tree batch query callback would naturally just give us back
     // the matching Slices, but that won't allow us to easily tell the caller

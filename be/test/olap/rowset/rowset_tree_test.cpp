@@ -21,6 +21,10 @@
 
 #include "olap/rowset/rowset_tree.h"
 
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+
+#include <boost/optional/optional.hpp>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -30,10 +34,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
-#include <boost/optional/optional.hpp>
-#include <glog/logging.h>
-#include <gtest/gtest.h>
 
 #include "gutil/map-util.h"
 #include "gutil/stringprintf.h"
@@ -366,8 +366,8 @@ TEST_P(TestRowsetTreePerformance, TestPerformance) {
         std::sort(query_slices.begin(), query_slices.end(), Slice::Comparator());
         int bulk_matches = 0;
         {
-            tree.ForEachRowsetContainingKeys(query_slices,
-                                             [&](RowsetSharedPtr rs, int slice_idx) { bulk_matches++; });
+            tree.ForEachRowsetContainingKeys(
+                    query_slices, [&](RowsetSharedPtr rs, int slice_idx) { bulk_matches++; });
         }
         batch_timer.stop();
 

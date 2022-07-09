@@ -21,18 +21,17 @@
 
 #pragma once
 
+#include <boost/optional/optional.hpp>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
-#include <boost/optional/optional.hpp>
-
+#include "common/status.h"
 #include "gutil/map-util.h"
 #include "olap/rowset/rowset.h"
 #include "util/slice.h"
-#include "common/status.h"
 
 namespace doris {
 
@@ -97,9 +96,9 @@ public:
     //  [-OO, upper_bound)
     //  [lower_bound, +OO)
     //  [lower_bound, upper_bound)
-    void FindRowsetsIntersectingInterval(const std::optional<Slice>& lower_bound,
-                                         const std::optional<Slice>& upper_bound,
-                                         vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const;
+    void FindRowsetsIntersectingInterval(
+            const std::optional<Slice>& lower_bound, const std::optional<Slice>& upper_bound,
+            vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const;
 
     const RowsetVector& all_rowsets() const { return all_rowsets_; }
 
