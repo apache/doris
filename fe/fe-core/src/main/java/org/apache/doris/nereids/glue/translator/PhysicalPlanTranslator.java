@@ -178,7 +178,16 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         //  split merge agg to project(agg) and generate tuple like what first phase agg do.
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
-        outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
+        TupleDescriptor intermediateTupleDesc;
+        if (physicalAggregate.getAggPhase() == AggPhase.GLOBAL) {
+            slotList.addAll(groupSlotList);
+            slotList.addAll(aggFunctionOutput);
+            intermediateTupleDesc = generateTupleDesc(slotList, null, context);
+            outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
+        } else {
+            outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
+            intermediateTupleDesc = outputTupleDesc;
+        }
 
         // process partition list
         List<Expression> partitionExpressionList = physicalAggregate.getPartitionExprList();
@@ -195,7 +204,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             }
         }
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions, outputTupleDesc,
-                outputTupleDesc, physicalAggregate.getAggPhase().toExec());
+                intermediateTupleDesc, physicalAggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), aggInfo);
         inputPlanFragment.setPlanRoot(aggregationNode);
