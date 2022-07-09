@@ -44,8 +44,12 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
      * @param name alias name
      */
     public Alias(CHILD_TYPE child, String name) {
+        this(NamedExpressionUtil.newExprId(), child, name);
+    }
+
+    private Alias(ExprId exprId, CHILD_TYPE child, String name) {
         super(NodeType.ALIAS, child);
-        this.exprId = NamedExpressionUtil.newExprId();
+        this.exprId = exprId;
         this.name = name;
         this.qualifier = ImmutableList.of();
     }
@@ -97,7 +101,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Alias<>(children.get(0), name);
+        return new Alias<>(exprId, children.get(0), name);
     }
 
 }

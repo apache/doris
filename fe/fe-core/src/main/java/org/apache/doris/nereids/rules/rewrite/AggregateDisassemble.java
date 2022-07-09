@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -67,82 +68,89 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             List<NamedExpression> originOutputExprs = aggregate.getOutputExpressionList();
             List<Expression> originGroupByExprs = aggregate.getGroupByExpressionList();
 
-            Map<AggregateFunction, NamedExpression> originAggregateFunctionWithAlias = Maps.newHashMap();
-            for (NamedExpression originOutputExpr : originOutputExprs) {
-                originOutputExpr.foreach(e -> {
-                    if (e instanceof AggregateFunction) {
-                        AggregateFunction a = (AggregateFunction) e;
-                        originAggregateFunctionWithAlias.put(a, new Alias<>(a, a.sql()));
-                    }
-                });
-            }
-
-            List<Expression> localGroupByExprs = originGroupByExprs;
-            List<NamedExpression> localGroupByWrappedAlias = localGroupByExprs.stream()
-                    .map(g -> new Alias<>(g, g.sql()))
-                    .collect(Collectors.toList());
-
+            // 1. generate a map from local aggregate output to global aggregate expr substitution.
+            // 2. collect local aggregate output expressions and local aggregate group by expression list
+            Map<Expression, Expression> inputSubstitutionMap = Maps.newHashMap();
+            List<Expression> localGroupByExprs = aggregate.getGroupByExpressionList();
             List<NamedExpression> localOutputExprs = Lists.newArrayList();
-            localOutputExprs.addAll(localGroupByWrappedAlias);
-            localOutputExprs.addAll(originAggregateFunctionWithAlias.values());
-
-            List<Expression> mergeGroupByExpressionList = localGroupByWrappedAlias.stream()
-                    .map(NamedExpression::toSlot).collect(Collectors.toList());
-
-            List<NamedExpression> globalOutputExprs = Lists.newArrayList();
-            for (NamedExpression o : originOutputExprs) {
-                if (o.anyMatch(AggregateFunction.class::isInstance)) {
-                    globalOutputExprs.add((NamedExpression) new AggregateFunctionParamsRewriter()
-                            .visit(o, originAggregateFunctionWithAlias));
+            for (Expression originGroupByExpr : originGroupByExprs) {
+                if (inputSubstitutionMap.containsKey(originGroupByExpr)) {
+                    continue;
+                }
+                if (originGroupByExpr instanceof SlotReference) {
+                    inputSubstitutionMap.put(originGroupByExpr, originGroupByExpr);
+                    localOutputExprs.add((SlotReference) originGroupByExpr);
                 } else {
-                    for (int i = 0; i < localGroupByWrappedAlias.size(); i++) {
-                        // TODO: we need to do sub tree match and replace. but we do not have semanticEquals now.
-                        //    e.g. a + 1 + 2 in output expression should be replaced by
-                        //    (slot reference to update phase out (a + 1)) + 2, if we do group by a + 1
-                        //   currently, we could only handle output expression same with group by expression
-                        if (o instanceof SlotReference) {
-                            // a in output expression will be SLotReference
-                            if (o.equals(localGroupByExprs.get(i))) {
-                                globalOutputExprs.add(localGroupByWrappedAlias.get(i).toSlot());
-                                break;
-                            }
-                        } else if (o instanceof Alias) {
-                            // a + 1 in output expression will be Alias
-                            if (o.child(0).equals(localGroupByExprs.get(i))) {
-                                globalOutputExprs.add(localGroupByWrappedAlias.get(i).toSlot());
-                                break;
-                            }
-                        }
+                    NamedExpression localOutputExpr = new Alias<>(originGroupByExpr, originGroupByExpr.sql());
+                    inputSubstitutionMap.put(originGroupByExpr, localOutputExpr.toSlot());
+                    localOutputExprs.add(localOutputExpr);
+                }
+            }
+            for (NamedExpression originOutputExpr : originOutputExprs) {
+                List<AggregateFunction> aggregateFunctions
+                        = originOutputExpr.collect(AggregateFunction.class::isInstance);
+                for (AggregateFunction aggregateFunction : aggregateFunctions) {
+                    if (inputSubstitutionMap.containsKey(aggregateFunction)) {
+                        continue;
                     }
+                    NamedExpression localOutputExpr = new Alias<>(aggregateFunction, aggregateFunction.sql());
+                    Expression substitutionValue = aggregateFunction.withChildren(
+                            Lists.newArrayList(localOutputExpr.toSlot()));
+                    inputSubstitutionMap.put(aggregateFunction, substitutionValue);
+                    localOutputExprs.add(localOutputExpr);
                 }
             }
 
+            // 3. replace expression in globalOutputExprs and globalGroupByExprs
+            List<NamedExpression> globalOutputExprs = aggregate.getOutputExpressionList().stream()
+                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap))
+                    .map(NamedExpression.class::cast)
+                    .collect(Collectors.toList());
+            List<Expression> globalGroupByExprs = localGroupByExprs.stream()
+                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap)).collect(Collectors.toList());
+
+            // 4. generate new plan
             LogicalAggregate localAggregate = new LogicalAggregate(
                     localGroupByExprs,
                     localOutputExprs,
                     true,
                     AggPhase.LOCAL
             );
-
-            Plan childPlan = plan(localAggregate, plan.child(0));
-
             LogicalAggregate globalAggregate = new LogicalAggregate(
-                    mergeGroupByExpressionList,
+                    globalGroupByExprs,
                     globalOutputExprs,
                     true,
                     AggPhase.GLOBAL
             );
-            return plan(globalAggregate, childPlan);
+            return plan(globalAggregate, plan(localAggregate, plan.child(0)));
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
     @SuppressWarnings("InnerClassMayBeStatic")
-    private class AggregateFunctionParamsRewriter
-            extends DefaultExpressionRewriter<Map<AggregateFunction, NamedExpression>> {
+    private static class ExpressionReplacer
+            extends ExpressionVisitor<Expression, Map<Expression, Expression>> {
+        private static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
+
         @Override
-        public Expression visitAggregateFunction(AggregateFunction boundFunction,
-                Map<AggregateFunction, NamedExpression> context) {
-            return boundFunction.withChildren(Lists.newArrayList(context.get(boundFunction).toSlot()));
+        public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
+            // TODO: we need to do sub tree match and replace. but we do not have semanticEquals now.
+            //    e.g. a + 1 + 2 in output expression should be replaced by
+            //    (slot reference to update phase out (a + 1)) + 2, if we do group by a + 1
+            //   currently, we could only handle output expression same with group by expression
+            if (substitutionMap.containsKey(expr)) {
+                return substitutionMap.get(expr);
+            } else {
+                List<Expression> newChildren = new ArrayList<>();
+                boolean hasNewChildren = false;
+                for (Expression child : expr.children()) {
+                    Expression newChild = visit(child, substitutionMap);
+                    if (newChild != child) {
+                        hasNewChildren = true;
+                    }
+                    newChildren.add(newChild);
+                }
+                return hasNewChildren ? expr.withChildren(newChildren) : expr;
+            }
         }
     }
 }

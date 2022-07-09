@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Plans;
@@ -106,8 +107,8 @@ public class AggregateDisassembleTest implements Plans {
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
         Assertions.assertEquals(2, local.getOutputExpressionList().size());
-        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof Alias);
-        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0).child(0));
+        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof SlotReference);
+        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0));
         Assertions.assertTrue(local.getOutputExpressionList().get(1) instanceof Alias);
         Assertions.assertEquals(localOutput1, local.getOutputExpressionList().get(1).child(0));
         Assertions.assertEquals(1, local.getGroupByExpressionList().size());
@@ -118,11 +119,18 @@ public class AggregateDisassembleTest implements Plans {
         Expression globalGroupBy = local.getOutputExpressionList().get(0).toSlot();
 
         Assertions.assertEquals(2, global.getOutputExpressionList().size());
+        Assertions.assertTrue(global.getOutputExpressionList().get(0) instanceof SlotReference);
         Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0));
         Assertions.assertTrue(global.getOutputExpressionList().get(1) instanceof Alias);
         Assertions.assertEquals(globalOutput1, global.getOutputExpressionList().get(1).child(0));
         Assertions.assertEquals(1, global.getGroupByExpressionList().size());
         Assertions.assertEquals(globalGroupBy, global.getGroupByExpressionList().get(0));
+
+        // check id:
+        Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
+                global.getOutputExpressionList().get(0).getExprId());
+        Assertions.assertEquals(outputExpressionList.get(1).getExprId(),
+                global.getOutputExpressionList().get(1).getExprId());
     }
 
     /**
@@ -180,11 +188,18 @@ public class AggregateDisassembleTest implements Plans {
         Expression globalGroupBy = local.getOutputExpressionList().get(0).toSlot();
 
         Assertions.assertEquals(2, global.getOutputExpressionList().size());
-        Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0));
+        Assertions.assertTrue(global.getOutputExpressionList().get(0) instanceof Alias);
+        Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0).child(0));
         Assertions.assertTrue(global.getOutputExpressionList().get(1) instanceof Alias);
         Assertions.assertEquals(globalOutput1, global.getOutputExpressionList().get(1).child(0));
         Assertions.assertEquals(1, global.getGroupByExpressionList().size());
         Assertions.assertEquals(globalGroupBy, global.getGroupByExpressionList().get(0));
+
+        // check id:
+        Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
+                global.getOutputExpressionList().get(0).getExprId());
+        Assertions.assertEquals(outputExpressionList.get(1).getExprId(),
+                global.getOutputExpressionList().get(1).getExprId());
     }
 
     /**
@@ -236,6 +251,10 @@ public class AggregateDisassembleTest implements Plans {
         Assertions.assertTrue(global.getOutputExpressionList().get(0) instanceof Alias);
         Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0).child(0));
         Assertions.assertEquals(0, global.getGroupByExpressionList().size());
+
+        // check id:
+        Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
+                global.getOutputExpressionList().get(0).getExprId());
     }
 
     /**
@@ -280,8 +299,8 @@ public class AggregateDisassembleTest implements Plans {
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
         Assertions.assertEquals(2, local.getOutputExpressionList().size());
-        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof Alias);
-        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0).child(0));
+        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof SlotReference);
+        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0));
         Assertions.assertTrue(local.getOutputExpressionList().get(1) instanceof Alias);
         Assertions.assertEquals(localOutput1, local.getOutputExpressionList().get(1).child(0));
         Assertions.assertEquals(1, local.getGroupByExpressionList().size());
@@ -295,5 +314,9 @@ public class AggregateDisassembleTest implements Plans {
         Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0).child(0));
         Assertions.assertEquals(1, global.getGroupByExpressionList().size());
         Assertions.assertEquals(globalGroupBy, global.getGroupByExpressionList().get(0));
+
+        // check id:
+        Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
+                global.getOutputExpressionList().get(0).getExprId());
     }
 }
