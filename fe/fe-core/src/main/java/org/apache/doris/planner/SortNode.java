@@ -272,15 +272,13 @@ public class SortNode extends PlanNode {
      */
     public void finalizeForNereids(TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
-        List<Expr> afterDeduplication = Lists.newArrayList(outputList);
+        List<Expr> afterDeduplication = Lists.newArrayList(orderingExpr);
         for (Expr output : outputList) {
-            if (output instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) output;
-                int offset = slotRef.getDesc().getSlotOffset();
-                afterDeduplication.set(offset, slotRef);
+            if (!afterDeduplication.contains(output)) {
+                afterDeduplication.add(output);
             }
         }
         info.setSortTupleDesc(tupleDescriptor);
-        info.setSortTupleSlotExprs(outputList);
+        info.setSortTupleSlotExprs(afterDeduplication);
     }
 }

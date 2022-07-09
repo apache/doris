@@ -178,15 +178,12 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         //  split merge agg to project(agg) and generate tuple like what first phase agg do.
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
-        TupleDescriptor intermediateTupleDesc;
         if (physicalAggregate.getAggPhase() == AggPhase.GLOBAL) {
             slotList.addAll(groupSlotList);
             slotList.addAll(aggFunctionOutput);
-            intermediateTupleDesc = generateTupleDesc(slotList, null, context);
-            outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
+            outputTupleDesc = generateTupleDesc(slotList, null, context);
         } else {
             outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
-            intermediateTupleDesc = outputTupleDesc;
         }
 
         // process partition list
@@ -204,7 +201,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             }
         }
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions, outputTupleDesc,
-                intermediateTupleDesc, physicalAggregate.getAggPhase().toExec());
+                outputTupleDesc, physicalAggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), aggInfo);
         inputPlanFragment.setPlanRoot(aggregationNode);
@@ -446,9 +443,6 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             PlanTranslatorContext context, Table table) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
-        for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
-        }
         for (OrderKey orderKey : orderKeyList) {
             if (orderKey.getExpr() instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) orderKey.getExpr();
@@ -460,6 +454,12 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             } else {
                 context.createSlotDesc(tupleDescriptor, orderKey.getExpr());
             }
+        }
+        for (Slot slot : slotList) {
+            if (context.findSlotRef(slot.getExprId()) != null) {
+                continue;
+            }
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
         }
 
         return tupleDescriptor;
