@@ -67,6 +67,7 @@ import org.apache.doris.planner.SortNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
@@ -443,23 +444,25 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             PlanTranslatorContext context, Table table) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
+        Set<ExprId> alreadyExists = Sets.newHashSet();
         for (OrderKey orderKey : orderKeyList) {
             if (orderKey.getExpr() instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) orderKey.getExpr();
                 // TODO: trick here, we need semanticEquals to remove redundant expression
-                if (context.findSlotRef(slotReference.getExprId()) != null) {
+                if (alreadyExists.contains(slotReference.getExprId())) {
                     continue;
                 }
                 context.createSlotDesc(tupleDescriptor, (SlotReference) orderKey.getExpr());
-            } else {
-                context.createSlotDesc(tupleDescriptor, orderKey.getExpr());
+                alreadyExists.add(slotReference.getExprId());
             }
         }
         for (Slot slot : slotList) {
-            if (context.findSlotRef(slot.getExprId()) != null) {
+            if (alreadyExists.contains(slot.getExprId())) {
                 continue;
             }
             context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
+            alreadyExists.add(slot.getExprId());
+
         }
 
         return tupleDescriptor;
