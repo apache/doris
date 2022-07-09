@@ -88,13 +88,13 @@ public:
         RowsetMetaSharedPtr meta_ptr = make_shared<RowsetMeta>();
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr res_ptr;
-        MockRowset::create_rowset(&schema_, rowset_path_desc_, meta_ptr, &res_ptr, is_mem_rowset);
+        MockRowset::create_rowset(&schema_, rowset_path_, meta_ptr, &res_ptr, is_mem_rowset);
         return res_ptr;
     }
 
 private:
     TabletSchema schema_;
-    FilePathDesc rowset_path_desc_;
+    std::string rowset_path_;
     UniqueRowsetIdGenerator rowset_id_generator_;
 };
 
