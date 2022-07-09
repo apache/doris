@@ -278,10 +278,10 @@ public class SortNode extends PlanNode {
         sortTupleSlotExprs.addAll(orderingExpr);
         List<Expr> afterDeduplication = new ArrayList<>();
         Set<ExprId> exprIds = new HashSet<>();
-        for (int i = 0; i < sortTupleSlotExprs.size(); i++) {
-            Expr expr = sortTupleSlotExprs.get(i);
+        for (Expr expr : sortTupleSlotExprs) {
             if (!exprIds.contains(expr.getId())) {
                 afterDeduplication.add(expr);
+                exprIds.add(expr.getId());
             }
         }
         info.setSortTupleDesc(tupleDescriptor);

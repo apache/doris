@@ -449,6 +449,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         // TODO: trick here, we need semanticEquals to remove redundant expression
         for (OrderKey orderKey : orderKeyList) {
             if (orderKey.getExpr() instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) orderKey.getExpr();
+                if (context.findSlotRef(slotReference.getExprId()) != null) {
+                    continue;
+                }
                 context.createSlotDesc(tupleDescriptor, (SlotReference) orderKey.getExpr());
             } else {
                 context.createSlotDesc(tupleDescriptor, orderKey.getExpr());
