@@ -514,7 +514,7 @@ Status DataDir::load() {
 
     for (int64_t tablet_id : tablet_ids) {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet->set_tablet_schema_into_rowset_meta()) {
+        if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
             TabletMetaManager::save(this, tablet->tablet_id(), tablet->schema_hash(),
                                     tablet->tablet_meta());
         }
