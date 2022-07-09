@@ -1673,13 +1673,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             _free_blocks.emplace_back(materialized_block);
         }
 
-//        auto columns = block->get_columns();
-//        auto slots = _tuple_desc->slots();
-//        for (int i = 0; i < slots.size(); i++) {
-//            if (!_output_slot_flags[i]) {
-//                std::move(columns[i])->assume_mutable()->clear();
-//            }
-//        }
         return Status::OK();
     }
 
