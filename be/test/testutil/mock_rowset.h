@@ -36,7 +36,7 @@ class MockRowset : public Rowset {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual Status link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override {
+    virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
@@ -64,18 +64,18 @@ class MockRowset : public Rowset {
         return Rowset::get_segments_key_bounds(segments_key_bounds);
     }
 
-    static Status create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
+    static Status create_rowset(const TabletSchema* schema, const std::string& rowset_path,
                                 RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset,
                                 bool is_mem_rowset = false) {
-        rowset->reset(new MockRowset(schema, rowset_path_desc, rowset_meta));
+        rowset->reset(new MockRowset(schema, rowset_path, rowset_meta));
         ((MockRowset*)rowset->get())->is_mem_rowset_ = is_mem_rowset;
         return Status::OK();
     }
 
 protected:
-    MockRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
+    MockRowset(const TabletSchema* schema, const std::string& rowset_path,
                RowsetMetaSharedPtr rowset_meta)
-            : Rowset(schema, rowset_path_desc, rowset_meta) {}
+            : Rowset(schema, rowset_path, rowset_meta) {}
 
     virtual Status init() override {
         return Status::NotSupported("MockRowset not support this method.");
