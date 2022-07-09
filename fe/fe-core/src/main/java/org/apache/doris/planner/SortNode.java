@@ -44,9 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.glassfish.jersey.internal.guava.Sets;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -270,13 +268,18 @@ public class SortNode extends PlanNode {
 
     /**
      * Supplement the information needed by be for the sort node.
+     * TODO: currently we only process slotref, so when order key is a + 1, we will failed.
      */
     public void finalizeForNereids(TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
-        Set<Expr> sortTupleSlotExprs = Sets.newHashSet();
-        sortTupleSlotExprs.addAll(outputList);
-        sortTupleSlotExprs.addAll(orderingExpr);
-        List<Expr> afterDeduplication = new ArrayList<>(sortTupleSlotExprs);
+        List<Expr> afterDeduplication = Lists.newArrayListWithCapacity(outputList.size());
+        for (Expr output : outputList) {
+            if (output instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) output;
+                int offset = slotRef.getDesc().getSlotOffset();
+                afterDeduplication.set(offset, slotRef);
+            }
+        }
         info.setSortTupleDesc(tupleDescriptor);
         info.setSortTupleSlotExprs(afterDeduplication);
     }

@@ -443,6 +443,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             PlanTranslatorContext context, Table table) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
+        for (Slot slot : slotList) {
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
+        }
         for (OrderKey orderKey : orderKeyList) {
             if (orderKey.getExpr() instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) orderKey.getExpr();
@@ -455,9 +458,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 context.createSlotDesc(tupleDescriptor, orderKey.getExpr());
             }
         }
-        for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
-        }
+
         return tupleDescriptor;
     }
 
