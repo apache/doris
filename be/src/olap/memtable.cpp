@@ -183,8 +183,9 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
                 _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-            _agg_functions[cid]->add(row_in_block->agg_places(cid),
-                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+            auto data = row_in_block->agg_places(cid);
+            _agg_functions[cid]->create(data);
+            _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                      row_in_block->_row_pos, nullptr);
         }
 
