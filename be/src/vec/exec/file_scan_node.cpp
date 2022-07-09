@@ -96,9 +96,14 @@ Status FileScanNode::open(RuntimeState* state) {
 Status FileScanNode::start_scanners() {
     {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
-        _num_running_scanners = 1;
+        _num_running_scanners = _scan_ranges.size();
     }
-    _scanner_threads.emplace_back(&FileScanNode::scanner_worker, this, 0, _scan_ranges.size());
+
+    _scanners_status.resize(_scan_ranges.size());
+    for (int i = 0; i < _scan_ranges.size(); i++) {
+        _scanner_threads.emplace_back(&FileScanNode::scanner_worker, this, i, _scan_ranges.size(),
+                                      std::ref(_scanners_status[i]));
+    }
     return Status::OK();
 }
 
@@ -203,7 +208,10 @@ Status FileScanNode::close(RuntimeState* state) {
     for (int i = 0; i < _scanner_threads.size(); ++i) {
         _scanner_threads[i].join();
     }
-
+    for (int i = 0; i < _scanners_status.size(); i++) {
+        std::future<Status> f = _scanners_status[i].get_future();
+        RETURN_IF_ERROR(f.get());
+    }
     // Close
     _batch_queue.clear();
     return ExecNode::close(state);
@@ -264,18 +272,16 @@ Status FileScanNode::scanner_scan(const TFileScanRange& scan_range, ScannerCount
     return Status::OK();
 }
 
-void FileScanNode::scanner_worker(int start_idx, int length) {
+void FileScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
     Thread::set_self_name("file_scanner");
     Status status = Status::OK();
     ScannerCounter counter;
-    for (int i = 0; i < length && status.ok(); ++i) {
-        const TFileScanRange& scan_range =
-                _scan_ranges[start_idx + i].scan_range.ext_scan_range.file_scan_range;
-        status = scanner_scan(scan_range, &counter);
-        if (!status.ok()) {
-            LOG(WARNING) << "Scanner[" << start_idx + i
-                         << "] process failed. status=" << status.get_error_msg();
-        }
+    const TFileScanRange& scan_range =
+            _scan_ranges[start_idx].scan_range.ext_scan_range.file_scan_range;
+    status = scanner_scan(scan_range, &counter);
+    if (!status.ok()) {
+        LOG(WARNING) << "Scanner[" << start_idx
+                     << "] process failed. status=" << status.get_error_msg();
     }
 
     // Update stats
@@ -296,6 +302,7 @@ void FileScanNode::scanner_worker(int start_idx, int length) {
     if (!status.ok()) {
         _queue_writer_cond.notify_all();
     }
+    p_status.set_value(status);
 }
 
 std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& scan_range,
