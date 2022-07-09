@@ -43,7 +43,7 @@ struct RowsetIntervalTraits;
 struct RowsetWithBounds;
 
 // Used often enough, may as well typedef it.
-typedef std::vector<std::shared_ptr<Rowset>> RowsetVector;
+typedef std::vector<RowsetSharedPtr> RowsetVector;
 
 // Class which encapsulates the set of rowsets which are active for a given
 // Tablet. This provides efficient lookup by key for Rowsets which may overlap
@@ -60,10 +60,10 @@ public:
     // endpoint is located.
     enum EndpointType { START, STOP };
     struct RSEndpoint {
-        RSEndpoint(Rowset* rowset, uint32_t segment_id, EndpointType endpoint, Slice slice)
+        RSEndpoint(RowsetSharedPtr rowset, uint32_t segment_id, EndpointType endpoint, Slice slice)
                 : rowset_(rowset), segment_id_(segment_id), endpoint_(endpoint), slice_(slice) {}
 
-        Rowset* rowset_;
+        RowsetSharedPtr rowset_;
         uint32_t segment_id_;
         enum EndpointType endpoint_;
         Slice slice_;
@@ -78,7 +78,7 @@ public:
     // The returned pointers are guaranteed to be valid at least until this
     // RowsetTree object is Reset().
     void FindRowsetsWithKeyInRange(const Slice& encoded_key,
-                                   vector<std::pair<Rowset*, int32_t>>* rowsets) const;
+                                   vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const;
 
     // Call 'cb(rowset, index)' for each (rowset, index) pair such that
     // 'encoded_keys[index]' may be within the bounds of 'rowset'.
@@ -88,7 +88,7 @@ public:
     //
     // REQUIRES: 'encoded_keys' must be in sorted order.
     void ForEachRowsetContainingKeys(const std::vector<Slice>& encoded_keys,
-                                     const std::function<void(Rowset*, int)>& cb) const;
+                                     const std::function<void(RowsetSharedPtr, int)>& cb) const;
 
     // When 'lower_bound' is boost::none, it means negative infinity.
     // When 'upper_bound' is boost::none, it means positive infinity.
@@ -99,11 +99,11 @@ public:
     //  [lower_bound, upper_bound)
     void FindRowsetsIntersectingInterval(const std::optional<Slice>& lower_bound,
                                          const std::optional<Slice>& upper_bound,
-                                         vector<std::pair<Rowset*, int32_t>>* rowsets) const;
+                                         vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const;
 
     const RowsetVector& all_rowsets() const { return all_rowsets_; }
 
-    Rowset* rs_by_id(RowsetId rs_id) const { return FindPtrOrNull(rs_by_id_, rs_id); }
+    RowsetSharedPtr rs_by_id(RowsetId rs_id) const { return FindPtrOrNull(rs_by_id_, rs_id); }
 
     // Iterates over RowsetTree::RSEndpoint, guaranteed to be ordered and for
     // any rowset to appear exactly twice, once at its start slice and once at
@@ -128,7 +128,7 @@ private:
     RowsetVector all_rowsets_;
 
     // The Rowsets in this RowsetTree, keyed by their id.
-    std::unordered_map<RowsetId, Rowset*, HashOfRowsetId> rs_by_id_;
+    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> rs_by_id_;
 
     bool initted_;
 };

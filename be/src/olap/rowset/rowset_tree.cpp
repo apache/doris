@@ -50,7 +50,7 @@ namespace {
 bool RSEndpointBySliceCompare(const RowsetTree::RSEndpoint& a, const RowsetTree::RSEndpoint& b) {
     int slice_cmp = a.slice_.compare(b.slice_);
     if (slice_cmp) return slice_cmp < 0;
-    ptrdiff_t rs_cmp = a.rowset_ - b.rowset_;
+    ptrdiff_t rs_cmp = a.rowset_.get() - b.rowset_.get();
     if (rs_cmp) return rs_cmp < 0;
     int seg_cmp = a.segment_id_ < b.segment_id_;
     if (seg_cmp) return seg_cmp < 0;
@@ -77,7 +77,7 @@ struct RowsetWithBounds {
     // min_key and max_key frequently, so putting them first in the struct
     // ensures they fill a single 64-byte cache line (each is 32 bytes).
     // The 'rowset' pointer is accessed comparitively rarely.
-    Rowset* rowset;
+    RowsetSharedPtr rowset;
     int32_t segment_id;
 };
 
@@ -126,7 +126,7 @@ Status RowsetTree::Init(const RowsetVector& rowsets) {
 
     // Iterate over each of the provided Rowsets, fetching their
     // bounds and adding them to the local vectors.
-    for (const shared_ptr<Rowset>& rs : rowsets) {
+    for (const RowsetSharedPtr& rs : rowsets) {
         std::vector<KeyBoundsPB> segments_key_bounds;
         Status s = rs->get_segments_key_bounds(&segments_key_bounds);
         if (!s.ok()) {
@@ -138,7 +138,7 @@ Status RowsetTree::Init(const RowsetVector& rowsets) {
 
         for (auto i = 0; i < rs->num_segments(); i++) {
             unique_ptr<RowsetWithBounds> rsit(new RowsetWithBounds());
-            rsit->rowset = rs.get();
+            rsit->rowset = rs;
             rsit->segment_id = i;
             string min_key = segments_key_bounds[i].min_key();
             string max_key = segments_key_bounds[i].max_key();
@@ -169,7 +169,7 @@ Status RowsetTree::Init(const RowsetVector& rowsets) {
     // Build the mapping from RS_ID to RS.
     rs_by_id_.clear();
     for (auto& rs : all_rowsets_) {
-        if (!rs_by_id_.insert({rs->rowset_id(), rs.get()}).second) {
+        if (!rs_by_id_.insert({rs->rowset_id(), rs}).second) {
             return Status::InternalError(strings::Substitute(
                     "Add rowset with $0 to rowset tree of tablet $1 failed",
                     rs->rowset_id().to_string(), rs->rowset_meta()->tablet_uid().to_string()));
@@ -183,7 +183,7 @@ Status RowsetTree::Init(const RowsetVector& rowsets) {
 
 void RowsetTree::FindRowsetsIntersectingInterval(
         const std::optional<Slice>& lower_bound, const std::optional<Slice>& upper_bound,
-        vector<std::pair<Rowset*, int32_t>>* rowsets) const {
+        vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const {
     DCHECK(initted_);
 
     vector<RowsetWithBounds*> from_tree;
@@ -196,7 +196,7 @@ void RowsetTree::FindRowsetsIntersectingInterval(
 }
 
 void RowsetTree::FindRowsetsWithKeyInRange(const Slice& encoded_key,
-                                           vector<std::pair<Rowset*, int32_t>>* rowsets) const {
+                                           vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const {
     DCHECK(initted_);
 
     // Query the interval tree to efficiently find rowsets with known bounds
@@ -211,7 +211,7 @@ void RowsetTree::FindRowsetsWithKeyInRange(const Slice& encoded_key,
 }
 
 void RowsetTree::ForEachRowsetContainingKeys(const std::vector<Slice>& encoded_keys,
-                                             const std::function<void(Rowset*, int)>& cb) const {
+                                             const std::function<void(RowsetSharedPtr, int)>& cb) const {
     DCHECK(std::is_sorted(encoded_keys.cbegin(), encoded_keys.cend(), Slice::Comparator()));
     // The interval tree batch query callback would naturally just give us back
     // the matching Slices, but that won't allow us to easily tell the caller
@@ -242,10 +242,10 @@ void ModifyRowSetTree(const RowsetTree& old_tree, const RowsetVector& rowsets_to
     // the rowsets that were included in the compaction
     int num_removed = 0;
 
-    for (const shared_ptr<Rowset>& rs : old_tree.all_rowsets()) {
+    for (const RowsetSharedPtr& rs : old_tree.all_rowsets()) {
         // Determine if it should be removed
         bool should_remove = false;
-        for (const shared_ptr<Rowset>& to_remove : rowsets_to_remove) {
+        for (const RowsetSharedPtr& to_remove : rowsets_to_remove) {
             if (to_remove->rowset_id() == rs->rowset_id()) {
                 should_remove = true;
                 num_removed++;

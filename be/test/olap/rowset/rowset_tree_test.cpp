@@ -112,118 +112,118 @@ TEST_F(TestRowsetTree, TestTree) {
     ASSERT_TRUE(tree.Init(vec).ok());
 
     // "2" overlaps 0-5
-    vector<std::pair<Rowset*, int32_t>> out;
+    vector<std::pair<RowsetSharedPtr, int32_t>> out;
     tree.FindRowsetsWithKeyInRange("2", &out);
     ASSERT_EQ(1, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
 
     // "4" overlaps 0-5, 3-5
     out.clear();
     tree.FindRowsetsWithKeyInRange("4", &out);
     ASSERT_EQ(2, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
 
     // interval [3,4) overlaps 0-5, 3-5
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("3"), Slice("4"), &out);
     ASSERT_EQ(2, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
 
     // interval [0,2) overlaps 0-5
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("0"), Slice("2"), &out);
     ASSERT_EQ(1, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
 
     // interval [5,7) overlaps 0-5, 3-5, 5-9
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("5"), Slice("7"), &out);
     ASSERT_EQ(3, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
-    ASSERT_EQ(vec[2].get(), out[2].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
+    ASSERT_EQ(vec[2].get(), out[2].first.get());
 
     // "3" overlaps 0-5, 3-5
     out.clear();
     tree.FindRowsetsWithKeyInRange("3", &out);
     ASSERT_EQ(2, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
 
     // "5" overlaps 0-5, 3-5, 5-9
     out.clear();
     tree.FindRowsetsWithKeyInRange("5", &out);
     ASSERT_EQ(3, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
-    ASSERT_EQ(vec[2].get(), out[2].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
+    ASSERT_EQ(vec[2].get(), out[2].first.get());
 
     // interval [0,5) overlaps 0-5, 3-5
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("0"), Slice("5"), &out);
     ASSERT_EQ(2, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
 
     // interval [3,5) overlaps 0-5, 3-5
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("3"), Slice("5"), &out);
     ASSERT_EQ(2, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
 
     // interval [-OO,3) overlaps 0-5
     out.clear();
     tree.FindRowsetsIntersectingInterval(std::nullopt, Slice("3"), &out);
     ASSERT_EQ(1, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
 
     // interval [-OO,5) overlaps 0-5, 3-5
     out.clear();
     tree.FindRowsetsIntersectingInterval(std::nullopt, Slice("5"), &out);
     ASSERT_EQ(2, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
 
     // interval [-OO,99) overlaps 0-5, 3-5, 5-9
     out.clear();
     tree.FindRowsetsIntersectingInterval(std::nullopt, Slice("99"), &out);
     ASSERT_EQ(3, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
-    ASSERT_EQ(vec[2].get(), out[2].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
+    ASSERT_EQ(vec[2].get(), out[2].first.get());
 
     // interval [6,+OO) overlaps 5-9
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("6"), std::nullopt, &out);
     ASSERT_EQ(1, out.size());
-    ASSERT_EQ(vec[2].get(), out[0].first);
+    ASSERT_EQ(vec[2].get(), out[0].first.get());
 
     // interval [5,+OO) overlaps 0-5, 3-5, 5-9
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("5"), std::nullopt, &out);
     ASSERT_EQ(3, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
-    ASSERT_EQ(vec[2].get(), out[2].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
+    ASSERT_EQ(vec[2].get(), out[2].first.get());
 
     // interval [4,+OO) overlaps 0-5, 3-5, 5-9
     out.clear();
     tree.FindRowsetsIntersectingInterval(Slice("4"), std::nullopt, &out);
     ASSERT_EQ(3, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
-    ASSERT_EQ(vec[2].get(), out[2].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
+    ASSERT_EQ(vec[2].get(), out[2].first.get());
 
     // interval [-OO,+OO) overlaps 0-5, 3-5, 5-9
     out.clear();
     tree.FindRowsetsIntersectingInterval(std::nullopt, std::nullopt, &out);
     ASSERT_EQ(3, out.size());
-    ASSERT_EQ(vec[0].get(), out[0].first);
-    ASSERT_EQ(vec[1].get(), out[1].first);
-    ASSERT_EQ(vec[2].get(), out[2].first);
+    ASSERT_EQ(vec[0].get(), out[0].first.get());
+    ASSERT_EQ(vec[1].get(), out[1].first.get());
+    ASSERT_EQ(vec[2].get(), out[2].first.get());
 }
 
 TEST_F(TestRowsetTree, TestTreeRandomized) {
@@ -264,7 +264,7 @@ TEST_F(TestRowsetTree, TestTreeRandomized) {
     ASSERT_TRUE(tree.Init(vec).ok());
 
     // When lower < upper.
-    vector<std::pair<Rowset*, int32_t>> out;
+    vector<std::pair<RowsetSharedPtr, int32_t>> out;
     for (int i = 0; i < 100; i++) {
         out.clear();
         std::pair<string, string> bound = GetStringPair(BOUND_LESS_THAN, 1000, 900);
@@ -348,7 +348,7 @@ TEST_P(TestRowsetTreePerformance, TestPerformance) {
         int individual_matches = 0;
         one_at_time_timer.start();
         {
-            vector<std::pair<Rowset*, int32_t>> out;
+            vector<std::pair<RowsetSharedPtr, int32_t>> out;
             for (const auto& q : queries) {
                 out.clear();
                 tree.FindRowsetsWithKeyInRange(Slice(q), &out);
@@ -366,9 +366,8 @@ TEST_P(TestRowsetTreePerformance, TestPerformance) {
         std::sort(query_slices.begin(), query_slices.end(), Slice::Comparator());
         int bulk_matches = 0;
         {
-            vector<Rowset*> out;
             tree.ForEachRowsetContainingKeys(query_slices,
-                                             [&](Rowset* rs, int slice_idx) { bulk_matches++; });
+                                             [&](RowsetSharedPtr rs, int slice_idx) { bulk_matches++; });
         }
         batch_timer.stop();
 
@@ -397,13 +396,13 @@ TEST_F(TestRowsetTree, TestEndpointsConsistency) {
     RowsetTree tree;
     ASSERT_TRUE(tree.Init(vec).ok());
     // Keep track of "currently open" intervals defined by the endpoints
-    unordered_set<Rowset*> open;
+    unordered_set<RowsetSharedPtr> open;
     // Keep track of all rowsets that have been visited
-    unordered_set<Rowset*> visited;
+    unordered_set<RowsetSharedPtr> visited;
 
     Slice prev;
     for (const RowsetTree::RSEndpoint& rse : tree.key_endpoints()) {
-        Rowset* rs = rse.rowset_;
+        RowsetSharedPtr rs = rse.rowset_;
         enum RowsetTree::EndpointType ept = rse.endpoint_;
         const Slice& slice = rse.slice_;
 
