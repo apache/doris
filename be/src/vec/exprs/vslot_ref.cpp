@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include "runtime/descriptors.h"
+#include "util/stack_util.h"
 
 namespace doris::vectorized {
 using doris::Status;
@@ -59,7 +60,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
-    DCHECK_GE(_column_id, 0);
+    CHECK_GE(_column_id, 0) << ", " << debug_string() << ", " << get_stack_trace();
     *result_column_id = _column_id;
     return Status::OK();
 }
@@ -69,7 +70,7 @@ const std::string& VSlotRef::expr_name() const {
 }
 std::string VSlotRef::debug_string() const {
     std::stringstream out;
-    out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ")";
+    out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ") column id: " << _column_id << ", name: " << *_column_name << ", is nulable: " << _is_nullable;
     return out.str();
 }
 } // namespace doris::vectorized
