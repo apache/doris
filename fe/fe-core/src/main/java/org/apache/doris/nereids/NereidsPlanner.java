@@ -45,7 +45,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -80,10 +79,6 @@ public class NereidsPlanner extends Planner {
         scanNodeList = planTranslatorContext.getScanNodeList();
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
-        for (PlanFragment fragment : fragments) {
-            fragment.finalize(queryStmt);
-        }
-        Collections.reverse(fragments);
 
         // set output exprs
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());

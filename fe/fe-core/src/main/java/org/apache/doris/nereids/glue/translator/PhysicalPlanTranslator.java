@@ -121,6 +121,10 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         rootFragment.setOutputExprs(outputExprs);
         rootFragment.getPlanRoot().convertToVectoriezd();
+        for (PlanFragment fragment : context.getPlanFragmentList()) {
+            fragment.finalize(null);
+        }
+        Collections.reverse(context.getPlanFragmentList());
         return rootFragment;
     }
 
