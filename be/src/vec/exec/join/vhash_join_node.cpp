@@ -1368,10 +1368,14 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
     // we should repalce `insert_column_datas` by `insert_range_from`
 
     auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
-        if (to->is_nullable() && !from.is_nullable()) {
+        auto [to_null, from_null] = std::pair {to->is_nullable(), from.is_nullable()};
+        if (to_null && !from_null) {
             auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
             null_column.get_nested_column().insert_range_from(from, 0, rows);
             null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+        } else if (!to_null && from_null) {
+            const auto& null_column = reinterpret_cast<const ColumnNullable&>(from);
+            to->insert_range_from(null_column.get_nested_column(), 0, rows);
         } else {
             to->insert_range_from(from, 0, rows);
         }
