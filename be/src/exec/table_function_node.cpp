@@ -102,6 +102,7 @@ Status TableFunctionNode::prepare(RuntimeState* state) {
 }
 
 Status TableFunctionNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
@@ -374,6 +375,7 @@ Status TableFunctionNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::close");
     Expr::close(_fn_ctxs, state);
     vectorized::VExpr::close(_vfn_ctxs, state);
 

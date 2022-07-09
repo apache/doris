@@ -28,6 +28,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.telemetry.ScopedSpan;
+import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.ProfileWriter;
@@ -102,6 +104,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -645,9 +651,16 @@ public class Coordinator {
             } // end for fragments
 
             // 4. send and wait fragments rpc
-            List<Pair<BackendExecStates, Future<InternalService.PExecPlanFragmentResult>>> futures
-                    = Lists.newArrayList();
+            List<Pair<BackendExecStates, Future<InternalService.PExecPlanFragmentResult>>> futures =
+                    Lists.newArrayList();
+            Context parentSpanContext = Context.current();
             for (BackendExecStates states : beToExecStates.values()) {
+                Span span = Telemetry.getNoopSpan();
+                if (ConnectContext.get() != null) {
+                    span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
+                            .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
+                }
+                states.scopedSpan = new ScopedSpan(span);
                 states.unsetFields();
                 futures.add(Pair.create(states, states.execRemoteFragmentsAsync()));
             }
@@ -657,6 +670,12 @@ public class Coordinator {
                 // 5. send and wait execution start rpc
                 futures.clear();
                 for (BackendExecStates states : beToExecStates.values()) {
+                    Span span = Telemetry.getNoopSpan();
+                    if (ConnectContext.get() != null) {
+                        span = ConnectContext.get().getTracer().spanBuilder("execPlanFragmentStartAsync")
+                                .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
+                    }
+                    states.scopedSpan = new ScopedSpan(span);
                     futures.add(Pair.create(states, states.execPlanFragmentStartAsync()));
                 }
                 waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
@@ -679,6 +698,7 @@ public class Coordinator {
             TStatusCode code;
             String errMsg = null;
             Exception exception = null;
+            Span span = pair.first.scopedSpan.getSpan();
             try {
                 PExecPlanFragmentResult result = pair.second.get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
@@ -703,21 +723,28 @@ public class Coordinator {
                 code = TStatusCode.TIMEOUT;
             }
 
-            if (code != TStatusCode.OK) {
-                if (exception != null && errMsg == null) {
-                    errMsg = operation + " failed. " + exception.getMessage();
+            try {
+                if (code != TStatusCode.OK) {
+                    if (exception != null && errMsg == null) {
+                        errMsg = operation + " failed. " + exception.getMessage();
+                    }
+                    queryStatus.setStatus(errMsg);
+                    cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                    switch (code) {
+                        case TIMEOUT:
+                            throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
+                        case THRIFT_RPC_ERROR:
+                            SimpleScheduler.addToBlacklist(pair.first.beId, errMsg);
+                            throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
+                        default:
+                            throw new UserException(errMsg, exception);
+                    }
                 }
-                queryStatus.setStatus(errMsg);
-                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-                switch (code) {
-                    case TIMEOUT:
-                        throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
-                    case THRIFT_RPC_ERROR:
-                        SimpleScheduler.addToBlacklist(pair.first.beId, errMsg);
-                        throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
-                    default:
-                        throw new UserException(errMsg, exception);
-                }
+            } catch (Exception e) {
+                span.recordException(e);
+                throw e;
+            } finally {
+                pair.first.scopedSpan.endSpan();
             }
 
             // succeed to send the plan fragment, update the "alreadySentBackendIds"
@@ -2103,13 +2130,20 @@ public class Coordinator {
                     return false;
                 }
 
-                try {
+                Span span = ConnectContext.get() != null
+                        ? ConnectContext.get().getTracer().spanBuilder("cancelPlanFragmentAsync")
+                        .setParent(Context.current()).setSpanKind(SpanKind.CLIENT).startSpan()
+                        : Telemetry.getNoopSpan();
+                try (Scope scope = span.makeCurrent()) {
                     BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
                             fragmentInstanceId(), cancelReason);
                 } catch (RpcException e) {
+                    span.recordException(e);
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
                     SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
+                } finally {
+                    span.end();
                 }
 
                 this.hasCanceled = true;
@@ -2156,6 +2190,7 @@ public class Coordinator {
         TNetworkAddress brpcAddr;
         List<BackendExecState> states = Lists.newArrayList();
         boolean twoPhaseExecution = false;
+        ScopedSpan scopedSpan = new ScopedSpan();
 
         public BackendExecStates(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
             this.beId = beId;

@@ -1631,6 +1631,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
+    @ConfField(mutable = false, masterOnly = false)
+    public static boolean enable_tracing = false;
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
+
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
      * Default is true.

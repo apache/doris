@@ -122,6 +122,8 @@ Status OlapScanner::prepare(
 }
 
 Status OlapScanner::open() {
+    auto span = _runtime_state->get_tracer()->StartSpan("OlapScanner::open");
+    auto scope = opentelemetry::trace::Scope {span};
     SCOPED_TIMER(_parent->_reader_init_timer);
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 

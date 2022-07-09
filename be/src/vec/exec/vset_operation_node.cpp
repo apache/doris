@@ -82,6 +82,7 @@ Status VSetOperationNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode::close");
     for (auto& exprs : _child_expr_lists) {
         VExpr::close(exprs, state);
     }
@@ -113,6 +114,7 @@ Status VSetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VSetOperationNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -243,7 +245,8 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &block, &eos),
+                                       child(0)->get_next_span(), eos);
 
         size_t allocated_bytes = block.allocated_bytes();
         _hash_table_mem_tracker->consume(allocated_bytes);
@@ -310,7 +313,8 @@ Status VSetOperationNode::process_probe_block(RuntimeState* state, int child_id,
     _probe_rows = 0;
 
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(child(child_id)->get_next(state, &_probe_block, eos));
+    RETURN_IF_ERROR_AND_CHECK_SPAN(child(child_id)->get_next(state, &_probe_block, eos),
+                                   child(child_id)->get_next_span(), *eos);
     _probe_rows = _probe_block.rows();
     RETURN_IF_ERROR(extract_probe_column(_probe_block, _probe_columns, child_id));
     return Status::OK();

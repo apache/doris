@@ -64,6 +64,7 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 Status VExchangeNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(_stream_recvr->mem_tracker());
@@ -83,6 +84,7 @@ Status VExchangeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
 }
 
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExchangeNode::get_next");
     SCOPED_TIMER(runtime_profile()->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     auto status = _stream_recvr->get_next(block, eos);
@@ -103,6 +105,7 @@ Status VExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::close");
 
     if (_stream_recvr != nullptr) {
         _stream_recvr->close();

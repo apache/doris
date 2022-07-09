@@ -149,6 +149,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _rows_returned_counter(nullptr),
           _rows_returned_rate(nullptr),
           _memory_used_counter(nullptr),
+          _get_next_span(),
           _is_closed(false) {}
 
 ExecNode::~ExecNode() {}

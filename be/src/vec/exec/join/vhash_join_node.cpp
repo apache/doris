@@ -836,6 +836,7 @@ Status HashJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
 
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "ashJoinNode::close");
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
     if (_vother_join_conjunct_ptr) {
@@ -852,6 +853,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 }
 
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
 
@@ -872,7 +874,8 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 
         do {
             SCOPED_TIMER(_probe_next_timer);
-            RETURN_IF_ERROR(child(0)->get_next(state, &_probe_block, &_probe_eos));
+            RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &_probe_block, &_probe_eos),
+                                           child(0)->get_next_span(), _probe_eos);
         } while (_probe_block.rows() == 0 && !_probe_eos);
 
         probe_rows = _probe_block.rows();
@@ -983,6 +986,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -995,8 +999,11 @@ Status HashJoinNode::open(RuntimeState* state) {
     }
 
     std::promise<Status> thread_status;
-    std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
-            .detach();
+    std::thread([this, state, thread_status_p = &thread_status,
+                 parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+        OpentelemetryScope scope {parent_span};
+        this->_hash_table_build_thread(state, thread_status_p);
+    }).detach();
 
     // Open the probe-side child so that it may perform any initialisation in parallel.
     // Don't exit even if we see an error, we still need to wait for the build thread
@@ -1010,6 +1017,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
     SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(_hash_table_build(state));
 }
@@ -1032,7 +1040,8 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         block.clear_column_data();
         RETURN_IF_CANCELLED(state);
 
-        RETURN_IF_ERROR(child(1)->get_next(state, &block, &eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next(state, &block, &eos),
+                                       child(1)->get_next_span(), eos);
         _hash_table_mem_tracker->consume(block.allocated_bytes());
         _mem_used += block.allocated_bytes();
 

@@ -47,6 +47,7 @@ Status VCrossJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VCrossJoinNode::close");
     _block_mem_tracker->release(_total_mem_usage);
     VBlockingJoinNode::close(state);
     return Status::OK();
@@ -64,7 +65,8 @@ Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
 
         Block block;
-        RETURN_IF_ERROR(child(1)->get_next(state, &block, &eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next(state, &block, &eos),
+                                       child(1)->get_next_span(), eos);
         auto rows = block.rows();
         auto mem_usage = block.allocated_bytes();
 
@@ -91,6 +93,7 @@ void VCrossJoinNode::init_get_next(int left_batch_row) {
 }
 
 Status VCrossJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VCrossJoinNode::get_next");
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
@@ -119,7 +122,9 @@ Status VCrossJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                     do {
                         release_block_memory(_left_block);
                         timer.stop();
-                        RETURN_IF_ERROR(child(0)->get_next(state, &_left_block, &_left_side_eos));
+                        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                                child(0)->get_next(state, &_left_block, &_left_side_eos),
+                                child(0)->get_next_span(), _left_side_eos);
                         timer.start();
                     } while (_left_block.rows() == 0 && !_left_side_eos);
                     COUNTER_UPDATE(_left_child_row_counter, _left_block.rows());

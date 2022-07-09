@@ -55,6 +55,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -352,7 +354,16 @@ public class ConnectProcessor {
                 handleQuit();
                 break;
             case COM_QUERY:
-                handleQuery();
+                ctx.initTracer("trace");
+                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").startSpan();
+                try (Scope scope = rootSpan.makeCurrent()) {
+                    handleQuery();
+                } catch (Exception e) {
+                    rootSpan.recordException(e);
+                    throw e;
+                } finally {
+                    rootSpan.end();
+                }
                 break;
             case COM_FIELD_LIST:
                 handleFieldList();

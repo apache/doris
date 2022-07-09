@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/vempty_set_node.h"
+#include "brpc_carrier.h"
 
-namespace doris {
-namespace vectorized {
-VEmptySetNode::VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs) {}
-
-Status VEmptySetNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VEmptySetNode::get_next");
-    *eos = true;
-    return Status::OK();
+opentelemetry::nostd::string_view doris::telemetry::RpcServerCarrier::Get(
+        opentelemetry::nostd::string_view key) const noexcept {
+    auto it = cntl_->http_request().GetHeader(key.data());
+    if (it != nullptr) {
+        return it->data();
+    }
+    return "";
 }
-} // namespace vectorized
-} // namespace doris
+
+void doris::telemetry::RpcServerCarrier::Set(opentelemetry::nostd::string_view key,
+                                             opentelemetry::nostd::string_view value) noexcept {}
