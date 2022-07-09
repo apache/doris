@@ -22,7 +22,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -45,6 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -273,17 +273,10 @@ public class SortNode extends PlanNode {
      */
     public void finalizeForNereids(TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
-        List<Expr> sortTupleSlotExprs = new ArrayList<>();
+        Set<Expr> sortTupleSlotExprs = Sets.newHashSet();
         sortTupleSlotExprs.addAll(outputList);
         sortTupleSlotExprs.addAll(orderingExpr);
-        List<Expr> afterDeduplication = new ArrayList<>();
-        Set<ExprId> exprIds = new HashSet<>();
-        for (Expr expr : sortTupleSlotExprs) {
-            if (!exprIds.contains(expr.getId())) {
-                afterDeduplication.add(expr);
-                exprIds.add(expr.getId());
-            }
-        }
+        List<Expr> afterDeduplication = new ArrayList<>(sortTupleSlotExprs);
         info.setSortTupleDesc(tupleDescriptor);
         info.setSortTupleSlotExprs(afterDeduplication);
     }

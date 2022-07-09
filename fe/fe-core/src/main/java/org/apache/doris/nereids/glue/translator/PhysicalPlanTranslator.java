@@ -270,7 +270,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
      *       But eg:
      *       select a+1 from table order by a+1;
      *       the expressions of the two are inconsistent.
-     *       The former will perform an additional Alisa.
+     *       The former will perform an additional Alias.
      *       Currently we cannot test whether this will have any effect.
      *       After a+1 can be parsed , reprocessing.
      */
