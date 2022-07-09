@@ -58,6 +58,7 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/logging.h"
+#include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -402,6 +403,8 @@ int main(int argc, char** argv) {
     // start all background threads of storage engine.
     // SHOULD be called after exec env is initialized.
     EXIT_IF_ERROR(engine->start_bg_threads());
+
+    doris::telemetry::initTracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);

@@ -95,11 +95,14 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VSchemaScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
     if (!_is_init) {
+        span->SetStatus(opentelemetry::trace::StatusCode::kError, "Open before Init.");
         return Status::InternalError("Open before Init.");
     }
 
     if (nullptr == state) {
+        span->SetStatus(opentelemetry::trace::StatusCode::kError, "input pointer is nullptr.");
         return Status::InternalError("input pointer is nullptr.");
     }
 
@@ -231,6 +234,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
 }
 
 Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSchemaScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
@@ -456,6 +460,7 @@ Status VSchemaScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();
