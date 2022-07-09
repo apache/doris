@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.AggregationNode;
-import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -161,7 +160,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.anyMatch(e::equals))) {
                 groupSlotList.add((SlotReference) e);
             } else {
-                groupSlotList.add(new SlotReference(e.sql(), e.getDataType(), e.nullable(), Collections.emptyList()));
+                groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), Collections.emptyList()));
             }
         }
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
@@ -357,18 +356,7 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
         if (joinType.equals(JoinType.CROSS_JOIN)
                 || physicalHashJoin.getJoinType().equals(JoinType.INNER_JOIN)
                 && !physicalHashJoin.getCondition().isPresent()) {
-            CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextPlanNodeId(), leftFragment.getPlanRoot(),
-                    rightFragment.getPlanRoot(), null);
-            crossJoinNode.setLimit(physicalHashJoin.getLimit());
-            ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), rightFragment.getPlanRoot(), false);
-            exchangeNode.setNumInstances(rightFragmentPlanRoot.getNumInstances());
-            exchangeNode.setFragment(leftFragment);
-            leftFragmentPlanRoot.setChild(1, exchangeNode);
-            rightFragment.setDestination(exchangeNode);
-            crossJoinNode.setChild(0, leftFragment.getPlanRoot());
-            leftFragment.setPlanRoot(crossJoinNode);
-            context.addPlanFragment(leftFragment);
-            return leftFragment;
+            throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
             Expression eqJoinExpression = physicalHashJoin.getCondition().get();
             List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()

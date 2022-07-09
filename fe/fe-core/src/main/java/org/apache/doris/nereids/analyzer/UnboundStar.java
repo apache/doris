@@ -40,7 +40,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         String qualified = qualifier.stream().map(Utils::quoteIfNeeded).reduce((t1, t2) -> t1 + "." + t2).orElse("");
         if (StringUtils.isNotEmpty(qualified)) {
             return qualified + ".*";
@@ -56,7 +56,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
 
     @Override
     public String toString() {
-        return sql();
+        return toSql();
     }
 
     @Override

@@ -91,7 +91,7 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         return name;
     }
 

@@ -44,7 +44,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new UnboundException("dataType");
     }
 
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         throw new UnboundException("sql");
     }
 

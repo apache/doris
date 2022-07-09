@@ -264,7 +264,7 @@ public class PushDownPredicateTest implements Plans {
 
         Assertions.assertEquals(((LogicalJoin) join2).getCondition().get(), whereCondition2);
         Assertions.assertEquals(((LogicalJoin) join3).getCondition().get(), whereCondition1);
-        Assertions.assertEquals(((LogicalFilter) op1).getPredicates().sql(), whereCondition3result.sql());
+        Assertions.assertEquals(((LogicalFilter) op1).getPredicates().toSql(), whereCondition3result.toSql());
         Assertions.assertEquals(((LogicalFilter) op2).getPredicates(), whereCondition4);
     }
 }

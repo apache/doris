@@ -55,9 +55,9 @@ public class UnboundFunction extends Expression implements Unbound {
     }
 
     @Override
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         String params = children.stream()
-                .map(Expression::sql)
+                .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
         return name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
     }

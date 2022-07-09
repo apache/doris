@@ -80,8 +80,8 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
-    public String sql() {
-        return child().sql() + " AS `" + name + "`";
+    public String toSql() {
+        return child().toSql() + " AS `" + name + "`";
     }
 
     @Override

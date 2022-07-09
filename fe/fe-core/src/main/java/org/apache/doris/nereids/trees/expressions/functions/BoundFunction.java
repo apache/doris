@@ -66,10 +66,10 @@ public abstract class BoundFunction extends Expression {
     }
 
     @Override
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         String args = children()
                 .stream()
-                .map(Expression::sql)
+                .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
         return name + "(" + args + ")";
     }

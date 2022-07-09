@@ -190,6 +190,6 @@ public abstract class Arithmetic extends Expression {
 
     @Override
     public String toString() {
-        return sql();
+        return toSql();
     }
 }
