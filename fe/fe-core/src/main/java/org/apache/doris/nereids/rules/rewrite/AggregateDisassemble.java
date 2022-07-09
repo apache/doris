@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 
 /**
  * Used to generate the merge agg node for distributed execution.
+ * NOTICE: GLOBAL output expressions' ExprId should SAME with ORIGIN output expressions' ExprId.
  * If we have a query: SELECT SUM(v) + 1 FROM t GROUP BY k + 1
  * the initial plan is:
  *   Aggregate(phase: [GLOBAL], outputExpr: [SUM(v1 * v2) + 1], groupByExpr: [k + 1])
@@ -69,6 +70,21 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             List<Expression> originGroupByExprs = aggregate.getGroupByExpressionList();
 
             // 1. generate a map from local aggregate output to global aggregate expr substitution.
+            //    inputSubstitutionMap use for replacing expression in global aggregate
+            //    replace rule is:
+            //        a: Expression is a group by key and is a slot reference. e.g. group by k1
+            //        b. Expression is a group by key and is an expression. e.g. group by k1 + 1
+            //        c. Expression is an aggregate function. e.g. sum(v1) in select list
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | situation | origin expression   | local output expression | expression in global aggregate |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | a         | Ref(k1)#1           | Ref(k1)#1               | Ref(k1)#1                      |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | b         | Ref(k1)#1 + 1       | A(Ref(k1)#1 + 1, key)#2 | Ref(key)#2                     |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | c         | A(AF(v1#1), 'af')#2 | A(AF(v1#1), 'af')#3     | AF(af#3)                       |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    NOTICE: Ref: SlotReference, A: Alias, AF: AggregateFunction, #x: ExprId x
             // 2. collect local aggregate output expressions and local aggregate group by expression list
             Map<Expression, Expression> inputSubstitutionMap = Maps.newHashMap();
             List<Expression> localGroupByExprs = aggregate.getGroupByExpressionList();
