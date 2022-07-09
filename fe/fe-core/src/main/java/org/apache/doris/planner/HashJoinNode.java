@@ -509,7 +509,7 @@ public class HashJoinNode extends PlanNode {
             }
         }
         // 4. change the outputSmap
-        outputSmap = ExprSubstitutionMap.composeAndReplace(outputSmap, srcTblRefToOutputTupleSmap);
+        outputSmap = ExprSubstitutionMap.composeAndReplace(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
     }
 
     private void replaceOutputSmapForOuterJoin() {
