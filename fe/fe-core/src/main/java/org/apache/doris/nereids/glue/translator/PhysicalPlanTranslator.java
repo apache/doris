@@ -442,14 +442,11 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, List<OrderKey> orderKeyList,
             PlanTranslatorContext context, Table table) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
-        for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
-        }
         tupleDescriptor.setTable(table);
-        // TODO: trick here, we need semanticEquals to remove redundant expression
         for (OrderKey orderKey : orderKeyList) {
             if (orderKey.getExpr() instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) orderKey.getExpr();
+                // TODO: trick here, we need semanticEquals to remove redundant expression
                 if (context.findSlotRef(slotReference.getExprId()) != null) {
                     continue;
                 }
@@ -457,6 +454,9 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
             } else {
                 context.createSlotDesc(tupleDescriptor, orderKey.getExpr());
             }
+        }
+        for (Slot slot : slotList) {
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
         }
         return tupleDescriptor;
     }
