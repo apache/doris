@@ -44,7 +44,12 @@ public class HMSExternalTable extends ExternalTable {
 
     private final HMSExternalDataSource ds;
     private final String dbName;
-    private org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    private final List<String> supportedHiveFileFormats = Lists.newArrayList(
+            "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+            "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+            "org.apache.hadoop.mapred.TextInputFormat");
+
+    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     private DLAType dlaType = DLAType.UNKNOWN;
     private boolean initialized = false;
 
@@ -67,6 +72,11 @@ public class HMSExternalTable extends ExternalTable {
         this.type = TableType.HMS_EXTERNAL_TABLE;
     }
 
+    public boolean isSupportedHmsTable() {
+        makeSureInitialized();
+        return dlaType != DLAType.UNKNOWN;
+    }
+
     private synchronized void makeSureInitialized() {
         if (!initialized) {
             init();
@@ -84,16 +94,35 @@ public class HMSExternalTable extends ExternalTable {
             dlaType = DLAType.UNKNOWN;
             fullSchema = Lists.newArrayList();
         } else {
-            if (remoteTable.getParameters().containsKey("table_type") && remoteTable.getParameters().get("table_type")
-                    .equalsIgnoreCase("ICEBERG")) {
+            if (supportedIcebergTable()) {
                 dlaType = DLAType.ICEBERG;
-            } else if (remoteTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
+            } else if (supportedHoodieTable()) {
                 dlaType = DLAType.HUDI;
-            } else {
+            } else if (supportedHiveTable()) {
                 dlaType = DLAType.HIVE;
+            } else {
+                dlaType = DLAType.UNKNOWN;
+                fullSchema = Lists.newArrayList();
             }
             initSchema();
         }
+    }
+
+    private boolean supportedIcebergTable() {
+        return remoteTable.getParameters().containsKey("table_type")
+                && remoteTable.getParameters().get("table_type").equalsIgnoreCase("ICEBERG");
+    }
+
+    private boolean supportedHoodieTable() {
+        return remoteTable.getSd().getInputFormat() != null
+                && remoteTable.getSd().getInputFormat().toLowerCase().contains("hoodie");
+    }
+
+    private boolean supportedHiveTable() {
+        boolean isManagedTable = remoteTable.getTableType().equalsIgnoreCase("MANAGED_TABLE");
+        String inputFileFormat = remoteTable.getSd().getInputFormat();
+        boolean supportedFileFormat = inputFileFormat != null && supportedHiveFileFormats.contains(inputFileFormat);
+        return isManagedTable && supportedFileFormat;
     }
 
     private void initSchema() {

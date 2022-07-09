@@ -31,6 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -672,6 +673,15 @@ public class Analyzer {
         if (table.getType() == TableType.HUDI && table.getFullSchema().isEmpty()) {
             // resolve hudi table's schema when table schema is empty from doris meta
             table = HudiUtils.resolveHudiTable((HudiTable) table);
+        }
+
+        // Now hms table only support a bit of table kinds in the whole hive system.
+        // So Add this strong checker here to avoid some undefine behaviour in doris.
+        if (table.getType() == TableType.HMS_EXTERNAL_TABLE && !((HMSExternalTable) table).isSupportedHmsTable()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
+                    table.getName(),
+                    ((HMSExternalTable) table).getDbName(),
+                    tableName.getCtl());
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.
