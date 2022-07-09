@@ -88,3 +88,5 @@ tools/tpch-tools/tpc-h_v*.docx
 tools/tpch-tools/tpc-h_v*.pdf
 tools/tpch-tools/tpch-data/
 
+# be-ut
+data_test
