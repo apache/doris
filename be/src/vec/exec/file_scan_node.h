@@ -17,7 +17,14 @@
 
 #pragma once
 
-#include <memory>
+#include <atomic>
+#include <condition_variable>
+#include <future>
+#include <map>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "common/status.h"
 #include "exec/base_scanner.h"
@@ -77,7 +84,7 @@ private:
 
     Status start_scanners();
 
-    void scanner_worker(int start_idx, int length);
+    void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
     // Scan one range
     Status scanner_scan(const TFileScanRange& scan_range, ScannerCounter* counter);
 
@@ -99,6 +106,7 @@ private:
     Status _process_status;
 
     std::vector<std::thread> _scanner_threads;
+    std::vector<std::promise<Status>> _scanners_status;
 
     int _max_buffered_batches;
 

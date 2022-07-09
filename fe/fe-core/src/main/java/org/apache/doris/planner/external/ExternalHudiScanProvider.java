@@ -27,7 +27,7 @@ import java.util.List;
 
 /**
  * A file scan provider for hudi.
- * HudiProvier is extended with hive since they both use input format interface to get the spilt.
+ * HudiProvier is extended with hive since they both use input format interface to get the split.
  */
 public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
 

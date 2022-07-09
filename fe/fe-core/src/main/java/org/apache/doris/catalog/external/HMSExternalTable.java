@@ -239,8 +239,8 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE, fullSchema.size(), 0,
-                getName(), "");
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, fullSchema.size(), 0,
+                getName(), dbName);
         tTableDescriptor.setHiveTable(tHiveTable);
         return tTableDescriptor;
     }
