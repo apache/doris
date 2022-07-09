@@ -234,6 +234,7 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
 }
 
 Status VOlapScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::open");
     VLOG_CRITICAL << "VOlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
@@ -279,6 +280,7 @@ Status VOlapScanNode::open(RuntimeState* state) {
 
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::transfer_thread");
     SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     Status status = Status::OK();
 
@@ -371,6 +373,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
             _add_blocks(blocks);
         }
     }
+    telemetry::set_span_attribute(span, _scanner_sched_counter);
 
     VLOG_CRITICAL << "TransferThread finish.";
     _transfer_done = true;
@@ -383,6 +386,8 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
+    START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
+                         "VOlapScanNode::scanner_thread");
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
     Thread::set_self_name("volap_scanner");
@@ -1429,6 +1434,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         _transfer_done = true;
         return Status::OK();
     }
+    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
     _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VOlapScanNode:Block");
 
     // ranges constructed from scan keys
@@ -1504,13 +1510,19 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
     COUNTER_SET(_num_scanners, static_cast<int64_t>(_volap_scanners.size()));
+    telemetry::set_span_attribute(span, _num_disks_accessed_counter);
+    telemetry::set_span_attribute(span, _num_scanners);
 
     // init progress
     std::stringstream ss;
     ss << "ScanThread complete (node=" << id() << "):";
     _progress = ProgressUpdater(ss.str(), _volap_scanners.size(), 1);
 
-    _transfer_thread.reset(new std::thread(&VOlapScanNode::transfer_thread, this, state));
+    _transfer_thread.reset(new std::thread(
+            [this, state, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+                opentelemetry::trace::Scope scope {parent_span};
+                transfer_thread(state);
+            }));
 
     return Status::OK();
 }
@@ -1519,6 +1531,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::close");
     // change done status
     {
         std::unique_lock<std::mutex> l(_blocks_lock);
@@ -1567,6 +1580,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VOlapScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
@@ -1739,10 +1753,14 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
 
     // post volap scanners to thread-pool
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
     auto iter = olap_scanners.begin();
     while (iter != olap_scanners.end()) {
         PriorityThreadPool::Task task;
-        task.work_function = std::bind(&VOlapScanNode::scanner_thread, this, *iter);
+        task.work_function = [this, scanner = *iter, parent_span = cur_span] {
+            opentelemetry::trace::Scope scope {parent_span};
+            this->scanner_thread(scanner);
+        };
         task.priority = _nice;
         task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
         (*iter)->start_wait_worker_timer();
@@ -1777,6 +1795,7 @@ Status VOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
+    telemetry::set_current_span_attribute(_tablet_counter);
 
     return Status::OK();
 }

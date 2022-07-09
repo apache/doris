@@ -15,17 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/vempty_set_node.h"
+package org.apache.doris.common.telemetry;
 
-namespace doris {
-namespace vectorized {
-VEmptySetNode::VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs) {}
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 
-Status VEmptySetNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VEmptySetNode::get_next");
-    *eos = true;
-    return Status::OK();
+/**
+ * encapsulated {@link Span} and {@link Scope}.
+ */
+public class ScopedSpan {
+    private Span span;
+    private Scope scope;
+
+    public ScopedSpan() {
+        span = Telemetry.getNoopSpan();
+        this.scope = span.makeCurrent();
+    }
+
+    public ScopedSpan(Span span) {
+        this.span = span;
+        this.scope = span.makeCurrent();
+    }
+
+    public Span getSpan() {
+        return span;
+    }
+
+    public void endSpan() {
+        scope.close();
+        span.end();
+    }
 }
-} // namespace vectorized
-} // namespace doris

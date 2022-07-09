@@ -32,6 +32,7 @@ Status VSelectNode::prepare(RuntimeState* state) {
 }
 
 Status VSelectNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSelectNode::open");
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
@@ -42,11 +43,13 @@ Status VSelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
 }
 
 Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     do {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(_children[0]->get_next(state, block, &_child_eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next(state, block, &_child_eos),
+                                       _children[0]->get_next_span(), _child_eos);
         if (_child_eos) {
             *eos = true;
             break;
@@ -63,6 +66,7 @@ Status VSelectNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSelectNode::close");
     return ExecNode::close(state);
 }
 
