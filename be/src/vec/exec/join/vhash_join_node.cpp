@@ -672,6 +672,9 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}),
+          _intermediate_row_desc(
+                  descs, tnode.hash_join_node.vintermediate_tuple_id_list,
+                  std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size())),
           _output_row_desc(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}) {
     _runtime_filter_descs = tnode.runtime_filters;
     init_join_op();
@@ -779,8 +782,32 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status HashJoinNode::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    DCHECK(_runtime_profile.get() != nullptr);
+    _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
+    _rows_returned_rate = runtime_profile()->add_derived_counter(
+            ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
+                               runtime_profile()->total_time_counter()),
+            "");
+    _mem_tracker = MemTracker::create_tracker(-1, "ExecNode:" + _runtime_profile->name(),
+                                              state->instance_mem_tracker(),
+                                              MemTrackerLevel::VERBOSE, _runtime_profile.get());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    _expr_mem_tracker = MemTracker::create_tracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
+                                                   _mem_tracker);
+
+    if (_vconjunct_ctx_ptr) {
+        RETURN_IF_ERROR(
+                (*_vconjunct_ctx_ptr)->prepare(state, _intermediate_row_desc, expr_mem_tracker()));
+    }
+    RETURN_IF_ERROR(
+            Expr::prepare(_conjunct_ctxs, state, _intermediate_row_desc, expr_mem_tracker()));
+
+    // TODO(zc):
+    // AddExprCtxsToFree(_conjunct_ctxs);
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->prepare(state));
+    }
     _hash_table_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSetOperationNode:HashTable");
 
     // Build phase
@@ -814,12 +841,11 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // _vother_join_conjuncts are evaluated in the context of the rows produced by this node
     if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR(
-                (*_vother_join_conjunct_ptr)
-                        ->prepare(state, _row_desc_for_other_join_conjunt, expr_mem_tracker()));
+        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)
+                                ->prepare(state, _intermediate_row_desc, expr_mem_tracker()));
     }
-
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_output_expr_ctxs, state, _intermediate_row_desc, expr_mem_tracker()));
 
     // right table data types
     _right_table_data_types = VectorizedUtils::get_data_types(child(1)->row_desc());
@@ -992,39 +1018,10 @@ void HashJoinNode::_prepare_probe_block() {
 }
 
 void HashJoinNode::_construct_mutable_join_block() {
-    const auto& mutable_block_desc =
-            _have_other_join_conjunct ? _row_desc_for_other_join_conjunt : _row_descriptor;
-
-    // TODO: Support Intermediate tuple in FE to delete the dispose the convert null operation
-    // here
-    auto [start_convert_null, end_convert_null] = std::pair {0, 0};
-
-    switch (_join_op) {
-    case TJoinOp::LEFT_OUTER_JOIN: {
-        start_convert_null = child(0)->row_desc().num_materialized_slots();
-        end_convert_null = child(0)->row_desc().num_materialized_slots() +
-                           child(1)->row_desc().num_materialized_slots();
-        break;
-    }
-    case TJoinOp::RIGHT_OUTER_JOIN: {
-        end_convert_null = child(0)->row_desc().num_materialized_slots();
-        break;
-    }
-    case TJoinOp::FULL_OUTER_JOIN: {
-        end_convert_null = child(0)->row_desc().num_materialized_slots() +
-                           child(1)->row_desc().num_materialized_slots();
-        break;
-    }
-    default:
-        break;
-    }
-
+    const auto& mutable_block_desc = _intermediate_row_desc;
     for (const auto tuple_desc : mutable_block_desc.tuple_descriptors()) {
         for (const auto slot_desc : tuple_desc->slots()) {
-            auto offset = _join_block.columns();
-            auto type_ptr = (offset >= start_convert_null && offset < end_convert_null)
-                                    ? make_nullable(slot_desc->get_data_type_ptr())
-                                    : slot_desc->get_data_type_ptr();
+            auto type_ptr = slot_desc->get_data_type_ptr();
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }
