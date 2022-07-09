@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -189,7 +191,7 @@ public final class ExprSubstitutionMap {
      * f [A.id, B.id] [A.name, B.name] g [A.id, C.id] [A.age, C.age]
      * return: [A.id, C,id] [A.name, B.name] [A.age, C.age]
      */
-    public static ExprSubstitutionMap composeAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g) {
+    public static ExprSubstitutionMap composeAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g, Analyzer analyzer) throws AnalysisException {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }
@@ -200,11 +202,22 @@ public final class ExprSubstitutionMap {
             return f;
         }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
-        result = ExprSubstitutionMap.combine(result, g);
+        // compose f and g
         for (int i = 0; i < g.size(); i++) {
-            // case a->b, b->c => a->c
-            if (f.mappingForRhsExpr(g.getLhs().get(i)) != null) {
-                result.getLhs().set(i, f.mappingForRhsExpr(g.getLhs().get(i)));
+            boolean findGMatch = false;
+            Expr gLhs = g.getLhs().get(i);
+            for (int j = 0; j < f.size(); j++) {
+                // case a->fn(b), b->c => a->fn(c)
+                Expr fRhs = f.getRhs().get(j);
+                if (fRhs.contains(gLhs)) {
+                    Expr newRhs = fRhs.trySubstitute(g, analyzer, false);
+                    result.put(f.getLhs().get(j), newRhs);
+                    findGMatch = true;
+                    break;
+                }
+            }
+            if (!findGMatch) {
+                result.put(g.getLhs().get(i), g.getRhs().get(i));
             }
         }
         // add remaining f
