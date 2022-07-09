@@ -1445,7 +1445,7 @@ public class Coordinator {
             // we should make sure
             // 1. same bucket in some address be
             // 2. different scanNode id scan different scanRange which belong to the scanNode id
-            // 3. split how many scanRange one instance should scan, same bucket do not spilt to different instance
+            // 3. split how many scanRange one instance should scan, same bucket do not split to different instance
             Pair<Integer, Map<Integer, List<TScanRangeParams>>> filteredScanRanges
                     = Pair.create(scanRanges.getKey(), filteredNodeScanRanges);
 
