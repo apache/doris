@@ -281,6 +281,6 @@ public class SortNode extends PlanNode {
             }
         }
         info.setSortTupleDesc(tupleDescriptor);
-        info.setSortTupleSlotExprs(afterDeduplication);
+        info.setSortTupleSlotExprs(outputList);
     }
 }
