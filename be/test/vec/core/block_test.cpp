@@ -33,6 +33,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
@@ -192,6 +193,50 @@ void block_to_pb(const vectorized::Block& block, PBlock* pblock) {
     EXPECT_EQ(type_and_name.name, pblock->column_metas()[0].name());
 }
 
+void fill_block_with_array_int(vectorized::Block& block) {
+    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset>::create();
+    auto data_column = vectorized::ColumnVector<int32_t>::create();
+    // init column array with [[1,2,3],[],[4],[5,6]]
+    std::vector<vectorized::IColumn::Offset> offs = {0, 3, 3, 4, 6};
+    std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+
+    auto column_array_ptr =
+            vectorized::ColumnArray::create(std::move(data_column), std::move(off_column));
+    vectorized::DataTypePtr nested_type(std::make_shared<vectorized::DataTypeInt32>());
+    vectorized::DataTypePtr array_type(std::make_shared<vectorized::DataTypeArray>(nested_type));
+    vectorized::ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type,
+                                                     "test_array_int");
+    block.insert(test_array_int);
+}
+
+void fill_block_with_array_string(vectorized::Block& block) {
+    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset>::create();
+    auto data_column = vectorized::ColumnString::create();
+    // init column array with [["abc","de"],["fg"],[], [""]];
+    std::vector<vectorized::IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<std::string> vals = {"abc", "de", "fg", ""};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data(v.data(), v.size());
+    }
+
+    auto column_array_ptr =
+            vectorized::ColumnArray::create(std::move(data_column), std::move(off_column));
+    vectorized::DataTypePtr nested_type(std::make_shared<vectorized::DataTypeString>());
+    vectorized::DataTypePtr array_type(std::make_shared<vectorized::DataTypeArray>(nested_type));
+    vectorized::ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
+                                                        "test_array_string");
+    block.insert(test_array_string);
+}
+
 TEST(BlockTest, SerializeAndDeserializeBlock) {
     config::compress_rowbatches = true;
     // int
@@ -349,6 +394,21 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
+    // array int and array string
+    {
+        vectorized::Block block;
+        fill_block_with_array_int(block);
+        fill_block_with_array_string(block);
+        PBlock pblock;
+        block_to_pb(block, &pblock);
+        std::string s1 = pblock.DebugString();
+
+        vectorized::Block block2(pblock);
+        PBlock pblock2;
+        block_to_pb(block2, &pblock2);
+        std::string s2 = pblock2.DebugString();
+        EXPECT_EQ(s1, s2);
+    }
 }
 
 TEST(BlockTest, dump_data) {
@@ -426,5 +486,12 @@ TEST(BlockTest, dump_data) {
     vectorized::Block block({test_int, test_string, test_decimal, test_nullable_int32, test_date,
                              test_datetime, test_date_v2});
     EXPECT_GT(block.dump_data().size(), 1);
+
+    // test dump array int and array string
+    vectorized::Block block1;
+    fill_block_with_array_int(block1);
+    fill_block_with_array_string(block1);
+    // Note: here we should set 'row_num' in dump_data
+    EXPECT_GT(block1.dump_data(10).size(), 1);
 }
 } // namespace doris
