@@ -482,6 +482,10 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     }
 
     if (!vexprs.empty()) {
+        if (*scanner->vconjunct_ctx_ptr()) {
+            (*scanner->vconjunct_ctx_ptr())->close(state);
+            *scanner->vconjunct_ctx_ptr() = nullptr;
+        }
         WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                       "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
