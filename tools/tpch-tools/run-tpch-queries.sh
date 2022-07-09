@@ -102,7 +102,7 @@ pre_set() {
 sum=0
 for i in $(seq 1 22); do
     total=0
-    run=3
+    run=1
     # Each query is executed ${run} times and takes the average time
     for j in $(seq 1 ${run}); do
         start=$(date +%s%3N)
