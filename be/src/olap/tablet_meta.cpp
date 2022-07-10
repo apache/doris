@@ -48,8 +48,8 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
     return Status::OK();
 }
 
-TabletMeta::TabletMeta() : _tablet_uid(0, 0), _schema(new TabletSchema),
-                           _delete_bitmap(new DeleteBitmap()) { }
+TabletMeta::TabletMeta()
+        : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap()) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
                        int64_t replica_id, int32_t schema_hash, uint64_t shard_id,
@@ -463,8 +463,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         int seg_ids_size = tablet_meta_pb.delete_bitmap().segment_ids_size();
         int versions_size = tablet_meta_pb.delete_bitmap().versions_size();
         int seg_maps_size = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps_size();
-        CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size
-                && seg_maps_size == versions_size);
+        CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size &&
+              seg_maps_size == versions_size);
         for (size_t i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
@@ -761,8 +761,7 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
     return !(a == b);
 }
 
-DeleteBitmap::DeleteBitmap() {
-}
+DeleteBitmap::DeleteBitmap() {}
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {
     delete_bitmap = o.delete_bitmap; // just copy data
@@ -787,14 +786,14 @@ DeleteBitmap DeleteBitmap::snapshot() const {
     return DeleteBitmap(*this);
 }
 
-void DeleteBitmap::add(const BitmapKey& bitmap, uint32_t row_id) {
+void DeleteBitmap::add(const BitmapKey& bmk, uint32_t row_id) {
     std::lock_guard l(lock);
-    delete_bitmap[bitmap].add(row_id);
+    delete_bitmap[bmk].add(row_id);
 }
 
-int DeleteBitmap::remove(const BitmapKey& bitmap, uint32_t row_id) {
+int DeleteBitmap::remove(const BitmapKey& bmk, uint32_t row_id) {
     std::lock_guard l(lock);
-    auto it = delete_bitmap.find(bitmap);
+    auto it = delete_bitmap.find(bmk);
     if (it == delete_bitmap.end()) return -1;
     it->second.remove(row_id);
     return 0;
@@ -811,32 +810,29 @@ void DeleteBitmap::remove(const BitmapKey& start, const BitmapKey& end) {
     }
 }
 
-bool DeleteBitmap::contains(const BitmapKey& bitmap, uint32_t row_id) const {
+bool DeleteBitmap::contains(const BitmapKey& bmk, uint32_t row_id) const {
     std::shared_lock l(lock);
-    auto it = delete_bitmap.find(bitmap);
+    auto it = delete_bitmap.find(bmk);
     return it != delete_bitmap.end() && it->second.contains(row_id);
 }
 
-int DeleteBitmap::set(const BitmapKey& bitmap,
-                      const roaring::Roaring& segment_delete_bitmap) {
+int DeleteBitmap::set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
     std::lock_guard l(lock);
-    auto [_, inserted] =
-            delete_bitmap.insert_or_assign(bitmap, segment_delete_bitmap);
+    auto [_, inserted] = delete_bitmap.insert_or_assign(bmk, segment_delete_bitmap);
     return inserted;
 }
 
-int DeleteBitmap::get(const BitmapKey& bitmap,
-                      roaring::Roaring* segment_delete_bitmap) const {
+int DeleteBitmap::get(const BitmapKey& bmk, roaring::Roaring* segment_delete_bitmap) const {
     std::shared_lock l(lock);
-    auto it = delete_bitmap.find(bitmap);
+    auto it = delete_bitmap.find(bmk);
     if (it == delete_bitmap.end()) return -1;
     *segment_delete_bitmap = it->second; // copy
     return 0;
 }
 
-const roaring::Roaring* DeleteBitmap::get(const BitmapKey& bitmap) const {
+const roaring::Roaring* DeleteBitmap::get(const BitmapKey& bmk) const {
     std::shared_lock l(lock);
-    auto it = delete_bitmap.find(bitmap);
+    auto it = delete_bitmap.find(bmk);
     if (it == delete_bitmap.end()) return nullptr;
     return &(it->second); // get address
 }

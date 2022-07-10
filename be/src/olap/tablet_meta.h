@@ -294,14 +294,14 @@ public:
     /**
      * Marks the specific row deleted
      */
-    void add(const BitmapKey& bitmap, uint32_t row_id);
+    void add(const BitmapKey& bmk, uint32_t row_id);
 
     /**
      * Clears the deletetion mark specific row
      *
      * @return non-zero if the associated delete bimap does not exist
      */
-    int remove(const BitmapKey& bitmap, uint32_t row_id);
+    int remove(const BitmapKey& bmk, uint32_t row_id);
 
     /**
      * Clears bitmaps in range [lower_key, upper_key)
@@ -313,31 +313,29 @@ public:
      *
      * @return true if marked deleted
      */
-    bool contains(const BitmapKey& bitmap, uint32_t row_id) const;
+    bool contains(const BitmapKey& bmk, uint32_t row_id) const;
 
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 0 if the insertion took place, 1 if the assignment took place
      */
-    int set(const BitmapKey& bitmap,
-            const roaring::Roaring& segment_delete_bitmap);
+    int set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap);
 
     /**
-     * Gets a copy of specific delete bitmap
+     * Gets a copy of specific delete bmk
      *
      * @param segment_delete_bitmap output param
      * @return non-zero if the associated delete bimap does not exist
      */
-    int get(const BitmapKey& bitmap,
-            roaring::Roaring* segment_delete_bitmap) const;
+    int get(const BitmapKey& bmk, roaring::Roaring* segment_delete_bitmap) const;
 
     /**
      * Gets reference to a specific delete map, DO NOT use this function on a
      * mutable DeleteBitmap object
      * @return nullptr if the given bitmap does not exist
      */
-    const roaring::Roaring* get(const BitmapKey& bitmap) const;
+    const roaring::Roaring* get(const BitmapKey& bmk) const;
 
     /**
      * Gets subset of delete_bitmap with given range [start, end)
@@ -346,7 +344,8 @@ public:
      * @parma end end
      * @parma subset_delete_map output param
      */
-    void subset(const BitmapKey& start, const BitmapKey& end, DeleteBitmap* subset_delete_map) const;
+    void subset(const BitmapKey& start, const BitmapKey& end,
+                DeleteBitmap* subset_delete_map) const;
 
     /**
      * Merges the given delete bitmap into *this
@@ -354,7 +353,6 @@ public:
      * @param other
      */
     void merge(const DeleteBitmap& other);
-
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
