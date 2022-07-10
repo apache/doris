@@ -134,6 +134,30 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
+    private static class FileSplitStrategy {
+        private long totalSplitSize;
+        private int splitNum;
+
+        FileSplitStrategy() {
+            this.totalSplitSize = 0;
+            this.splitNum = 0;
+        }
+
+        public void update(FileSplit split) {
+            totalSplitSize += split.getLength();
+            splitNum++;
+        }
+
+        public boolean hasNext() {
+            return totalSplitSize > Config.file_scan_node_split_size || splitNum > Config.file_scan_node_split_num;
+        }
+
+        public void next() {
+            totalSplitSize = 0;
+            splitNum = 0;
+        }
+    }
+
     private final BackendPolicy backendPolicy = new BackendPolicy();
 
     private final ParamCreateContext context = new ParamCreateContext();
@@ -222,6 +246,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
         partitionKeys.addAll(scanProvider.getPathPartitionKeys());
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
+            if (!slot.isMaterialized()) {
+                continue;
+            }
             int slotId = slotDescByName.get(slot.getColumn().getName()).getId().asInt();
 
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
@@ -254,11 +281,13 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
 
-        // Todo: now every split will assign one scan range, we can merge them for optimize.
+        TScanRangeLocations curLocations = newLocations(context.params);
+
+        FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
+
         for (InputSplit split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
 
-            TScanRangeLocations curLocations = newLocations(context.params);
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
                     partitionKeys);
 
@@ -270,6 +299,15 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     + " with table split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
 
+            fileSplitStrategy.update(fileSplit);
+            // Add a new location when it's can be split
+            if (fileSplitStrategy.hasNext()) {
+                scanRangeLocations.add(curLocations);
+                curLocations = newLocations(context.params);
+                fileSplitStrategy.next();
+            }
+        }
+        if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
             scanRangeLocations.add(curLocations);
         }
     }
@@ -340,6 +378,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
+        LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
         return scanRangeLocations;
     }
 

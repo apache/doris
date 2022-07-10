@@ -67,6 +67,7 @@ Status VMysqlTableSink::prepare(RuntimeState* state) {
 }
 
 Status VMysqlTableSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
     // create writer
@@ -81,10 +82,12 @@ Status VMysqlTableSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status VMysqlTableSink::send(RuntimeState* state, Block* block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VMysqlTableSink::send");
     return _writer->append(block);
 }
 
 Status VMysqlTableSink::close(RuntimeState* state, Status exec_status) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::close");
     VExpr::close(_output_expr_ctxs, state);
     return Status::OK();
 }

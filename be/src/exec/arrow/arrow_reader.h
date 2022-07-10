@@ -33,6 +33,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -47,6 +48,14 @@ class Tuple;
 class SlotDescriptor;
 class MemPool;
 class FileReader;
+
+struct Statistics {
+    int32_t filtered_row_groups = 0;
+    int32_t total_groups = 0;
+    int64_t filtered_rows = 0;
+    int64_t total_rows = 0;
+    int64_t filtered_total_bytes = 0;
+};
 
 class ArrowFile : public arrow::io::RandomAccessFile {
 public:
@@ -72,7 +81,9 @@ public:
     ArrowReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
     virtual ~ArrowReaderWrap();
 
-    virtual Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+    virtual Status init_reader(const TupleDescriptor* tuple_desc,
+                               const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                               const std::vector<ExprContext*>& conjunct_ctxs,
                                const std::string& timezone) = 0;
     // for row
     virtual Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
@@ -81,6 +92,7 @@ public:
     }
     // for vec
     virtual Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) = 0;
+    std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
     virtual Status size(int64_t* size) { return Status::NotSupported("Not Implemented size"); }
 
@@ -96,6 +108,7 @@ protected:
     int _current_group;                     // current group(stripe)
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::vector<int> _include_column_ids;   // columns that need to get from file
+    std::shared_ptr<Statistics> _statistics;
 };
 
 } // namespace doris
