@@ -63,7 +63,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromDecimal);
         Assertions.assertEquals("CREATE TABLE `select_decimal_table` (\n" + "  `userId` varchar(255) NOT NULL,\n"
                         + "  `amount_decimal` decimal(10, 2) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n"
-                        + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                        + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ")",
                 showCreateTableByName("select_decimal_table").getResultRows().get(0).get(1));
@@ -137,7 +138,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectAlias1);
         ShowResultSet showResultSet1 = showCreateTableByName("select_alias_1");
         Assertions.assertEquals("CREATE TABLE `select_alias_1` (\n" + "  `amount` bigint(20) NULL\n" + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(`amount`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n"
+                        + "DUPLICATE KEY(`amount`)\n" + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n"
                         + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ")",
                 showResultSet1.getResultRows().get(0).get(1));
@@ -201,7 +203,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTableByName("select_union");
         Assertions.assertEquals("CREATE TABLE `select_union` (\n" + "  `userId` varchar(255) NULL\n" + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                        + "DUPLICATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ")",
                 showResultSet.getResultRows().get(0).get(1));
