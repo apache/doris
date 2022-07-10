@@ -77,14 +77,10 @@
 
 namespace doris {
 
-RowGroupReader::RowGroupReader(RuntimeProfile* profile,
-                               const std::vector<ExprContext*>& conjunct_ctxs,
+RowGroupReader::RowGroupReader(const std::vector<ExprContext*>& conjunct_ctxs,
                                std::shared_ptr<parquet::FileMetaData>& file_metadata,
                                ParquetReaderWrap* parent)
-        : _conjunct_ctxs(conjunct_ctxs),
-          _file_metadata(file_metadata),
-          _profile(profile),
-          _parent(parent) {}
+        : _conjunct_ctxs(conjunct_ctxs), _file_metadata(file_metadata), _parent(parent) {}
 
 RowGroupReader::~RowGroupReader() {
     _slot_conjuncts.clear();

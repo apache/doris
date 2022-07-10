@@ -62,7 +62,7 @@ class RowGroupReader;
 class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
     // batch_size is not use here
-    ParquetReaderWrap(RuntimeProfile* profile, FileReader* file_reader, int64_t batch_size,
+    ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
                       int32_t num_of_columns_from_file);
     ~ParquetReaderWrap() override;
 
@@ -99,7 +99,6 @@ private:
     int _rows_of_group; // rows in a group.
     int _current_line_of_group;
     int _current_line_of_batch;
-    RuntimeProfile* _profile;
     std::string _timezone;
 
 private:
