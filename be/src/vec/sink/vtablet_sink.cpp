@@ -369,6 +369,7 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
 }
 
 Status VOlapTableSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     return OlapTableSink::open(state);
@@ -382,6 +383,7 @@ size_t VOlapTableSink::get_pending_bytes() const {
     return mem_consumption;
 }
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status status = Status::OK();
 
@@ -490,6 +492,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
 
 Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) return _close_status;
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     return OlapTableSink::close(state, exec_status);
 }

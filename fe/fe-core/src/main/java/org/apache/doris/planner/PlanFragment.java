@@ -296,8 +296,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         StringBuilder str = new StringBuilder();
         Preconditions.checkState(dataPartition != null);
         if (CollectionUtils.isNotEmpty(outputExprs)) {
-            str.append("  OUTPUT EXPRS:");
-            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining(" | ")));
+            str.append("  OUTPUT EXPRS:\n    ");
+            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining("\n    ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");

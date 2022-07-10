@@ -23,6 +23,7 @@ VEmptySetNode::VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const Des
         : ExecNode(pool, tnode, descs) {}
 
 Status VEmptySetNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VEmptySetNode::get_next");
     *eos = true;
     return Status::OK();
 }
