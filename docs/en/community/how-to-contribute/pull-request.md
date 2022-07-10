@@ -85,7 +85,7 @@ For more git usage, please visit: [git usage](https://www.atlassian.com/git/tuto
 ### 3. Create PR
 
 #### (1) New PR
-Switch to your GitHub page in the browser, switch to the submitted branch yourbranchname\\ and click the `New pull request` button to create it, as shown in the following figure:
+Switch to your GitHub page in the browser, switch to the submitted branch yourbranchname\\ and click the `Compare & pull request` button to create it, as shown in the following figure:
 
 ![new PR](/images/new-pr.png)
 
@@ -250,7 +250,7 @@ Total 6 (delta 4), reused 0 (delta 0)
 remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
 remote: 
 remote: Create a pull request for 'my_branch' on GitHub by visiting:
-remote:      https://github.com/lide-reed/incubator-doris/pull/new/my_branch
+remote:      https://github.com/lide-reed/doris/pull/new/my_branch
 remote: 
 To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/doris.git
  * [new branch]      my_branch -> my_branch
