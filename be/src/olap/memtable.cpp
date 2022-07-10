@@ -45,6 +45,8 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _rowset_writer(rowset_writer),
           _is_first_insertion(true),
           _agg_functions(schema->num_columns()),
+          _offsets_of_aggregate_states(schema->num_columns()),
+          _total_size_of_aggregate_states(0),
           _mem_usage(0) {
     if (support_vec) {
         _skip_list = nullptr;
@@ -96,6 +98,22 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
+    }
+
+    for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
+        _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
+        _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
+
+        // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
+        if (cid + 1 < _agg_functions.size()) {
+            size_t alignment_of_next_state = _agg_functions[cid + 1]->align_of_data();
+
+            /// Extend total_size to next alignment requirement
+            /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
+            _total_size_of_aggregate_states =
+                    (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
+                    alignment_of_next_state * alignment_of_next_state;
+        }
     }
 }
 
@@ -160,12 +178,14 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     if (is_exist) {
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
-        row_in_block->init_agg_places(_agg_functions, _schema->num_key_columns());
+        row_in_block->init_agg_places(
+                (char*)_table_mem_pool->allocate(_total_size_of_aggregate_states),
+                _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-            auto place = row_in_block->_agg_places[cid];
-            _agg_functions[cid]->add(place,
-                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+            auto data = row_in_block->agg_places(cid);
+            _agg_functions[cid]->create(data);
+            _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                      row_in_block->_row_pos, nullptr);
         }
 
@@ -244,9 +264,9 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
     // dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
-        auto place = row_in_skiplist->_agg_places[cid];
         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-        _agg_functions[cid]->add(place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+        _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
+                                 const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                  new_row->_row_pos, nullptr);
     }
 }
@@ -275,10 +295,11 @@ void MemTable::_collect_vskiplist_results() {
             // get value columns from agg_places
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
-                function->insert_result_into(it.key()->_agg_places[i],
+                auto agg_place = it.key()->agg_places(i);
+                function->insert_result_into(agg_place,
                                              *(_output_mutable_block.get_column_by_position(i)));
                 if constexpr (is_final) {
-                    function->destroy(it.key()->_agg_places[i]);
+                    function->destroy(agg_place);
                 }
             }
             if constexpr (!is_final) {
