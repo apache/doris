@@ -18,7 +18,8 @@
 #include "vec/exec/file_arrow_scanner.h"
 
 #include "exec/arrow/parquet_reader.h"
-#include "io/file_factory.h"
+#include "io/buffered_reader.h"
+#include "io/hdfs_reader_writer.h"
 #include "runtime/descriptors.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -53,10 +54,11 @@ Status FileArrowScanner::_open_next_reader() {
             return Status::OK();
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
-        std::vector<TNetworkAddress> dummy_broker_addresses;
         std::unique_ptr<FileReader> file_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(range.file_type, _state->exec_env(), _profile,
-                    dummy_broker_addresses, _params.properties, range, range.start_offset, file_reader));
+        FileReader* hdfs_reader = nullptr;
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
+                                                        range.start_offset, &hdfs_reader));
+        file_reader.reset(new BufferedReader(_profile, hdfs_reader));
         RETURN_IF_ERROR(file_reader->open());
         if (file_reader->size() == 0) {
             file_reader->close();
