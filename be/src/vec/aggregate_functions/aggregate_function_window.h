@@ -213,9 +213,9 @@ public:
     void set_null(bool is_null) { _is_null = is_null; }
     StringRef get_value() const { return _ptr->get_data_at(_offset); }
 
-    void set_value(StringRef ref) {
-        _ptr = (IColumn*)ref.data;
-        _offset = ref.size;
+    void set_value(const IColumn* column, size_t row) {
+        _ptr = column;
+        _offset = row;
     }
     void reset() {
         _is_null = false;
@@ -224,7 +224,7 @@ public:
     }
 
 protected:
-    IColumn* _ptr = nullptr;
+    const IColumn* _ptr = nullptr;
     size_t _offset = 0;
     bool _is_null;
 };
@@ -233,7 +233,9 @@ struct CopiedValue : public Value {
 public:
     StringRef get_value() const { return _copied_value; }
 
-    void set_value(StringRef value) { _copied_value = value.to_string(); }
+    void set_value(const IColumn* column, size_t row) {
+        _copied_value = column->get_data_at(row).to_string();
+    }
 
 private:
     std::string _copied_value;
@@ -280,7 +282,7 @@ public:
             assert_cast<const ColumnNullable*>(columns[0])->is_null_at(pos)) {
             _data_value.set_null(true);
         } else {
-            _data_value.set_value(StringRef {(const char*)columns[0], pos});
+            _data_value.set_value(columns[0], pos);
             _data_value.set_null(false);
         }
         _has_value = true;
@@ -302,7 +304,7 @@ public:
                     _default_value.set_null(true);
                 }
             } else {
-                _default_value.set_value(StringRef {(const char*)column, 0});
+                _default_value.set_value(column, 0);
             }
             _is_init = true;
         }
