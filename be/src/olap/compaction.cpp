@@ -145,9 +145,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-    const TabletSchema* cur_tablet_schema = &_tablet->tablet_schema();
+    const TabletSchema cur_tablet_schema = _tablet->tablet_schema();
 
-    RETURN_NOT_OK(construct_output_rowset_writer(cur_tablet_schema));
+    RETURN_NOT_OK(construct_output_rowset_writer(&cur_tablet_schema));
     RETURN_NOT_OK(construct_input_rowset_readers());
     TRACE("prepare finished");
 
@@ -157,10 +157,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     Status res;
 
     if (use_vectorized_compaction) {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,
                                      _input_rs_readers, _output_rs_writer.get(), &stats);
     } else {
-        res = Merger::merge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
+        res = Merger::merge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,
                                     _input_rs_readers, _output_rs_writer.get(), &stats);
     }
 

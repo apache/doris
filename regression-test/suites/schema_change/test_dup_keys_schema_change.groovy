@@ -21,6 +21,41 @@ suite ("test_dup_keys_schema_change") {
     def tableName = "schema_change_dup_keys_regression_test"
 
     try {
+        String[][] backends = sql """ show backends; """
+        assertTrue(backends.size() > 0)
+        String backend_id;
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        for (String[] backend in backends) {
+            backendId_to_backendIP.put(backend[0], backend[2])
+            backendId_to_backendHttpPort.put(backend[0], backend[5])
+        }
+
+        backend_id = backendId_to_backendIP.keySet()[0]
+        StringBuilder showConfigCommand = new StringBuilder();
+        showConfigCommand.append("curl -X GET http://")
+        showConfigCommand.append(backendId_to_backendIP.get(backend_id))
+        showConfigCommand.append(":")
+        showConfigCommand.append(backendId_to_backendHttpPort.get(backend_id))
+        showConfigCommand.append("/api/show_config")
+        logger.info(showConfigCommand.toString())
+        def process = showConfigCommand.toString().execute()
+        int code = process.waitFor()
+        String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+        String out = process.getText()
+        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def configList = parseJson(out.trim())
+        assert configList instanceof List
+
+        boolean disableAutoCompaction = true
+        for (Object ele in (List) configList) {
+            assert ele instanceof List<String>
+            if (((List<String>) ele)[0] == "disable_auto_compaction") {
+                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
+            }
+        }
+
         sql """ DROP TABLE IF EXISTS ${tableName} """
 
         sql """
@@ -147,10 +182,13 @@ suite ("test_dup_keys_schema_change") {
         String[][] tablets = sql """ show tablets from ${tableName}; """
         for (String[] tablet in tablets) {
                 String tablet_id = tablet[0]
+                backend_id = tablet[2]
                 logger.info("run compaction:" + tablet_id)
                 StringBuilder sb = new StringBuilder();
                 sb.append("curl -X POST http://")
-                sb.append(context.config.beHttpAddress)
+                sb.append(backendId_to_backendIP.get(backend_id))
+                sb.append(":")
+                sb.append(backendId_to_backendHttpPort.get(backend_id))
                 sb.append("/api/compaction/run?tablet_id=")
                 sb.append(tablet_id)
                 sb.append("&compact_type=cumulative")
@@ -170,9 +208,12 @@ suite ("test_dup_keys_schema_change") {
                 do {
                     Thread.sleep(1000)
                     String tablet_id = tablet[0]
+                    backend_id = tablet[2]
                     StringBuilder sb = new StringBuilder();
                     sb.append("curl -X GET http://")
-                    sb.append(context.config.beHttpAddress)
+                    sb.append(backendId_to_backendIP.get(backend_id))
+                    sb.append(":")
+                    sb.append(backendId_to_backendHttpPort.get(backend_id))
                     sb.append("/api/compaction/run_status?tablet_id=")
                     sb.append(tablet_id)
 
@@ -201,9 +242,12 @@ suite ("test_dup_keys_schema_change") {
         int rowCount = 0
         for (String[] tablet in tablets) {
                 String tablet_id = tablet[0]
+                backend_id = tablet[2]
                 StringBuilder sb = new StringBuilder();
                 sb.append("curl -X GET http://")
-                sb.append(context.config.beHttpAddress)
+                sb.append(backendId_to_backendIP.get(backend_id))
+                sb.append(":")
+                sb.append(backendId_to_backendHttpPort.get(backend_id))
                 sb.append("/api/compaction/show?tablet_id=")
                 sb.append(tablet_id)
                 String command = sb.toString()
