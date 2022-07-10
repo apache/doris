@@ -89,7 +89,7 @@ public class TableFunctionPlanTest {
     public void withoutOutputExplodeColumn() throws Exception {
         String sql = "desc verbose select k1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`k1`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    `k1`"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
