@@ -85,7 +85,7 @@ git push origin <your_branch_name>
 ### 3. 创建PR
 
 #### （1）新建 PR
-在浏览器切换到自己的 github 页面，切换分支到提交的分支 \<your\_branch\_name\> ，点击 `New pull request` 按钮进行创建，如下图所示：
+在浏览器切换到自己的 github 页面，切换分支到提交的分支 \<your\_branch\_name\> ，点击 `Compare & pull request` 按钮进行创建，如下图所示：
 
 ![new PR](/images/new-pr.png)
 
