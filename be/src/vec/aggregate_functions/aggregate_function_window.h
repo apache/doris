@@ -210,25 +210,31 @@ public:
 struct Value {
 public:
     bool is_null() const { return _is_null; }
-    StringRef get_value() const { return _value; }
-
     void set_null(bool is_null) { _is_null = is_null; }
-    void set_value(StringRef value) { _value = value; }
+    StringRef get_value() const { return _ptr->get_data_at(_offset); }
+
+    void set_value(const IColumn* column, size_t row) {
+        _ptr = column;
+        _offset = row;
+    }
     void reset() {
         _is_null = false;
-        _value = {};
+        _ptr = nullptr;
+        _offset = 0;
     }
 
 protected:
-    StringRef _value;
+    const IColumn* _ptr = nullptr;
+    size_t _offset = 0;
     bool _is_null;
 };
 
 struct CopiedValue : public Value {
 public:
-    void set_value(StringRef value) {
-        _copied_value = value.to_string();
-        _value = StringRef(_copied_value);
+    StringRef get_value() const { return _copied_value; }
+
+    void set_value(const IColumn* column, size_t row) {
+        _copied_value = column->get_data_at(row).to_string();
     }
 
 private:
@@ -262,50 +268,23 @@ public:
                 col.insert_default();
             } else {
                 auto& col = assert_cast<ColumnNullable&>(to);
-                if constexpr (is_string) {
-                    StringRef value = _data_value.get_value();
-                    col.insert_data(value.data, value.size);
-                } else {
-                    StringRef value = _data_value.get_value();
-                    col.insert_data(value.data, 0);
-                }
-            }
-        } else {
-            if constexpr (is_string) {
-                auto& col = assert_cast<ColumnString&>(to);
                 StringRef value = _data_value.get_value();
                 col.insert_data(value.data, value.size);
-            } else {
-                StringRef value = _data_value.get_value();
-                to.insert_data(value.data, 0);
             }
+        } else {
+            StringRef value = _data_value.get_value();
+            to.insert_data(value.data, value.size);
         }
     }
 
-    void set_value(const IColumn** columns, int64_t pos) {
-        if (is_column_nullable(*columns[0])) {
-            const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
-            if (nullable_column && nullable_column->is_null_at(pos)) {
-                _data_value.set_null(true);
-                _has_value = true;
-                return;
-            }
-            if constexpr (is_string) {
-                const auto* sources = check_and_get_column<ColumnString>(
-                        nullable_column->get_nested_column_ptr().get());
-                _data_value.set_value(sources->get_data_at(pos));
-            } else {
-                _data_value.set_value(nullable_column->get_nested_column_ptr()->get_data_at(pos));
-            }
+    void set_value(const IColumn** columns, size_t pos) {
+        if (columns[0]->is_nullable() &&
+            assert_cast<const ColumnNullable*>(columns[0])->is_null_at(pos)) {
+            _data_value.set_null(true);
         } else {
-            if constexpr (is_string) {
-                const auto* sources = check_and_get_column<ColumnString>(columns[0]);
-                _data_value.set_value(sources->get_data_at(pos));
-            } else {
-                _data_value.set_value(columns[0]->get_data_at(pos));
-            }
+            _data_value.set_value(columns[0], pos);
+            _data_value.set_null(false);
         }
-        _data_value.set_null(false);
         _has_value = true;
     }
 
@@ -313,7 +292,7 @@ public:
 
     void set_is_null() { _data_value.set_null(true); }
 
-    void set_value_from_default() { _data_value.set_value(_default_value.get_value()); }
+    void set_value_from_default() { _data_value = _default_value; }
 
     bool has_set_value() { return _has_value; }
 
@@ -325,12 +304,7 @@ public:
                     _default_value.set_null(true);
                 }
             } else {
-                if constexpr (is_string) {
-                    const auto& col = static_cast<const ColumnString&>(*column);
-                    _default_value.set_value(col.get_data_at(0));
-                } else {
-                    _default_value.set_value(column->get_data_at(0));
-                }
+                _default_value.set_value(column, 0);
             }
             _is_init = true;
         }
