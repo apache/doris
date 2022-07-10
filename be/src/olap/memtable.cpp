@@ -121,15 +121,16 @@ MemTable::~MemTable() {
     if (_vec_skip_list != nullptr && _keys_type != KeysType::DUP_KEYS) {
         VecTable::Iterator it(_vec_skip_list.get());
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            // get value columns from agg_places
+            // We should release agg_places here, because they are not relesed when a 
+            // load is canceled.
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
-                auto agg_place = it.key()->agg_places(i);
-                function->destroy(agg_place);
+                if (it.key()->_agg_places[i] != nullptr) {
+                    function->destroy(it.key()->_agg_places[i]);
+                }
             }
         }
     }
-
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
     _buffer_mem_pool->free_all();
