@@ -293,14 +293,18 @@ public final class RuntimeFilterGenerator {
      */
     private void assignRuntimeFilters(ScanNode scanNode) {
         if (sessionVariable.enableHmsTableRuntimeFilter) {
+            LOG.warn("enableHmsTableRuntimeFilter=true");
             if (!(scanNode instanceof OlapScanNode) && !(scanNode instanceof ExternalFileScanNode)) {
                 return;
             }
         } else {
+            LOG.warn("enableHmsTableRuntimeFilter=false");
             if (!(scanNode instanceof OlapScanNode)) {
                 return;
             }
         }
+
+        LOG.warn("Scan node is ExternalFileScanNode " + (scanNode instanceof ExternalFileScanNode));
 
         TupleId tid = scanNode.getTupleIds().get(0);
         if (!runtimeFiltersByTid.containsKey(tid)) {

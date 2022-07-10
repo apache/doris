@@ -62,7 +62,7 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _buffered_bytes(0),
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters) {
-            LOG(WARNING) << "olap scan node runtime filter size=" << _runtime_filter_descs.size;
+            LOG(WARNING) << "olap scan node runtime filter size=" << _runtime_filter_descs.size();
           }
 
 Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
