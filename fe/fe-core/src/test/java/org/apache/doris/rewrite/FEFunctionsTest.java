@@ -25,11 +25,11 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.TimeUtils;
 
 import mockit.Expectations;
 import mockit.Mocked;
-import org.joda.time.DateTime;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -737,13 +737,13 @@ public class FEFunctionsTest {
 
     @Test
     public void timeNowTest() throws AnalysisException {
-        String curTimeString = FEFunctions.curTime().toSqlImpl().replace("'", "");
-        String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl().replace("'", "");
-
-        String nowTimestampString = new DateTime().toString("yyyy-MM-dd HH:mm:ss");
-        Assert.assertTrue(nowTimestampString.compareTo(currentTimestampString) >= 0);
-        String nowTimeString = nowTimestampString.substring(nowTimestampString.indexOf(" ") + 1);
-        Assert.assertTrue(nowTimeString.compareTo(curTimeString) >= 0);
+        DateLiteral now3 = FEFunctions.nowTinyInt(new IntLiteral(3));
+        Assert.assertTrue(now3.getDecimalNumber() >= 100 && now3.getDecimalNumber() < 1000);
+        DateLiteral now5 = FEFunctions.nowTinyInt(new IntLiteral(5));
+        Assert.assertTrue(now5.getDecimalNumber() >= 10000 && now3.getDecimalNumber() < 100000);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Invalid decimal scale, type: Datetime(7)",
+                () -> FEFunctions.nowTinyInt(new IntLiteral(7)));
     }
 
     @Test

@@ -26,6 +26,7 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
@@ -238,21 +239,17 @@ public class FEFunctions {
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 
-    @FEFunction(name = "now", argTypes = { "TINYINT" }, returnType = "DATETIME")
-    public static DateLiteral now(LiteralExpr precision) throws AnalysisException {
+    @FEFunction(name = "now", argTypes = { "INT" }, returnType = "DATETIME")
+    public static DateLiteral nowTinyInt(LiteralExpr scale) throws AnalysisException {
+        int intScale = (int) scale.getLongValue();
         return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
-                DateLiteral.getDefaultDateType(Type.DATETIME), (int) precision.getLongValue());
+                DateLiteral.getDefaultDateType(ScalarType.createDatetimeV2Type(intScale)), intScale);
     }
 
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
         return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
             DateLiteral.getDefaultDateType(Type.DATETIME));
-    }
-
-    @FEFunction(name = "current_timestamp", argTypes = { "TINYINT" }, returnType = "DATETIME")
-    public static DateLiteral currentTimestamp(LiteralExpr precision) throws AnalysisException {
-        return now(precision);
     }
 
     @FEFunction(name = "current_timestamp", argTypes = {}, returnType = "DATETIME")

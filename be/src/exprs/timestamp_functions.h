@@ -384,7 +384,7 @@ public:
     static doris_udf::DateTimeVal timestamp_time_op(doris_udf::FunctionContext* ctx,
                                                     const doris_udf::DateTimeVal& ts_val,
                                                     const doris_udf::IntVal& count, bool is_add);
-    static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context, const doris_udf::TinyIntVal& precision);
+    static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context, const doris_udf::IntVal& scale);
     static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context);
     static doris_udf::DoubleVal curtime(doris_udf::FunctionContext* context);
     static doris_udf::DateTimeVal curdate(doris_udf::FunctionContext* context);

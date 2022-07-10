@@ -842,7 +842,7 @@ DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
     return return_val;
 }
 
-DateTimeVal TimestampFunctions::now(FunctionContext* context, const TinyIntVal& precision) {
+DateTimeVal TimestampFunctions::now(FunctionContext* context, const IntVal& scale) {
     DateTimeValue dtv;
     if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
                            context->impl()->state()->timezone_obj())) {

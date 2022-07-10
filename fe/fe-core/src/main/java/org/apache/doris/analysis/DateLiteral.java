@@ -150,14 +150,13 @@ public class DateLiteral extends LiteralExpr {
     private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
 
     //Date Literal persist type in meta
-    private enum  DateLiteralType {
-        DATETIME(0),
-        DATE(1),
+    private enum DateLiteralType {
+        DATETIME(0), DATE(1),
 
-        DATETIMEV2(2),
-        DATEV2(3);
+        DATETIMEV2(2), DATEV2(3);
 
         private final int value;
+
         private DateLiteralType(int value) {
             this.value = value;
         }
@@ -244,8 +243,9 @@ public class DateLiteral extends LiteralExpr {
         this.year = year;
         this.month = month;
         this.day = day;
-        Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATE.getPrimitiveType())
-                || type.getPrimitiveType().equals(Type.DATEV2.getPrimitiveType()));
+        Preconditions.checkArgument(
+                type.getPrimitiveType().equals(Type.DATE.getPrimitiveType()) || type.getPrimitiveType()
+                        .equals(Type.DATEV2.getPrimitiveType()));
         this.type = type;
     }
 
@@ -281,8 +281,9 @@ public class DateLiteral extends LiteralExpr {
         this.year = year;
         this.month = month;
         this.day = day;
-        Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATETIME.getPrimitiveType())
-                || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType()));
+        Preconditions.checkArgument(
+                type.getPrimitiveType().equals(Type.DATETIME.getPrimitiveType()) || type.getPrimitiveType()
+                        .equals(Type.DATETIMEV2.getPrimitiveType()));
         this.type = type;
     }
 
@@ -322,7 +323,6 @@ public class DateLiteral extends LiteralExpr {
                 this.microsecond = 0;
 
         }
-        this.microsecond = dateTime.getMillisOfSecond() * 1000L;
         this.type = type;
     }
 
@@ -376,6 +376,7 @@ public class DateLiteral extends LiteralExpr {
             hour = dateTime.getHourOfDay();
             minute = dateTime.getMinuteOfHour();
             second = dateTime.getSecondOfMinute();
+            microsecond = dateTime.getMillisOfSecond() * 1000L;
             this.type = type;
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid");
@@ -421,8 +422,8 @@ public class DateLiteral extends LiteralExpr {
         } else if (type.equals(Type.DATEV2)) {
             return (year << 16) | (month << 8) | day;
         } else if (type.equals(Type.DATETIMEV2)) {
-            return (year << 50) | (month << 46) | (day << 41) | (hour << 36)
-                | (minute << 30) | (second << 24) | microsecond;
+            return (year << 50) | (month << 46) | (day << 41) | (hour << 36) | (minute << 30) | (second << 24)
+                    | microsecond;
         } else {
             Preconditions.checkState(false, "invalid date type: " + type);
             return -1L;
@@ -471,18 +472,22 @@ public class DateLiteral extends LiteralExpr {
             if (((ScalarType) type).decimalScale() == 0) {
                 return s;
             }
-            return s + "." + microsecond / (10L * (6 - ((ScalarType) type).decimalScale()));
+            return s + "." + getDecimalNumber();
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
+    }
+
+    public long getDecimalNumber() {
+        return Double.valueOf(microsecond / (Math.pow(10, 6 - ((ScalarType) type).decimalScale()))).longValue();
     }
 
     private String convertToString(PrimitiveType type) {
         if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type == PrimitiveType.DATETIMEV2) {
-            return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d",
-                    year, month, day, hour, minute, second, microsecond);
+            return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d", year, month, day, hour, minute, second,
+                    microsecond);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
@@ -548,8 +553,8 @@ public class DateLiteral extends LiteralExpr {
     }
 
     private long makePackedDatetimeV2() {
-        return (year << 50) | (month << 46) | (day << 41) | (hour << 36)
-            | (minute << 30) | (second << 24) | microsecond;
+        return (year << 50) | (month << 46) | (day << 41) | (hour << 36) | (minute << 30) | (second << 24)
+                | microsecond;
     }
 
     @Override
@@ -644,12 +649,8 @@ public class DateLiteral extends LiteralExpr {
     public static DateLiteral dateParser(String date, String pattern) throws AnalysisException {
         DateTimeFormatter formatter = formatBuilder(pattern).toFormatter();
         LocalDateTime dateTime = formatter.parseLocalDateTime(date);
-        DateLiteral dateLiteral = new DateLiteral(
-                dateTime.getYear(),
-                dateTime.getMonthOfYear(),
-                dateTime.getDayOfMonth(),
-                dateTime.getHourOfDay(),
-                dateTime.getMinuteOfHour(),
+        DateLiteral dateLiteral = new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(),
+                dateTime.getDayOfMonth(), dateTime.getHourOfDay(), dateTime.getMinuteOfHour(),
                 dateTime.getSecondOfMinute());
         if (HAS_TIME_PART.matcher(pattern).matches()) {
             dateLiteral.setType(Type.DATETIME);
@@ -667,8 +668,7 @@ public class DateLiteral extends LiteralExpr {
     //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
     public String dateFormat(String pattern) throws AnalysisException {
         if (type.equals(Type.DATE)) {
-            return DATE_FORMATTER.parseLocalDateTime(getStringValue())
-                    .toString(formatBuilder(pattern).toFormatter());
+            return DATE_FORMATTER.parseLocalDateTime(getStringValue()).toString(formatBuilder(pattern).toFormatter());
         } else {
             return DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue())
                     .toString(formatBuilder(pattern).toFormatter());
@@ -726,23 +726,15 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendHalfdayOfDayText();
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
-                        builder.appendClockhourOfHalfday(2)
-                                .appendLiteral(':')
-                                .appendMinuteOfHour(2)
-                                .appendLiteral(':')
-                                .appendSecondOfMinute(2)
-                                .appendLiteral(' ')
-                                .appendHalfdayOfDayText();
+                        builder.appendClockhourOfHalfday(2).appendLiteral(':').appendMinuteOfHour(2).appendLiteral(':')
+                                .appendSecondOfMinute(2).appendLiteral(' ').appendHalfdayOfDayText();
                         break;
                     case 'S': // %S Seconds (00..59)
                     case 's': // %s Seconds (00..59)
                         builder.appendSecondOfMinute(2);
                         break;
                     case 'T': // %T Time, 24-hour (hh:mm:ss)
-                        builder.appendHourOfDay(2)
-                                .appendLiteral(':')
-                                .appendMinuteOfHour(2)
-                                .appendLiteral(':')
+                        builder.appendHourOfDay(2).appendLiteral(':').appendMinuteOfHour(2).appendLiteral(':')
                                 .appendSecondOfMinute(2);
                         break;
                     case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
@@ -771,8 +763,8 @@ public class DateLiteral extends LiteralExpr {
                     case 'X': // %X Year for the week where Sunday is the first day of the week,
                         // numeric, four digits; used with %V
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
-                        throw new AnalysisException(String.format("%%%s not supported in date format string",
-                                character));
+                        throw new AnalysisException(
+                                String.format("%%%s not supported in date format string", character));
                     case '%': // %% A literal "%" character
                         builder.appendLiteral('%');
                         break;
@@ -1112,8 +1104,8 @@ public class DateLiteral extends LiteralExpr {
                 }
             } else if (format.charAt(fp) != ' ') {
                 if (format.charAt(fp) != value.charAt(vp)) {
-                    throw new InvalidFormatException("Invalid char: " + value.charAt(vp) + ", expected: "
-                            + format.charAt(fp));
+                    throw new InvalidFormatException(
+                            "Invalid char: " + value.charAt(vp) + ", expected: " + format.charAt(fp));
                 }
                 fp++;
                 vp++;
@@ -1172,9 +1164,8 @@ public class DateLiteral extends LiteralExpr {
         // weekday
         if (weekNum >= 0 && weekday > 0) {
             // Check
-            if ((strictWeekNumber && (strictWeekNumberYear < 0
-                    || strictWeekNumberYearType != sundayFirst))
-                    || (!strictWeekNumber && strictWeekNumberYear >= 0)) {
+            if ((strictWeekNumber && (strictWeekNumberYear < 0 || strictWeekNumberYearType != sundayFirst)) || (
+                    !strictWeekNumber && strictWeekNumberYear >= 0)) {
                 throw new InvalidFormatException("invalid week number");
             }
             long days = calcDaynr(strictWeekNumber ? strictWeekNumberYear : this.year, 1, 1);
@@ -1379,8 +1370,8 @@ public class DateLiteral extends LiteralExpr {
             int start = pre;
             int tempVal = 0;
             boolean scanToDelim = (!isIntervalFormat) && (fieldIdx != 6);
-            while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre))
-                    && (scanToDelim || fieldLen-- != 0)) {
+            while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre)) && (scanToDelim
+                    || fieldLen-- != 0)) {
                 tempVal = tempVal * 10 + (dateStr.charAt(pre++) - '0');
             }
             dateVal[fieldIdx] = tempVal;
@@ -1484,15 +1475,23 @@ public class DateLiteral extends LiteralExpr {
                 }
             case DATETIME:
                 if (Config.use_date_v2_by_default) {
+                    checkScale(type);
                     return Type.DATETIMEV2;
                 } else {
                     return Type.DATETIME;
                 }
             case DATEV2:
             case DATETIMEV2:
+                checkScale(type);
                 return type;
             default:
                 throw new AnalysisException("Invalid date type: " + type);
+        }
+    }
+
+    private static void checkScale(Type type) throws AnalysisException {
+        if (type.getDecimalDigits() < 0 || type.getDecimalDigits() > 6) {
+            throw new AnalysisException("Invalid decimal scale, type: " + type);
         }
     }
 }
