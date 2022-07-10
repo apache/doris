@@ -1134,9 +1134,6 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 Type resultType = resultExpr.getType();
                 if (resultType.isStringType() && resultType.getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
-                } else if (resultType.isDecimalV2() && (resultType.getPrecision() == null
-                        || resultType.getPrecision() == 0)) {
-                    typeDef = new TypeDef(Type.DECIMALV2);
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
