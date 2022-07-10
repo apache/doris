@@ -83,6 +83,7 @@ public class ScalarType extends Type {
     // Only used for type CHAR.
     @SerializedName(value = "len")
     private int len = -1;
+    @SerializedName(value = "isAssignedStrLenInColDefinition")
     private boolean isAssignedStrLenInColDefinition = false;
 
     // Only used if type is DECIMAL. -1 (for both) is used to represent a

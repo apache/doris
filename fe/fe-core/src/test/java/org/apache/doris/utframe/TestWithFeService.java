@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
+import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
@@ -373,8 +374,19 @@ public abstract class TestWithFeService {
         return executor.execute();
     }
 
+    protected ShowResultSet showCreateTableByName(String table) throws Exception {
+        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt("show create table " + table);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
+    }
+
     public void createTable(String sql) throws Exception {
         createTables(sql);
+    }
+
+    public void createTableAsSelect(String sql) throws Exception {
+        CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
+        Catalog.getCurrentCatalog().createTableAsSelect(createTableAsSelectStmt);
     }
 
     public void createTables(String... sqls) throws Exception {

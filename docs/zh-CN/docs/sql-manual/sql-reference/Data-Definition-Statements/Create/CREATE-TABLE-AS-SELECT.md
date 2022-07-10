@@ -43,7 +43,6 @@ opt_engine opt_partition opt_properties KW_AS query_stmt
 
 说明: 
 
-- 暂时不支持`decimal`类型的字段
 - 用户需要拥有来源表的`SELECT`权限和目标库的`CREATE`权限
 - 创建表成功后，会进行数据导入，如果导入失败，将会删除表
 

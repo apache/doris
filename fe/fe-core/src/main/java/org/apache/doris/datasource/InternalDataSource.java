@@ -97,6 +97,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -1101,6 +1102,9 @@ public class InternalDataSource implements DataSourceIf<Database> {
         }
     }
 
+    /**
+     * Create table for select.
+     **/
     public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
         try {
             List<String> columnNames = stmt.getColumnNames();
@@ -1126,8 +1130,11 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 }
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
-                if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
+                Type resultType = resultExpr.getType();
+                if (resultType.isStringType() && resultType.getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
+                } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
+                    typeDef = new TypeDef(ScalarType.createDecimalV2Type(27, 9));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
