@@ -234,8 +234,6 @@ struct TFileScanRangeParams {
   3: optional list<TFileScanSlotInfo> required_slots;
 
   4: optional TFileTextScanRangeParams text_params;
-  5: optional list<Types.TNetworkAddress> broker_addresses
-  6: optional map<string, string> properties;
 }
 
 struct TFileRangeDesc {
