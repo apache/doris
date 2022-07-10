@@ -439,7 +439,7 @@ public class QueryPlanTest extends TestWithFeService {
         sql = "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | `id2`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    `id`\n    `id2`"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
         assertSQLPlanOrErrorMsgContains("insert into test.bitmap_table select id, id from test.bitmap_table_2;",
@@ -450,7 +450,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testBitmapQuery() throws Exception {
         assertSQLPlanOrErrorMsgContains(
                 "select * from test.bitmap_table;",
-                "OUTPUT EXPRS:`default_cluster:test`.`bitmap_table`.`id` | `default_cluster:test`.`bitmap_table`.`id2`"
+                "OUTPUT EXPRS:\n    `default_cluster:test`.`bitmap_table`.`id`\n    `default_cluster:test`.`bitmap_table`.`id2`"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -499,7 +499,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testHLLTypeQuery() throws Exception {
         assertSQLPlanOrErrorMsgContains(
                 "select * from test.hll_table;",
-                "OUTPUT EXPRS:`default_cluster:test`.`hll_table`.`id` | `default_cluster:test`.`hll_table`.`id2`"
+                "OUTPUT EXPRS:\n    `default_cluster:test`.`hll_table`.`id`\n    `default_cluster:test`.`hll_table`.`id2`"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -883,13 +883,13 @@ public class QueryPlanTest extends TestWithFeService {
         String sql121 = "select case when false then 2 when substr(k7,2,1) then 3 else 0 end as col121 from"
                 + " test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql121),
-                "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END"));
+                "OUTPUT EXPRS:\n    CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END"));
 
         // 1.2.2 when expr which can not be converted to constants in the first
         String sql122 = "select case when substr(k7,2,1) then 2 when false then 3 else 0 end as col122"
                 + " from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql122),
-                "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
+                "OUTPUT EXPRS:\n    CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.2.3 test return `then expr` in the middle
         String sql124 = "select case when false then 1 when true then 2 when false then 3 else 'other' end as col124";
@@ -915,7 +915,7 @@ public class QueryPlanTest extends TestWithFeService {
         String sql15 = "select case when case when substr(k7,2,1) then true else false end then 2 when false then 3"
                 + " else 0 end as col from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql15),
-                "OUTPUT EXPRS:CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2"
+                "OUTPUT EXPRS:\n    CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2"
                         + " WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.6 test when expr is null
@@ -949,20 +949,20 @@ public class QueryPlanTest extends TestWithFeService {
                 + " else 0 end as col23 from test.baseall";
         String a = getSQLPlanOrErrorMsg("explain " + sql23);
         Assert.assertTrue(StringUtils.containsIgnoreCase(a,
-                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:\n    CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
         String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
                 + " as col231 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql231),
-                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0'"
+                "OUTPUT EXPRS:\n    CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0'"
                         + " THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
         String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
                 + " as col232 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql232),
-                "OUTPUT EXPRS:CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' "
+                "OUTPUT EXPRS:\n    CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' "
                         + "WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
@@ -988,29 +988,29 @@ public class QueryPlanTest extends TestWithFeService {
         // 5.1 test same type in then expr and else expr
         String sql51 = "select case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql51),
-                "OUTPUT EXPRS: CASE WHEN 132 THEN `k7` ELSE 'all' END"));
+                "CASE WHEN 132 THEN `k7` ELSE 'all' END"));
 
         // 5.2 test same type in then expr and else expr
         String sql52 = "select case when 2 < 1 then 'all' else k7 end as col52 from test.baseall group by col52";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql52),
-                "OUTPUT EXPRS: `k7`"));
+                "`k7`"));
 
         // 5.3 test different type in then expr and else expr, and return CastExpr<SlotRef>
         String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql53),
-                "OUTPUT EXPRS: `k1`"));
+                "`k1`"));
 
         // 5.4 test return CastExpr<SlotRef> with other SlotRef in selectListItem
         String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall"
                 + " group by k2, col54, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql54),
-                "OUTPUT EXPRS:<slot 3> `k2` | <slot 4> `k1` | <slot 5> `k7`"));
+                "OUTPUT EXPRS:\n    <slot 3> `k2`\n    <slot 4> `k1`\n    <slot 5> `k7`"));
 
         // 5.5 test return CastExpr<CastExpr<SlotRef>> with other SlotRef in selectListItem
         String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from"
                 + " test.baseall group by col55, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql55),
-                "OUTPUT EXPRS:<slot 2> CAST(`k1` AS INT) | <slot 3> `k7`"));
+                "OUTPUT EXPRS:\n    <slot 2> CAST(`k1` AS INT)\n    <slot 3> `k7`"));
     }
 
     @Test
@@ -1620,19 +1620,19 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    `a`.`aid`\n    4"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    3\n    `b`.`bid`"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    `a`.`aid`\n    `b`.`bid`"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
@@ -2096,9 +2096,9 @@ public class QueryPlanTest extends TestWithFeService {
                 + "RIGHT JOIN\n"
                 + "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
+        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    CAST(`a`.`aid` AS INT)\n    4"));
     }
 
     @Test
