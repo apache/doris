@@ -51,8 +51,7 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _buffered_bytes(0),
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters),
-          _max_materialized_blocks(config::doris_scanner_queue_size),
-          _output_slot_ids(tnode.output_slot_ids) {
+          _max_materialized_blocks(config::doris_scanner_queue_size) {
     _materialized_blocks.reserve(_max_materialized_blocks);
     _free_blocks.reserve(_max_materialized_blocks);
 }
@@ -229,7 +228,6 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->init_profile(_runtime_profile.get());
     }
-    init_output_slots();
     return Status::OK();
 }
 
@@ -1648,18 +1646,7 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
         // reach scan node limit
         if (*eos) {
-            {
-                std::unique_lock<std::mutex> l(_blocks_lock);
-                auto columns = block->get_columns();
-                auto slots = _tuple_desc->slots();
-                for (int i = 0; i < slots.size(); i++) {
-                    if (!_output_slot_flags[i]) {
-                        std::move(columns[i])->assume_mutable()->clear();
-                    }
-                }
-                _transfer_done = true;
-            }
-
+            std::unique_lock<std::mutex> l(_blocks_lock);
             _block_consumed_cv.notify_all();
             *eos = true;
             LOG(INFO) << "VOlapScanNode ReachedLimit.";
@@ -1675,7 +1662,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
         return Status::OK();
     }
-
     // all scanner done, change *eos to true
     *eos = true;
     std::lock_guard<SpinLock> guard(_status_mutex);
@@ -1862,12 +1848,5 @@ Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& sca
     return Status::OK();
 }
 
-void VOlapScanNode::init_output_slots() {
-    for (const auto& slot_desc : _tuple_desc->slots()) {
-        _output_slot_flags.emplace_back(_output_slot_ids.empty() ||
-                                        std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
-                                                  slot_desc->id()) != _output_slot_ids.end());
-    }
-}
 
 } // namespace doris::vectorized

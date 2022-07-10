@@ -109,8 +109,6 @@ private:
     // according to the calling relationship
     void init_scan_profile();
 
-    void init_output_slots();
-
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const {
         return _runtime_filter_descs;
     }
@@ -329,9 +327,6 @@ private:
 
     size_t _block_size = 0;
 
-    std::vector<SlotId> _output_slot_ids;
-
-    std::vector<bool> _output_slot_flags;
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
 };
