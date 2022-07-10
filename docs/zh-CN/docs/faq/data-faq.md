@@ -134,3 +134,16 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 ```
 brpc_max_body_size：默认 3GB.
 ```
+
+### Q10. [ Broker load ] org.apache.thrift.transport.TTransportException: java.net.SocketException: Broken pipe
+
+出现这个问题的原因可能是到从外部存储（例如HDFS）导入数据的时候，因为目录下文件太多，列出文件目录的时间太长，这里Broker RPC Timeout 默认是10秒，这里需要适当调整超时时间。
+
+修改 `fe.conf` 配置文件，添加下面的参数：
+
+```
+broker_timeout_ms = 10000
+##这里默认是10秒，需要适当加大这个参数
+```
+
+这里添加参数，需要重启 FE 服务。

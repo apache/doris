@@ -432,6 +432,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 }
 
 Status VDataStreamSender::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::open");
     DCHECK(state != nullptr);
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
@@ -446,6 +447,7 @@ Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VDataStreamSender::send")
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
@@ -560,6 +562,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_closed) return Status::OK();
 
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::close");
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
         Status st = _channels[i]->close(state);

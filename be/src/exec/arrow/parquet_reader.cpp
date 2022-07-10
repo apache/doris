@@ -36,15 +36,25 @@
 namespace doris {
 
 // Broker
-
-ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                     int32_t num_of_columns_from_file)
+ParquetReaderWrap::ParquetReaderWrap(RuntimeProfile* profile, FileReader* file_reader,
+                                     int64_t batch_size, int32_t num_of_columns_from_file)
         : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
           _rows_of_group(0),
           _current_line_of_group(0),
-          _current_line_of_batch(0) {}
+          _current_line_of_batch(0),
+          _profile(profile) {}
 
-Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+ParquetReaderWrap::~ParquetReaderWrap() {
+    _closed = true;
+    _queue_writer_cond.notify_one();
+    if (_thread.joinable()) {
+        _thread.join();
+    }
+}
+
+Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
+                                      const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                                      const std::vector<ExprContext*>& conjunct_ctxs,
                                       const std::string& timezone) {
     try {
         parquet::ArrowReaderProperties arrow_reader_properties =
@@ -91,23 +101,12 @@ Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_
         _timezone = timezone;
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
-
-        std::thread thread(&ParquetReaderWrap::prefetch_batch, this);
-        thread.detach();
-
-        // read batch
-        RETURN_IF_ERROR(read_next_batch());
-        _current_line_of_batch = 0;
-        //save column type
-        std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
-        for (int i = 0; i < _include_column_ids.size(); i++) {
-            std::shared_ptr<arrow::Field> field = field_schema->field(i);
-            if (!field) {
-                LOG(WARNING) << "Get field schema failed. Column order:" << i;
-                return Status::InternalError(_status.ToString());
-            }
-            _parquet_column_type.emplace_back(field->type()->id());
+        if (config::parquet_predicate_push_down) {
+            _row_group_reader.reset(
+                    new RowGroupReader(_profile, conjunct_ctxs, _file_metadata, this));
+            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
         }
+        _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
         return Status::OK();
     } catch (parquet::ParquetException& e) {
         std::stringstream str_error;
@@ -115,12 +114,6 @@ Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }
-}
-
-void ParquetReaderWrap::close() {
-    _closed = true;
-    _queue_writer_cond.notify_one();
-    ArrowReaderWrap::close();
 }
 
 Status ParquetReaderWrap::size(int64_t* size) {
@@ -187,17 +180,23 @@ Status ParquetReaderWrap::read_record_batch(bool* eof) {
 }
 
 Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
-    if (_batch->num_rows() == 0 || _current_line_of_batch != 0 || _current_line_of_group != 0) {
-        RETURN_IF_ERROR(read_record_batch(eof));
+    std::unique_lock<std::mutex> lock(_mtx);
+    while (!_closed && _queue.empty()) {
+        if (_batch_eof) {
+            _include_column_ids.clear();
+            *eof = true;
+            _batch_eof = false;
+            return Status::OK();
+        }
+        _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
     }
-    *batch = get_batch();
+    if (UNLIKELY(_closed)) {
+        return Status::InternalError(_status.message());
+    }
+    *batch = _queue.front();
+    _queue.pop_front();
+    _queue_writer_cond.notify_one();
     return Status::OK();
-}
-
-const std::shared_ptr<arrow::RecordBatch>& ParquetReaderWrap::get_batch() {
-    _current_line_of_batch += _batch->num_rows();
-    _current_line_of_group += _batch->num_rows();
-    return _batch;
 }
 
 Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array,
@@ -239,8 +238,32 @@ Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::Timestam
     return Status::OK();
 }
 
+Status ParquetReaderWrap::init_parquet_type() {
+    // read batch
+    RETURN_IF_ERROR(read_next_batch());
+    _current_line_of_batch = 0;
+    if (_batch == nullptr) {
+        return Status::OK();
+    }
+    //save column type
+    std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
+    for (int i = 0; i < _include_column_ids.size(); i++) {
+        std::shared_ptr<arrow::Field> field = field_schema->field(i);
+        if (!field) {
+            LOG(WARNING) << "Get field schema failed. Column order:" << i;
+            return Status::InternalError(_status.ToString());
+        }
+        _parquet_column_type.emplace_back(field->type()->id());
+    }
+    return Status::OK();
+}
+
 Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                MemPool* mem_pool, bool* eof) {
+    if (_batch == nullptr) {
+        _current_line_of_group += _rows_of_group;
+        return read_record_batch(eof);
+    }
     uint8_t tmp_buf[128] = {0};
     int32_t wbytes = 0;
     const uint8_t* value = nullptr;
@@ -531,9 +554,20 @@ void ParquetReaderWrap::prefetch_batch() {
         _queue_reader_cond.notify_one();
     };
     int current_group = 0;
+    int total_groups = _total_groups;
     while (true) {
-        if (_closed || current_group >= _total_groups) {
+        if (_closed || current_group >= total_groups) {
+            _batch_eof = true;
+            _queue_reader_cond.notify_one();
             return;
+        }
+        if (config::parquet_predicate_push_down) {
+            auto filter_group_set = _row_group_reader->filter_groups();
+            if (filter_group_set.end() != filter_group_set.find(current_group)) {
+                // find filter group, skip
+                current_group++;
+                continue;
+            }
         }
         _status = _reader->GetRecordBatchReader({current_group}, _include_column_ids, &_rb_reader);
         if (!_status.ok()) {
@@ -554,6 +588,9 @@ void ParquetReaderWrap::prefetch_batch() {
 Status ParquetReaderWrap::read_next_batch() {
     std::unique_lock<std::mutex> lock(_mtx);
     while (!_closed && _queue.empty()) {
+        if (_batch_eof) {
+            return Status::OK();
+        }
         _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
     }
 
