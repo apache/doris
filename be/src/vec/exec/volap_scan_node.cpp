@@ -1646,7 +1646,11 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
         // reach scan node limit
         if (*eos) {
-            std::unique_lock<std::mutex> l(_blocks_lock);
+            {
+                std::unique_lock<std::mutex> l(_blocks_lock);
+                _transfer_done = true;
+            }
+
             _block_consumed_cv.notify_all();
             *eos = true;
             LOG(INFO) << "VOlapScanNode ReachedLimit.";
@@ -1659,7 +1663,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(materialized_block);
         }
-
         return Status::OK();
     }
     // all scanner done, change *eos to true
@@ -1847,6 +1850,5 @@ Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& sca
 
     return Status::OK();
 }
-
 
 } // namespace doris::vectorized
