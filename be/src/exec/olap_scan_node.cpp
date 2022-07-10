@@ -64,6 +64,7 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _runtime_filter_descs(tnode.runtime_filters) {}
 
 Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    LOG(WARNING) << "olap scanner init";
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _direct_conjunct_size = _conjunct_ctxs.size();
 
@@ -177,6 +178,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
+    LOG(WARNING) << "olap scanner prepare";
     init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
@@ -228,6 +230,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
 }
 
 Status OlapScanNode::open(RuntimeState* state) {
+    LOG(WARNING) << "olap scanner open";
     VLOG_CRITICAL << "OlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());

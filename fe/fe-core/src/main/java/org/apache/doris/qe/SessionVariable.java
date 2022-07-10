@@ -192,6 +192,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS = "enable_nereids";
 
+    public static final String ENABLE_HMS_TABLE_RUNTIME_FILTER = "enable_hms_table_runtime_filter";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -470,6 +472,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
     private boolean enableArrayType = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_HMS_TABLE_RUNTIME_FILTER, needForward = true)
+    public boolean enableHmsTableRuntimeFilter = false;
 
     /**
      * as the new optimizer is not mature yet, use this var
@@ -977,6 +982,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableArrayType(boolean enableArrayType) {
         this.enableArrayType = enableArrayType;
+    }
+
+    public boolean isEnableHmsTableRuntimeFilter() {
+        return enableHmsTableRuntimeFilter;
+    }
+
+    public void setEnableHmsTableRuntimeFilter(boolean enableHmsTableRuntimeFilter) {
+        this.enableHmsTableRuntimeFilter = enableHmsTableRuntimeFilter;
     }
 
     /**
