@@ -206,4 +206,20 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using PredicateFieldType = uint64_t;
 };
 
+// used for VInPredicate. VInPredicate should use vectorized data type
+template <PrimitiveType type>
+struct VecPrimitiveTypeTraits {
+    using CppType = typename PrimitiveTypeTraits<type>::CppType;
+};
+
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DATE> {
+    using CppType = vectorized::VecDateTimeValue;
+};
+
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
+    using CppType = vectorized::VecDateTimeValue;
+};
+
 } // namespace doris

@@ -23,10 +23,7 @@ AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const Array& parameters,
                                                     const bool result_is_nullable) {
-    if (argument_types.size() == 1) {
-        return AggregateFunctionPtr(
-                new AggregateFunctionTopN<AggregateFunctionTopNImplEmpty>(argument_types));
-    } else if (argument_types.size() == 2) {
+    if (argument_types.size() == 2) {
         return AggregateFunctionPtr(
                 new AggregateFunctionTopN<AggregateFunctionTopNImplInt<StringDataImplTopN>>(
                         argument_types));

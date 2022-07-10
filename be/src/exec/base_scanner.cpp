@@ -95,6 +95,12 @@ Status BaseScanner::open() {
     return Status::OK();
 }
 
+void BaseScanner::reg_conjunct_ctxs(const TupleId& tupleId,
+                                    const std::vector<ExprContext*>& conjunct_ctxs) {
+    _conjunct_ctxs = conjunct_ctxs;
+    _tupleId = tupleId;
+}
+
 Status BaseScanner::init_expr_ctxes() {
     // Construct _src_slot_descs
     const TupleDescriptor* src_tuple_desc =

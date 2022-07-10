@@ -103,6 +103,8 @@ CONF_Int32(make_snapshot_worker_count, "5");
 CONF_Int32(release_snapshot_worker_count, "5");
 // the interval time(seconds) for agent report tasks signatrue to FE
 CONF_mInt32(report_task_interval_seconds, "10");
+// the interval time(seconds) for refresh storage policy from FE
+CONF_mInt32(storage_refresh_storage_policy_task_interval_seconds, "5");
 // the interval time(seconds) for agent report disk state to FE
 CONF_mInt32(report_disk_state_interval_seconds, "60");
 // the interval time(seconds) for agent report olap table to FE
@@ -737,6 +739,21 @@ CONF_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 CONF_String(rpc_load_balancer, "rr");
 
+CONF_Bool(enable_tracing, "false");
+
+// The endpoint to export spans to.
+CONF_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
+
+// The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
+// An export will be triggered when the number of spans in the queue reaches half of the maximum.
+CONF_Int32(max_span_queue_size, "2048");
+
+// The maximum batch size of every export spans. It must be smaller or equal to max_queue_size.
+CONF_Int32(max_span_export_batch_size, "512");
+
+// The time interval between two consecutive export spans.
+CONF_Int32(export_span_schedule_delay_millis, "500");
+
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
 CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
@@ -750,6 +767,7 @@ CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
+CONF_Bool(parquet_predicate_push_down, "false");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
@@ -763,6 +781,14 @@ CONF_Int32(quick_compaction_max_rows, "1000");
 CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
+
+// cooldown task configs
+CONF_Int32(cooldown_thread_num, "5");
+CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_Int32(concurrency_per_dir, "2");
+CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
+
+CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 } // namespace config
 

@@ -356,6 +356,11 @@ class Suite implements GroovyInterceptable {
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
+
+            Iterator<List<Object>> realResultsIter = realResults.iterator()
+            def realWriter = context.getRealOutputWriter(true)
+            realWriter.write(realResultsIter, tag)
+
             String errorMsg = null
             try {
                 errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(),

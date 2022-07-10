@@ -67,9 +67,9 @@ public:
         auto* state = new InState();
         context->set_function_state(scope, state);
         state->hybrid_set.reset(
-                create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+                vec_create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
 
-        DCHECK(context->get_num_args() > 1);
+        DCHECK(context->get_num_args() >= 1);
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
@@ -136,7 +136,7 @@ public:
                 }
 
                 std::unique_ptr<HybridSetBase> hybrid_set(
-                        create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+                        vec_create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {

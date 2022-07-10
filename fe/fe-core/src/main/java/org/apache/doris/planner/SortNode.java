@@ -22,11 +22,13 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
@@ -44,6 +46,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -179,10 +182,6 @@ public class SortNode extends PlanNode {
         LOG.debug("stats Sort: cardinality=" + Long.toString(cardinality));
     }
 
-    public void init() throws UserException {
-        this.resolvedTupleExprs = Lists.newArrayList();
-    }
-
     public void init(Analyzer analyzer) throws UserException {
         // Compute the memory layout for the generated tuple.
         computeStats(analyzer);
@@ -234,24 +233,16 @@ public class SortNode extends PlanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
-        TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(info.getOrderingExprs()),
-                info.getIsAscOrder(),
-                info.getNullsFirst());
+
+        TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        if (resolvedTupleExprs != null) {
+            sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
-
-        // TODO(lingbin): remove blew codes, because it is duplicate with TSortInfo
-        msg.sort_node.setOrderingExprs(Expr.treesToThrift(info.getOrderingExprs()));
-        msg.sort_node.setIsAscOrder(info.getIsAscOrder());
-        msg.sort_node.setNullsFirst(info.getNullsFirst());
-        if (info.getSortTupleSlotExprs() != null) {
-            msg.sort_node.setSortTupleSlotExprs(Expr.treesToThrift(info.getSortTupleSlotExprs()));
-        }
     }
 
     @Override
@@ -275,5 +266,25 @@ public class SortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    /**
+     * Supplement the information needed by be for the sort node.
+     */
+    public void finalizeForNereids(TupleDescriptor tupleDescriptor,
+            List<Expr> outputList, List<Expr> orderingExpr) {
+        List<Expr> sortTupleSlotExprs = new ArrayList<>();
+        sortTupleSlotExprs.addAll(outputList);
+        sortTupleSlotExprs.addAll(orderingExpr);
+        List<Expr> afterDeduplication = new ArrayList<>();
+        Set<ExprId> exprIds = new HashSet<>();
+        for (int i = 0; i < sortTupleSlotExprs.size(); i++) {
+            Expr expr = sortTupleSlotExprs.get(i);
+            if (!exprIds.contains(expr.getId())) {
+                afterDeduplication.add(expr);
+            }
+        }
+        info.setSortTupleDesc(tupleDescriptor);
+        info.setSortTupleSlotExprs(afterDeduplication);
     }
 }

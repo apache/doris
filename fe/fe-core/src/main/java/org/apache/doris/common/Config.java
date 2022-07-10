@@ -548,6 +548,10 @@ public class Config extends ConfigBase {
     public static int broker_load_default_timeout_second = 14400; // 4 hour
 
     /**
+     * Broker rpc timeout
+     */
+    @ConfField public static int broker_timeout_ms = 10000; // 10s
+    /**
      * Default non-streaming mini load timeout
      */
     @Deprecated
@@ -1627,6 +1631,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
+    @ConfField(mutable = false, masterOnly = false)
+    public static boolean enable_tracing = false;
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
+
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
      * Default is true.
@@ -1653,6 +1663,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_catalog = false; // 1 min
+
+    @ConfField(mutable = true, masterOnly = false)
+    public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
+
+    @ConfField(mutable = true, masterOnly = false)
+    public static long file_scan_node_split_num = 128;
 
     /**
      * If set to TRUE, FE will:

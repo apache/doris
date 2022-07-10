@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -36,6 +37,7 @@ import java.util.Map;
 
 public class AlterTableStmtTest {
     private Analyzer analyzer;
+    private String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Mocked
     private PaloAuth auth;
@@ -66,7 +68,7 @@ public class AlterTableStmtTest {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         ops.add(new DropColumnClause("col2", "", null));
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
         Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` DROP COLUMN `col1`, \nDROP COLUMN `col2`",
                 stmt.toSql());
@@ -79,7 +81,7 @@ public class AlterTableStmtTest {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "testTbl", null));
         ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "testTbl", null));
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
         Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl`"
                         + " ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n"
@@ -102,7 +104,7 @@ public class AlterTableStmtTest {
     @Test(expected = AnalysisException.class)
     public void testNoClause() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
@@ -114,7 +116,7 @@ public class AlterTableStmtTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("function_column.sequence_type", "int");
         ops.add(new EnableFeatureClause("sequence_load", properties));
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
 
         Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",

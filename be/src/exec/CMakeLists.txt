@@ -25,6 +25,7 @@ set(EXEC_FILES
     arrow/arrow_reader.cpp
     arrow/orc_reader.cpp
     arrow/parquet_reader.cpp
+    arrow/parquet_row_group_reader.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp

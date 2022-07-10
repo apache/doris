@@ -26,14 +26,13 @@
 
 namespace doris {
 
-Status RowsetFactory::create_rowset(const TabletSchema* schema,
-                                    const FilePathDesc& rowset_path_desc,
+Status RowsetFactory::create_rowset(const TabletSchema* schema, const std::string& tablet_path,
                                     RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID);
     }
     if (rowset_meta->rowset_type() == BETA_ROWSET) {
-        rowset->reset(new BetaRowset(schema, rowset_path_desc, rowset_meta));
+        rowset->reset(new BetaRowset(schema, tablet_path, rowset_meta));
         return (*rowset)->init();
     }
     return Status::OLAPInternalError(OLAP_ERR_ROWSET_TYPE_NOT_FOUND); // should never happen

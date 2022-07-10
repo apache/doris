@@ -307,7 +307,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             tblRefs = abstractBackupTableRefClause.getTableRefList();
         } else {
             for (String tableName : tableNames) {
-                TableRef tableRef = new TableRef(new TableName(db.getFullName(), tableName), null);
+                TableRef tableRef = new TableRef(new TableName(null, db.getFullName(), tableName), null);
                 tblRefs.add(tableRef);
             }
         }

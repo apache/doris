@@ -51,7 +51,8 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _buffered_bytes(0),
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters),
-          _max_materialized_blocks(config::doris_scanner_queue_size) {
+          _max_materialized_blocks(config::doris_scanner_queue_size),
+          _output_slot_ids(tnode.output_slot_ids) {
     _materialized_blocks.reserve(_max_materialized_blocks);
     _free_blocks.reserve(_max_materialized_blocks);
 }
@@ -228,10 +229,12 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->init_profile(_runtime_profile.get());
     }
+    init_output_slots();
     return Status::OK();
 }
 
 Status VOlapScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::open");
     VLOG_CRITICAL << "VOlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
@@ -277,6 +280,7 @@ Status VOlapScanNode::open(RuntimeState* state) {
 
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::transfer_thread");
     SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     Status status = Status::OK();
 
@@ -369,6 +373,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
             _add_blocks(blocks);
         }
     }
+    telemetry::set_span_attribute(span, _scanner_sched_counter);
 
     VLOG_CRITICAL << "TransferThread finish.";
     _transfer_done = true;
@@ -381,6 +386,8 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
+    START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
+                         "VOlapScanNode::scanner_thread");
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
     Thread::set_self_name("volap_scanner");
@@ -403,10 +410,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
-    /*
-    // the follow code may cause double free in VExprContext,
-    // temporarily disable it to avoid it
-    // TODO: fix the bug
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -437,6 +440,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                         auto last_expr =
                                 _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
                         for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
+                            if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
+                                continue;
+                            }
                             TExprNode texpr_node;
                             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
                             texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
@@ -445,6 +451,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             new_node->add_child(last_expr);
                             new_node->add_child(vexprs[j]);
                             last_expr = new_node;
+                            _rf_vexpr_set.insert(vexprs[j]);
                         }
                         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
                         auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc(),
@@ -462,6 +469,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             vexprs.clear();
                             break;
                         }
+                        if (_vconjunct_ctx_ptr) {
+                            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
+                        }
                         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
                         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
                         _runtime_filter_ready_flag[i] = true;
@@ -472,11 +482,14 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     }
 
     if (!vexprs.empty()) {
+        if (*scanner->vconjunct_ctx_ptr()) {
+            (*scanner->vconjunct_ctx_ptr())->close(state);
+            *scanner->vconjunct_ctx_ptr() = nullptr;
+        }
         WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                       "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
     }
-    */
 
     std::vector<Block*> blocks;
 
@@ -1425,6 +1438,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         _transfer_done = true;
         return Status::OK();
     }
+    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
     _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VOlapScanNode:Block");
 
     // ranges constructed from scan keys
@@ -1500,13 +1514,19 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
     COUNTER_SET(_num_scanners, static_cast<int64_t>(_volap_scanners.size()));
+    telemetry::set_span_attribute(span, _num_disks_accessed_counter);
+    telemetry::set_span_attribute(span, _num_scanners);
 
     // init progress
     std::stringstream ss;
     ss << "ScanThread complete (node=" << id() << "):";
     _progress = ProgressUpdater(ss.str(), _volap_scanners.size(), 1);
 
-    _transfer_thread.reset(new std::thread(&VOlapScanNode::transfer_thread, this, state));
+    _transfer_thread.reset(new std::thread(
+            [this, state, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+                opentelemetry::trace::Scope scope {parent_span};
+                transfer_thread(state);
+            }));
 
     return Status::OK();
 }
@@ -1515,6 +1535,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::close");
     // change done status
     {
         std::unique_lock<std::mutex> l(_blocks_lock);
@@ -1554,11 +1575,16 @@ Status VOlapScanNode::close(RuntimeState* state) {
         runtime_filter->consumer_close();
     }
 
+    for (auto& ctx : _stale_vexpr_ctxs) {
+        (*ctx)->close(state);
+    }
+
     VLOG_CRITICAL << "VOlapScanNode::close()";
     return ScanNode::close(state);
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VOlapScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
@@ -1643,6 +1669,14 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(materialized_block);
         }
+
+        auto columns = block->get_columns();
+        auto slots = _tuple_desc->slots();
+        for (int i = 0; i < slots.size(); i++) {
+            if (!_output_slot_flags[i]) {
+                std::move(columns[i])->assume_mutable()->clear();
+            }
+        }
         return Status::OK();
     }
 
@@ -1723,10 +1757,14 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
 
     // post volap scanners to thread-pool
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
     auto iter = olap_scanners.begin();
     while (iter != olap_scanners.end()) {
         PriorityThreadPool::Task task;
-        task.work_function = std::bind(&VOlapScanNode::scanner_thread, this, *iter);
+        task.work_function = [this, scanner = *iter, parent_span = cur_span] {
+            opentelemetry::trace::Scope scope {parent_span};
+            this->scanner_thread(scanner);
+        };
         task.priority = _nice;
         task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
         (*iter)->start_wait_worker_timer();
@@ -1761,6 +1799,7 @@ Status VOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
+    telemetry::set_current_span_attribute(_tablet_counter);
 
     return Status::OK();
 }
@@ -1825,6 +1864,14 @@ Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& sca
     }
 
     return Status::OK();
+}
+
+void VOlapScanNode::init_output_slots() {
+    for (const auto& slot_desc : _tuple_desc->slots()) {
+        _output_slot_flags.emplace_back(_output_slot_ids.empty() ||
+                                        std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
+                                                  slot_desc->id()) != _output_slot_ids.end());
+    }
 }
 
 } // namespace doris::vectorized

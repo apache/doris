@@ -29,6 +29,7 @@
     M(TYPE_DOUBLE)            \
     M(TYPE_CHAR)              \
     M(TYPE_DATE)              \
+    M(TYPE_DATEV2)            \
     M(TYPE_DATETIME)          \
     M(TYPE_VARCHAR)           \
     M(TYPE_STRING)

@@ -1458,6 +1458,12 @@ MasterOnly：true
 
 Default broker load timeout
 
+### broker_timeout_ms
+
+Default：10000   （10s）
+
+Default broker RPC timeout
+
 ### load_running_job_num_limit
 
 Default：0
