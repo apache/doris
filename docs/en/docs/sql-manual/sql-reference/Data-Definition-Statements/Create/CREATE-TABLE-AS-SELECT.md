@@ -43,7 +43,6 @@ opt_engine opt_partition opt_properties KW_AS query_stmt
 
 illustrate: 
 
-- Fields of type`decimal`are not currently supported
 - The user needs to have`SELECT`permission for the source table and`CREATE`permission for the target database
 - After a table is created, data is imported. If the import fails, the table is deleted
 
