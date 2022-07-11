@@ -100,6 +100,7 @@ public class TableProperty implements Writable {
                 break;
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
+                buildStoragePolicy();
                 break;
             default:
                 break;

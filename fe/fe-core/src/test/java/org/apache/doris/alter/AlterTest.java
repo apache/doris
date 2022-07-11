@@ -170,7 +170,8 @@ public class AlterTest {
                         + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
                         + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
                         + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\"\n"
+                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
+                        + "   \"s3_bucket\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStorageResource(
@@ -178,7 +179,8 @@ public class AlterTest {
                         + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
                         + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
                         + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\"\n"
+                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
+                        + "   \"s3_bucket\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStoragePolicy(

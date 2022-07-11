@@ -58,7 +58,9 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     protected String policyName = null;
 
     public Policy() {
-        policyId = Catalog.getCurrentCatalog().getNextId();
+        if (Catalog.getCurrentCatalog().isMaster()) {
+            policyId = Catalog.getCurrentCatalog().getNextId();
+        }
     }
 
     /**
