@@ -40,14 +40,14 @@ public class CostCalculator {
     /**
      * Constructor.
      */
-    public double calculateCost(GroupExpression groupExpression) {
+    public static double calculateCost(GroupExpression groupExpression) {
         PlanContext planContext = new PlanContext(groupExpression);
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getOperator().accept(costCalculator, planContext);
         return costFormula(costEstimate);
     }
 
-    private double costFormula(CostEstimate costEstimate) {
+    private static double costFormula(CostEstimate costEstimate) {
         double cpuCostWeight = 1;
         double memoryCostWeight = 1;
         double networkCostWeight = 1;

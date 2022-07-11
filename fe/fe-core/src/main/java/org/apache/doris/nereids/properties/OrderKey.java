@@ -42,6 +42,15 @@ public class OrderKey {
         this.nullFirst = nullFirst;
     }
 
+    /**
+     * Whether other `OrderKey` is satisfied the current `OrderKey`.
+     *
+     * @param other another OrderKey.
+     */
+    public boolean matches(OrderKey other) {
+        return expr.equals(other.expr) && isAsc == other.isAsc && nullFirst == other.nullFirst;
+    }
+
     public Expression getExpr() {
         return expr;
     }

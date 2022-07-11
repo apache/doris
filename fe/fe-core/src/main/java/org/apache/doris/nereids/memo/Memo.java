@@ -193,4 +193,11 @@ public class Memo {
         }
         groups.remove(source);
     }
+
+    /**
+     * Add enforcer expression into the target group.
+     */
+    public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
+        groupExpression.setParent(group);
+    }
 }
