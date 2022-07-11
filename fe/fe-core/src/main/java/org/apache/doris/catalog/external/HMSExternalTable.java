@@ -44,7 +44,12 @@ public class HMSExternalTable extends ExternalTable {
 
     private final HMSExternalDataSource ds;
     private final String dbName;
-    private org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    private final List<String> supportedHiveFileFormats = Lists.newArrayList(
+            "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+            "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+            "org.apache.hadoop.mapred.TextInputFormat");
+
+    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     private DLAType dlaType = DLAType.UNKNOWN;
     private boolean initialized = false;
 
@@ -67,6 +72,11 @@ public class HMSExternalTable extends ExternalTable {
         this.type = TableType.HMS_EXTERNAL_TABLE;
     }
 
+    public boolean isSupportedHmsTable() {
+        makeSureInitialized();
+        return dlaType != DLAType.UNKNOWN;
+    }
+
     private synchronized void makeSureInitialized() {
         if (!initialized) {
             init();
@@ -84,16 +94,61 @@ public class HMSExternalTable extends ExternalTable {
             dlaType = DLAType.UNKNOWN;
             fullSchema = Lists.newArrayList();
         } else {
-            if (remoteTable.getParameters().containsKey("table_type") && remoteTable.getParameters().get("table_type")
-                    .equalsIgnoreCase("ICEBERG")) {
+            if (supportedIcebergTable()) {
                 dlaType = DLAType.ICEBERG;
-            } else if (remoteTable.getSd().getInputFormat().toLowerCase().contains("hoodie")) {
+            } else if (supportedHoodieTable()) {
                 dlaType = DLAType.HUDI;
-            } else {
+            } else if (supportedHiveTable()) {
                 dlaType = DLAType.HIVE;
+            } else {
+                dlaType = DLAType.UNKNOWN;
+                fullSchema = Lists.newArrayList();
             }
             initSchema();
         }
+    }
+
+    /**
+     * Now we only support cow table in iceberg.
+     */
+    private boolean supportedIcebergTable() {
+        Map<String, String> paras = remoteTable.getParameters();
+        if (paras == null) {
+            return false;
+        }
+        boolean isIcebergTable = paras.containsKey("table_type")
+                && paras.get("table_type").equalsIgnoreCase("ICEBERG");
+        boolean isMorInDelete = paras.containsKey("write.delete.mode")
+                && paras.get("write.delete.mode").equalsIgnoreCase("merge-on-read");
+        boolean isMorInUpdate = paras.containsKey("write.update.mode")
+                && paras.get("write.update.mode").equalsIgnoreCase("merge-on-read");
+        boolean isMorInMerge = paras.containsKey("write.merge.mode")
+                && paras.get("write.merge.mode").equalsIgnoreCase("merge-on-read");
+        boolean isCowTable = !(isMorInDelete || isMorInUpdate || isMorInMerge);
+        return isIcebergTable && isCowTable;
+    }
+
+    /**
+     * Now we only support `Snapshot Queries` on both cow and mor table and `Read Optimized Queries` on cow table.
+     * And they both use the `HoodieParquetInputFormat` for the input format in hive metastore.
+     */
+    private boolean supportedHoodieTable() {
+        if (remoteTable.getSd() == null) {
+            return false;
+        }
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return inputFormatName != null
+                && inputFormatName.equalsIgnoreCase("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+    }
+
+    /**
+     * Now we only support three file input format hive tables: parquet/orc/text. And they must be managed_table.
+     */
+    private boolean supportedHiveTable() {
+        boolean isManagedTable = remoteTable.getTableType().equalsIgnoreCase("MANAGED_TABLE");
+        String inputFileFormat = remoteTable.getSd().getInputFormat();
+        boolean supportedFileFormat = inputFileFormat != null && supportedHiveFileFormats.contains(inputFileFormat);
+        return isManagedTable && supportedFileFormat;
     }
 
     private void initSchema() {
