@@ -448,7 +448,7 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 - 导入出错：`Login failure for xxx from keytab xxx.keytab`
 
   出现这个问题的原因是导入的时候broker访问kerberos认证的集群时候，认证没有通过，首先确定`kerberos_principal`和`kerberos_keytab`配置是否正确，如果没问题，则需要在fe.conf中JAVA_OPTS=""
-  JAVA_OPTS_FOR_JDK_9="" 参数里面添加-Djava.security.krb5.conf=/xxx/krb5.conf，还需要将hdfs-site.xml复制到broker/conf下
+  JAVA_OPTS_FOR_JDK_9="" 参数里面添加-Djava.security.krb5.conf=/xxx/krb5.conf，还需要将hadoop中的hdfs-site.xml复制到broker/conf下
   
 
 ## 更多帮助

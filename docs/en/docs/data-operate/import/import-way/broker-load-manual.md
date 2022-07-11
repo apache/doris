@@ -448,7 +448,7 @@ Currently the Profile can only be viewed after the job has been successfully exe
 - Import error: `Login failure for xxx from keytab xxx.keytab`
 
   The reason for this problem is that when the broker accesses the kerberos authenticated cluster during import, the authentication fails. First, make sure that `kerberos_principal` and `kerberos_keytab` are configured correctly. If there is no problem, you need to set JAVA_OPTS="" in fe.conf
-  Add -Djava.security.krb5.conf=/xxx/krb5.conf to the JAVA_OPTS_FOR_JDK_9="" parameter,You also need to copy hdfs-site.xml to broker/conf
+  Add -Djava.security.krb5.conf=/xxx/krb5.conf to the JAVA_OPTS_FOR_JDK_9="" parameter,You also need to copy hdfs-site.xml in hadoop to broker/conf
 
 ## more help
 
