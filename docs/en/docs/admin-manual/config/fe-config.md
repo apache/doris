@@ -2084,11 +2084,11 @@ Whether to allow multiple replicas of the same tablet to be distributed on the s
 
 ### min_version_count_indicate_replica_compaction_too_slow
 
-Default: 300
+Default: 200
 
 Dynamically configured: true
 
-Only for Master FE: true
+Only for Master FE: false
 
 The version count threshold used to judge whether replica compaction is too slow
 
