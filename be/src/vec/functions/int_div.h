@@ -48,8 +48,9 @@ struct DivideIntegralImpl {
         if (!is_null) {
             if constexpr (!std::is_floating_point_v<A> && !std::is_same_v<A, Int128> &&
                           !std::is_same_v<A, Int8> && !std::is_same_v<A, UInt8>) {
+                const auto divider = libdivide::divider<A>(b);
                 for (size_t i = 0; i < size; i++) {
-                    c[i] = a[i] / libdivide::divider<A>(b);
+                    c[i] = a[i] / divider;
                 }
             } else {
                 for (size_t i = 0; i < size; i++) {
