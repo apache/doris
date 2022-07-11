@@ -51,8 +51,7 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _buffered_bytes(0),
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters),
-          _max_materialized_blocks(config::doris_scanner_queue_size),
-          _output_slot_ids(tnode.output_slot_ids) {
+          _max_materialized_blocks(config::doris_scanner_queue_size) {
     _materialized_blocks.reserve(_max_materialized_blocks);
     _free_blocks.reserve(_max_materialized_blocks);
 }
@@ -229,7 +228,6 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->init_profile(_runtime_profile.get());
     }
-    init_output_slots();
     return Status::OK();
 }
 
@@ -1678,14 +1676,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(materialized_block);
         }
-
-        auto columns = block->get_columns();
-        auto slots = _tuple_desc->slots();
-        for (int i = 0; i < slots.size(); i++) {
-            if (!_output_slot_flags[i]) {
-                std::move(columns[i])->assume_mutable()->clear();
-            }
-        }
         return Status::OK();
     }
 
@@ -1873,14 +1863,6 @@ Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& sca
     }
 
     return Status::OK();
-}
-
-void VOlapScanNode::init_output_slots() {
-    for (const auto& slot_desc : _tuple_desc->slots()) {
-        _output_slot_flags.emplace_back(_output_slot_ids.empty() ||
-                                        std::find(_output_slot_ids.begin(), _output_slot_ids.end(),
-                                                  slot_desc->id()) != _output_slot_ids.end());
-    }
 }
 
 } // namespace doris::vectorized
