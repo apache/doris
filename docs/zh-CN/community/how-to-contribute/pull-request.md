@@ -30,7 +30,7 @@ under the License.
 
 ### 1. Fork仓库
 
-进入 apache/doris 的 [github 页面](https://github.com/apache/incubator-doris) ，点击右上角按钮 `Fork` 进行 Fork。
+进入 apache/doris 的 [github 页面](https://github.com/apache/doris) ，点击右上角按钮 `Fork` 进行 Fork。
 
 ![Fork](/images/fork-repo.png)
 
