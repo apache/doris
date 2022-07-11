@@ -40,7 +40,8 @@ class Cache;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTracker>& mem_tracker,
-                int64_t timeout_s, bool is_high_priority, const std::string& sender_ip, bool is_ve);
+                int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
+                bool is_vec);
     ~LoadChannel();
 
     // open a new load channel if not exist
