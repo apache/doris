@@ -28,8 +28,7 @@ import java.util.Objects;
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
  */
-public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class CompoundPredicate extends Expression implements BinaryExpression {
 
     /**
      * Desc: Constructor for CompoundPredicate.
@@ -38,7 +37,7 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
      */
-    public CompoundPredicate(NodeType type, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public CompoundPredicate(NodeType type, Expression left, Expression right) {
         super(type, left, right);
     }
 
@@ -60,7 +59,7 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new CompoundPredicate<>(getType(), children.get(0), children.get(1));
+        return new CompoundPredicate(getType(), children.get(0), children.get(1));
     }
 
     @Override

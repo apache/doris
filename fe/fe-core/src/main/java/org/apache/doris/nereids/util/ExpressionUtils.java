@@ -103,7 +103,7 @@ public class ExpressionUtils {
         }
 
         Optional<Expression> result =
-                distinctExpressions.stream().reduce((left, right) -> new CompoundPredicate<>(op, left, right));
+                distinctExpressions.stream().reduce((left, right) -> new CompoundPredicate(op, left, right));
         return result.orElse(new BooleanLiteral(op == NodeType.AND));
     }
 }

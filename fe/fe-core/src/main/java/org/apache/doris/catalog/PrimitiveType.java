@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlColType;
 import org.apache.doris.thrift.TPrimitiveType;
 
@@ -69,6 +70,7 @@ public enum PrimitiveType {
 
 
     private static final int DATE_INDEX_LEN = 3;
+    private static final int DATEV2_INDEX_LEN = 4;
     private static final int DATETIME_INDEX_LEN = 8;
     private static final int VARCHAR_INDEX_LEN = 20;
     private static final int STRING_INDEX_LEN = 20;
@@ -922,8 +924,9 @@ public enum PrimitiveType {
     public int getOlapColumnIndexSize() {
         switch (this) {
             case DATE:
-            case DATEV2:
                 return DATE_INDEX_LEN;
+            case DATEV2:
+                return DATEV2_INDEX_LEN;
             case DATETIME:
             case DATETIMEV2:
                 return DATETIME_INDEX_LEN;
@@ -938,6 +941,17 @@ public enum PrimitiveType {
                 return DECIMAL_INDEX_LEN;
             default:
                 return this.getSlotSize();
+        }
+    }
+
+    public static PrimitiveType getDatePrimitiveType(PrimitiveType type) {
+        switch (type) {
+            case DATE:
+                return Config.use_date_v2_by_default ? DATEV2 : DATE;
+            case DATETIME:
+                return Config.use_date_v2_by_default ? DATETIMEV2 : DATETIME;
+            default:
+                return type;
         }
     }
 }

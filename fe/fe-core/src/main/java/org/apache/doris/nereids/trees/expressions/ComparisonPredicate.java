@@ -29,8 +29,7 @@ import java.util.Objects;
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public abstract class ComparisonPredicate extends Expression implements BinaryExpression {
     /**
      * Constructor of ComparisonPredicate.
      *
@@ -38,7 +37,7 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
      * @param left     left child of comparison predicate
      * @param right    right child of comparison predicate
      */
-    public ComparisonPredicate(NodeType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public ComparisonPredicate(NodeType nodeType, Expression left, Expression right) {
         super(nodeType, left, right);
     }
 
