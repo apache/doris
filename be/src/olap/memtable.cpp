@@ -101,19 +101,14 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
     }
 
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
+        size_t alignment_of_state = _agg_functions[cid]->align_of_data();
+        size_t module = _total_size_of_aggregate_states % alignment_of_state;
+        if (module) {
+            _total_size_of_aggregate_states += alignment_of_state - module;
+        }
+
         _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
         _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
-
-        // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
-        if (cid + 1 < _agg_functions.size()) {
-            size_t alignment_of_next_state = _agg_functions[cid + 1]->align_of_data();
-
-            /// Extend total_size to next alignment requirement
-            /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
-            _total_size_of_aggregate_states =
-                    (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
-                    alignment_of_next_state * alignment_of_next_state;
-        }
     }
 }
 
@@ -179,7 +174,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
         row_in_block->init_agg_places(
-                (char*)_table_mem_pool->allocate(_total_size_of_aggregate_states),
+                (char*)_table_mem_pool->allocate_aligned(_total_size_of_aggregate_states, 16),
                 _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
