@@ -17,22 +17,31 @@
 
 package org.apache.doris.statistics;
 
-public class StatsCategoryDesc {
-    public enum StatsCategory {
+/**
+ * Describes the basic statistics information.
+ */
+public class StatsCategory {
+    /**
+     * The category of the statistics.
+     */
+    public enum Category {
         TABLE,
+        PARTITION,
         COLUMN
     }
 
-    private StatsCategory category;
+    private Category category;
     private long dbId;
     private long tableId;
+    private String partitionName;
     private String columnName;
+    private String statsValue;
 
-    public StatsCategory getCategory() {
+    public Category getCategory() {
         return this.category;
     }
 
-    public void setCategory(StatsCategory category) {
+    public void setCategory(Category category) {
         this.category = category;
     }
 
@@ -52,11 +61,27 @@ public class StatsCategoryDesc {
         this.tableId = tableId;
     }
 
+    public String getPartitionName() {
+        return partitionName;
+    }
+
+    public void setPartitionName(String partitionName) {
+        this.partitionName = partitionName;
+    }
+
     public String getColumnName() {
         return this.columnName;
     }
 
     public void setColumnName(String columnName) {
         this.columnName = columnName;
+    }
+
+    public String getStatsValue() {
+        return statsValue;
+    }
+
+    public void setStatsValue(String statsValue) {
+        this.statsValue = statsValue;
     }
 }
