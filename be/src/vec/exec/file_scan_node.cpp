@@ -17,6 +17,7 @@
 
 #include "vec/exec/file_scan_node.h"
 
+#include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -53,6 +54,19 @@ Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _pre_filter_texprs = file_scan_node.pre_filter_exprs;
     }
 
+    int filter_size = _runtime_filter_descs.size();
+    _runtime_filter_ctxs.resize(filter_size);
+    for (int i = 0; i < filter_size; ++i) {
+        IRuntimeFilter* runtime_filter = nullptr;
+        const auto& filter_desc = _runtime_filter_descs[i];
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+                RuntimeFilterRole::CONSUMER, filter_desc, state->query_options(), id()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
+                                                                        &runtime_filter));
+
+        _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
+    }
+
     return Status::OK();
 }
 
@@ -79,6 +93,17 @@ Status FileScanNode::prepare(RuntimeState* state) {
         }
     }
 
+    // Init runtime filter profile
+    if (state->enable_hms_table_runtime_filter()) {
+        for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+            IRuntimeFilter* runtime_filter = nullptr;
+            state->runtime_filter_mgr()->get_consume_filter(_runtime_filter_descs[i].filter_id,
+                                                            &runtime_filter);
+            DCHECK(runtime_filter != nullptr);
+            runtime_filter->init_profile(_runtime_profile.get());
+        }
+    }
+
     // Profile
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
 
@@ -90,6 +115,39 @@ Status FileScanNode::open(RuntimeState* state) {
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
+
+    // acquire runtime filter
+    if (state->enable_hms_table_runtime_filter()) {
+        _runtime_filter_ctxs.resize(_runtime_filter_descs.size());
+        for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+            auto& filter_desc = _runtime_filter_descs[i];
+            IRuntimeFilter* runtime_filter = nullptr;
+            state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
+            DCHECK(runtime_filter != nullptr);
+            if (runtime_filter == nullptr) {
+                continue;
+            }
+            bool ready = runtime_filter->is_ready();
+            if (!ready) {
+                ready = runtime_filter->await();
+            }
+            if (ready) {
+                std::list<ExprContext*> expr_context;
+                RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&expr_context));
+                _runtime_filter_ctxs[i].apply_mark = true;
+                _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
+
+                for (auto ctx : expr_context) {
+                    ctx->prepare(state, row_desc(), _expr_mem_tracker);
+                    ctx->open(state);
+                    int index = _conjunct_ctxs.size();
+                    _conjunct_ctxs.push_back(ctx);
+                    _conjunctid_to_runtime_filter_ctxs[index] = &_runtime_filter_ctxs[i];
+                }
+            }
+        }
+    }
+
 
     RETURN_IF_ERROR(start_scanners());
 
@@ -217,6 +275,16 @@ Status FileScanNode::close(RuntimeState* state) {
     }
     // Close
     _batch_queue.clear();
+
+    if (state->enable_hms_table_runtime_filter()) {
+        for (auto& filter_desc : _runtime_filter_descs) {
+            IRuntimeFilter* runtime_filter = nullptr;
+            state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
+            DCHECK(runtime_filter != nullptr);
+            runtime_filter->consumer_close();
+        }
+    }
+    
     return ExecNode::close(state);
 }
 
@@ -325,6 +393,7 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
         scan = new FileTextScanner(_runtime_state, runtime_profile(), scan_range.params,
                                    scan_range.ranges, _pre_filter_texprs, counter);
     }
+    LOG(WARNING) << "File scan node _conjunct_ctxs size=" << _conjunct_ctxs.size();
     scan->reg_conjunct_ctxs(_tuple_id, _conjunct_ctxs);
     std::unique_ptr<FileScanner> scanner(scan);
     return scanner;

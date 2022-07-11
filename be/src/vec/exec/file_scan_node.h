@@ -127,6 +127,8 @@ protected:
         return _runtime_filter_descs;
     }
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
+    std::map<int, RuntimeFilterContext*> _conjunctid_to_runtime_filter_ctxs;
 };
 } // namespace vectorized
 } // namespace doris
