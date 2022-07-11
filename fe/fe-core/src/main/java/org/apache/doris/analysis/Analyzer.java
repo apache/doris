@@ -1880,7 +1880,7 @@ public class Analyzer {
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
-                compatibleType = Type.DATETIME;
+                compatibleType = DateLiteral.getDefaultDateType(Type.DATETIME);
             }
         }
         // Add implicit casts if necessary.
