@@ -49,6 +49,8 @@ public:
     virtual void close() = 0;
 
 protected:
+    virtual void _init_profiles(RuntimeProfile* profile) = 0;
+
     Status finalize_block(vectorized::Block* dest_block, bool* eof);
     Status init_block(vectorized::Block* block);
 
@@ -84,6 +86,7 @@ protected:
 
     bool _scanner_eof = false;
     int _rows = 0;
+    long _read_row_counter = 0;
 
     std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
     int _num_of_columns_from_file;

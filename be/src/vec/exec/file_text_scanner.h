@@ -42,6 +42,9 @@ public:
     Status get_next(Block* block, bool* eof) override;
     void close() override;
 
+protected:
+    void _init_profiles(RuntimeProfile* profile) override {}
+
 private:
     Status _fill_file_columns(const Slice& line, vectorized::Block* _block);
     Status _open_next_reader();

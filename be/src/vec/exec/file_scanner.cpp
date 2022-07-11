@@ -136,6 +136,7 @@ void FileScanner::close() {
     if (_vpre_filter_ctx_ptr) {
         (*_vpre_filter_ctx_ptr)->close(_state);
     }
+    COUNTER_UPDATE(_rows_read_counter, _read_row_counter);
 }
 
 Status FileScanner::init_block(vectorized::Block* block) {
@@ -171,6 +172,7 @@ Status FileScanner::_filter_block(vectorized::Block* _block) {
 
 Status FileScanner::finalize_block(vectorized::Block* _block, bool* eof) {
     *eof = _scanner_eof;
+    _read_row_counter += _block->rows();
     RETURN_IF_ERROR(_fill_columns_from_path(_block));
     if (LIKELY(_rows > 0)) {
         RETURN_IF_ERROR(_filter_block(_block));

@@ -47,6 +47,7 @@ FileTextScanner::FileTextScanner(RuntimeState* state, RuntimeProfile* profile,
           _success(false)
 
 {
+    _init_profiles(profile);
     if (params.__isset.text_params) {
         auto text_params = params.text_params;
         if (text_params.__isset.column_separator_str) {

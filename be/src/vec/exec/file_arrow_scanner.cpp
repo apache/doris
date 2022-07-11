@@ -54,7 +54,6 @@ Status FileArrowScanner::_open_next_reader() {
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
-
         FileReader* hdfs_reader = nullptr;
         RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
                                                         range.start_offset, &hdfs_reader));
@@ -81,6 +80,7 @@ Status FileArrowScanner::_open_next_reader() {
                 ss << " file: " << range.path << " error:" << status.get_error_msg();
                 return Status::InternalError(ss.str());
             } else {
+                _update_profile(_cur_file_reader->statistics());
                 return status;
             }
         }
@@ -191,6 +191,14 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
     return Status::OK();
 }
 
+void VFileParquetScanner::_update_profile(std::shared_ptr<Statistics>& statistics) {
+    COUNTER_UPDATE(_filtered_row_groups_counter, statistics->filtered_row_groups);
+    COUNTER_UPDATE(_filtered_rows_counter, statistics->filtered_rows);
+    COUNTER_UPDATE(_filtered_bytes_counter, statistics->filtered_total_bytes);
+    COUNTER_UPDATE(_total_rows_counter, statistics->total_rows);
+    COUNTER_UPDATE(_total_groups_counter, statistics->total_groups);
+}
+
 void FileArrowScanner::close() {
     FileScanner::close();
     if (_cur_file_reader != nullptr) {
@@ -204,11 +212,21 @@ VFileParquetScanner::VFileParquetScanner(RuntimeState* state, RuntimeProfile* pr
                                          const std::vector<TFileRangeDesc>& ranges,
                                          const std::vector<TExpr>& pre_filter_texprs,
                                          ScannerCounter* counter)
-        : FileArrowScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
+        : FileArrowScanner(state, profile, params, ranges, pre_filter_texprs, counter) {
+    _init_profiles(profile);
+}
 
 ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                                         int32_t num_of_columns_from_file) {
     return new ParquetReaderWrap(_profile, file_reader, batch_size, num_of_columns_from_file);
+}
+
+void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
+    _filtered_row_groups_counter = ADD_COUNTER(_profile, "ParquetFilteredRowGroups", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "FileFilteredRows", TUnit::UNIT);
+    _filtered_bytes_counter = ADD_COUNTER(_profile, "FileFilteredBytes", TUnit::BYTES);
+    _total_rows_counter = ADD_COUNTER(_profile, "FileTotalRows", TUnit::UNIT);
+    _total_groups_counter = ADD_COUNTER(_profile, "ParquetTotalRowGroups", TUnit::UNIT);
 }
 
 VFileORCScanner::VFileORCScanner(RuntimeState* state, RuntimeProfile* profile,
