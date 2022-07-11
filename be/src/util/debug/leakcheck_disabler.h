@@ -30,7 +30,7 @@ public:
     ScopedLeakCheckDisabler() {}
 
 private:
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(USE_JEMALLOC)
     ScopedLSANDisabler lsan_disabler;
 #endif
 

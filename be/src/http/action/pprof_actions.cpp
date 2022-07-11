@@ -60,10 +60,11 @@ public:
 
 void HeapAction::handle(HttpRequest* req) {
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
     (void)kPprofDefaultSampleSecs; // Avoid unused variable warning.
 
-    std::string str = "Heap profiling is not available with address sanitizer builds.";
+    std::string str = "Heap profiling is not available with address sanitizer or jemalloc builds.";
 
     HttpChannel::send_reply(req, str);
 #else
@@ -110,8 +111,10 @@ public:
 };
 
 void GrowthAction::handle(HttpRequest* req) {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    std::string str = "Growth profiling is not available with address sanitizer builds.";
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
+    std::string str =
+            "Growth profiling is not available with address sanitizer or jemalloc builds.";
     HttpChannel::send_reply(req, str);
 #else
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
@@ -132,8 +135,9 @@ public:
 };
 
 void ProfileAction::handle(HttpRequest* req) {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    std::string str = "CPU profiling is not available with address sanitizer builds.";
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
+    std::string str = "CPU profiling is not available with address sanitizer or jemalloc builds.";
     HttpChannel::send_reply(req, str);
 #else
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
