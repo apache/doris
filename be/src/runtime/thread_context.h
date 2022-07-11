@@ -32,11 +32,6 @@
 // Attach to task when thread starts
 #define SCOPED_ATTACH_TASK_THREAD(type, ...) \
     auto VARNAME_LINENUM(attach_task_thread) = AttachTaskThread(type, ##__VA_ARGS__)
-// Be careful to stop the thread mem tracker, because the actual order of malloc and free memory
-// may be different from the order of execution of instructions, which will cause the position of
-// the memory track to be unexpected.
-#define STOP_THREAD_LOCAL_MEM_TRACKER(scope) \
-    auto VARNAME_LINENUM(stop_tracker) = doris::StopThreadMemTracker(scope)
 // Switch thread mem tracker during task execution.
 // After the non-query thread switches the mem tracker, if the thread will not switch the mem
 // tracker again in the short term, can consider manually clear_untracked_mems.
@@ -87,8 +82,50 @@
 namespace doris {
 
 class TUniqueId;
+class ThreadContext;
 
 extern bthread_key_t btls_key;
+static const bthread_key_t EMPTY_BTLS_KEY = {0, 0};
+
+// Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
+// see https://github.com/apache/doris/pull/7911
+//
+// If we want to avoid this error,
+// 1. For non-trivial variables in thread_local, such as std::string, you need to store them as pointers to
+//    ensure that thread_local is trivial, these non-trivial pointers will uniformly call destructors elsewhere.
+// 2. The default destructor of the thread_local variable cannot be overridden.
+//
+// This is difficult to implement. Because the destructor is not overwritten, it means that the outside cannot
+// be notified when the thread terminates, and the non-trivial pointers in thread_local cannot be released in time.
+// The func provided by pthread and std::thread doesn't help either.
+//
+// So, kudu Class-scoped static thread local implementation was introduced. Solve the above problem by
+// Thread-scoped thread local + Class-scoped thread local.
+//
+// This may look very trick, but it's the best way I can find.
+//
+// refer to:
+//  https://gcc.gnu.org/onlinedocs/gcc-3.3.1/gcc/Thread-Local.html
+//  https://stackoverflow.com/questions/12049684/
+//  https://sourceware.org/glibc/wiki/Destructor%20support%20for%20thread_local%20variables
+//  https://www.jianshu.com/p/756240e837dd
+//  https://man7.org/linux/man-pages/man3/pthread_tryjoin_np.3.html
+class ThreadContextPtr {
+public:
+    ThreadContextPtr();
+    // Cannot add destructor `~ThreadContextPtr`, otherwise it will no longer be of type POD, the reason is as above.
+
+    // TCMalloc hook is triggered during ThreadContext construction, which may lead to deadlock.
+    bool _init = false;
+
+    DECLARE_STATIC_THREAD_LOCAL(ThreadContext, _tls);
+};
+
+inline thread_local ThreadContextPtr thread_local_ctx;
+// To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
+// in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
+inline thread_local ThreadContext* bthread_tls;
+inline thread_local bthread_key_t bthread_tls_key;
 
 // The thread context saves some info about a working thread.
 // 2 required info:
@@ -113,10 +150,25 @@ public:
                                                      "STORAGE"};
 
 public:
-    ThreadContext() : _type(TaskType::UNKNOWN) {
+    ThreadContext() {
         _thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
+        init();
+        thread_local_ctx._init = true;
+    }
+
+    ~ThreadContext() {
+        // Restore to the memory state before _init=true to ensure accurate overall memory statistics.
+        // Thereby ensuring that the memory alloc size is not tracked during the initialization of the
+        // ThreadContext before `_init = true in ThreadContextPtr()`,
+        // Equal to the size of the memory release that is not tracked during the destruction of the
+        // ThreadContext after `_init = false in ~ThreadContextPtr()`,
+        init();
+        thread_local_ctx._init = false;
+    }
+
+    void init() {
+        _type = TaskType::UNKNOWN;
         _thread_mem_tracker_mgr->init();
-        start_thread_mem_tracker = true;
         _thread_id = get_thread_id();
     }
 
@@ -154,22 +206,6 @@ public:
         return ss.str();
     }
 
-    void consume_mem(int64_t size) {
-        if (start_thread_mem_tracker) {
-            _thread_mem_tracker_mgr->cache_consume(size);
-        } else {
-            MemTracker::get_process_tracker()->consume(size);
-        }
-    }
-
-    void release_mem(int64_t size) {
-        if (start_thread_mem_tracker) {
-            _thread_mem_tracker_mgr->cache_consume(-size);
-        } else {
-            MemTracker::get_process_tracker()->release(size);
-        }
-    }
-
     // After _thread_mem_tracker_mgr is initialized, the current thread TCMalloc Hook starts to
     // consume/release mem_tracker.
     // Note that the use of shared_ptr will cause a crash. The guess is that there is an
@@ -185,50 +221,12 @@ private:
     TUniqueId _fragment_instance_id;
 };
 
-// Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
-// see https://github.com/apache/doris/pull/7911
-//
-// If we want to avoid this error,
-// 1. For non-trivial variables in thread_local, such as std::string, you need to store them as pointers to
-//    ensure that thread_local is trivial, these non-trivial pointers will uniformly call destructors elsewhere.
-// 2. The default destructor of the thread_local variable cannot be overridden.
-//
-// This is difficult to implement. Because the destructor is not overwritten, it means that the outside cannot
-// be notified when the thread terminates, and the non-trivial pointers in thread_local cannot be released in time.
-// The func provided by pthread and std::thread doesn't help either.
-//
-// So, kudu Class-scoped static thread local implementation was introduced. Solve the above problem by
-// Thread-scoped thread local + Class-scoped thread local.
-//
-// This may look very trick, but it's the best way I can find.
-//
-// refer to:
-//  https://gcc.gnu.org/onlinedocs/gcc-3.3.1/gcc/Thread-Local.html
-//  https://stackoverflow.com/questions/12049684/
-//  https://sourceware.org/glibc/wiki/Destructor%20support%20for%20thread_local%20variables
-//  https://www.jianshu.com/p/756240e837dd
-//  https://man7.org/linux/man-pages/man3/pthread_tryjoin_np.3.html
-class ThreadContextPtr {
-public:
-    ThreadContextPtr();
-
-    ThreadContext* get();
-
-    // TCMalloc hook is triggered during ThreadContext construction, which may lead to deadlock.
-    bool _init = false;
-
-private:
-    DECLARE_STATIC_THREAD_LOCAL(ThreadContext, thread_local_ctx);
-};
-
-inline thread_local ThreadContextPtr thread_local_ctx;
-
 static ThreadContext* tls_ctx() {
     ThreadContext* tls = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
     if (tls != nullptr) {
         return tls;
     } else {
-        return thread_local_ctx.get();
+        return thread_local_ctx._tls;
     }
 }
 
@@ -264,20 +262,6 @@ public:
     }
 
     ~AttachTaskThread();
-};
-
-class StopThreadMemTracker {
-public:
-    explicit StopThreadMemTracker(const bool scope = true) : _scope(scope) {
-        start_thread_mem_tracker = false;
-    }
-
-    ~StopThreadMemTracker() {
-        if (_scope == true) start_thread_mem_tracker = true;
-    }
-
-private:
-    bool _scope = true;
 };
 
 template <bool Existed>
