@@ -20,6 +20,7 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.testcontainers.containers.DockerComposeContainer;
@@ -39,16 +40,23 @@ public class EsContainerTest extends TestWithFeService {
         // upgrade jna fix java.lang.UnsatisfiedLinkError
         // https://hub.docker.com/r/arm64v8/elasticsearch/tags?page=1
         System.out.println("begin start es7");
-        ClassPathResource classPathResource = new ClassPathResource("docker/elasticsearch.yaml");
+        long startTime = System.currentTimeMillis();
+        ClassPathResource classPathResource;
+        if (M1_CHIP_FLAG) {
+            classPathResource = new ClassPathResource("docker/elasticsearch-m1.yaml");
+        } else {
+            classPathResource = new ClassPathResource("docker/elasticsearch.yaml");
+        }
         compose = new DockerComposeContainer<>(classPathResource.getFile()).withPull(true).withTailChildContainers(true)
-                .withLogConsumer("es7", outputFrame -> System.out.println(outputFrame.getUtf8String()));
+                .withLogConsumer("es7", outputFrame -> System.out.println(outputFrame.getUtf8String()))
+                .waitingFor("es7", Wait.forHealthcheck().withStartupTimeout(Duration.ofMinutes(3)));
         compose.start();
-        compose.waitingFor("es7", Wait.forHealthcheck().withStartupTimeout(Duration.ofSeconds(120)));
+        System.out.println("start es7 success, time=" + (System.currentTimeMillis() - startTime));
     }
 
     @Test
-    public void testEs() throws IOException {
+    public void testEs() throws IOException, InterruptedException {
         String res = HttpUtils.doGet("http://127.0.0.1:19200", null);
-        System.out.println(res);
+        Assertions.assertTrue(res.contains("7.17.5"));
     }
 }

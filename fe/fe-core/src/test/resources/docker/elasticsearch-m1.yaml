@@ -19,7 +19,7 @@ version: "3.9"
 
 services:
   es7:
-    image: elasticsearch:7.17.5
+    image: arm64v8/elasticsearch:7.17.5
     ports:
       - "19200:9200"
     environment:
