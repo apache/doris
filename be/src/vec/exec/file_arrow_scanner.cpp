@@ -222,7 +222,6 @@ ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader,
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
-    LOG(INFO) << "cmy _init_profiles";
     _filtered_row_groups_counter = ADD_COUNTER(_profile, "ParquetFilteredRowGroups", TUnit::UNIT);
     _filtered_rows_counter = ADD_COUNTER(_profile, "FileFilteredRows", TUnit::UNIT);
     _filtered_bytes_counter = ADD_COUNTER(_profile, "FileFilteredBytes", TUnit::BYTES);
