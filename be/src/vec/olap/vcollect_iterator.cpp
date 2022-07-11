@@ -260,6 +260,14 @@ VCollectIterator::Level1Iterator::~Level1Iterator() {
             child = nullptr;
         }
     }
+
+    if (_heap) {
+        while (!_heap->empty()) {
+            auto child = _heap->top();
+            _heap->pop();
+            if (child) delete child;
+        }
+    }
 }
 
 // Read next row into *row.
