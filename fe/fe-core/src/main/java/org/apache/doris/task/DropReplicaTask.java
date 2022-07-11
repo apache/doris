@@ -23,6 +23,10 @@ import org.apache.doris.thrift.TTaskType;
 public class DropReplicaTask extends AgentTask {
     private int schemaHash; // set -1L as unknown
     private long replicaId;
+    // It is used to distinguish whether the purpose of the drop replica is to drop table/partition,
+    // or whether the table/partition is just a drop replica.
+    // The former can safely delete all remote data,
+    // but the latter can be shared by other bes because the table is still there
     private boolean isDropTableOrPartition;
 
     public DropReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash,

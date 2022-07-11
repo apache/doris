@@ -189,7 +189,7 @@ public class AlterTest {
 
         createRemoteStoragePolicy(
                 "CREATE STORAGE POLICY testPolicy2\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3\",\n"
-                        + "  \"cooldown_ttl\" = \"1d\"\n" + ");");
+                        + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
         createTable("CREATE TABLE test.tbl_remote\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
                 + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"

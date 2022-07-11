@@ -69,7 +69,7 @@ public class AlterStoragePolicyStmt extends DdlStmt {
 
         if (properties.containsKey(StoragePolicy.COOLDOWN_TTL)) {
             hasCooldownTtl = true;
-            if (!StoragePolicy.isInteger(properties.get(StoragePolicy.COOLDOWN_TTL))) {
+            if (Integer.parseInt(properties.get(StoragePolicy.COOLDOWN_TTL)) < 0) {
                 throw new AnalysisException("cooldown_ttl must >= 0.");
             }
         }

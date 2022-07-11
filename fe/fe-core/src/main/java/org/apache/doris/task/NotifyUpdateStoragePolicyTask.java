@@ -46,9 +46,12 @@ public class NotifyUpdateStoragePolicyTask extends AgentTask {
         ret.cooldown_datetime = Long.parseLong(properties.get(StoragePolicy.COOLDOWN_DATETIME));
         ret.cooldown_ttl = Long.parseLong(properties.get(StoragePolicy.COOLDOWN_TTL));
         ret.s3_storage_param = new TS3StorageParam();
-        ret.s3_storage_param.s3_max_conn = Integer.parseInt(properties.get(S3Resource.S3_MAX_CONNECTIONS));
-        ret.s3_storage_param.s3_request_timeout_ms = Integer.parseInt(properties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
-        ret.s3_storage_param.s3_conn_timeout_ms = Integer.parseInt(properties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
+        ret.s3_storage_param.s3_max_conn = Integer.parseInt(properties.getOrDefault(S3Resource.S3_MAX_CONNECTIONS,
+                S3Resource.DEFAULT_S3_MAX_CONNECTIONS));
+        ret.s3_storage_param.s3_request_timeout_ms = Integer.parseInt(properties.getOrDefault(
+                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.DEFAULT_S3_REQUEST_TIMEOUT_MS));
+        ret.s3_storage_param.s3_conn_timeout_ms = Integer.parseInt(properties.getOrDefault(
+                S3Resource.S3_CONNECTION_TIMEOUT_MS, S3Resource.DEFAULT_S3_CONNECTION_TIMEOUT_MS));
         ret.s3_storage_param.s3_endpoint = properties.get(S3Resource.S3_ENDPOINT);
         ret.s3_storage_param.s3_region = properties.get(S3Resource.S3_REGION);
         ret.s3_storage_param.root_path = properties.get(S3Resource.S3_ROOT_PATH);

@@ -200,20 +200,19 @@ public class PropertyAnalyzer {
                 throw new AnalysisException("No PolicyStorage: " + remoteStoragePolicy);
             }
 
-            // TODO(dx): need this code?
-            StoragePolicy storagePolicyTodo = (StoragePolicy) policy;
+            StoragePolicy storagePolicy = (StoragePolicy) policy;
             // check remote storage cool down timestamp
-            if (storagePolicyTodo.getCooldownDatetime() != null) {
-                if (storagePolicyTodo.getCooldownDatetime().getTime() <= currentTimeMs) {
+            if (storagePolicy.getCooldownDatetime() != null) {
+                if (storagePolicy.getCooldownDatetime().getTime() <= currentTimeMs) {
                     throw new AnalysisException("Remote storage cool down time should later than now");
                 }
-                if (hasCooldown && storagePolicyTodo.getCooldownDatetime().getTime() <= cooldownTimeStamp) {
+                if (hasCooldown && storagePolicy.getCooldownDatetime().getTime() <= cooldownTimeStamp) {
                     throw new AnalysisException("`remote_storage_cooldown_time`"
                             + " should later than `storage_cooldown_time`.");
                 }
-                remoteCooldownTimeMs = storagePolicyTodo.getCooldownDatetime().getTime();
-            } else if (storagePolicyTodo.getCooldownTtl() != null && dataBaseTimeMs > 0) {
-                remoteCooldownTimeMs = dataBaseTimeMs + storagePolicyTodo.getCooldownTtlMs();
+                remoteCooldownTimeMs = storagePolicy.getCooldownDatetime().getTime();
+            } else if (storagePolicy.getCooldownTtl() != null && dataBaseTimeMs > 0) {
+                remoteCooldownTimeMs = dataBaseTimeMs + storagePolicy.getCooldownTtlMs();
             }
         }
 

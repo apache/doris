@@ -51,7 +51,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * Save policy for storage migration.
@@ -148,11 +147,6 @@ public class StoragePolicy extends Policy {
         super(type, policyName);
     }
 
-    public static boolean isInteger(String str) {
-        Pattern pattern = Pattern.compile("^[+]?[\\d]*$");
-        return pattern.matcher(str).matches();
-    }
-
     /**
      * Init props for storage policy.
      *
@@ -178,7 +172,7 @@ public class StoragePolicy extends Policy {
         }
         if (props.containsKey(COOLDOWN_TTL)) {
             hasCooldownTtl = true;
-            if (!isInteger(props.get(COOLDOWN_TTL))) {
+            if (Integer.parseInt(props.get(COOLDOWN_TTL)) < 0) {
                 throw new AnalysisException("cooldown_ttl must >= 0.");
             }
             this.cooldownTtl = props.get(COOLDOWN_TTL);
@@ -315,6 +309,8 @@ public class StoragePolicy extends Policy {
         return cooldownTtlMs;
     }
 
+    // be use this md5Sum to determine whether storage policy has been changed.
+    // if md5Sum not eq previous value, be change its storage policy.
     private String calcPropertiesMd5() {
         List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3Resource.S3_MAX_CONNECTIONS,
                 S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS,
