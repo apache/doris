@@ -175,6 +175,12 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
     using ColumnType = vectorized::ColumnString;
 };
 
+template <>
+struct PrimitiveTypeTraits<TYPE_HLL> {
+    using CppType = StringValue;
+    using ColumnType = vectorized::ColumnString;
+};
+
 // only for adapt get_predicate_column_ptr
 template <PrimitiveType type>
 struct PredicatePrimitiveTypeTraits {
