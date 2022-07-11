@@ -45,6 +45,7 @@ namespace segment_v2 {
 class SegmentIterator::BitmapRangeIterator {
 public:
     BitmapRangeIterator() {}
+    virtual ~BitmapRangeIterator() = default;
 
     explicit BitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
