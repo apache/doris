@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
@@ -111,6 +112,16 @@ public class TimestampArithmeticExpr extends Expr {
         if (t1 == PrimitiveType.DATE) {
             return Type.DATE;
         }
+        if (t1 == PrimitiveType.DATETIMEV2) {
+            return Type.DATETIMEV2;
+        }
+        if (t1 == PrimitiveType.DATEV2) {
+            return Type.DATEV2;
+        }
+        if (Config.use_date_v2_by_default
+                && PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIMEV2)) {
+            return Type.DATETIMEV2;
+        }
         if (PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIME)) {
             return Type.DATETIME;
         }
@@ -129,7 +140,7 @@ public class TimestampArithmeticExpr extends Expr {
             }
             Type dateType = fixType();
             if (dateType.isDate() && timeUnit.isDateTime()) {
-                dateType = Type.DATETIME;
+                dateType = DateLiteral.getDefaultDateType(Type.DATETIME);
             }
             // The first child must return a timestamp or null.
             if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
@@ -182,6 +193,9 @@ public class TimestampArithmeticExpr extends Expr {
             Type dateType = fixType();
             if (dateType.isDate() && timeUnit.isDateTime()) {
                 dateType = Type.DATETIME;
+            }
+            if (dateType.isDateV2() && timeUnit.isDateTime()) {
+                dateType = Type.DATETIMEV2;
             }
             // The first child must return a timestamp or null.
             if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
