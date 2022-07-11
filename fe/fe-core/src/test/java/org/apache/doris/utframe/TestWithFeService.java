@@ -93,9 +93,9 @@ import java.util.UUID;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class TestWithFeService {
+    protected static final boolean M1_CHIP = Objects.equals(System.getProperty("m1_chip"), "true");
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
-    protected final boolean M1_CHIP_FLAG = Objects.equals(System.getProperty("m1_chip"), "true");
 
     @BeforeAll
     public final void beforeAll() throws Exception {
@@ -324,6 +324,9 @@ public abstract class TestWithFeService {
         return getSQLPlanOrErrorMsg(sql, false);
     }
 
+    /**
+     * Get sql plan by sql support use verbose.
+     **/
     public String getSQLPlanOrErrorMsg(String sql, boolean isVerbose) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -338,6 +341,9 @@ public abstract class TestWithFeService {
         }
     }
 
+    /**
+     * Get sql plan by sql.
+     **/
     public Planner getSQLPlanner(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
@@ -349,6 +355,9 @@ public abstract class TestWithFeService {
         }
     }
 
+    /**
+     * Get StmtExecutor by sql.
+     **/
     public StmtExecutor getSqlStmtExecutor(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);

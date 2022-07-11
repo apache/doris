@@ -45,7 +45,7 @@ public class EsContainerTest extends TestWithFeService {
         System.out.println("begin start es7");
         long startTime = System.currentTimeMillis();
         ClassPathResource classPathResource;
-        if (M1_CHIP_FLAG) {
+        if (M1_CHIP) {
             classPathResource = new ClassPathResource("docker/elasticsearch-m1.yaml");
         } else {
             classPathResource = new ClassPathResource("docker/elasticsearch.yaml");
