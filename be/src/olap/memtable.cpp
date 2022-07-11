@@ -125,8 +125,8 @@ MemTable::~MemTable() {
             // load is canceled.
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
-                if (it.key()->_agg_places[i] != nullptr) {
-                    function->destroy(it.key()->_agg_places[i]);
+                if (it.key()->agg_places(i) != nullptr) {
+                    function->destroy(it.key()->agg_places(i));
                 }
             }
         }
@@ -337,7 +337,7 @@ void MemTable::_collect_vskiplist_results() {
     }
 
     if (is_final) {
-        _vec_skip_list.release();
+        _vec_skip_list.reset();
     }
 }
 
