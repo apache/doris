@@ -20,6 +20,9 @@
 
 #include "function_service.pb.h"
 
+#include<sys/time.h>
+
+
 namespace doris {
 class FunctionServiceImpl : public PFunctionService {
 public:
@@ -33,51 +36,30 @@ public:
         brpc::ClosureGuard closure_guard(done);
         std::string fun_name = request->function_name();
         auto* result = response->add_result();
-        if (fun_name == "int32_add") {
+        if(fun_name=="rpc_sum_merge"){
             result->mutable_type()->set_id(PGenericType::INT32);
+            int sum=0;
+            for (size_t i = 0; i < request->args_size(); ++i) {
+                sum += request->args(i).int32_value(0);
+            }
+            result->add_int32_value(sum);
+        }
+        if(fun_name=="rpc_sum_finalize"){
+             result->mutable_type()->set_id(PGenericType::INT32);
+             result->add_int32_value(request->context().function_context().args_data(0).int32_value(0));
+        }
+        if(fun_name=="rpc_sum_update"){
+            result->mutable_type()->set_id(PGenericType::INT32);
+            int sum=0;
             for (size_t i = 0; i < request->args(0).int32_value_size(); ++i) {
-                result->add_int32_value(request->args(0).int32_value(i) +
-                                        request->args(1).int32_value(i));
+                sum += request->args(0).int32_value(i);
             }
-        } else if (fun_name == "int64_add") {
-            result->mutable_type()->set_id(PGenericType::INT64);
-            for (size_t i = 0; i < request->args(0).int64_value_size(); ++i) {
-                result->add_int64_value(request->args(0).int64_value(i) +
-                                        request->args(1).int64_value(i));
+            if(request->has_context() && request->context().has_function_context()){
+                sum += request->context().function_context().args_data(0).int32_value(0);
             }
-        } else if (fun_name == "int128_add") {
-            result->mutable_type()->set_id(PGenericType::INT128);
-            for (size_t i = 0; i < request->args(0).bytes_value_size(); ++i) {
-                __int128 v1;
-                memcpy(&v1, request->args(0).bytes_value(i).data(), sizeof(__int128));
-                __int128 v2;
-                memcpy(&v2, request->args(1).bytes_value(i).data(), sizeof(__int128));
-                __int128 v = v1 + v2;
-                char buffer[sizeof(__int128)];
-                memcpy(buffer, &v, sizeof(__int128));
-                result->add_bytes_value(buffer, sizeof(__int128));
-            }
-        } else if (fun_name == "float_add") {
-            result->mutable_type()->set_id(PGenericType::FLOAT);
-            for (size_t i = 0; i < request->args(0).float_value_size(); ++i) {
-                result->add_float_value(request->args(0).float_value(i) +
-                                        request->args(1).float_value(i));
-            }
-        } else if (fun_name == "double_add") {
-            result->mutable_type()->set_id(PGenericType::DOUBLE);
-            for (size_t i = 0; i < request->args(0).double_value_size(); ++i) {
-                result->add_double_value(request->args(0).double_value(i) +
-                                         request->args(1).double_value(i));
-            }
-        } else if (fun_name == "str_add") {
-            result->mutable_type()->set_id(PGenericType::STRING);
-            for (size_t i = 0; i < request->args(0).string_value_size(); ++i) {
-                result->add_string_value(request->args(0).string_value(i) + " + " +
-                                         request->args(1).string_value(i));
-            }
+            result->add_int32_value(sum);
         }
         response->mutable_status()->set_status_code(0);
-        std::cout << response->DebugString();
     }
 
     void check_fn(google::protobuf::RpcController* controller, const PCheckFunctionRequest* request,

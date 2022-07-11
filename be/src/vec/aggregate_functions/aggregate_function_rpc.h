@@ -44,8 +44,9 @@ namespace doris::vectorized {
 
 template <bool nullable>
 void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
-                           const vectorized::DataTypePtr& data_type, PValues* arg,
-                           size_t row_count) {
+                           const vectorized::DataTypePtr& data_type, PValues* arg, int start,
+                           int end) {
+    int row_count = end - start;
     PGenericType* ptype = arg->mutable_type();
     switch (data_type->get_type_id()) {
     case vectorized::TypeIndex::UInt8: {
@@ -54,7 +55,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt8>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::UInt16: {
@@ -63,7 +64,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt16>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::UInt32: {
@@ -72,7 +73,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt32>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::UInt64: {
@@ -81,13 +82,13 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt64>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::UInt128: {
         ptype->set_id(PGenericType::UINT128);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_bytes_value(nullptr);
@@ -108,7 +109,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt8>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::Int16: {
@@ -117,7 +118,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt16>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::Int32: {
@@ -126,7 +127,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt32>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::Int64: {
@@ -135,13 +136,13 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt64>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::Int128: {
         ptype->set_id(PGenericType::INT128);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_bytes_value(nullptr);
@@ -162,7 +163,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnFloat32>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
 
@@ -172,13 +173,13 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
         values->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnFloat64>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case vectorized::TypeIndex::String: {
         ptype->set_id(PGenericType::STRING);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_string_value(nullptr);
@@ -196,7 +197,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
     case vectorized::TypeIndex::Date: {
         ptype->set_id(PGenericType::DATE);
         arg->mutable_datetime_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             PDateTime* date_time = arg->add_datetime_value();
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
@@ -221,7 +222,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
     case vectorized::TypeIndex::DateTime: {
         ptype->set_id(PGenericType::DATETIME);
         arg->mutable_datetime_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             PDateTime* date_time = arg->add_datetime_value();
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
@@ -252,7 +253,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
     case vectorized::TypeIndex::BitMap: {
         ptype->set_id(PGenericType::BITMAP);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_bytes_value(nullptr);
@@ -270,7 +271,7 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
     case vectorized::TypeIndex::HLL: {
         ptype->set_id(PGenericType::HLL);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_bytes_value(nullptr);
@@ -444,48 +445,24 @@ void convert_to_column(vectorized::MutableColumnPtr& column, const PValues& resu
     }
 }
 
-template <typename T>
-typename std::underlying_type<T>::type PrintEnum(T const value) {
-    return static_cast<typename std::underlying_type<T>::type>(value);
-}
-
 void convert_nullable_col_to_pvalue(const vectorized::ColumnPtr& column,
                                     const vectorized::DataTypePtr& data_type,
                                     const vectorized::ColumnUInt8& null_col, PValues* arg,
-                                    size_t row_count) {
+                                    int start, int end) {
+    int row_count = end - start;
     if (column->has_null(row_count)) {
         auto* null_map = arg->mutable_null_map();
         null_map->Reserve(row_count);
         const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt8>(null_col);
         auto& data = col->get_data();
-        null_map->Add(data.begin(), data.begin() + row_count);
-        convert_col_to_pvalue<true>(column, data_type, arg, row_count);
+        null_map->Add(data.begin() + start, data.begin() + end);
+        convert_col_to_pvalue<true>(column, data_type, arg, start, end);
     } else {
-        convert_col_to_pvalue<false>(column, data_type, arg, row_count);
+        convert_col_to_pvalue<false>(column, data_type, arg, start, end);
     }
 }
 
-void convert_block_to_proto(vectorized::Block& block, const vectorized::ColumnNumbers& arguments,
-                            size_t input_rows_count, PFunctionCallRequest* request) {
-    size_t row_count = std::min(block.rows(), input_rows_count);
-    for (size_t col_idx : arguments) {
-        PValues* arg = request->add_args();
-        vectorized::ColumnWithTypeAndName& column = block.get_by_position(col_idx);
-        arg->set_has_null(column.column->has_null(row_count));
-        auto col = column.column->convert_to_full_column_if_const();
-        if (auto* nullable =
-                    vectorized::check_and_get_column<const vectorized::ColumnNullable>(*col)) {
-            auto data_col = nullable->get_nested_column_ptr();
-            auto& null_col = nullable->get_null_map_column();
-            auto data_type =
-                    std::reinterpret_pointer_cast<const vectorized::DataTypeNullable>(column.type);
-            convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                           data_type->get_nested_type(), null_col, arg, row_count);
-        } else {
-            convert_col_to_pvalue<false>(col, column.type, arg, row_count);
-        }
-    }
-}
+#define MAX_BUFFERED_ROWS 4096
 struct AggregateRpcUdafData {
 private:
     std::string _update_fn;
@@ -495,6 +472,7 @@ private:
     bool saved_last_result;
     std::shared_ptr<PFunctionService_Stub> _client;
     PFunctionCallResponse res;
+    std::vector<PFunctionCallRequest> _buffer_request;
 
 public:
     AggregateRpcUdafData() = default;
@@ -506,7 +484,8 @@ public:
 
     ~AggregateRpcUdafData() {}
 
-    Status merge(const AggregateRpcUdafData& rhs) {
+    Status merge(AggregateRpcUdafData& rhs) {
+        send_buffer_to_rpc_server();
         if (has_last_result()) {
             PFunctionCallRequest request;
             PFunctionCallResponse response;
@@ -516,11 +495,10 @@ public:
             //last result
             PValues* arg = request.add_args();
             arg->CopyFrom(res.result(0));
-            arg = request.add_args();
 
+            arg = request.add_args();
             //current result
             arg->CopyFrom(current_res.result(0));
-
             //send to rpc server  that impl the merge op, the will save the result
             RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
             res = response;
@@ -546,7 +524,7 @@ public:
     }
 
     Status send_rpc_request(brpc::Controller& cntl, PFunctionCallRequest& request,
-                            PFunctionCallResponse& response) const {
+                            PFunctionCallResponse& response) {
         _client->fn_call(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
             return Status::InternalError(fmt::format("call to rpc function {} failed: {}",
@@ -566,11 +544,8 @@ public:
         return Status::OK();
     }
 
-    Status add(const IColumn** columns, int row_num, const DataTypes& argument_types) {
-        PFunctionCallRequest request;
-        PFunctionCallResponse response;
-        brpc::Controller cntl;
-        request.set_function_name(_update_fn);
+    Status gen_request_data(PFunctionCallRequest& request, const IColumn** columns, int start,
+                            int end, const DataTypes& argument_types) {
         for (int i = 0; i < argument_types.size(); i++) {
             PValues* arg = request.add_args();
             if (auto* nullable = vectorized::check_and_get_column<const vectorized::ColumnNullable>(
@@ -579,16 +554,100 @@ public:
                 auto& null_col = nullable->get_null_map_column();
                 auto data_type = std::reinterpret_pointer_cast<const vectorized::DataTypeNullable>(
                         argument_types[i]);
+                data_col->get_data_at(0);
                 convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                               data_type->get_nested_type(), null_col, arg,
-                                               row_num);
+                                               data_type->get_nested_type(), null_col, arg, start,
+                                               end);
+
             } else {
                 convert_col_to_pvalue<false>(columns[i]->convert_to_full_column_if_const(),
-                                             argument_types[i], arg, row_num);
+                                             argument_types[i], arg, start, end);
             }
         }
+        return Status::OK();
+    }
+
+    PFunctionCallRequest merge_buffer_request(PFunctionCallRequest& request) {
+        int args_size = _buffer_request[0].args_size();
+        request.set_function_name(_update_fn);
+        for (int i = 0; i < args_size; i++) {
+            PValues* arg = request.add_args();
+            arg->mutable_type()->CopyFrom(_buffer_request[0].args(i).type());
+            for (int j = 0; j < _buffer_request.size(); j++) {
+                for (int m = 0; m < _buffer_request[j].args(i).double_value_size(); m++) {
+                    arg->add_double_value(_buffer_request[j].args(i).double_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).float_value_size(); m++) {
+                    arg->add_float_value(_buffer_request[j].args(i).float_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).int32_value_size(); m++) {
+                    arg->add_int32_value(_buffer_request[j].args(i).int32_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).int64_value_size(); m++) {
+                    arg->add_int64_value(_buffer_request[j].args(i).int64_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).uint32_value_size(); m++) {
+                    arg->add_uint32_value(_buffer_request[j].args(i).uint32_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).uint64_value_size(); m++) {
+                    arg->add_uint64_value(_buffer_request[j].args(i).uint64_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).bool_value_size(); m++) {
+                    arg->add_bool_value(_buffer_request[j].args(i).bool_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).string_value_size(); m++) {
+                    arg->add_string_value(_buffer_request[j].args(i).string_value(0));
+                }
+                for (int m = 0; m < _buffer_request[j].args(i).bytes_value_size(); m++) {
+                    arg->add_bytes_value(_buffer_request[j].args(i).bytes_value(0));
+                }
+            }
+        }
+        return request;
+    }
+
+    // called in group agg op
+    Status buffer_add(const IColumn** columns, int start, int end,
+                      const DataTypes& argument_types) {
+        PFunctionCallRequest request;
+        gen_request_data(request, columns, start, end, argument_types);
+        _buffer_request.push_back(request);
+        if (_buffer_request.size() >= MAX_BUFFERED_ROWS) {
+            send_buffer_to_rpc_server();
+        }
+        return Status::OK();
+    }
+
+    //clear buffer request
+    Status send_buffer_to_rpc_server() {
+        if (_buffer_request.size() > 0) {
+            PFunctionCallRequest request;
+            PFunctionCallResponse response;
+            brpc::Controller cntl;
+            merge_buffer_request(request);
+            if (has_last_result()) {
+                request.mutable_context()
+                        ->mutable_function_context()
+                        ->mutable_args_data()
+                        ->CopyFrom(res.result());
+            }
+            RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
+            res = response;
+            set_last_result(true);
+            _buffer_request.clear();
+        }
+        return Status::OK();
+    }
+
+    Status add(const IColumn** columns, int start, int end, const DataTypes& argument_types) {
+        PFunctionCallRequest request;
+        PFunctionCallResponse response;
+        brpc::Controller cntl;
+        request.set_function_name(_update_fn);
+        gen_request_data(request, columns, start, end, argument_types);
         if (has_last_result()) {
-            request.mutable_last_result()->CopyFrom(res.result());
+            request.mutable_context()->mutable_function_context()->mutable_args_data()->CopyFrom(
+                    res.result());
         }
         RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
         res = response;
@@ -597,23 +656,27 @@ public:
     }
 
     void serialize(BufferWritable& buf) {
+        send_buffer_to_rpc_server();
         std::string serialize_data = res.SerializeAsString();
         write_binary(serialize_data, buf);
     }
 
     void deserialize(BufferReadable& buf) {
+        send_buffer_to_rpc_server();
         std::string serialize_data;
         read_binary(serialize_data, buf);
         res.ParseFromString(serialize_data);
         set_last_result(true);
     }
 
-    Status get(IColumn& to, const DataTypePtr& return_type) const {
+    Status get(IColumn& to, const DataTypePtr& return_type) {
+        send_buffer_to_rpc_server();
         PFunctionCallRequest request;
         PFunctionCallResponse response;
         brpc::Controller cntl;
         request.set_function_name(_finalize_fn);
-        request.mutable_last_result()->CopyFrom(res.result());
+        request.mutable_context()->mutable_function_context()->mutable_args_data()->CopyFrom(
+                res.result());
         send_rpc_request(cntl, request, response);
 
         DataTypePtr result_type = return_type;
@@ -626,10 +689,14 @@ public:
             int32_t a = response.result(0).int32_value(0);
             to.insert_data((char*)&a, 0);
         }
+
         return Status::OK();
     }
 
-    PFunctionCallResponse get_result() const { return res; }
+    PFunctionCallResponse get_result() {
+        send_buffer_to_rpc_server();
+        return res;
+    }
 };
 
 class AggregateRpcUdaf final
@@ -657,27 +724,21 @@ public:
 
     DataTypePtr get_return_type() const override { return _return_type; }
 
-    // TODO: here calling add operator maybe only hava done one row, this performance may be poorly
-    // so it's possible to maintain a hashtable in FE, the key is place address, value is the object
-    // then we can calling add_bacth function and calculate the whole batch at once,
-    // and avoid calling jni multiple times.
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        this->data(place).add(columns, row_num, argument_types);
+        this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types);
     }
 
-    // TODO: Here we calling method by jni, And if we get a thrown from FE,
-    // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        this->data(place).add(columns, batch_size, argument_types);
+        this->data(place).add(columns, 0, batch_size, argument_types);
     }
 
     void reset(AggregateDataPtr place) const override {}
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).merge(this->data(rhs));
+        this->data(place).merge(this->data(const_cast<AggregateDataPtr>(rhs)));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
