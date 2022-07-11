@@ -37,7 +37,7 @@ class ParquetReaderWrap;
 
 class RowGroupReader {
 public:
-    RowGroupReader(RuntimeProfile* profile, const std::vector<ExprContext*>& conjunct_ctxs,
+    RowGroupReader(const std::vector<ExprContext*>& conjunct_ctxs,
                    std::shared_ptr<parquet::FileMetaData>& file_metadata,
                    ParquetReaderWrap* parent);
     ~RowGroupReader();
@@ -83,7 +83,6 @@ private:
 
     std::vector<ExprContext*> _conjunct_ctxs;
     std::shared_ptr<parquet::FileMetaData> _file_metadata;
-    RuntimeProfile* _profile;
     ParquetReaderWrap* _parent;
 };
 } // namespace doris

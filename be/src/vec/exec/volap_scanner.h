@@ -65,6 +65,8 @@ public:
 
     bool need_to_close() { return _need_to_close; }
 
+    int id() const { return _id; }
+    void set_id(int id) { _id = id; }
     bool is_open() const { return _is_open; }
     void set_opened() { _is_open = true; }
 
@@ -109,6 +111,7 @@ private:
     // to record which runtime filters have been used
     std::vector<bool> _runtime_filter_marks;
 
+    int _id;
     bool _is_open;
     bool _aggregation;
     bool _need_agg_finalize = true;

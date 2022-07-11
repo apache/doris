@@ -15,21 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.util;
+package org.apache.doris.nereids.operators.plans.physical;
+
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.List;
 
 /**
- * Utils for Nereids.
+ * Enforcer operator.
  */
-public class Utils {
-    /**
-     * Quoted string if it contains special character or all characters are digit.
-     *
-     * @param part string to be quoted
-     * @return quoted string
-     */
-    public static String quoteIfNeeded(String part) {
-        // We quote strings except the ones which consist of digits only.
-        return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
-                ? part : part.replace("`", "``");
+public class PhysicalDistribution extends PhysicalUnaryOperator {
+
+    protected DistributionSpec distributionSpec;
+
+
+    public PhysicalDistribution(DistributionSpec spec) {
+        super(OperatorType.PHYSICAL_DISTRIBUTION);
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return null;
     }
 }

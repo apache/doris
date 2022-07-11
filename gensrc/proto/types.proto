@@ -100,6 +100,7 @@ message PGenericType {
         BYTES = 26;
         NOTHING = 27;
         DATEV2 = 28;
+        DATETIMEV2 = 29;
         UNKNOWN = 999;
     }
     required TypeId id = 2;
