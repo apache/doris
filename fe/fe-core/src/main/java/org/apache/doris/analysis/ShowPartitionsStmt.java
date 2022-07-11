@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class ShowPartitionsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
@@ -193,7 +194,8 @@ public class ShowPartitionsStmt extends ShowStmt {
                     throw new AnalysisException("Where clause : LastConsistencyCheckTime =|>=|<=|>|<|!= "
                         + "\"2019-12-22|2019-12-22 22:22:00\"");
                 }
-                subExpr.setChild(1, (subExpr.getChild(1)).castTo(Type.DATETIME));
+                subExpr.setChild(1, (subExpr.getChild(1)).castTo(
+                        Objects.requireNonNull(DateLiteral.getDefaultDateType(Type.DATETIME))));
             } else if (!leftKey.equalsIgnoreCase(FILTER_PARTITION_ID) && !leftKey.equalsIgnoreCase(FILTER_BUCKETS)
                     && !leftKey.equalsIgnoreCase(FILTER_REPLICATION_NUM)) {
                 throw new AnalysisException("Only the columns of PartitionId/PartitionName/"

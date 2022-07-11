@@ -230,11 +230,7 @@ public class DateLiteral extends LiteralExpr {
         this.year = year;
         this.month = month;
         this.day = day;
-        try {
-            this.type = DateLiteral.getDefaultDateType(Type.DATE);
-        } catch (AnalysisException e) {
-            this.type = Type.DATE;
-        }
+        this.type = DateLiteral.getDefaultDateType(Type.DATE);
     }
 
     public DateLiteral(long year, long month, long day, Type type) {
@@ -256,11 +252,7 @@ public class DateLiteral extends LiteralExpr {
         this.year = year;
         this.month = month;
         this.day = day;
-        try {
-            this.type = DateLiteral.getDefaultDateType(Type.DATETIME);
-        } catch (AnalysisException e) {
-            this.type = Type.DATETIME;
-        }
+        this.type = DateLiteral.getDefaultDateType(Type.DATETIME);
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond) {
@@ -1444,7 +1436,7 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
-    public static Type getDefaultDateType(Type type) throws AnalysisException {
+    public static Type getDefaultDateType(Type type) {
         switch (type.getPrimitiveType()) {
             case DATE:
                 if (Config.use_date_v2_by_default) {
@@ -1460,9 +1452,8 @@ public class DateLiteral extends LiteralExpr {
                 }
             case DATEV2:
             case DATETIMEV2:
-                return type;
             default:
-                throw new AnalysisException("Invalid date type: " + type);
+                return type;
         }
     }
 }
