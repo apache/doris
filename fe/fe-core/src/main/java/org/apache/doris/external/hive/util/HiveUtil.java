@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.hive.util;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
@@ -152,9 +153,9 @@ public final class HiveUtil {
                     case VARCHAR:
                         return Type.VARCHAR;
                     case DATE:
-                        return Type.DATE;
+                        return DateLiteral.getDefaultDateType(Type.DATE);
                     case TIMESTAMP:
-                        return Type.DATETIME;
+                        return DateLiteral.getDefaultDateType(Type.DATETIME);
                     case DECIMAL:
                         return Type.DECIMALV2;
                     default:

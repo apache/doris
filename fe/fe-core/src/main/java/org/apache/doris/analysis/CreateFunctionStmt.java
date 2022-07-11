@@ -523,7 +523,9 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .put(PrimitiveType.DATE, Sets.newHashSet(LocalDate.class))
+                    .put(PrimitiveType.DATEV2, Sets.newHashSet(LocalDate.class))
                     .put(PrimitiveType.DATETIME, Sets.newHashSet(LocalDateTime.class))
+                    .put(PrimitiveType.DATETIMEV2, Sets.newHashSet(LocalDateTime.class))
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
                     .build();
@@ -617,14 +619,18 @@ public class CreateFunctionStmt extends DdlStmt {
                 typeBuilder.setId(Types.PGenericType.TypeId.BITMAP);
                 break;
             case DATE:
-            case DATEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATE);
                 break;
+            case DATEV2:
+                typeBuilder.setId(Types.PGenericType.TypeId.DATEV2);
+                break;
             case DATETIME:
-            case DATETIMEV2:
             case TIME:
-            case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIME);
+                break;
+            case DATETIMEV2:
+            case TIMEV2:
+                typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
             case DECIMALV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL128)
