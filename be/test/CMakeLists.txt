@@ -180,6 +180,7 @@ set(OLAP_TEST_FILES
     olap/rowset/rowset_meta_test.cpp
     olap/rowset/beta_rowset_test.cpp
     olap/rowset/unique_rowset_id_generator_test.cpp
+    olap/rowset/rowset_tree_test.cpp
     # TODO yiguolei: it is using alpha rowset to test, should use beta rowset
     #olap/txn_manager_test.cpp
     olap/generic_iterators_test.cpp
