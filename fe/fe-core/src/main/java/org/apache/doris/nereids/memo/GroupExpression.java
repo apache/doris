@@ -44,6 +44,8 @@ public class GroupExpression {
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
+    // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
+    private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
     public GroupExpression(Operator op) {
         this(op, Lists.newArrayList());
@@ -61,6 +63,14 @@ public class GroupExpression {
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
+        this.requestPropertiesMap = Maps.newHashMap();
+    }
+
+    // TODO: rename
+    public PhysicalProperties getPropertyFromMap(PhysicalProperties requiredPropertySet) {
+        PhysicalProperties outputProperty = requestPropertiesMap.get(requiredPropertySet);
+        Preconditions.checkState(outputProperty != null);
+        return outputProperty;
     }
 
     public int arity() {
@@ -122,6 +132,30 @@ public class GroupExpression {
     public List<PhysicalProperties> getInputPropertiesList(PhysicalProperties require) {
         Preconditions.checkState(lowestCostTable.containsKey(require));
         return lowestCostTable.get(require).second;
+    }
+
+    /**
+     * Add a (parentOutputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     */
+    public boolean updateLowestCostTable(
+            PhysicalProperties parentOutputProperties,
+            List<PhysicalProperties> childrenInputProperties,
+            double cost) {
+        if (lowestCostTable.containsKey(parentOutputProperties)) {
+            if (lowestCostTable.get(parentOutputProperties).first > cost) {
+                lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
+                return true;
+            }
+        } else {
+            lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
+            return true;
+        }
+        return false;
+    }
+
+    public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
+            PhysicalProperties requiredPropertySet) {
+        this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
     }
 
     @Override
