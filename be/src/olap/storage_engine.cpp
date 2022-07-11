@@ -161,6 +161,11 @@ StorageEngine::~StorageEngine() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
+
+    if (_quick_compaction_thread_pool) {
+        _quick_compaction_thread_pool->shutdown();
+    }
+
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
