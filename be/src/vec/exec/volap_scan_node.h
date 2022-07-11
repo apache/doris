@@ -102,7 +102,6 @@ private:
 
     Status _add_blocks(std::vector<Block*>& block);
     int _start_scanner_thread_task(RuntimeState* state, int block_per_scanner);
-    Block* _alloc_block(bool& get_free_block);
 
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
@@ -179,7 +178,6 @@ private:
 
     std::list<VOlapScanner*> _olap_scanners;
 
-    int _max_materialized_row_batches;
     // to limit _materialized_row_batches_bytes and _scan_row_batches_bytes
     size_t _max_scanner_queue_size_bytes;
     bool _start;
@@ -204,7 +202,6 @@ private:
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     TResourceInfo* _resource_info;
 
-    int64_t _buffered_bytes;
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
     std::shared_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
@@ -314,15 +311,10 @@ private:
     std::mutex _scan_blocks_lock;
     std::condition_variable _scan_block_added_cv;
 
-    std::vector<Block*> _free_blocks;
-    std::mutex _free_blocks_lock;
-
     std::list<VOlapScanner*> _volap_scanners;
     std::mutex _volap_scanners_lock;
 
     std::shared_ptr<MemTracker> _block_mem_tracker;
-
-    int _max_materialized_blocks;
 
     size_t _block_size = 0;
 

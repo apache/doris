@@ -228,6 +228,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
     if (UNLIKELY(_ref.block->rows() > 0 && _ref.row_pos == 0)) {
         block->swap(*_ref.block);
         _ref.row_pos = -1;
+        _ref.block->clear();
         return Status::OK();
     } else {
         auto res = _rs_reader->next_block(block);
