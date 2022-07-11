@@ -36,13 +36,12 @@
 namespace doris {
 
 // Broker
-ParquetReaderWrap::ParquetReaderWrap(RuntimeProfile* profile, FileReader* file_reader,
-                                     int64_t batch_size, int32_t num_of_columns_from_file)
+ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
+                                     int32_t num_of_columns_from_file)
         : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
           _rows_of_group(0),
           _current_line_of_group(0),
-          _current_line_of_batch(0),
-          _profile(profile) {}
+          _current_line_of_batch(0) {}
 
 ParquetReaderWrap::~ParquetReaderWrap() {
     _closed = true;
@@ -102,8 +101,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
         if (config::parquet_predicate_push_down) {
-            _row_group_reader.reset(
-                    new RowGroupReader(_profile, conjunct_ctxs, _file_metadata, this));
+            _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata, this));
             _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
         }
         _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
