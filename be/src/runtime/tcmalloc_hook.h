@@ -37,18 +37,32 @@
 //  destructor to control the behavior of consume can lead to unexpected behavior,
 //  like this: if (LIKELY(doris::start_thread_mem_tracker)) {
 void new_hook(const void* ptr, size_t size) {
-    if (doris::thread_local_ctx._init) {
-        doris::tls_ctx()->consume_mem(tc_nallocx(size, 0));
-    } else if (doris::exec_env_existed && doris::ExecEnv::GetInstance()->initialized()) {
-        doris::MemTracker::get_process_tracker()->consume(tc_nallocx(size, 0));
+    if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_tls != nullptr) {
+        // Currently in bthread, consume thread context mem tracker in bthread tls.
+        if (doris::btls_key != doris::bthread_tls_key) {
+            // pthread switch occurs, updating bthread_tls and bthread_tls_key cached in pthread tls.
+            doris::bthread_tls =
+                    static_cast<doris::ThreadContext*>(bthread_getspecific(doris::btls_key));
+            doris::bthread_tls_key = doris::btls_key;
+        }
+        doris::bthread_tls->_thread_mem_tracker_mgr->cache_consume(tc_nallocx(size, 0));
+    } else if (doris::thread_local_ctx._init) {
+        doris::thread_local_ctx._tls->_thread_mem_tracker_mgr->cache_consume(tc_nallocx(size, 0));
     }
 }
 
 void delete_hook(const void* ptr) {
-    if (doris::thread_local_ctx._init) {
-        doris::tls_ctx()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
-    } else if (doris::exec_env_existed && doris::ExecEnv::GetInstance()->initialized()) {
-        doris::MemTracker::get_process_tracker()->release(tc_malloc_size(const_cast<void*>(ptr)));
+    if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_tls != nullptr) {
+        if (doris::btls_key != doris::bthread_tls_key) {
+            doris::bthread_tls =
+                    static_cast<doris::ThreadContext*>(bthread_getspecific(doris::btls_key));
+            doris::bthread_tls_key = doris::btls_key;
+        }
+        doris::bthread_tls->_thread_mem_tracker_mgr->cache_consume(
+                -tc_malloc_size(const_cast<void*>(ptr)));
+    } else if (doris::thread_local_ctx._init) {
+        doris::thread_local_ctx._tls->_thread_mem_tracker_mgr->cache_consume(
+                -tc_malloc_size(const_cast<void*>(ptr)));
     }
 }
 
