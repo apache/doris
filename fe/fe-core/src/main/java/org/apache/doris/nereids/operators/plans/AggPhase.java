@@ -24,10 +24,10 @@ import org.apache.doris.analysis.AggregateInfo;
  * enum of agg phase definition of stale optimizer.
  */
 public enum AggPhase {
-    FIRST("FIRST", AggregateInfo.AggPhase.FIRST),
-    FIRST_MERGE("FIRST_MERGE", AggregateInfo.AggPhase.FIRST_MERGE),
-    SECOND("SECOND", AggregateInfo.AggPhase.SECOND),
-    SECOND_MERGE("SECOND_MERGE", AggregateInfo.AggPhase.SECOND_MERGE);
+    LOCAL("LOCAL", AggregateInfo.AggPhase.FIRST),
+    GLOBAL("GLOBAL", AggregateInfo.AggPhase.FIRST_MERGE),
+    DISTINCT_LOCAL("DISTINCT_LOCAL", AggregateInfo.AggPhase.SECOND),
+    DISTINCT_GLOBAL("DISTINCT_GLOBAL", AggregateInfo.AggPhase.SECOND_MERGE);
 
     private final String name;
 
@@ -38,8 +38,8 @@ public enum AggPhase {
         this.execAggPhase = execAggPhase;
     }
 
-    public boolean isMerge() {
-        return this == FIRST_MERGE || this == SECOND_MERGE;
+    public boolean isGlobal() {
+        return this == GLOBAL || this == DISTINCT_GLOBAL;
     }
 
     public AggregateInfo.AggPhase toExec() {

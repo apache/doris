@@ -34,9 +34,9 @@ public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Ex
     }
 
     @Override
-    public String sql() {
-        return left().sql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().sql();
+    public String toSql() {
+        return left().toSql() + ' ' + getArithmeticOperator().toString()
+                + ' ' + right().toSql();
     }
 
     @Override
@@ -57,6 +57,6 @@ public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Ex
 
 
     public String toString() {
-        return sql();
+        return left().toString() + ' ' + getArithmeticOperator().toString() + ' ' + right().toString();
     }
 }
