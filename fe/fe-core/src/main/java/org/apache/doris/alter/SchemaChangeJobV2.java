@@ -129,13 +129,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
+    // save failed task after retry three times, tabletId -> agentTask
+    private Map<Long, List<AgentTask>> failedAgentTasks = Maps.newHashMap();
 
     public SchemaChangeJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs) {
         super(jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
-    }
-
-    private SchemaChangeJobV2() {
-        super(JobType.SCHEMA_CHANGE);
     }
 
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
@@ -494,14 +492,25 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
-                    throw new AlterCancelException("schema change task failed after try three times: "
-                            + task.getErrorMsg());
+                    task.setFinished(true);
+                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+                    LOG.warn("schema change task failed after try three times: " + task.getErrorMsg());
+                    if (!failedAgentTasks.containsKey(task.getTabletId())) {
+                        failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
+                    } else {
+                        failedAgentTasks.get(task.getTabletId()).add(task);
+                    }
+                    int expectSucceedTaskNum = tbl.getPartitionInfo()
+                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
+                    int failedTaskCount = failedAgentTasks.get(task.getTabletId()).size();
+                    if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
+                        throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
+                                    + failedAgentTasks.get(task.getTabletId()));
+                    }
                 }
             }
             return;
         }
-
-
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -509,7 +518,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-
+            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            for (List<AgentTask> tasks : failedAgentTasks.values()) {
+                for (AgentTask task : tasks) {
+                    invertedIndex.getReplica(task.getTabletId(), task.getBackendId()).setBad(true);
+                }
+            }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -526,7 +540,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         List<Replica> replicas = shadowTablet.getReplicas();
                         int healthyReplicaNum = 0;
                         for (Replica replica : replicas) {
-                            if (replica.getLastFailedVersion() < 0
+                            if (!replica.isBad() && replica.getLastFailedVersion() < 0
                                     && replica.checkVersionCatchUp(visiableVersion, false)) {
                                 healthyReplicaNum++;
                             }
