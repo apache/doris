@@ -209,7 +209,7 @@ Compressing objects: 100% (41/41), done.
 Writing objects: 100% (141/141), 56.66 KiB, done.
 Total 141 (delta 76), reused 140 (delta 75)
 remote: Resolving deltas: 100% (76/76), completed with 44 local objects.
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/doris.git
+To https://lide-reed:xxxx@github.com/lide-reed/doris.git
    9c36200..0c4edc2  master -> master
 ```
 
@@ -252,7 +252,7 @@ remote:
 remote: Create a pull request for 'my_branch' on GitHub by visiting:
 remote:      https://github.com/lide-reed/doris/pull/new/my_branch
 remote: 
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/doris.git
+To https://lide-reed:xxxx@github.com/lide-reed/doris.git
  * [new branch]      my_branch -> my_branch
 ```
 
