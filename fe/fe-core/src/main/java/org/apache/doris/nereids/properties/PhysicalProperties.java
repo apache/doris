@@ -29,6 +29,16 @@ public class PhysicalProperties {
     public PhysicalProperties() {
     }
 
+    public PhysicalProperties(DistributionSpec distributionSpec) {
+        this.distributionSpec = distributionSpec;
+        this.orderSpec = new OrderSpec();
+    }
+
+    public PhysicalProperties(OrderSpec orderSpec) {
+        this.orderSpec = orderSpec;
+        this.distributionSpec = new DistributionSpec();
+    }
+
     public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
         this.distributionSpec = distributionSpec;
         this.orderSpec = orderSpec;

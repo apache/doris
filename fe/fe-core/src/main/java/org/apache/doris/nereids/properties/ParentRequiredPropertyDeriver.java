@@ -21,6 +21,7 @@ import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.Lists;
@@ -52,6 +53,19 @@ public class ParentRequiredPropertyDeriver extends PlanVisitor<Void, PlanContext
             requiredPropertyList.add(new PhysicalProperties());
         }
         requiredPropertyListList.add(requiredPropertyList);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
+        // TODO: consider just broadcast/shuffle
+        // broadcast join
+        // TODO: RandomDistributionDesc() is tmp
+        PhysicalProperties rightBroadcastProperty = new PhysicalProperties(new RandomDistributionDesc());
+        requiredPropertyListList.add(Lists.newArrayList(new PhysicalProperties(), rightBroadcastProperty));
+
+        // shuffle join
+
         return null;
     }
 

@@ -44,10 +44,10 @@ public class CostAndEnforcerJob extends Job {
     // Current total cost
     private double curTotalCost;
 
-    // Properties from parent plan node.
-    // Like: Physical Hash Join
-    // [ [Properties ["", ANY], Properties ["", BROADCAST]],
-    //   [Properties ["", SHUFFLE_JOIN], Properties ["", SHUFFLE_JOIN]] ]
+    // Children properties from parent plan node.
+    // Example: Physical Hash Join
+    // [ [Properties {"", ANY}, Properties {"", BROADCAST}],
+    //   [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}]]
     private List<List<PhysicalProperties>> propertiesListList;
 
     private List<GroupExpression> childrenBestGroupExprList;
@@ -65,25 +65,25 @@ public class CostAndEnforcerJob extends Job {
         this.groupExpression = groupExpression;
     }
 
-    @Override
-    public void execute() {
-        for (Group childGroup : groupExpression.children()) {
-            if (!childGroup.isHasCost()) {
-                // TODO: interim solution
-                pushTask(new CostAndEnforcerJob(this.groupExpression, context));
-                pushTask(new OptimizeGroupJob(childGroup, context));
-                childGroup.setHasCost(true);
-                return;
-            }
-        }
-    }
+//    @Override
+//    public void execute() {
+//        for (Group childGroup : groupExpression.children()) {
+//            if (!childGroup.isHasCost()) {
+//                // TODO: interim solution
+//                pushTask(new CostAndEnforcerJob(this.groupExpression, context));
+//                pushTask(new OptimizeGroupJob(childGroup, context));
+//                childGroup.setHasCost(true);
+//                return;
+//            }
+//        }
+//    }
 
     /**
      * execute.
      */
-    public void execute1() {
+    public void execute() {
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
-        if (curChildIndex != -1) {
+        if (curChildIndex == -1) {
             curTotalCost = 0;
 
             // Get property from groupExpression plan (it's root of subplan).
@@ -135,7 +135,6 @@ public class CostAndEnforcerJob extends Job {
                 childrenInputProperties.set(curChildIndex, childOutputProperty);
 
                 // todo: check whether split agg broadcast row count limit.
-
                 curTotalCost += lowestCostExpr.getLowestCostTable().get(childInputProperties).first;
                 if (curTotalCost > context.getCostUpperBound()) {
                     break;
@@ -163,8 +162,14 @@ public class CostAndEnforcerJob extends Job {
                 PlanContext planContext = new PlanContext(groupExpression);
                 // TODO: calculate stats.
                 groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
+                // TODO: calculate stats. ??????
+                groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
 
                 enforce(outputProperty, childrenInputProperties);
+
+                if (curTotalCost < context.getCostUpperBound()) {
+                    context.setCostUpperBound(curTotalCost);
+                }
             }
 
             // Reset child idx and total cost
@@ -200,10 +205,6 @@ public class CostAndEnforcerJob extends Job {
             if (!outputProperty.equals(requiredProperties)) {
                 putProperty(groupExpression, outputProperty, requiredProperties, inputProperties);
             }
-        }
-
-        if (curTotalCost < context.getCostUpperBound()) {
-            context.setCostUpperBound(curTotalCost);
         }
     }
 

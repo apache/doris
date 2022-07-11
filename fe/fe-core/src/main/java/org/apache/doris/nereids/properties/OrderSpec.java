@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -31,6 +32,10 @@ import java.util.List;
  */
 public class OrderSpec {
     private final List<OrderKey> orderKeys;
+
+    public OrderSpec() {
+        this.orderKeys = new ArrayList<>();
+    }
 
     public OrderSpec(List<OrderKey> orderKeys) {
         this.orderKeys = orderKeys;
