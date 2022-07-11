@@ -430,7 +430,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             if (ready) {
                 runtime_filter->get_prepared_vexprs(&vexprs, row_desc(), _expr_mem_tracker);
                 scanner_filter_apply_marks[i] = true;
-                if (!_runtime_filter_ready_flag[i]) {
+                if (!_runtime_filter_ready_flag[i] && !vexprs.empty()) {
                     std::unique_lock<std::mutex> l(*(_rf_locks[i]));
                     if (!_runtime_filter_ready_flag[i]) {
                         // Use all conjuncts and new arrival runtime filters to construct a new
