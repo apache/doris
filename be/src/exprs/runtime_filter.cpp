@@ -962,6 +962,9 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctx
 Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
                                             const RowDescriptor& desc,
                                             const std::shared_ptr<MemTracker>& tracker) {
+    if (_is_ignored) {
+        return Status::OK();
+    }
     DCHECK(_is_ready);
     DCHECK(is_consumer());
     std::lock_guard<std::mutex> guard(_inner_mutex);
@@ -979,6 +982,9 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
                                            const RowDescriptor& desc,
                                            const std::shared_ptr<MemTracker>& tracker) {
+    if (_is_ignored) {
+        return Status::OK();
+    }
     DCHECK(_is_ready);
     DCHECK(is_consumer());
     std::lock_guard<std::mutex> guard(_inner_mutex);
