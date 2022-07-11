@@ -66,17 +66,6 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
-    int32_t max_thread_num = config::max_base_compaction_threads;
-    ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-            .set_min_threads(max_thread_num)
-            .set_max_threads(max_thread_num)
-            .build(&_base_compaction_thread_pool);
-    max_thread_num = config::max_cumu_compaction_threads;
-    ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-            .set_min_threads(max_thread_num)
-            .set_max_threads(max_thread_num)
-            .build(&_cumu_compaction_thread_pool);
-
     ThreadPoolBuilder("BaseCompactionTaskThreadPool")
             .set_min_threads(config::max_base_compaction_threads)
             .set_max_threads(config::max_base_compaction_threads)
