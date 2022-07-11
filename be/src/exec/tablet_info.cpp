@@ -208,9 +208,8 @@ Status OlapTablePartitionParam::init() {
         }
     }
     if (_distributed_slot_descs.empty()) {
-        Random random(UnixMillis());
-        _compute_tablet_index = [&random](Tuple* key, int64_t num_buckets) -> uint32_t {
-            return random.Uniform(num_buckets);
+        _compute_tablet_index = [](Tuple* key, int64_t num_buckets) -> uint32_t {
+            return butil::fast_rand() % num_buckets;
         };
     } else {
         _compute_tablet_index = [this](Tuple* key, int64_t num_buckets) -> uint32_t {
@@ -457,9 +456,8 @@ Status VOlapTablePartitionParam::init() {
         }
     }
     if (_distributed_slot_locs.empty()) {
-        Random random(UnixMillis());
-        _compute_tablet_index = [&random](BlockRow* key, int64_t num_buckets) -> uint32_t {
-            return random.Uniform(num_buckets);
+        _compute_tablet_index = [](BlockRow* key, int64_t num_buckets) -> uint32_t {
+            return butil::fast_rand() % num_buckets;
         };
     } else {
         _compute_tablet_index = [this](BlockRow* key, int64_t num_buckets) -> uint32_t {
