@@ -75,12 +75,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
-        for (Expression child : children()) {
-            if (child.isConstant()) {
-                return true;
-            }
-        }
-        return false;
+        return children().stream().anyMatch(Expression::isConstant);
     }
 
     @Override
