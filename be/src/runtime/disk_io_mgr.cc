@@ -144,9 +144,9 @@ public:
         }
     }
 
-    // Validates that all readers are cleaned up and in the inactive state.  No locks
-    // are taken since this is only called from the disk IoMgr destructor.
+    // Validates that all readers are cleaned up and in the inactive state.
     bool validate_all_inactive() {
+        lock_guard<mutex> l(_lock);
         for (list<RequestContext*>::iterator it = _all_contexts.begin(); it != _all_contexts.end();
              ++it) {
             if ((*it)->_state != RequestContext::Inactive) {
