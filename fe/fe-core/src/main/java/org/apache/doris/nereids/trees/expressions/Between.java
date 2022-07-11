@@ -31,11 +31,7 @@ import java.util.Objects;
 /**
  * Between predicate expression.
  */
-public class Between<
-            FIRST_CHILD_TYPE extends Expression,
-            SECOND_CHILD_TYPE extends Expression,
-            THIRD_CHILD_TYPE extends Expression>
-        extends Expression implements TernaryExpression<FIRST_CHILD_TYPE, SECOND_CHILD_TYPE, THIRD_CHILD_TYPE> {
+public class Between extends Expression implements TernaryExpression {
 
     private Expression compareExpr;
     private Expression lowerBound;
@@ -95,7 +91,7 @@ public class Between<
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new Between<>(children.get(0), children.get(1), children.get(2));
+        return new Between(children.get(0), children.get(1), children.get(2));
     }
 
     @Override
@@ -106,7 +102,7 @@ public class Between<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Between<?, ?, ?> between = (Between<?, ?, ?>) o;
+        Between between = (Between) o;
         return Objects.equals(compareExpr, between.compareExpr)
                 && Objects.equals(lowerBound, between.lowerBound)
                 && Objects.equals(upperBound, between.upperBound);
