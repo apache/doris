@@ -54,6 +54,7 @@ public:
 protected:
     virtual ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                                int32_t num_of_columns_from_file) = 0;
+    virtual void _update_profile(std::shared_ptr<Statistics>& statistics) {}
 
 private:
     // Read next buffer from reader
@@ -82,6 +83,16 @@ public:
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                        int32_t num_of_columns_from_file) override;
+
+    void _init_profiles(RuntimeProfile* profile) override;
+    void _update_profile(std::shared_ptr<Statistics>& statistics) override;
+
+private:
+    RuntimeProfile::Counter* _filtered_row_groups_counter;
+    RuntimeProfile::Counter* _filtered_rows_counter;
+    RuntimeProfile::Counter* _filtered_bytes_counter;
+    RuntimeProfile::Counter* _total_rows_counter;
+    RuntimeProfile::Counter* _total_groups_counter;
 };
 
 class VFileORCScanner final : public FileArrowScanner {
@@ -95,6 +106,7 @@ public:
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                        int32_t num_of_columns_from_file) override;
+    void _init_profiles(RuntimeProfile* profile) override {};
 };
 
 } // namespace doris::vectorized
