@@ -62,13 +62,13 @@ public:
 };
 
 TEST_F(ColumnValueRangeTest, ExceptionCase) {
-    ColumnValueRange<int32_t> range1;
+    ColumnValueRange<TYPE_INT> range1;
     EXPECT_FALSE(range1.add_fixed_value(10).ok());
     EXPECT_FALSE(range1.add_range(FILTER_LESS_OR_EQUAL, 10).ok());
 }
 
 TEST_F(ColumnValueRangeTest, NormalCase) {
-    ColumnValueRange<int32_t> range1("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range1("col");
 
     EXPECT_TRUE(range1.add_fixed_value(10).ok());
     EXPECT_TRUE(range1.add_fixed_value(20).ok());
@@ -79,7 +79,7 @@ TEST_F(ColumnValueRangeTest, NormalCase) {
     EXPECT_TRUE(range1.add_range(FILTER_LESS, 30).ok());
     EXPECT_FALSE(range1.is_empty_value_range());
 
-    ColumnValueRange<int32_t> range2("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range2("col");
     EXPECT_TRUE(range2.add_fixed_value(30).ok());
     EXPECT_FALSE(range1.has_intersection(range2));
 
@@ -95,7 +95,7 @@ TEST_F(ColumnValueRangeTest, NormalCase) {
 }
 
 TEST_F(ColumnValueRangeTest, FixedAddRangeTest) {
-    ColumnValueRange<int32_t> range1("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range1("col");
 
     for (int i = 0; i < 100; i += 10) {
         EXPECT_TRUE(range1.add_fixed_value(i).ok());
@@ -152,20 +152,20 @@ TEST_F(ColumnValueRangeTest, FixedAddRangeTest) {
 }
 
 TEST_F(ColumnValueRangeTest, ContainsNullTest) {
-    ColumnValueRange<int32_t> range1("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range1("col");
 
     // test fixed value range intersection with null and no null range
     for (int i = 0; i < 100; i += 10) {
         EXPECT_TRUE(range1.add_fixed_value(i).ok());
     }
 
-    auto null_range = ColumnValueRange<int32_t>::create_empty_column_value_range(TYPE_INT);
+    auto null_range = ColumnValueRange<TYPE_INT>::create_empty_column_value_range();
     null_range.set_contain_null(true);
     EXPECT_TRUE(!null_range.is_empty_value_range());
     null_range.intersection(range1);
     EXPECT_TRUE(null_range.is_empty_value_range());
 
-    auto no_null_range = ColumnValueRange<int32_t>::create_empty_column_value_range(TYPE_INT);
+    auto no_null_range = ColumnValueRange<TYPE_INT>::create_empty_column_value_range();
     no_null_range.set_contain_null(false);
     no_null_range.intersection(range1);
     EXPECT_EQ(no_null_range._fixed_values, range1._fixed_values);
@@ -176,13 +176,13 @@ TEST_F(ColumnValueRangeTest, ContainsNullTest) {
     range1.add_range(FILTER_LESS_OR_EQUAL, 80);
     range1.add_range(FILTER_LARGER, 50);
 
-    null_range = ColumnValueRange<int32_t>::create_empty_column_value_range(TYPE_INT);
+    null_range = ColumnValueRange<TYPE_INT>::create_empty_column_value_range();
     null_range.set_contain_null(true);
     EXPECT_TRUE(!null_range.is_empty_value_range());
     null_range.intersection(range1);
     EXPECT_TRUE(null_range.is_empty_value_range());
 
-    no_null_range = ColumnValueRange<int32_t>::create_empty_column_value_range(TYPE_INT);
+    no_null_range = ColumnValueRange<TYPE_INT>::create_empty_column_value_range();
     no_null_range.set_contain_null(false);
     no_null_range.intersection(range1);
     EXPECT_TRUE(no_null_range._fixed_values.empty());
@@ -192,7 +192,7 @@ TEST_F(ColumnValueRangeTest, ContainsNullTest) {
 }
 
 TEST_F(ColumnValueRangeTest, RangeAddRangeTest) {
-    ColumnValueRange<int32_t> range1("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range1("col");
 
     EXPECT_EQ(range1.get_range_min_value(), std::numeric_limits<int32_t>::min());
     EXPECT_EQ(range1.get_range_max_value(), std::numeric_limits<int32_t>::max());
@@ -220,10 +220,10 @@ TEST_F(ColumnValueRangeTest, RangeAddRangeTest) {
 }
 
 TEST_F(ColumnValueRangeTest, RangeIntersectionTest) {
-    ColumnValueRange<int32_t> range1("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range1("col");
     EXPECT_TRUE(range1.add_range(FILTER_LARGER_OR_EQUAL, 20).ok());
 
-    ColumnValueRange<int32_t> range2("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range2("col");
     EXPECT_TRUE(range2.add_range(FILTER_LESS, 100).ok());
 
     EXPECT_TRUE(range1.has_intersection(range2));
@@ -256,13 +256,13 @@ TEST_F(ColumnValueRangeTest, RangeIntersectionTest) {
 }
 
 TEST_F(ColumnValueRangeTest, FixedValueIntersectionTest) {
-    ColumnValueRange<int32_t> range1("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range1("col");
 
     for (int i = 0; i < 100; i += 10) {
         EXPECT_TRUE(range1.add_fixed_value(i).ok());
     }
 
-    ColumnValueRange<int32_t> range2("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range2("col");
 
     for (int i = 50; i < 200; i += 10) {
         EXPECT_TRUE(range2.add_fixed_value(i).ok());
@@ -310,8 +310,8 @@ TEST_F(ColumnValueRangeTest, FixedAndRangeIntersectionTest) {
     for (int type = TYPE_TINYINT; type <= TYPE_BIGINT; type++) {
         switch (type) {
         case TYPE_TINYINT: {
-            ColumnValueRange<int8_t> range1("col", TYPE_TINYINT);
-            ColumnValueRange<int8_t> range2("col", TYPE_TINYINT);
+            ColumnValueRange<TYPE_TINYINT> range1("col");
+            ColumnValueRange<TYPE_TINYINT> range2("col");
 
             for (int i = 0; i < 100; i += 10) {
                 EXPECT_TRUE(range1.add_fixed_value(i).ok());
@@ -338,8 +338,8 @@ TEST_F(ColumnValueRangeTest, FixedAndRangeIntersectionTest) {
         }
 
         case TYPE_SMALLINT: {
-            ColumnValueRange<int16_t> range1("col", TYPE_SMALLINT);
-            ColumnValueRange<int16_t> range2("col", TYPE_SMALLINT);
+            ColumnValueRange<TYPE_SMALLINT> range1("col");
+            ColumnValueRange<TYPE_SMALLINT> range2("col");
 
             for (int i = 0; i < 100; i += 10) {
                 EXPECT_TRUE(range1.add_fixed_value(i).ok());
@@ -366,8 +366,8 @@ TEST_F(ColumnValueRangeTest, FixedAndRangeIntersectionTest) {
         }
 
         case TYPE_INT: {
-            ColumnValueRange<int32_t> range1("col", TYPE_INT);
-            ColumnValueRange<int32_t> range2("col", TYPE_INT);
+            ColumnValueRange<TYPE_INT> range1("col");
+            ColumnValueRange<TYPE_INT> range2("col");
 
             for (int i = 0; i < 100; i += 10) {
                 EXPECT_TRUE(range1.add_fixed_value(i).ok());
@@ -394,8 +394,8 @@ TEST_F(ColumnValueRangeTest, FixedAndRangeIntersectionTest) {
         }
 
         case TYPE_BIGINT: {
-            ColumnValueRange<int64_t> range1("col", TYPE_BIGINT);
-            ColumnValueRange<int64_t> range2("col", TYPE_BIGINT);
+            ColumnValueRange<TYPE_BIGINT> range1("col");
+            ColumnValueRange<TYPE_BIGINT> range2("col");
 
             for (int i = 0; i < 100; i += 10) {
                 EXPECT_TRUE(range1.add_fixed_value(i).ok());
@@ -437,7 +437,7 @@ public:
 TEST_F(OlapScanKeysTest, ExtendFixedTest) {
     OlapScanKeys scan_keys;
 
-    ColumnValueRange<int32_t> range1("col", TYPE_BIGINT);
+    ColumnValueRange<TYPE_INT> range1("col");
 
     for (int i = 0; i < 3; ++i) {
         EXPECT_TRUE(range1.add_fixed_value(i).ok());
@@ -461,7 +461,7 @@ TEST_F(OlapScanKeysTest, ExtendFixedTest) {
     EXPECT_EQ(OlapScanKeys::to_print_key(key_range[2]->begin_scan_range), "2");
     EXPECT_EQ(OlapScanKeys::to_print_key(key_range[2]->end_scan_range), "2");
 
-    ColumnValueRange<int32_t> range2("col", TYPE_BIGINT);
+    ColumnValueRange<TYPE_INT> range2("col");
 
     for (int i = 0; i < 2; ++i) {
         EXPECT_TRUE(range2.add_fixed_value(i).ok());
@@ -526,7 +526,7 @@ TEST_F(OlapScanKeysTest, ExtendFixedTest) {
 TEST_F(OlapScanKeysTest, ExtendFixedAndRangeTest) {
     OlapScanKeys scan_keys;
 
-    ColumnValueRange<int32_t> range1("col", TYPE_BIGINT);
+    ColumnValueRange<TYPE_INT> range1("col");
 
     for (int i = 0; i < 3; ++i) {
         EXPECT_TRUE(range1.add_fixed_value(i).ok());
@@ -536,7 +536,7 @@ TEST_F(OlapScanKeysTest, ExtendFixedAndRangeTest) {
     scan_keys.extend_scan_key(range1, 1024, &exact_range);
     EXPECT_EQ(exact_range, true);
 
-    ColumnValueRange<int32_t> range2("col", TYPE_BIGINT);
+    ColumnValueRange<TYPE_INT> range2("col");
     EXPECT_TRUE(range2.add_range(FILTER_LARGER_OR_EQUAL, 20).ok());
 
     exact_range = true;
@@ -582,7 +582,7 @@ TEST_F(OlapScanKeysTest, ExtendRangeTest) {
     OlapScanKeys scan_keys;
     config::doris_max_scan_key_num = 1;
 
-    ColumnValueRange<int64_t> range2("col", TYPE_BIGINT);
+    ColumnValueRange<TYPE_BIGINT> range2("col");
     EXPECT_TRUE(range2.add_range(FILTER_LARGER_OR_EQUAL, 20).ok());
     EXPECT_TRUE(range2.add_range(FILTER_LESS_OR_EQUAL, 100).ok());
 
@@ -619,7 +619,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 
     {
         OlapScanKeys scan_keys;
-        ColumnValueRange<int8_t> range("col", TYPE_TINYINT);
+        ColumnValueRange<TYPE_TINYINT> range("col");
         bool exact_range = true;
         EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
         EXPECT_EQ(exact_range, true);
@@ -643,7 +643,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 
     {
         OlapScanKeys scan_keys;
-        ColumnValueRange<int16_t> range("col", TYPE_SMALLINT);
+        ColumnValueRange<TYPE_SMALLINT> range("col");
         bool exact_range = true;
         EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
         EXPECT_EQ(exact_range, true);
@@ -677,7 +677,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 }
 
 TEST_F(OlapScanKeysTest, ToOlapFilterTest) {
-    ColumnValueRange<int32_t> range("col", TYPE_INT);
+    ColumnValueRange<TYPE_INT> range("col");
 
     std::vector<TCondition> filters;
     range.to_olap_filter(filters);

@@ -69,29 +69,29 @@ private:
     void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     Status normalize_bloom_filter_predicate(SlotDescriptor* slot);
 
-    template <typename T>
+    template <PrimitiveType T>
     static bool normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
                                             const std::string& is_null_str,
                                             ColumnValueRange<T>* range);
     bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
 
-    template <typename T, typename ChangeFixedValueRangeFunc>
-    static Status change_fixed_value_range(ColumnValueRange<T>& range, PrimitiveType type,
-                                           void* value, const ChangeFixedValueRangeFunc& func);
+    template <PrimitiveType T, typename ChangeFixedValueRangeFunc>
+    static Status change_fixed_value_range(ColumnValueRange<T>& range, void* value,
+                                           const ChangeFixedValueRangeFunc& func);
 
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);
