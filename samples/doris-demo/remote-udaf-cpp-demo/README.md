@@ -17,7 +17,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Remote UDF Function Service In CPP Demo
+# Remote UDAF Function Service In CPP Demo
 
 ## Compile 
 `make clean && make all`
