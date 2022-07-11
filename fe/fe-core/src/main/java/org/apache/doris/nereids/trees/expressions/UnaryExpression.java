@@ -22,11 +22,10 @@ import org.apache.doris.nereids.trees.UnaryNode;
 /**
  * Abstract class for all expression that have one child.
  */
-public interface UnaryExpression<CHILD_TYPE extends Expression>
-        extends UnaryNode<Expression, CHILD_TYPE> {
+public interface UnaryExpression extends UnaryNode<Expression, Expression> {
 
     @Override
-    default CHILD_TYPE child() {
-        return (CHILD_TYPE) child(0);
+    default Expression child() {
+        return child(0);
     }
 }
